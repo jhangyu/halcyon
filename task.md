@@ -25,7 +25,7 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 
 - **Task**: 12 — Flutter Trash MethodChannel
 - **Log File**: [Task_12_Flutter_Trash_MethodChannel.md](docs/logs/2026-04-29/Task_12_Flutter_Trash_MethodChannel.md)
-- **中斷點與交接 (Handover)**: Phase 2/3/4 與 Task 13 專案結構整理皆已完成；Flutter app 目前位於 `apps/photo_selector_flutter/app/`，本機資料與封存產物已分離到 ignored 目錄。`flutter analyze` / `flutter test` / `flutter build macos` 皆通過。
+- **中斷點與交接 (Handover)**: Phase 2/3/4 與 Task 13 專案結構整理皆已完成；Flutter app 目前位於專案根目錄，本機資料與封存產物已分離到 ignored 目錄。`flutter analyze` / `flutter test` / `flutter build macos` 皆通過。
 - **下一個子步驟**: 進入 Phase 5，將 `deleteTrashed()` 從永久刪除改為 macOS Trash MethodChannel。
 
 ---
@@ -166,7 +166,7 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 **目標**：整理根目錄與 Flutter app 位置，讓正式程式碼、本機資料、封存產物與文件責任更清楚。
 
 **子任務**：
-- [x] 13.1 將 Flutter 主線移至 `apps/photo_selector_flutter/app/`
+- [x] 13.1 將 Flutter 主線整併至專案根目錄
 - [x] 13.2 將專案層級圖示移至 `assets/icons/`
 - [x] 13.3 將本機照片樣本移至 `local_data/photo_samples/`（git ignored）
 - [x] 13.4 將封存與退役 build cache 移至 `artifacts/`（git ignored）

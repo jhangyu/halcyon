@@ -67,7 +67,7 @@ Photo_Selector/
 ### Flutter 版（macOS / iOS / Android / Web）
 
 ```bash
-cd apps/photo_selector_flutter/app
+cd /Users/jhangyu/Documents/Photo_Selector
 
 # 安裝依賴
 flutter pub get

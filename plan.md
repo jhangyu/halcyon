@@ -71,7 +71,7 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 **時間**：2026-04-29 前
 
 **交付物**：
-- `apps/photo_selector_flutter/app/`：Flutter 跨平台版本（含 AppState、MainScreen、SidebarView、MainDetailView、SettingsDialog）
+- 專案根目錄：Flutter 跨平台版本（含 AppState、MainScreen、SidebarView、MainDetailView、SettingsDialog）
 - 支援副檔名：JPG, JPEG, ARW, DNG, HEIC, PNG
 - 鍵盤快捷鍵：← →（導航）、↑ ↓（縮放）、S（星號）、X（刪除）
 - 側邊欄可拖曳調整（180px–600px）
@@ -190,7 +190,7 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 **目標**：整理根目錄與正式程式碼位置，讓開發入口、應用程式、本機資料、封存產物與文件各自有清楚責任。
 
 **完成結果**：
-- Flutter 主線移至 `apps/photo_selector_flutter/app/`
+- Flutter 主線移至專案根目錄
 - 專案層級圖示移至 `assets/icons/`
 - 本機照片樣本移至 `local_data/photo_samples/` 並由 `.gitignore` 排除
 - 封存 zip 與退役 build cache 移至 `artifacts/` 並由 `.gitignore` 排除

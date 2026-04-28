@@ -12,14 +12,16 @@ artifacts/logs/
 
 # Local photo datasets
 local_data/
-apps/photo_selector_flutter/app/DNG/
-apps/photo_selector_flutter/app/JPG/
+DNG/
+JPG/
 
 # Flutter / Dart
 .dart_tool/
 **/.dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
+**/doc/api/
+**/ios/Flutter/.last_build_id
 .pub-cache/
 .pub/
 coverage/

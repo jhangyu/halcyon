@@ -40,11 +40,11 @@ status: success
 ## 2. Implementation Plan
 
 ### 修改檔案
-1. `apps/photo_selector_flutter/app/lib/providers/app_state.dart`
+1. `lib/providers/app_state.dart`
    - 將 `.rw2` 加入 Flutter 掃描副檔名白名單。
 2. `Sources/PhotoSelector/ViewModels/AppState.swift`
    - 將 `rw2` 加入 SwiftUI 掃描副檔名白名單。
-3. `apps/photo_selector_flutter/app/macos/Runner/AppDelegate.swift`
+3. `macos/Runner/AppDelegate.swift`
    - 修正 RAW embedded thumbnail optional unwrap 編譯錯誤。
    - 將 JPG/PNG/HEIC 等非 RAW 的大圖請求改為優先 `CGImageSourceCreateImageAtIndex`，保留 EXIF 方向轉換後輸出 JPEG bytes。
    - 小尺寸請求仍使用 `CGImageSourceCreateThumbnailAtIndex` 以維持 sidebar 效能。
@@ -76,16 +76,16 @@ status: success
 - `unit_test.md` 新增 TC-009、TC-010 作為後續測試矩陣。
 
 ### 2026-04-29T00:45:00+08:00 — 程式修正
-- `apps/photo_selector_flutter/app/lib/providers/app_state.dart`：掃描白名單加入 `.rw2`。
+- `lib/providers/app_state.dart`：掃描白名單加入 `.rw2`。
 - `Sources/PhotoSelector/ViewModels/AppState.swift`：掃描白名單加入 `rw2`。
-- `apps/photo_selector_flutter/app/macos/Runner/AppDelegate.swift`：
+- `macos/Runner/AppDelegate.swift`：
   - 匯入 `CoreImage`。
   - 非 RAW 且 `targetSize > 4000` 的主圖請求改用 `CGImageSourceCreateImageAtIndex`，並透過 CoreImage 保留 EXIF orientation。
   - 小圖/RAW fallback 保持 `CGImageSourceCreateThumbnailAtIndex` 快速路徑。
   - 新增 `applicationSupportsSecureRestorableState` 解除 Flutter macOS migration 建議訊息。
-- `apps/photo_selector_flutter/app/test/widget_test.dart`：替換無效 `MyApp` counter smoke test，改為 `PhotoSelectorApp` 空資料夾畫面 smoke test。
-- `apps/photo_selector_flutter/app/lib/views/sidebar_view.dart`：修正預設 sidebar 寬度下頂部工具列 13px overflow。
-- `apps/photo_selector_flutter/app/pubspec.yaml`：將 `path` 從 transitive 依賴提升為 direct dependency，解除 analyzer `depend_on_referenced_packages`。
+- `test/widget_test.dart`：替換無效 `MyApp` counter smoke test，改為 `PhotoSelectorApp` 空資料夾畫面 smoke test。
+- `lib/views/sidebar_view.dart`：修正預設 sidebar 寬度下頂部工具列 13px overflow。
+- `pubspec.yaml`：將 `path` 從 transitive 依賴提升為 direct dependency，解除 analyzer `depend_on_referenced_packages`。
 - 另外清理 analyzer 阻塞項：`print` 改 `debugPrint`、移除 unused import/variable、更新 deprecated API、補 flow-control braces。
 
 ### 2026-04-29T00:55:00+08:00 — 驗證結果

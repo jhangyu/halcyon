@@ -20,7 +20,7 @@ status: success
 
 ## 2. Implementation Plan
 
-1. 將 Flutter 主線搬到 `apps/photo_selector_flutter/app/`。
+1. 將 Flutter 主線整併到專案根目錄。
 2. 將根目錄圖示搬到 `assets/icons/`。
 3. 將本機照片樣本搬到 `local_data/photo_samples/` 並保持 git ignored。
 4. 將封存 zip 與退役 build cache 搬到 `artifacts/` 並保持 git ignored。
@@ -35,7 +35,7 @@ status: success
 - **待確認**: 若未來需要納入示範照片，需另建小型 fixture，不使用 `local_data/` 的私人照片樣本。
 
 ### 2026-04-29
-- `photo_selector_flutter/` → `apps/photo_selector_flutter/app/`
+- `photo_selector_flutter/` → 專案根目錄
 - `icon.png` / `icon.svg` → `assets/icons/`
 - `DNG/` / `JPG/` → `local_data/photo_samples/`
 - `PhotoSelector.zip` → `artifacts/archives/`
