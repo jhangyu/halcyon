@@ -33,6 +33,8 @@ Photo_Selector/
 ├── file_index.md                  # 本檔（檔案地圖）
 ├── unit_test.md                   # 測試策略與品質門檻
 ├── README.md                      # 專案整體說明文件
+├── scripts/
+│   └── build.sh                   # 統一 Flutter build 入口
 │
 ├── (project root)                 # Flutter 主線版本（主要開發分支）
 │   ├── pubspec.yaml               # Flutter 依賴管理

@@ -82,6 +82,26 @@ flutter run -d iphone
 flutter run -d chrome
 ```
 
+### 統一建置腳本
+
+```bash
+# 預設建置 macOS release app
+./scripts/build.sh
+
+# 指定平台
+./scripts/build.sh android
+./scripts/build.sh web
+./scripts/build.sh windows
+./scripts/build.sh linux
+./scripts/build.sh all
+
+# 指定 build mode
+./scripts/build.sh macos --debug
+./scripts/build.sh android-aab --release
+```
+
+`windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標，並略過不可支援的桌面平台。
+
 ---
 
 ## ⌨️ 鍵盤快捷鍵（Flutter 版）

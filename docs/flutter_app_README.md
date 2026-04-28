@@ -38,6 +38,17 @@ flutter run -d iphone   # iOS 模擬器
 flutter run -d chrome   # Web
 ```
 
+## 建置
+
+```bash
+./scripts/build.sh          # 預設 macOS release
+./scripts/build.sh android  # Android APK
+./scripts/build.sh web      # Web release
+./scripts/build.sh all      # 目前主機可支援的目標
+```
+
+`windows` 與 `linux` 需在對應作業系統上建置。
+
 ## 依賴
 
 | 套件 | 版本 | 用途 |
