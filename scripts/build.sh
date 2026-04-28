@@ -25,6 +25,10 @@ Examples:
   ./scripts/build.sh web
   ./scripts/build.sh android-aab --release
   BUILD_MODE=debug ./scripts/build.sh macos
+
+Build outputs:
+  Flutter writes generated artifacts under ./build/.
+  Platform folders such as ./macos and ./android are source/config folders.
 USAGE
 }
 
@@ -35,6 +39,39 @@ log() {
 fail() {
   printf 'Error: %s\n' "$1" >&2
   exit 1
+}
+
+macos_config_name() {
+  case "$MODE" in
+    debug) echo "Debug" ;;
+    profile) echo "Profile" ;;
+    release) echo "Release" ;;
+  esac
+}
+
+print_output_hint() {
+  local target="$1"
+
+  case "$target" in
+    macos)
+      log "Output: build/macos/Build/Products/$(macos_config_name)/photo_selector_flutter.app"
+      ;;
+    android|android-apk)
+      log "Output: build/app/outputs/flutter-apk/"
+      ;;
+    android-aab)
+      log "Output: build/app/outputs/bundle/"
+      ;;
+    web)
+      log "Output: build/web/"
+      ;;
+    windows)
+      log "Output: build/windows/"
+      ;;
+    linux)
+      log "Output: build/linux/"
+      ;;
+  esac
 }
 
 host_os() {
@@ -71,26 +108,32 @@ build_target() {
     macos)
       log "Building macOS app ($MODE)"
       flutter build macos "--$MODE"
+      print_output_hint "$target"
       ;;
     android|android-apk)
       log "Building Android APK ($MODE)"
       flutter build apk "--$MODE"
+      print_output_hint "$target"
       ;;
     android-aab)
       log "Building Android App Bundle ($MODE)"
       flutter build appbundle "--$MODE"
+      print_output_hint "$target"
       ;;
     web)
       log "Building web app ($MODE)"
       flutter build web "--$MODE"
+      print_output_hint "$target"
       ;;
     windows)
       log "Building Windows app ($MODE)"
       flutter build windows "--$MODE"
+      print_output_hint "$target"
       ;;
     linux)
       log "Building Linux app ($MODE)"
       flutter build linux "--$MODE"
+      print_output_hint "$target"
       ;;
     *)
       usage

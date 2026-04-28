@@ -102,6 +102,19 @@ flutter run -d chrome
 
 `windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標，並略過不可支援的桌面平台。
 
+建置產物統一由 Flutter 輸出到根目錄 `build/`：
+
+| 平台 | 輸出位置 |
+|------|----------|
+| macOS | `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| Android APK | `build/app/outputs/flutter-apk/` |
+| Android AAB | `build/app/outputs/bundle/` |
+| Web | `build/web/` |
+| Windows | `build/windows/` |
+| Linux | `build/linux/` |
+
+根目錄的 `android/`、`ios/`、`macos/`、`web/`、`windows/`、`linux/` 是 Flutter 平台 runner 原始碼與設定，不是編譯產物，需保留在版本控制中。
+
 ---
 
 ## ⌨️ 鍵盤快捷鍵（Flutter 版）

@@ -240,7 +240,7 @@ flutter test --coverage
 
 ## 腳本登錄
 
-- `scripts/build.sh`：統一 Flutter build 入口；預設建置 macOS release app，支援 `macos`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。
+- `scripts/build.sh`：統一 Flutter build 入口；預設建置 macOS release app，支援 `macos`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。建置產物集中於根目錄 `build/`；平台 runner 目錄保留為原始碼與設定。
 - 目前無專用測試腳本，依賴 `flutter test` 標準指令。若需批次測試可建立 `scripts/run_tests.sh`。
 
 ## 最近驗證紀錄

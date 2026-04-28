@@ -68,7 +68,18 @@ Photo_Selector/
 │   ├── ios/                      # Flutter iOS Runner（參考實作）
 │   │   └── Runner/
 │   │       └── AppDelegate.swift  # MethodChannel handler 參考
+│   ├── android/                  # Flutter Android Runner 原始碼與 Gradle 設定
+│   ├── web/                      # Flutter Web Runner 與靜態入口
+│   ├── windows/                  # Flutter Windows Runner 原始碼與 CMake 設定
+│   ├── linux/                    # Flutter Linux Runner 原始碼與 CMake 設定
 │   └── ...
+│
+├── build/                        # Flutter build outputs（git ignored）
+│   ├── macos/                    # macOS release/debug/profile 產物
+│   ├── app/outputs/              # Android APK/AAB 產物
+│   ├── web/                      # Web release 產物
+│   ├── windows/                  # Windows desktop 產物
+│   └── linux/                    # Linux desktop 產物
 │
 ├── docs/
 │   └── logs/                     # Unified Task Log 存放處
