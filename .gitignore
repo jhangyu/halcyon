@@ -5,11 +5,14 @@
 .build/
 build/
 **/build/
+artifacts/archives/
+artifacts/build_cache/
 *.zip
 
 # Local photo datasets
-photo_selector_flutter/DNG/
-photo_selector_flutter/JPG/
+local_data/
+apps/photo_selector_flutter/DNG/
+apps/photo_selector_flutter/JPG/
 
 # Flutter / Dart
 .dart_tool/

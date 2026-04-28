@@ -207,7 +207,7 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 ### Flutter 測試指令
 
 ```bash
-cd /Users/jhangyu/Documents/Photo_Selector/photo_selector_flutter
+cd /Users/jhangyu/Documents/Photo_Selector/apps/photo_selector_flutter
 
 # 執行所有測試
 flutter test
@@ -255,6 +255,9 @@ flutter test --coverage
 | 2026-04-29 | Phase 2/3/4 | `flutter analyze` | ✅ 通過，0 issues |
 | 2026-04-29 | Phase 2/3/4 | `flutter test` | ✅ 通過，11 個測試 |
 | 2026-04-29 | Phase 2/3/4 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| 2026-04-29 | Task 13 | `flutter test` | ✅ 通過，11 個測試 |
+| 2026-04-29 | Task 13 | `flutter analyze` | ✅ 通過，0 issues |
+| 2026-04-29 | Task 13 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
 
 ---
 

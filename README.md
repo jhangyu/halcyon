@@ -45,14 +45,19 @@ title: "Photo Selector — 專案說明文件 (README)"
 
 ```
 Photo_Selector/
-└── photo_selector_flutter/         # Flutter 主線版
-    ├── lib/
-    │   ├── main.dart              # 入口 + MaterialApp 主題設定
-    │   ├── models/photo_item.dart # PhotoItem 資料模型
-    │   ├── providers/app_state.dart  # AppState (ChangeNotifier)
-    │   ├── services/native_thumbnail_service.dart  # MethodChannel
-    │   └── views/                 # MainScreen / SidebarView / DetailView
-    └── macos/Runner/             # macOS 原生整合（MethodChannel）
+├── apps/
+│   └── photo_selector_flutter/    # Flutter 主線版
+│       ├── lib/
+│       │   ├── models/            # PhotoItem 與支援格式 registry
+│       │   ├── providers/         # AppState UI 協調層
+│       │   ├── services/          # 掃描、狀態、預載/cache、檔案動作、MethodChannel
+│       │   └── views/             # MainScreen / SidebarView / DetailView
+│       ├── test/                  # Flutter 單元測試與 widget smoke test
+│       └── macos/Runner/          # macOS 原生整合（MethodChannel）
+├── assets/icons/                  # 專案層級圖示來源
+├── docs/logs/                     # Unified Task Logs
+├── artifacts/                     # 本機封存與建置暫存（git ignored）
+└── local_data/                    # 本機照片樣本（git ignored）
 ```
 
 ---
@@ -62,7 +67,7 @@ Photo_Selector/
 ### Flutter 版（macOS / iOS / Android / Web）
 
 ```bash
-cd photo_selector_flutter
+cd apps/photo_selector_flutter
 
 # 安裝依賴
 flutter pub get

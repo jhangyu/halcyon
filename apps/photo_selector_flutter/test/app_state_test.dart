@@ -95,7 +95,7 @@ void main() {
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
         state.markCurrent(PhotoStatus.starred);
-        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(state.items.first.status, PhotoStatus.starred);
         expect(state.selectedItemID, 'IMG_0002');

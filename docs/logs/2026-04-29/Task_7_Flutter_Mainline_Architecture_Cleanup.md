@@ -22,7 +22,7 @@ status: success
 將前一輪架構改善建議寫入下階段任務與路線圖，並評估 SwiftUI 版本是否仍有必要維護。
 
 ### 評估結論
-- 目前主要可執行與已驗證的主線是 `photo_selector_flutter/`，包含 macOS 原生 MethodChannel、Flutter UI、狀態持久化、縮圖與主圖預載。
+- 目前主要可執行與已驗證的主線是 `apps/photo_selector_flutter/`，包含 macOS 原生 MethodChannel、Flutter UI、狀態持久化、縮圖與主圖預載。
 - SwiftUI 版本位於 `Sources/PhotoSelector/`，由根目錄 `Package.swift` 打包；它沒有被 Flutter 主線引用，也沒有作為 native bridge 的來源。
 - SwiftUI 版本功能已落後 Flutter：缺少 JSON 狀態持久化、設定 UI、auto-advance / overwrite-existing 對齊，並在文件中形成 Task 2 / Task 4 的長期雙軌維護壓力。
 - 對目前產品目標而言，保留 SwiftUI 版本的收益低於同步成本。建議退役 SwiftUI，將專案定位收斂為 Flutter app + macOS/iOS native bridge。

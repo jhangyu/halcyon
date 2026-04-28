@@ -53,8 +53,13 @@ flutter run -d chrome   # Web
 |------|------|
 | `lib/main.dart` | 入口、MaterialApp、主題設定 |
 | `lib/models/photo_item.dart` | PhotoItem + PhotoStatus |
-| `lib/providers/app_state.dart` | AppState (ChangeNotifier) 核心邏輯 |
-| `lib/services/native_thumbnail_service.dart` | MethodChannel 縮圖服務 |
+| `lib/models/supported_photo_formats.dart` | 支援格式與載入優先順序 registry |
+| `lib/providers/app_state.dart` | AppState (ChangeNotifier) UI 協調層 |
+| `lib/services/photo_library_scanner.dart` | 資料夾掃描與照片分組 |
+| `lib/services/photo_status_store.dart` | JSON 狀態檔讀寫 |
+| `lib/services/image_preload_controller.dart` | 主圖/縮圖 sliding window cache |
+| `lib/services/photo_file_actions.dart` | copy/move/delete 檔案操作 |
+| `lib/services/native_thumbnail_service.dart` | MethodChannel 影像載入服務 |
 | `lib/views/main_screen.dart` | Scaffold + 鍵盤快捷鍵 |
 | `lib/views/sidebar_view.dart` | 側邊欄列表 + 縮圖預載 |
 | `lib/views/main_detail_view.dart` | 圖片檢視 + 浮動操作列 |

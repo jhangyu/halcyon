@@ -34,7 +34,7 @@ Photo_Selector/
 ├── unit_test.md                   # 測試策略與品質門檻
 ├── README.md                      # 專案整體說明文件
 │
-├── photo_selector_flutter/         # Flutter 主線版本（主要開發分支）
+├── apps/photo_selector_flutter/         # Flutter 主線版本（主要開發分支）
 │   ├── pubspec.yaml               # Flutter 依賴管理
 │   ├── analysis_options.yaml      # Dart linter 設定
 │   ├── lib/
@@ -73,8 +73,19 @@ Photo_Selector/
 │       └── YYYY-MM-DD/
 │           └── Task_*.md         # 單一任務日誌
 │
-├── icon.png / icon.svg           # 應用程式圖示
-└── PhotoSelector.zip             # (打包產物，暫存)
+├── assets/
+│   └── icons/
+│       ├── icon.png              # 專案層級 bitmap 圖示來源
+│       └── icon.svg              # 專案層級 vector 圖示來源
+│
+├── artifacts/                    # 本機封存與 build cache（git ignored）
+│   ├── archives/                 # 例如舊版 `PhotoSelector.zip`
+│   └── build_cache/              # 例如已退役 SwiftPM `.build`
+│
+└── local_data/                   # 本機測試照片與狀態檔（git ignored）
+    └── photo_samples/
+        ├── DNG/
+        └── JPG/
 ```
 
 ---
@@ -96,18 +107,17 @@ Photo_Selector/
 
 ## 🔧 程式碼邏輯對照
 
-### Flutter 版 — AppState 核心方法
+### Flutter 版 — 核心模組
 
-| 方法 | 檔案位置 | 功能 |
+| 模組 | 檔案位置 | 功能 |
 |------|----------|------|
-| `loadFolder()` | `lib/providers/app_state.dart` | 掃描資料夾、分組、排序、讀取 JSON 狀態 |
-| `selectItem()` | `lib/providers/app_state.dart` | 選中照片、更新 _last_viewed_id |
-| `markCurrent()` | `lib/providers/app_state.dart` | Toggle 狀態（starred/trashed）|
-| `processStarred()` | `lib/providers/app_state.dart` | 複製/移動星號照片到目標資料夾 |
-| `deleteTrashed()` | `lib/providers/app_state.dart` | 刪除標記為 trashed 的照片 |
-| `_preloadImages()` | `lib/providers/app_state.dart` | 大圖滑動視窗預載（±3~5）|
-| `preloadThumbnails()` | `lib/providers/app_state.dart` | 縮圖滑動視窗預載（±20，100ms debounce）|
-| `getThumbnail()` | `lib/services/native_thumbnail_service.dart` | MethodChannel 縮圖提取 |
+| `AppState` | `apps/photo_selector_flutter/lib/providers/app_state.dart` | UI 狀態協調、選取、標記、設定與服務呼叫 |
+| `PhotoLibraryScanner` | `apps/photo_selector_flutter/lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
+| `PhotoStatusStore` | `apps/photo_selector_flutter/lib/services/photo_status_store.dart` | `.photo_selector_status.json` 讀寫與 orphan cleanup |
+| `ImagePreloadController` | `apps/photo_selector_flutter/lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
+| `PhotoFileActions` | `apps/photo_selector_flutter/lib/services/photo_file_actions.dart` | copy/move/delete 檔案操作 |
+| `NativeThumbnailService` | `apps/photo_selector_flutter/lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
+| `SupportedPhotoFormats` | `apps/photo_selector_flutter/lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
 
 ## 重要路徑約定
 
@@ -118,5 +128,5 @@ Photo_Selector/
 | 側邊欄縮圖 targetSize | `200`（px）|
 | 主圖 targetSize | `10000`（px，高解析/全尺寸預覽）|
 | 側邊欄寬度範圍 | 180px – 600px（預設 270px）|
-| Flutter macOS Runner | `photo_selector_flutter/macos/Runner/` |
+| Flutter macOS Runner | `apps/photo_selector_flutter/macos/Runner/` |
 | SwiftUI 版本 | 已於 Task 7 退役，不再維護 `Sources/PhotoSelector/` |

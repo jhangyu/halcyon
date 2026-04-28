@@ -42,6 +42,7 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 | 5 | 生產力增強 | 🔲 待辦 | Trash 操作、CLI 工具、CI/CD |
 | 6 | 影像載入相容性修正 | ✅ 已完成 | JPG 主圖高解析載入、RW2 掃描支援 |
 | 7 | Flutter 主線整理 | ✅ 已完成 | SwiftUI 退役、文件與任務收斂 |
+| 8 | 專案結構整理 | ✅ 已完成 | `apps/`、`assets/`、`artifacts/`、`local_data/` 分層 |
 
 ---
 
@@ -70,7 +71,7 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 **時間**：2026-04-29 前
 
 **交付物**：
-- `photo_selector_flutter/`：Flutter 跨平台版本（含 AppState、MainScreen、SidebarView、MainDetailView、SettingsDialog）
+- `apps/photo_selector_flutter/`：Flutter 跨平台版本（含 AppState、MainScreen、SidebarView、MainDetailView、SettingsDialog）
 - 支援副檔名：JPG, JPEG, ARW, DNG, HEIC, PNG
 - 鍵盤快捷鍵：← →（導航）、↑ ↓（縮放）、S（星號）、X（刪除）
 - 側邊欄可拖曳調整（180px–600px）
@@ -184,6 +185,24 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 
 ---
 
+## Phase 8 — 專案結構整理 ✅ 已完成
+
+**目標**：整理根目錄與正式程式碼位置，讓開發入口、應用程式、本機資料、封存產物與文件各自有清楚責任。
+
+**完成結果**：
+- Flutter 主線移至 `apps/photo_selector_flutter/`
+- 專案層級圖示移至 `assets/icons/`
+- 本機照片樣本移至 `local_data/photo_samples/` 並由 `.gitignore` 排除
+- 封存 zip 與退役 build cache 移至 `artifacts/` 並由 `.gitignore` 排除
+- 核心 SOP 文件維持在根目錄，避免破壞 Startup Protocol
+
+**驗證結果**：
+- `flutter test`：11 tests passed
+- `flutter analyze`：0 issues
+- `flutter build macos`：成功
+
+---
+
 ## 路線圖總覽
 
 ```
@@ -193,7 +212,8 @@ Phase 0 ✅ ──────────────────────�
               └── Phase 7 ✅
                     └── Phase 3 ✅
                           └── Phase 4 ✅
-                                └── Phase 5 🔲 ←───── 下一個焦點
+                                └── Phase 8 ✅
+                                      └── Phase 5 🔲 ←───── 下一個焦點
 ```
 
 ---
