@@ -84,12 +84,19 @@ host_os() {
 }
 
 configure_android_java() {
+  local jdk21_home="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
   local jdk17_home="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 
-  if [[ "$(host_os)" == "macos" && -x "$jdk17_home/bin/java" ]]; then
-    export JAVA_HOME="$jdk17_home"
-    export PATH="$JAVA_HOME/bin:$PATH"
-    log "Using JDK 17 for Android build: $JAVA_HOME"
+  if [[ "$(host_os)" == "macos" ]]; then
+    if [[ -x "$jdk21_home/bin/java" ]]; then
+      export JAVA_HOME="$jdk21_home"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      log "Using JDK 21 for Android build: $JAVA_HOME"
+    elif [[ -x "$jdk17_home/bin/java" ]]; then
+      export JAVA_HOME="$jdk17_home"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      log "Using JDK 17 for Android build: $JAVA_HOME"
+    fi
   fi
 }
 
