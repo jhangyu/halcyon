@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Build and package artifacts
+.build/
+build/
+**/build/
+*.zip
+
+# Local photo datasets
+photo_selector_flutter/DNG/
+photo_selector_flutter/JPG/
+
+# Flutter / Dart
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+coverage/
+**/coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
