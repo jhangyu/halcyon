@@ -83,6 +83,16 @@ host_os() {
   esac
 }
 
+configure_android_java() {
+  local jdk17_home="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+
+  if [[ "$(host_os)" == "macos" && -x "$jdk17_home/bin/java" ]]; then
+    export JAVA_HOME="$jdk17_home"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    log "Using JDK 17 for Android build: $JAVA_HOME"
+  fi
+}
+
 supports_target() {
   local target="$1"
   local host
@@ -111,11 +121,13 @@ build_target() {
       print_output_hint "$target"
       ;;
     android|android-apk)
+      configure_android_java
       log "Building Android APK ($MODE)"
       flutter build apk "--$MODE"
       print_output_hint "$target"
       ;;
     android-aab)
+      configure_android_java
       log "Building Android App Bundle ($MODE)"
       flutter build appbundle "--$MODE"
       print_output_hint "$target"

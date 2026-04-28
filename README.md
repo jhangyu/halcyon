@@ -101,6 +101,7 @@ flutter run -d chrome
 ```
 
 `windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標，並略過不可支援的桌面平台。
+Android build 在 macOS 上會優先使用 Homebrew `openjdk@17`，避免較新的 JDK 造成 Gradle/Kotlin 相容性問題。
 
 建置產物統一由 Flutter 輸出到根目錄 `build/`：
 

@@ -48,6 +48,7 @@ flutter run -d chrome   # Web
 ```
 
 `windows` 與 `linux` 需在對應作業系統上建置。
+Android build 在 macOS 上會優先使用 Homebrew `openjdk@17`。
 
 建置產物集中於專案根目錄 `build/`。平台資料夾（例如 `macos/`、`android/`、`web/`）是 Flutter runner 原始碼與平台設定，不是 build output。
 
