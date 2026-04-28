@@ -207,7 +207,7 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 ### Flutter 測試指令
 
 ```bash
-cd /Users/jhangyu/Documents/Photo_Selector/apps/photo_selector_flutter
+cd /Users/jhangyu/Documents/Photo_Selector/apps/photo_selector_flutter/app
 
 # 執行所有測試
 flutter test

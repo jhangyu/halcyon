@@ -37,7 +37,7 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 
 ### AD-003｜Flutter 主線 + Native Bridge，SwiftUI 退役
 - **日期**：2026-04-29
-- **決策**：專案主線收斂為 Flutter app（`apps/photo_selector_flutter/`）+ macOS/iOS native bridge；SwiftUI macOS 原型（`Sources/PhotoSelector/`）自 Task 7 起退役並刪除。
+- **決策**：專案主線收斂為 Flutter app（`apps/photo_selector_flutter/app/`）+ macOS/iOS native bridge；SwiftUI macOS 原型（`Sources/PhotoSelector/`）自 Task 7 起退役並刪除。
 - **依據**：Flutter 版本已承接主要 UI、狀態、縮圖/主圖載入與設定；SwiftUI 版本未被主線引用且功能落後，持續維護會造成格式支援、文件與測試矩陣雙軌同步成本。
 - **注意**：後續不要新增 SwiftUI 對齊任務；平台原生能力應優先透過 Flutter Runner 的 MethodChannel 實作。
 
@@ -56,7 +56,7 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 
 ### AD-006｜專案根目錄分層
 - **日期**：2026-04-29
-- **決策**：正式 Flutter app 放在 `apps/photo_selector_flutter/`；專案層級圖示放在 `assets/icons/`；本機照片樣本放在 `local_data/photo_samples/` 並忽略；封存與退役 build cache 放在 `artifacts/` 並忽略。
+- **決策**：正式 Flutter app 放在 `apps/photo_selector_flutter/app/`；專案層級圖示放在 `assets/icons/`；本機照片樣本放在 `local_data/photo_samples/` 並忽略；封存與退役 build cache 放在 `artifacts/` 並忽略。
 - **保留**：`rule.md`、`memory.md`、`task.md`、`handover.md`、`plan.md`、`file_index.md`、`unit_test.md`、`README.md` 維持根目錄入口，符合 Startup Protocol。
 - **驗證**：搬移後 `flutter test`、`flutter analyze`、`flutter build macos` 皆通過。
 

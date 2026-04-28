@@ -34,8 +34,8 @@ macOS 環境執行 `flutter run -d macos`，打開含 RAW/JPG 的資料夾，縮
 ## 2. Implementation Plan
 
 ### 修改檔案
-1. `apps/photo_selector_flutter/macos/Runner/AppDelegate.swift` — 新增 `FlutterMethodChannel` handler
-2. （選項）`apps/photo_selector_flutter/macos/Runner/AppDelegate.swift` — 參考 `ios/Runner/AppDelegate.swift`
+1. `apps/photo_selector_flutter/app/macos/Runner/AppDelegate.swift` — 新增 `FlutterMethodChannel` handler
+2. （選項）`apps/photo_selector_flutter/app/macos/Runner/AppDelegate.swift` — 參考 `ios/Runner/AppDelegate.swift`
 
 ### 實作步驟
 1. 讀取 `ios/Runner/AppDelegate.swift` 了解既有實作邏輯

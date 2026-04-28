@@ -34,7 +34,7 @@ Photo_Selector/
 ├── unit_test.md                   # 測試策略與品質門檻
 ├── README.md                      # 專案整體說明文件
 │
-├── apps/photo_selector_flutter/         # Flutter 主線版本（主要開發分支）
+├── apps/photo_selector_flutter/app/         # Flutter 主線版本（主要開發分支）
 │   ├── pubspec.yaml               # Flutter 依賴管理
 │   ├── analysis_options.yaml      # Dart linter 設定
 │   ├── lib/
@@ -111,13 +111,13 @@ Photo_Selector/
 
 | 模組 | 檔案位置 | 功能 |
 |------|----------|------|
-| `AppState` | `apps/photo_selector_flutter/lib/providers/app_state.dart` | UI 狀態協調、選取、標記、設定與服務呼叫 |
-| `PhotoLibraryScanner` | `apps/photo_selector_flutter/lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
-| `PhotoStatusStore` | `apps/photo_selector_flutter/lib/services/photo_status_store.dart` | `.photo_selector_status.json` 讀寫與 orphan cleanup |
-| `ImagePreloadController` | `apps/photo_selector_flutter/lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
-| `PhotoFileActions` | `apps/photo_selector_flutter/lib/services/photo_file_actions.dart` | copy/move/delete 檔案操作 |
-| `NativeThumbnailService` | `apps/photo_selector_flutter/lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
-| `SupportedPhotoFormats` | `apps/photo_selector_flutter/lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
+| `AppState` | `apps/photo_selector_flutter/app/lib/providers/app_state.dart` | UI 狀態協調、選取、標記、設定與服務呼叫 |
+| `PhotoLibraryScanner` | `apps/photo_selector_flutter/app/lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
+| `PhotoStatusStore` | `apps/photo_selector_flutter/app/lib/services/photo_status_store.dart` | `.photo_selector_status.json` 讀寫與 orphan cleanup |
+| `ImagePreloadController` | `apps/photo_selector_flutter/app/lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
+| `PhotoFileActions` | `apps/photo_selector_flutter/app/lib/services/photo_file_actions.dart` | copy/move/delete 檔案操作 |
+| `NativeThumbnailService` | `apps/photo_selector_flutter/app/lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
+| `SupportedPhotoFormats` | `apps/photo_selector_flutter/app/lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
 
 ## 重要路徑約定
 
@@ -128,5 +128,5 @@ Photo_Selector/
 | 側邊欄縮圖 targetSize | `200`（px）|
 | 主圖 targetSize | `10000`（px，高解析/全尺寸預覽）|
 | 側邊欄寬度範圍 | 180px – 600px（預設 270px）|
-| Flutter macOS Runner | `apps/photo_selector_flutter/macos/Runner/` |
+| Flutter macOS Runner | `apps/photo_selector_flutter/app/macos/Runner/` |
 | SwiftUI 版本 | 已於 Task 7 退役，不再維護 `Sources/PhotoSelector/` |
