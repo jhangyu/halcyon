@@ -262,6 +262,7 @@ flutter test --coverage
 | 2026-04-29 | Build script | `./scripts/build.sh web` | ✅ 通過，產出 `build/web/` |
 | 2026-04-29 | Build script | `./scripts/build.sh android` | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-04-29 | Build script | `./scripts/build.sh android` with JDK 21 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
+| 2026-05-01 | Android toolchain upgrade | `./gradlew assembleRelease` with JDK 25 | ✅ 通過；Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式 |
 
 ---
 
@@ -274,4 +275,4 @@ flutter test --coverage
 | `setState()` / `notifyListeners()` 未觸發 | 非同步時序問題 | 使用 `await tester.pumpAndSettle()` |
 | Widget test 找不到 Finder | 測試 ID 變了 | 確認 widget key 或 text label |
 | macOS native build 失敗 | Runner Swift / MethodChannel 編譯問題 | 執行 `flutter build macos` 並查看 `macos/Runner/AppDelegate.swift` |
-| Android build 在 Gradle Kotlin DSL 階段失敗並顯示 `25.0.2` | JDK 25 與目前 Gradle/Kotlin toolchain 不相容 | 使用 `scripts/build.sh`，腳本會在 macOS 上優先套用 Homebrew `openjdk@21`，找不到時退回 `openjdk@17` |
+| Android build 在 Gradle Kotlin DSL 階段失敗並顯示 `25.0.2` | 舊版 Gradle/Kotlin toolchain 不支援 JDK 25 | 使用 `scripts/build.sh`；目前已升級到 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，macOS 上優先套用 Temurin JDK 25 |
