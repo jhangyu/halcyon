@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 專案檔案地圖與目錄對照 (File Index)"
 ---
 
@@ -68,7 +68,13 @@ Photo_Selector/
 │   ├── ios/                      # Flutter iOS Runner（參考實作）
 │   │   └── Runner/
 │   │       └── AppDelegate.swift  # MethodChannel handler 參考
-│   ├── android/                  # Flutter Android Runner 原始碼與 Gradle 設定
+│   ├── android/                  # Flutter Android Runner 原始碼與 Gradle / AGP / Kotlin 設定
+│   │   ├── settings.gradle.kts    # AGP / Kotlin plugin 版本
+│   │   ├── gradle.properties      # AGP 9 相容旗標與 Gradle JVM 設定
+│   │   ├── gradle/wrapper/        # Gradle 9.1.0 wrapper
+│   │   └── app/
+│   │       ├── build.gradle.kts   # Android app module、NDK、Kotlin compilerOptions
+│   │       └── proguard-rules.pro # R8 / ProGuard 專案規則
 │   ├── web/                      # Flutter Web Runner 與靜態入口
 │   ├── windows/                  # Flutter Windows Runner 原始碼與 CMake 設定
 │   ├── linux/                    # Flutter Linux Runner 原始碼與 CMake 設定
@@ -142,4 +148,6 @@ Photo_Selector/
 | 主圖 targetSize | `10000`（px，高解析/全尺寸預覽）|
 | 側邊欄寬度範圍 | 180px – 600px（預設 270px）|
 | Flutter macOS Runner | `macos/Runner/` |
+| Android build toolchain | Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21（AGP 9 相容模式）|
+| Android JDK | macOS 上 `scripts/build.sh` 優先使用 Temurin JDK 25，fallback 至 Homebrew JDK 21 / 17 |
 | SwiftUI 版本 | 已於 Task 7 退役，不再維護 `Sources/PhotoSelector/` |

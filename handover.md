@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 短期交接摘要 (Handover)"
 ---
 
@@ -23,7 +23,7 @@ title: "Photo Selector — 短期交接摘要 (Handover)"
 
 **Task 12｜Flutter Trash MethodChannel**（🔲 待辦）
 
-Phase 2/3/4 與 Task 13 專案結構整理已完成：Flutter app 目前位於專案根目錄，macOS MethodChannel 已語意化，Flutter 測試 11 個全數通過，AppState 已拆成掃描、狀態、預載/cache、檔案操作服務。下一步進入 Phase 5，優先做 Trash MethodChannel，避免照片永久刪除。
+Phase 2/3/4、Task 13 專案結構整理與 Task 14 Android toolchain JDK 25 升級已完成：Flutter app 目前位於專案根目錄，macOS MethodChannel 已語意化，Android build 可用 Temurin JDK 25 產出 APK，Flutter 測試 11 個全數通過。下一步進入 Phase 5，優先做 Trash MethodChannel，避免照片永久刪除。
 
 ---
 
@@ -39,6 +39,7 @@ Phase 2/3/4 與 Task 13 專案結構整理已完成：Flutter app 目前位於�
 - **Task 7 完成**：刪除 `Sources/PhotoSelector/` 與根目錄 `Package.swift`；文件改為 Flutter 主線；Task 8~12 已登錄；`flutter analyze` / `flutter test` / `flutter build macos` 皆通過。
 - **Phase 2/3/4 完成**：Task 1 / 3 / 8 / 9 / 10 / 11 已完成；新增 `SupportedPhotoFormats`、`PhotoLibraryScanner`、`PhotoStatusStore`、`ImagePreloadController`、`PhotoFileActions`；`flutter analyze` / `flutter test`（11 tests）/ `flutter build macos` 皆通過。
 - **Task 13 完成**：專案結構整理完成；Flutter app 整併至專案根目錄，圖示移至 `assets/icons/`，本機資料與封存產物分別移至 `local_data/`、`artifacts/` 並維持 git ignored。
+- **Task 14 完成**：Android toolchain 升級完成；Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式可在 Temurin JDK 25 下成功產出 `build/app/outputs/flutter-apk/app-release.apk`。
 
 ---
 
@@ -61,6 +62,7 @@ Phase 2/3/4 與 Task 13 專案結構整理已完成：Flutter app 目前位於�
 | AD-004 | JSON 格式狀態持久化（`.photo_selector_status.json`）| 簡單遷移、無需資料庫 |
 | AD-005 | AppState 協調層化 | 核心流程可測、降低維護成本 |
 | AD-006 | 專案根目錄分層 | 正式程式碼、本機資料、封存產物分離 |
+| AD-007 | Android JDK 25 toolchain | Gradle 9.1.0 + AGP 9.0.1 相容模式可支援 Temurin JDK 25 |
 
 ---
 
@@ -75,6 +77,7 @@ Phase 2/3/4 與 Task 13 專案結構整理已完成：Flutter app 目前位於�
 ## 上下文提醒
 
 - Flutter 專案路徑：`/Users/jhangyu/Documents/Photo_Selector/`
+- Android toolchain：Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21 相容模式，JDK 優先使用 Temurin 25
 - 核心狀態管理：`AppState`（Flutter 協調層；掃描、狀態、預載/cache、檔案操作已拆至服務）
 - JSON 狀態檔案：`.photo_selector_status.json`（放在照片目錄根目錄）
 - 支援副檔名：`jpg`、`jpeg`、`arw`、`rw2`、`dng`、`heic`、`png`

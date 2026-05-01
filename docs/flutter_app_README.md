@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector Flutter — 套件說明文件"
 ---
 
@@ -49,6 +49,7 @@ flutter run -d chrome   # Web
 
 `windows` 與 `linux` 需在對應作業系統上建置。
 Android build 在 macOS 上會優先使用 Temurin JDK 25，找不到時退回 Homebrew `openjdk@21` / `openjdk@17`。
+目前 Android toolchain 使用 Gradle 9.1.0 + Android Gradle Plugin 9.0.1 + Kotlin 2.3.21 相容模式。
 
 建置產物集中於專案根目錄 `build/`。平台資料夾（例如 `macos/`、`android/`、`web/`）是 Flutter runner 原始碼與平台設定，不是 build output。
 

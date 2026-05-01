@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 ---
 
@@ -60,6 +60,13 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 - **保留**：`rule.md`、`memory.md`、`task.md`、`handover.md`、`plan.md`、`file_index.md`、`unit_test.md`、`README.md` 維持根目錄入口，符合 Startup Protocol。
 - **驗證**：搬移後 `flutter test`、`flutter analyze`、`flutter build macos` 皆通過。
 
+### AD-007｜Android Toolchain 支援 JDK 25
+- **日期**：2026-05-01
+- **決策**：Android build toolchain 升級為 Gradle 9.1.0 + Android Gradle Plugin 9.0.1 + Kotlin Gradle Plugin 2.3.21，並在 macOS build script 中優先使用 Temurin JDK 25。
+- **相容策略**：Flutter 3.35.1 的 `dev.flutter.flutter-gradle-plugin` 尚未相容 AGP 9 new DSL / built-in Kotlin，因此目前保留 `android.newDsl=false`、`android.builtInKotlin=false` 與 `org.jetbrains.kotlin.android` plugin。
+- **驗證**：`./scripts/build.sh android` 使用 JDK 25 成功產出 `build/app/outputs/flutter-apk/app-release.apk`；`flutter test` 11 個測試通過。
+- **後續**：等 Flutter 升級到支援 AGP 9 new DSL 後，再移除相容旗標並改用 built-in Kotlin。
+
 ---
 
 ## Gotchas（踩坑紀錄）
@@ -111,6 +118,12 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 - **解法**：macOS 原生端需根據 `targetSize` 分流：小圖保留 `CGImageSourceCreateThumbnailAtIndex`，主圖/高解析請求優先使用原圖輸出並保留方向修正。
 - **狀態**：已修復（Task 6）。非 RAW 且 `targetSize > 4000` 的請求改用 `CGImageSourceCreateImageAtIndex` + CoreImage orientation 修正；實機 JPG 視覺覆核待使用者確認。
 
+### G-009｜JDK 25 需要 Gradle 9.1+，且 Flutter Gradle Plugin 暫需 AGP 9 相容模式
+- **嚴重程度**：中
+- **問題**：舊 toolchain（Gradle 8.12 / AGP 8.9.1 / Kotlin 2.1.0）在 Temurin JDK 25 下會於 Gradle Kotlin DSL 階段失敗，錯誤為 `IllegalArgumentException: 25.0.2`。
+- **解法**：升級至 Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21；因 Flutter 3.35.1 的 Gradle plugin 在 AGP 9 new DSL 下會 NPE，目前使用 AGP 9 相容模式。
+- **狀態**：已修復（Task 14）。`./scripts/build.sh android` 使用 JDK 25 成功。
+
 ---
 
 ## 技術債 (Tech Debt)
@@ -125,6 +138,7 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 | TD-006 | JPG 主圖與縮圖共用 native API 需明確尺寸契約 | 高 | Task 6 修正 macOS 分流 |
 | TD-007 | AppState 職責過大 | 已關閉 | Task 9 已拆分掃描、狀態、快取、檔案操作 |
 | TD-008 | 支援格式定義分散 | 已關閉 | Task 10 已建立 `SupportedPhotoFormats` registry |
+| TD-009 | AGP 9 new DSL / built-in Kotlin 遷移 | 中 | 目前為 Flutter 3.35.1 相容性保留舊 DSL；待 Flutter toolchain 支援後再移除相容旗標 |
 
 ---
 

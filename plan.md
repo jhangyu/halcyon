@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 ---
 
@@ -43,6 +43,7 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 | 6 | 影像載入相容性修正 | ✅ 已完成 | JPG 主圖高解析載入、RW2 掃描支援 |
 | 7 | Flutter 主線整理 | ✅ 已完成 | SwiftUI 退役、文件與任務收斂 |
 | 8 | 專案結構整理 | ✅ 已完成 | `apps/`、`assets/`、`artifacts/`、`local_data/` 分層 |
+| 9 | Android build toolchain 升級 | ✅ 已完成 | Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21、JDK 25 build |
 
 ---
 
@@ -179,7 +180,8 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 
 **交付物**：
 - Trash 操作（取代永久刪除）
-- CLI 工具：`scripts/batch_tag.dart`（批次標記腳本）
+- 統一建置入口：`scripts/build.sh`（已完成；支援 macOS / Android / Web / Windows / Linux / all）
+- CLI 工具：`scripts/batch_tag.dart`（批次標記腳本，待辦）
 - 效能分析：記憶體使用報告
 - CI/CD：GitHub Actions 自動化測試腳本
 
@@ -203,6 +205,26 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 
 ---
 
+## Phase 9 — Android build toolchain 升級 ✅ 已完成
+
+**目標**：讓 Android build 可使用 Temurin JDK 25，並維持 Flutter 3.35.1 專案可編譯。
+
+**完成結果**：
+- Gradle wrapper 升級至 9.1.0
+- Android Gradle Plugin 升級至 9.0.1
+- Kotlin Gradle Plugin 升級至 2.3.21
+- Android app 指定 NDK 28.2.13676358
+- 新增 `android/app/proguard-rules.pro`
+- `scripts/build.sh` 在 macOS 上優先使用 Temurin JDK 25，找不到時退回 JDK 21 / 17
+
+**相容性說明**：Flutter 3.35.1 的 Gradle plugin 尚未相容 AGP 9 new DSL / built-in Kotlin，因此目前使用 `android.newDsl=false`、`android.builtInKotlin=false` 相容模式。
+
+**驗證結果**：
+- `./scripts/build.sh android`：成功，產出 `build/app/outputs/flutter-apk/app-release.apk`
+- `flutter test`：11 tests passed
+
+---
+
 ## 路線圖總覽
 
 ```
@@ -213,7 +235,8 @@ Phase 0 ✅ ──────────────────────�
                     └── Phase 3 ✅
                           └── Phase 4 ✅
                                 └── Phase 8 ✅
-                                      └── Phase 5 🔲 ←───── 下一個焦點
+                                      └── Phase 9 ✅ Android toolchain
+                                            └── Phase 5 🔲 ←───── 下一個焦點
 ```
 
 ---

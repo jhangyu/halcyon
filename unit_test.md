@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 ---
 
@@ -240,7 +240,13 @@ flutter test --coverage
 
 ## 腳本登錄
 
-- `scripts/build.sh`：統一 Flutter build 入口；預設建置 macOS release app，支援 `macos`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。建置產物集中於根目錄 `build/`；平台 runner 目錄保留為原始碼與設定。
+- `scripts/build.sh`：統一 Flutter build 入口；預設建置 macOS release app，支援 `macos`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。
+  - **範例指令**：`./scripts/build.sh`、`./scripts/build.sh android`、`./scripts/build.sh web`、`./scripts/build.sh android-aab --release`
+  - **必要輸入**：可選 target；可選 `--debug` / `--profile` / `--release`；可選環境變數 `BUILD_MODE`
+  - **契約檢查摘要**：檢查 Flutter CLI 是否存在、target 是否為支援值、host OS 是否支援對應 desktop target；Android build 會套用 JDK 25 / 21 / 17 fallback。
+  - **主要輸出**：根目錄 `build/`；Android APK 為 `build/app/outputs/flutter-apk/app-release.apk`，Web 為 `build/web/`，macOS 為 `build/macos/Build/Products/<Mode>/photo_selector_flutter.app`
+  - **成功判定**：腳本 exit code = 0，且輸出路徑存在。
+  - **相容性影響**：Android 目前使用 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，以支援 Temurin JDK 25。
 - 目前無專用測試腳本，依賴 `flutter test` 標準指令。若需批次測試可建立 `scripts/run_tests.sh`。
 
 ## 最近驗證紀錄
@@ -263,6 +269,8 @@ flutter test --coverage
 | 2026-04-29 | Build script | `./scripts/build.sh android` | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-04-29 | Build script | `./scripts/build.sh android` with JDK 21 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-05-01 | Android toolchain upgrade | `./gradlew assembleRelease` with JDK 25 | ✅ 通過；Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式 |
+| 2026-05-01 | Build script | `./scripts/build.sh android` with JDK 25 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
+| 2026-05-01 | Regression | `flutter test` | ✅ 通過，11 個測試 |
 
 ---
 

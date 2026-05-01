@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 專案說明文件 (README)"
 ---
 
@@ -45,17 +45,18 @@ title: "Photo Selector — 專案說明文件 (README)"
 
 ```
 Photo_Selector/
-├── apps/
-│   └── photo_selector_flutter/    # Flutter 主線版
-│       ├── lib/
-│       │   ├── models/            # PhotoItem 與支援格式 registry
-│       │   ├── providers/         # AppState UI 協調層
-│       │   ├── services/          # 掃描、狀態、預載/cache、檔案動作、MethodChannel
-│       │   └── views/             # MainScreen / SidebarView / DetailView
-│       ├── test/                  # Flutter 單元測試與 widget smoke test
-│       └── macos/Runner/          # macOS 原生整合（MethodChannel）
+├── lib/
+│   ├── models/                    # PhotoItem 與支援格式 registry
+│   ├── providers/                 # AppState UI 協調層
+│   ├── services/                  # 掃描、狀態、預載/cache、檔案動作、MethodChannel
+│   └── views/                     # MainScreen / SidebarView / DetailView
+├── test/                          # Flutter 單元測試與 widget smoke test
+├── macos/Runner/                  # macOS 原生整合（MethodChannel）
+├── android/                       # Android Runner + Gradle / AGP / Kotlin 設定
+├── scripts/build.sh               # 統一 build 入口
 ├── assets/icons/                  # 專案層級圖示來源
 ├── docs/logs/                     # Unified Task Logs
+├── build/                         # Flutter build outputs（git ignored）
 ├── artifacts/                     # 本機封存與建置暫存（git ignored）
 └── local_data/                    # 本機照片樣本（git ignored）
 ```
@@ -102,6 +103,7 @@ flutter run -d chrome
 
 `windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標，並略過不可支援的桌面平台。
 Android build 在 macOS 上會優先使用 Temurin JDK 25，找不到時退回 Homebrew `openjdk@21` / `openjdk@17`。
+目前 Android toolchain 為 Gradle 9.1.0 + Android Gradle Plugin 9.0.1 + Kotlin 2.3.21 相容模式；因 Flutter 3.35.1 的 Gradle plugin 尚未相容 AGP 9 new DSL，所以保留 `android.newDsl=false` / `android.builtInKotlin=false`。
 
 建置產物統一由 Flutter 輸出到根目錄 `build/`：
 

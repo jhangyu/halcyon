@@ -1,5 +1,5 @@
 ---
-date: 2026-04-29
+date: 2026-05-01
 title: "Photo Selector — 任務真實狀態來源 (Task)"
 ---
 
@@ -25,7 +25,7 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 
 - **Task**: 12 — Flutter Trash MethodChannel
 - **Log File**: [Task_12_Flutter_Trash_MethodChannel.md](docs/logs/2026-04-29/Task_12_Flutter_Trash_MethodChannel.md)
-- **中斷點與交接 (Handover)**: Phase 2/3/4 與 Task 13 專案結構整理皆已完成；Flutter app 目前位於專案根目錄，本機資料與封存產物已分離到 ignored 目錄。`flutter analyze` / `flutter test` / `flutter build macos` 皆通過。
+- **中斷點與交接 (Handover)**: Phase 2/3/4、Task 13 專案結構整理、Task 14 Android toolchain JDK 25 升級皆已完成；Flutter app 位於專案根目錄，Android build 已可用 Temurin JDK 25 產出 APK。下一步回到 Phase 5 的 Trash MethodChannel，避免照片永久刪除。
 - **下一個子步驟**: 進入 Phase 5，將 `deleteTrashed()` 從永久刪除改為 macOS Trash MethodChannel。
 
 ---
@@ -174,6 +174,24 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 - [x] 13.6 驗證 `flutter test`、`flutter analyze`、`flutter build macos`
 
 **驗收標準**：根目錄只保留核心入口文件與清楚分類的一級目錄；Flutter app 可在新路徑完成測試、分析與 macOS build。
+
+---
+
+### Task 14｜Android Toolchain JDK 25 升級 ✅ 已完成
+
+**目標**：升級 Android build toolchain，使專案可使用 Temurin JDK 25 編譯 Android APK。
+
+**Log File**：[Task_14_Android_Toolchain_JDK25.md](docs/logs/2026-05-01/Task_14_Android_Toolchain_JDK25.md)
+
+**子任務**：
+- [x] 14.1 升級 Gradle wrapper 至 9.1.0
+- [x] 14.2 升級 Android Gradle Plugin 至 9.0.1
+- [x] 14.3 升級 Kotlin Gradle Plugin 至 2.3.21，並使用 AGP 9 相容模式
+- [x] 14.4 補齊 `android/app/proguard-rules.pro` 與 NDK 28.2.13676358 設定
+- [x] 14.5 更新 `scripts/build.sh`，Android build 優先使用 Temurin JDK 25
+- [x] 14.6 驗證 `./scripts/build.sh android` 與 `flutter test`
+
+**驗收標準**：`./scripts/build.sh android` 使用 JDK 25 成功產出 `build/app/outputs/flutter-apk/app-release.apk`；`flutter test` 全數通過。
 
 ---
 
