@@ -630,6 +630,23 @@ void main() {
               'display would switch to a full-size provider whose image '
               'has not finished decoding yet',
         );
+
+        // The other direction, asserted in the SAME test so this can't pass
+        // vacuously if isFullSizeReady regressed to always-false: item 4 is
+        // also inside the tier-2 (+/-1) window for current=5, was NOT
+        // pre-seeded with a pending entry, and so decoded normally (a 1x1
+        // PNG completes well within the 350ms already waited above). Its
+        // readiness must read true.
+        expect(
+          controller.isFullSizeReady(items[4].id),
+          isTrue,
+          reason:
+              'item 4 is in the same tier-2 window and decoded normally '
+              '(not pre-seeded as pending) -- isFullSizeReady must still '
+              'report true for a genuinely completed decode, proving this '
+              'test discriminates both directions and not just '
+              'always-false',
+        );
       });
     },
   );
