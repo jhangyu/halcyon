@@ -83,9 +83,27 @@ class AppDelegate: FlutterAppDelegate {
                     lowerPath.hasSuffix(".orf") ||
                     lowerPath.hasSuffix(".rw2")
         let isPreviewRequest = purpose == "preview"
-                    
+        let isJpeg = lowerPath.hasSuffix(".jpg") || lowerPath.hasSuffix(".jpeg")
+
+        // Fast path: for JPEG preview requests, return the raw file bytes directly,
+        // skipping full-resolution decode + JPEG re-encode. Flutter's Image.memory
+        // honors EXIF orientation for JPEG, so no orientation processing is needed here.
+        if isPreviewRequest && isJpeg {
+            do {
+                let data = try Data(contentsOf: url)
+                DispatchQueue.main.async {
+                    result(FlutterStandardTypedData(bytes: data))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "LOAD_FAILED", message: "Cannot read image", details: nil))
+                }
+            }
+            return
+        }
+
         var cgImage: CGImage?
-        
+
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             DispatchQueue.main.async {
                 result(FlutterError(code: "LOAD_FAILED", message: "Cannot read source", details: nil))
