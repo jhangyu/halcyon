@@ -299,4 +299,158 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'tier-2 full-size decode does not start until the navigation debounce '
+    'elapses (AC3a)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              Uint8List.fromList(_tinyPngBytes),
+        );
+        addTearDown(controller.dispose);
+
+        final items = List.generate(5, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        controller.updateTargetSize(10, 10);
+
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[2].id,
+          notifyLoaded: () {},
+        );
+
+        // Right after preloadImages returns -- long before the 250ms
+        // debounce -- tier-2 must not have started yet.
+        expect(controller.isFullSizeReady(items[2].id), isFalse);
+
+        // Still not ready comfortably inside the debounce window. If the
+        // debounce were removed, the tiny PNG decodes near-instantly and
+        // this would already be true.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(controller.isFullSizeReady(items[2].id), isFalse);
+
+        // After the debounce elapses, tier-2 has landed.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(controller.isFullSizeReady(items[2].id), isTrue);
+      });
+    },
+  );
+
+  testWidgets(
+    'tier-2 never queues an item that scrolled out of the window during '
+    'continuous navigation (AC3b)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              Uint8List.fromList(_tinyPngBytes),
+        );
+        addTearDown(controller.dispose);
+
+        final items = List.generate(10, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        controller.updateTargetSize(10, 10);
+
+        // Rapid burst of navigation, well under the 250ms debounce,
+        // simulating a held-down arrow key: 2 -> 3 -> 4 -> 5.
+        for (final idx in [2, 3, 4, 5]) {
+          await controller.preloadImages(
+            items: items,
+            selectedItemId: items[idx].id,
+            notifyLoaded: () {},
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+
+        // Let the debounce settle on the FINAL position (index 5).
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+
+        // Index 2 scrolled out of the tier-2 window during the burst and
+        // must never have been queued for a full-size decode.
+        expect(controller.isFullSizeReady(items[2].id), isFalse);
+        // The final window's current item did land.
+        expect(controller.isFullSizeReady(items[5].id), isTrue);
+      });
+    },
+  );
+
+  testWidgets(
+    'tier-1 and tier-2 caches coexist: evicting a tier-2 entry does not '
+    'evict the tier-1 entry for the same item (AC3c)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              Uint8List.fromList(_tinyPngBytes),
+        );
+        addTearDown(controller.dispose);
+
+        final items = List.generate(10, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        controller.updateTargetSize(10, 10);
+
+        // Land on index 5; let tier-1 (immediate) and tier-2 (after
+        // debounce) both settle. Tier-2 window is {4,5,6}; tier-1 window is
+        // {3,4,5,6,7}.
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        expect(controller.isFullSizeReady(items[4].id), isTrue);
+
+        final bytesAt4 = controller.imageBytesFor(items[4].id)!;
+        final tierOneKeyAt4 = await tierOneProviderFor(
+          bytesAt4,
+          width: 10,
+          height: 10,
+        ).obtainKey(ImageConfiguration.empty);
+        final tierTwoKeyAt4 = await fullSizeProviderFor(
+          bytesAt4,
+        ).obtainKey(ImageConfiguration.empty);
+
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(tierOneKeyAt4),
+          isTrue,
+        );
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
+          isTrue,
+        );
+
+        // Navigate one step to index 6. New tier-2 window is {5,6,7}: index
+        // 4 falls OUT of it. New tier-1 window is {4,5,6,7,8}: index 4
+        // STAYS in it. This is the coexistence case -- tier-2 eviction for
+        // index 4 must not touch its still-current tier-1 entry.
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[6].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
+          isFalse,
+          reason: 'index 4 left the tier-2 (+/-1) window and must be evicted',
+        );
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(tierOneKeyAt4),
+          isTrue,
+          reason:
+              'index 4 is still inside the tier-1 (+/-2) window; evicting '
+              'its tier-2 entry must not have evicted tier-1 too',
+        );
+      });
+    },
+  );
 }

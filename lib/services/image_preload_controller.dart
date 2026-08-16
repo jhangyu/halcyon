@@ -30,6 +30,16 @@ ImageProvider tierOneProviderFor(
   );
 }
 
+/// Shared tier-2 (full size, unresized) provider factory. Same rule as
+/// [tierOneProviderFor]: display and precache MUST call this with the same
+/// [bytes] object identity to land on the same ImageCache key.
+ImageProvider fullSizeProviderFor(Uint8List bytes) => MemoryImage(bytes);
+
+/// Navigation must be quiet for this long before tier-2 (full size) decode
+/// starts, so continuous arrow-key navigation never triggers a burst of
+/// expensive full-frame decodes for images the user only passed through.
+const Duration tierTwoNavigationDebounce = Duration(milliseconds: 250);
+
 class ImagePreloadController {
   ImagePreloadController({required ImageBytesLoader imageLoader})
     : _imageLoader = imageLoader;
@@ -48,6 +58,14 @@ class ImagePreloadController {
   int? _tierOneHeight;
   final Map<String, Object> _tierOneKeys = {};
 
+  // Tier-2 (full size) decode precache bookkeeping. Own window (+/-1), own
+  // key namespace (MemoryImage keys, distinct from tier-1's ResizeImageKey)
+  // and own eviction so the two tiers coexist without either clobbering the
+  // other's ImageCache entry for the same item id.
+  Timer? _tierTwoDebounceTimer;
+  final Map<String, Object> _tierTwoKeys = {};
+  final Set<String> _tierTwoReadyIds = {};
+
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
   Timer? _thumbnailDebounceTimer;
@@ -56,12 +74,22 @@ class ImagePreloadController {
 
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
+  /// Whether the full-size (tier-2) decode for [id] has landed in
+  /// ImageCache. The display side uses this to switch providers seamlessly
+  /// (gaplessPlayback) once it's true, and to know it never has to resolve
+  /// the full-size provider itself just to find out — that resolve would be
+  /// the exact full-frame decode-on-the-UI-path this round exists to avoid.
+  bool isFullSizeReady(String id) => _tierTwoReadyIds.contains(id);
+
   void reset() {
     _imageCache.clear();
     _thumbCache.clear();
     _loadingKeys.clear();
     _pendingPreviewNotifies.clear();
     _tierOneKeys.clear();
+    _tierTwoDebounceTimer?.cancel();
+    _tierTwoKeys.clear();
+    _tierTwoReadyIds.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
@@ -79,6 +107,7 @@ class ImagePreloadController {
 
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
+    _tierTwoDebounceTimer?.cancel();
   }
 
   Future<void> preloadImages({
@@ -113,6 +142,78 @@ class ImagePreloadController {
     await Future.wait(pendingLoads);
 
     _precacheTierOneWindow(items, currentIndex);
+    _scheduleTierTwoDecode(items, currentIndex, notifyLoaded);
+  }
+
+  // Tier-2 debounce: every navigation event cancels and reschedules this
+  // timer, so only the FINAL position after a burst of navigation ever
+  // starts a full-size decode (AC3a/AC3b) — items only passed through
+  // during continuous navigation are simply never queued, because their
+  // scheduling attempt gets cancelled before it fires.
+  void _scheduleTierTwoDecode(
+    List<PhotoItem> items,
+    int currentIndex,
+    VoidCallback notifyLoaded,
+  ) {
+    _tierTwoDebounceTimer?.cancel();
+    _tierTwoDebounceTimer = Timer(tierTwoNavigationDebounce, () {
+      _decodeTierTwoWindow(items, currentIndex, notifyLoaded);
+    });
+  }
+
+  // Tier-2 precache: decode current +/-1 at full size, once navigation has
+  // paused. Both tiers coexist: this only evicts its own (+/-1) window's
+  // entries, never touches _tierOneKeys or the underlying bytes cache.
+  void _decodeTierTwoWindow(
+    List<PhotoItem> items,
+    int currentIndex,
+    VoidCallback notifyLoaded,
+  ) {
+    final tierStart = (currentIndex - 1).clamp(0, items.length - 1);
+    final tierEnd = (currentIndex + 1).clamp(0, items.length - 1);
+    final neededIds = <String>{};
+
+    for (var i = tierStart; i <= tierEnd; i++) {
+      final item = items[i];
+      final bytes = _imageCache[item.id];
+      if (bytes == null) continue; // not loaded yet; retried on next pass
+      neededIds.add(item.id);
+      if (_tierTwoReadyIds.contains(item.id)) continue; // already decoded
+      _decodeFullSizeIntoImageCache(item.id, bytes, notifyLoaded);
+    }
+
+    final staleIds = _tierTwoKeys.keys
+        .where((id) => !neededIds.contains(id))
+        .toList();
+    for (final id in staleIds) {
+      final key = _tierTwoKeys.remove(id);
+      _tierTwoReadyIds.remove(id);
+      if (key != null) {
+        PaintingBinding.instance.imageCache.evict(key);
+      }
+    }
+  }
+
+  void _decodeFullSizeIntoImageCache(
+    String id,
+    Uint8List bytes,
+    VoidCallback notifyLoaded,
+  ) {
+    final provider = fullSizeProviderFor(bytes);
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, synchronousCall) {
+        stream.removeListener(listener);
+        _tierTwoReadyIds.add(id);
+        notifyLoaded();
+      },
+      onError: (error, stackTrace) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+    provider
+        .obtainKey(const ImageConfiguration())
+        .then((key) => _tierTwoKeys[id] = key);
   }
 
   // Tier-1 precache: decode current +/-2 at window resolution ahead of

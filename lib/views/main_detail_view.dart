@@ -102,7 +102,9 @@ class _MainDetailViewState extends State<MainDetailView>
     return Stack(
       children: [
         // Viewer Area
-        Positioned.fill(child: _buildZoomableViewer(bytes)),
+        Positioned.fill(
+          child: _buildZoomableViewer(bytes, state.currentItemHasFullSize),
+        ),
 
         // Floating Action Bar (Bottom Center)
         Positioned(
@@ -165,7 +167,7 @@ class _MainDetailViewState extends State<MainDetailView>
     );
   }
 
-  Widget _buildZoomableViewer(Uint8List? bytes) {
+  Widget _buildZoomableViewer(Uint8List? bytes, bool useFullSize) {
     if (bytes == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -191,16 +193,20 @@ class _MainDetailViewState extends State<MainDetailView>
             .round();
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
-        final image = (targetWidth > 0 && targetHeight > 0)
+        // Tier-2 (full size) is already known to be cached by this point
+        // (isFullSizeReady is bookkeeping, not a resolve) so preferring it
+        // here never triggers a decode on this build/UI path — it's a plain
+        // ImageCache hit, exactly like the tier-1 branch below.
+        final ImageProvider provider = useFullSize
+            ? fullSizeProviderFor(bytes)
+            : tierOneProviderFor(bytes, width: targetWidth, height: targetHeight);
+
+        final image = (useFullSize || (targetWidth > 0 && targetHeight > 0))
             ? Image(
-                image: tierOneProviderFor(
-                  bytes,
-                  width: targetWidth,
-                  height: targetHeight,
-                ),
+                image: provider,
                 fit: BoxFit.contain,
                 gaplessPlayback:
-                    true, // Prevent flickering when switching images
+                    true, // Prevent flickering when switching images/tiers
                 errorBuilder: (context, error, stackTrace) =>
                     const Icon(Icons.broken_image, size: 64),
               )

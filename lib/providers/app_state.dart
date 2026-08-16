@@ -92,6 +92,14 @@ class AppState extends ChangeNotifier {
   Uint8List? getThumbnailBytes(String id) =>
       _preloadController.thumbnailBytesFor(id);
 
+  /// True once the current item's full-size (tier-2) decode has landed in
+  /// ImageCache; the view uses this to switch providers seamlessly instead
+  /// of resolving the full-size provider itself to find out.
+  bool get currentItemHasFullSize {
+    final id = _selectedItemID;
+    return id != null && _preloadController.isFullSizeReady(id);
+  }
+
   // Forwards the current detail viewport's decode target size (logical size
   // x devicePixelRatio, computed by the view) to the preload controller so
   // its tier-1 precache decodes neighbors at the same resolution the view
