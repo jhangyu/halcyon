@@ -118,7 +118,7 @@ class AppDelegate: FlutterAppDelegate {
             // We pass kCGImageSourceCreateThumbnailWithTransform to automatically apply Exif rotation.
             let thumbOptions: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
-                kCGImageSourceThumbnailMaxPixelSize: max(targetSize, 8000),
+                kCGImageSourceThumbnailMaxPixelSize: targetSize,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true
             ]
