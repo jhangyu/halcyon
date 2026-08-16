@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
+import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_preload_controller.dart';
 import '../services/native_thumbnail_service.dart';
 import '../services/photo_file_actions.dart';
@@ -166,12 +167,21 @@ class AppState extends ChangeNotifier {
 
   void selectItem(String id) {
     if (_selectedItemID != id) {
+      final tEnter = PerfLog.us; // PERF-INSTRUMENTATION
+      PerfLog.log('selectItem.enter|$id'); // PERF-INSTRUMENTATION
       _selectedItemID = id;
+      // PERF-INSTRUMENTATION
+      final cached = _preloadController.imageBytesFor(id);
+      PerfLog.log(
+        'cache.${cached != null ? "hit" : "miss"}|$id|${cached?.length ?? 0}',
+      );
       _preloadImages();
 
       _viewDebounceTimer?.cancel();
       _viewDebounceTimer = Timer(const Duration(seconds: 5), _saveLastViewedId);
 
+      // PERF-INSTRUMENTATION
+      PerfLog.log('selectItem.notify|$id|sinceEnter=${PerfLog.us - tEnter}');
       notifyListeners();
     }
   }

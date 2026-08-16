@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/painting.dart';
 
 import '../models/photo_item.dart';
+import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'native_thumbnail_service.dart';
 
 typedef ImageBytesLoader =
@@ -182,10 +183,24 @@ class ImagePreloadController {
     for (final id in droppedIds) {
       _evictTierTwoEntry(id);
     }
+    _selectedIdForPerf = selectedItemId; // PERF-INSTRUMENTATION
 
+    // PERF-INSTRUMENTATION
+    final tPrio = PerfLog.us;
+    final wasInFlight = _loadingKeys.contains(selectedItemId);
+    final wasCached = _imageCache.containsKey(selectedItemId);
+    PerfLog.log(
+      'preload.priority.begin|$selectedItemId'
+      '|cached=$wasCached|inFlight=$wasInFlight',
+    );
     await _loadPreview(
       items.firstWhere((item) => item.id == selectedItemId),
       notifyLoaded: notifyLoaded,
+    );
+    // PERF-INSTRUMENTATION
+    PerfLog.log(
+      'preload.priority.end|$selectedItemId|dur=${PerfLog.us - tPrio}'
+      '|nowCached=${_imageCache.containsKey(selectedItemId)}',
     );
 
     final pendingLoads = <Future<void>>[];
@@ -193,10 +208,13 @@ class ImagePreloadController {
       pendingLoads.add(_loadPreview(items[i], notifyLoaded: null));
     }
     await Future.wait(pendingLoads);
+    PerfLog.log('preload.window.end|$selectedItemId'); // PERF-INSTRUMENTATION
 
     _precacheTierOneWindow(items, currentIndex);
     _scheduleTierTwoDecode(items, currentIndex, notifyLoaded);
   }
+
+  String? _selectedIdForPerf; // PERF-INSTRUMENTATION
 
   // Tier-2 debounce: every navigation event cancels and reschedules this
   // timer, so only the FINAL position after a burst of navigation ever
@@ -341,6 +359,11 @@ class ImagePreloadController {
   }) async {
     final id = item.id;
     if (_imageCache.containsKey(id)) {
+      // PERF-INSTRUMENTATION
+      PerfLog.log(
+        'loadPreview.skip|$id|cached=true|inFlight=false'
+        '|isSelected=${id == _selectedIdForPerf}',
+      );
       return;
     }
 
@@ -353,6 +376,11 @@ class ImagePreloadController {
       if (notifyLoaded != null) {
         _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
       }
+      // PERF-INSTRUMENTATION
+      PerfLog.log(
+        'loadPreview.skip|$id|cached=false|inFlight=true'
+        '|isSelected=${id == _selectedIdForPerf}',
+      );
       return;
     }
 
@@ -360,10 +388,17 @@ class ImagePreloadController {
     if (file == null) return;
 
     _loadingKeys.add(id);
+    final tCh = PerfLog.us; // PERF-INSTRUMENTATION
     try {
       final bytes = await _imageLoader(
         file.path,
         purpose: ImageRequestPurpose.preview,
+      );
+      // PERF-INSTRUMENTATION
+      PerfLog.log(
+        'channel.preview|$id|bytes=${bytes?.length ?? -1}'
+        '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
+        '|isSelected=${id == _selectedIdForPerf}',
       );
       if (bytes != null) {
         _imageCache[id] = bytes;

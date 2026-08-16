@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import '../services/image_preload_controller.dart';
@@ -103,7 +104,11 @@ class _MainDetailViewState extends State<MainDetailView>
       children: [
         // Viewer Area
         Positioned.fill(
-          child: _buildZoomableViewer(bytes, state.currentItemHasFullSize),
+          child: _buildZoomableViewer(
+            bytes,
+            state.currentItemHasFullSize,
+            currentId, // PERF-INSTRUMENTATION
+          ),
         ),
 
         // Floating Action Bar (Bottom Center)
@@ -167,8 +172,86 @@ class _MainDetailViewState extends State<MainDetailView>
     );
   }
 
-  Widget _buildZoomableViewer(Uint8List? bytes, bool useFullSize) {
+  // PERF-INSTRUMENTATION: measures provider resolve (bytes-in-cache ->
+  // decoded -> painted), tagged with which tier actually resolved. Keyed by
+  // "id:tier" (not just id) so a later tier-2 upgrade for the SAME id
+  // WITHIN THE SAME switch (after an earlier tier-1 resolve) is logged as
+  // its own event, matching the round-2 parser's tier2-UPGRADE classification.
+  //
+  // Scope: _perfTrackedKeys must be cleared per SWITCH (per new selection),
+  // not once for the whole process lifetime. An earlier version only ever
+  // cleared it at construction, so once a given (id, tier) pair had been
+  // seen -- e.g. during the paced pass -- it never fired again for that same
+  // id/tier revisited in a later switch (e.g. the rapid pass re-walking the
+  // same photo set), silently producing zero `image.resolved` events for
+  // every switch after the first pass. Detected via round-2's own report
+  // shape (n=24 resolved=24 per pass, i.e. one full re-emit per pass) not
+  // matching a live run's near-zero rapid-pass resolved count.
+  String? _perfSpinnerId;
+  String? _perfLastTrackedId;
+  Set<String> _perfTrackedKeys = {};
+  final Map<String, int> _perfOccCount = {};
+
+  // Called once per NEW selection (id change), before any per-build perf
+  // tracking, so the dedupe set resets at switch boundaries instead of
+  // persisting for the process lifetime.
+  void _perfResetForSwitch(String id) {
+    if (!PerfLog.enabled) return;
+    if (_perfLastTrackedId == id) return;
+    _perfLastTrackedId = id;
+    _perfTrackedKeys = {};
+  }
+
+  void _perfSpinner(String id) {
+    if (!PerfLog.enabled) return;
+    if (_perfSpinnerId != id) {
+      _perfSpinnerId = id;
+      PerfLog.log('view.spinner|$id');
+    }
+  }
+
+  void _perfTrack(
+    BuildContext context,
+    String id,
+    ImageProvider provider,
+    int tier,
+  ) {
+    if (!PerfLog.enabled) return;
+    final key = '$id:$tier';
+    if (_perfTrackedKeys.contains(key)) return;
+    _perfTrackedKeys.add(key);
+    final occ = _perfOccCount.update(id, (v) => v + 1, ifAbsent: () => 0);
+    final t0 = PerfLog.us;
+
+    // Resolves through the SAME provider object (and therefore the same
+    // ImageStream/ImageCache key+configuration) as the Image widget below,
+    // so this observes the real decode/cache-hit rather than causing an
+    // extra one.
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    late ImageStreamListener listener;
+    listener = ImageStreamListener((info, sync) {
+      PerfLog.log(
+        'image.resolved|$id|occ=$occ|tier=$tier|sync=$sync'
+        '|dur=${PerfLog.us - t0}',
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        PerfLog.log('image.painted|$id|tier=$tier|dur=${PerfLog.us - t0}');
+        PerfLog.onImageReady?.call(id);
+      });
+      WidgetsBinding.instance.scheduleFrame();
+      stream.removeListener(listener);
+    });
+    stream.addListener(listener);
+  }
+
+  Widget _buildZoomableViewer(
+    Uint8List? bytes,
+    bool useFullSize,
+    String currentId, // PERF-INSTRUMENTATION
+  ) {
+    _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
     if (bytes == null) {
+      _perfSpinner(currentId); // PERF-INSTRUMENTATION
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -205,6 +288,9 @@ class _MainDetailViewState extends State<MainDetailView>
         final ImageProvider provider = useFullSize
             ? fullSizeProviderFor(bytes)
             : tierOneProviderFor(bytes, width: targetWidth, height: targetHeight);
+
+        // PERF-INSTRUMENTATION
+        _perfTrack(context, currentId, provider, useFullSize ? 2 : 1);
 
         final image = (useFullSize || (targetWidth > 0 && targetHeight > 0))
             ? Image(

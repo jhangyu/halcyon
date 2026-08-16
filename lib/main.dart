@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
 import 'views/main_screen.dart';
 
@@ -15,12 +16,17 @@ void configureImageCache() {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   configureImageCache();
+  final appState = AppState(); // PERF-INSTRUMENTATION
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => AppState(),
+    ChangeNotifierProvider.value(
+      value: appState, // PERF-INSTRUMENTATION
       child: const HalcyonApp(),
     ),
   );
+  // PERF-INSTRUMENTATION
+  if (PerfDriver.active) {
+    PerfDriver.run(appState);
+  }
 }
 
 class HalcyonApp extends StatelessWidget {

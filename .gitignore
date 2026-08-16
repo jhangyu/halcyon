@@ -31,3 +31,8 @@ coverage/
 .idea/
 *.iml
 .vscode/
+
+# Scratch verification output (repo root only; scripts/tmp/ is tracked tooling)
+/tmp/
+__pycache__/
+scripts/tmp/r2_backup/

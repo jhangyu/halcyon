@@ -71,12 +71,28 @@ class AppDelegate: FlutterAppDelegate {
     }
   }
   
+  // PERF-INSTRUMENTATION (permanent, contract: docs/logs/2026-08-16/round-3-implementation-plan.md §3).
+  // Gated on HALCYON_PERF_DIR: unset means perfEnabled is false and every perfLog()
+  // call below is a single bool check, no I/O -- a structural no-op when disabled.
+  // Event names/fields are consumed by scripts/tmp/perf/parse_r2.py -- do not
+  // rename/reshape without checking that parser first.
+  private static let perfEnabled = ProcessInfo.processInfo.environment["HALCYON_PERF_DIR"] != nil
+  private static func perfLog(_ s: String) {
+    if perfEnabled { print("PERFNATIVE|\(Int(ProcessInfo.processInfo.systemUptime * 1_000_000))|\(s)") }
+  }
+
   private func getFastThumbnail(path: String, targetSize: Int, purpose: String, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
-    
+    let perfName = (path as NSString).lastPathComponent // PERF-INSTRUMENTATION
+    let perfEnqueue = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
+    AppDelegate.perfLog("handler.enter|\(perfName)|\(purpose)") // PERF-INSTRUMENTATION
+
     DispatchQueue.global(qos: .userInteractive).async {
+        let perfStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
+        AppDelegate.perfLog("bg.start|\(perfName)|queueWait=\(Int((perfStart - perfEnqueue) * 1_000_000))") // PERF-INSTRUMENTATION
         let lowerPath = path.lowercased()
-        let isRaw = lowerPath.hasSuffix(".dng") ||
+        let isDng = lowerPath.hasSuffix(".dng")
+        let isRaw = isDng ||
                     lowerPath.hasSuffix(".arw") ||
                     lowerPath.hasSuffix(".cr2") ||
                     lowerPath.hasSuffix(".nef") ||
@@ -88,16 +104,45 @@ class AppDelegate: FlutterAppDelegate {
         // Fast path: for JPEG preview requests, return the raw file bytes directly,
         // skipping full-resolution decode + JPEG re-encode. Flutter's Image.memory
         // honors EXIF orientation for JPEG, so no orientation processing is needed here.
+        //
+        // For DNG preview requests, try to locate a full-size embedded JPEG (many DNGs
+        // from Lightroom/DxO carry one in a SubIFD) and return its bytes the same way --
+        // no RAW decode, no re-encode. Unlike the JPEG case, finding no embedded JPEG is
+        // NOT an error: it falls through to the existing CGImageSource / CIRAWFilter path
+        // below, unchanged.
+        //
+        // Both cases share a single dispatch/return site below so perf instrumentation
+        // anchored on this exit point covers both passthrough kinds.
+        var passthroughData: Data?
         if isPreviewRequest && isJpeg {
-            do {
-                let data = try Data(contentsOf: url)
-                DispatchQueue.main.async {
-                    result(FlutterStandardTypedData(bytes: data))
-                }
-            } catch {
+            let perfReadStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
+            guard let data = try? Data(contentsOf: url) else {
                 DispatchQueue.main.async {
                     result(FlutterError(code: "LOAD_FAILED", message: "Cannot read image", details: nil))
                 }
+                return
+            }
+            // PERF-INSTRUMENTATION
+            AppDelegate.perfLog("jpegPassthrough.read|\(perfName)|bytes=\(data.count)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfReadStart) * 1_000_000))")
+            passthroughData = data
+        } else if isPreviewRequest && isDng {
+            let perfReadStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
+            let extracted = extractFullSizeEmbeddedJpeg(url: url) // nil => fall through, not an error
+            // PERF-INSTRUMENTATION
+            if let extracted = extracted {
+                AppDelegate.perfLog("dngPassthrough.read|\(perfName)|bytes=\(extracted.count)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfReadStart) * 1_000_000))")
+            } else {
+                AppDelegate.perfLog("dngPassthrough.miss|\(perfName)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfReadStart) * 1_000_000))")
+            }
+            passthroughData = extracted
+        }
+
+        if let data = passthroughData {
+            DispatchQueue.main.async {
+                // PERF-INSTRUMENTATION: unified dispatch site for BOTH JPEG and DNG
+                // passthrough, so nativeTotal covers both passthrough kinds.
+                AppDelegate.perfLog("result.dispatch|\(perfName)|nativeTotal=\(Int((ProcessInfo.processInfo.systemUptime - perfEnqueue) * 1_000_000))")
+                result(FlutterStandardTypedData(bytes: data))
             }
             return
         }
@@ -176,12 +221,20 @@ class AppDelegate: FlutterAppDelegate {
             }
             return
         }
-        
+
+        // PERF-INSTRUMENTATION
+        AppDelegate.perfLog("decoded|\(perfName)|\(finalCGImage.width)x\(finalCGImage.height)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfStart) * 1_000_000))")
+
         // Convert to NSImage then to JPEG Data
+        let perfEncodeStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
         let bitmapRep = NSBitmapImageRep(cgImage: finalCGImage)
         let data = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
-        
+        // PERF-INSTRUMENTATION
+        AppDelegate.perfLog("reencode|\(perfName)|bytes=\(data?.count ?? -1)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfEncodeStart) * 1_000_000))")
+
         DispatchQueue.main.async {
+            // PERF-INSTRUMENTATION
+            AppDelegate.perfLog("result.dispatch|\(perfName)|nativeTotal=\(Int((ProcessInfo.processInfo.systemUptime - perfEnqueue) * 1_000_000))")
             if let data = data {
                 result(FlutterStandardTypedData(bytes: data))
             } else {
