@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
+import '../services/image_preload_controller.dart';
 
 class MainDetailView extends StatefulWidget {
   const MainDetailView({super.key});
@@ -162,7 +165,7 @@ class _MainDetailViewState extends State<MainDetailView>
     );
   }
 
-  Widget _buildZoomableViewer(dynamic bytes) {
+  Widget _buildZoomableViewer(Uint8List? bytes) {
     if (bytes == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -176,6 +179,39 @@ class _MainDetailViewState extends State<MainDetailView>
         // Silently update layout center
         context.read<AppState>().lastKnownCenter = center;
 
+        // Tier-1 decode target = window logical size x devicePixelRatio.
+        // Forward it to AppState so the preload controller's precache
+        // decodes neighboring images at the SAME resolution this Image
+        // requests below (same provider factory, same size params ==
+        // same ImageCache key == cache hit instead of a silent second
+        // decode).
+        final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+        final targetWidth = (constraints.maxWidth * devicePixelRatio).round();
+        final targetHeight = (constraints.maxHeight * devicePixelRatio)
+            .round();
+        context.read<AppState>().setViewportSize(targetWidth, targetHeight);
+
+        final image = (targetWidth > 0 && targetHeight > 0)
+            ? Image(
+                image: tierOneProviderFor(
+                  bytes,
+                  width: targetWidth,
+                  height: targetHeight,
+                ),
+                fit: BoxFit.contain,
+                gaplessPlayback:
+                    true, // Prevent flickering when switching images
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.broken_image, size: 64),
+              )
+            : Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.broken_image, size: 64),
+              );
+
         return MouseRegion(
           onHover: (event) {
             context.read<AppState>().pointerPosition = event.localPosition;
@@ -188,16 +224,7 @@ class _MainDetailViewState extends State<MainDetailView>
             minScale: 1.0,
             maxScale: 5.0,
             trackpadScrollCausesScale: true,
-            child: Center(
-              child: Image.memory(
-                bytes,
-                fit: BoxFit.contain,
-                gaplessPlayback:
-                    true, // Prevent flickering when switching images
-                errorBuilder: (context, error, stackTrace) =>
-                    const Icon(Icons.broken_image, size: 64),
-              ),
-            ),
+            child: Center(child: image),
           ),
         );
       },

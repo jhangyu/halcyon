@@ -1,10 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
+
+// A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
+// without shipping a binary fixture file.
+final _tinyPngBytes = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
+  'AAYAAjCB0C8AAAAASUVORK5CYII=',
+);
 
 void main() {
   test(
@@ -184,6 +193,110 @@ void main() {
       }
       await firstPass;
       await secondPass;
+    },
+  );
+
+  test(
+    'tierOneProviderFor produces an identical ImageCache key for the same '
+    'bytes object identity and same width/height (AC2: display and '
+    'precache must share one cache entry, not silently double-decode)',
+    () async {
+      final bytes = Uint8List.fromList(List.generate(16, (i) => i));
+
+      // Simulates the precache call site.
+      final precacheProvider = tierOneProviderFor(bytes, width: 800, height: 600);
+      // Simulates the display call site: a fresh ResizeImage/MemoryImage
+      // instance, but built from the SAME bytes object and SAME dimensions.
+      final displayProvider = tierOneProviderFor(bytes, width: 800, height: 600);
+
+      final precacheKey = await precacheProvider.obtainKey(
+        ImageConfiguration.empty,
+      );
+      final displayKey = await displayProvider.obtainKey(
+        ImageConfiguration.empty,
+      );
+
+      expect(
+        precacheKey,
+        equals(displayKey),
+        reason:
+            'ImageCache dedups strictly by key equality; a mismatch here '
+            'means the display path always misses the precache and '
+            'decodes a second time.',
+      );
+      expect(precacheKey.hashCode, equals(displayKey.hashCode));
+
+      // Sanity: a different bytes object (even with identical content and
+      // dimensions) must NOT collapse to the same key, since MemoryImage
+      // compares bytes by identity, not content. Rebuilding/copying the
+      // bytes between the precache and display call sites would silently
+      // reintroduce the double-decode bug this factory exists to prevent.
+      final copiedBytes = Uint8List.fromList(bytes);
+      final copiedProvider = tierOneProviderFor(
+        copiedBytes,
+        width: 800,
+        height: 600,
+      );
+      final copiedKey = await copiedProvider.obtainKey(
+        ImageConfiguration.empty,
+      );
+      expect(copiedKey, isNot(equals(precacheKey)));
+    },
+  );
+
+  testWidgets(
+    'precache-then-display resolves as an ImageCache hit (AC2 integration: '
+    'no second decode once the tier-1 entry is warm)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final bytes = Uint8List.fromList(_tinyPngBytes);
+
+        final precacheProvider = tierOneProviderFor(bytes, width: 10, height: 10);
+        final precacheKey = await precacheProvider.obtainKey(
+          ImageConfiguration.empty,
+        );
+
+        // Simulate the controller's precache: resolve without ever
+        // attaching to a widget tree or passing a BuildContext.
+        final completer = Completer<void>();
+        final stream = precacheProvider.resolve(ImageConfiguration.empty);
+        late ImageStreamListener listener;
+        listener = ImageStreamListener(
+          (image, synchronousCall) {
+            stream.removeListener(listener);
+            completer.complete();
+          },
+          onError: (error, stackTrace) {
+            stream.removeListener(listener);
+            completer.completeError(error, stackTrace);
+          },
+        );
+        stream.addListener(listener);
+        await completer.future;
+
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(precacheKey),
+          isTrue,
+          reason: 'precache must land a decoded entry under this key',
+        );
+
+        // Simulate the display path: a fresh provider instance, same bytes
+        // object + same size.
+        final displayProvider = tierOneProviderFor(bytes, width: 10, height: 10);
+        final displayKey = await displayProvider.obtainKey(
+          ImageConfiguration.empty,
+        );
+
+        expect(displayKey, equals(precacheKey));
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(displayKey),
+          isTrue,
+          reason:
+              'display path key must already be present in the cache '
+              'populated by precache -> ImageCache.putIfAbsent returns the '
+              'cached entry instead of decoding again',
+        );
+      });
     },
   );
 }

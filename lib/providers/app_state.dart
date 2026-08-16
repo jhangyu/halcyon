@@ -92,6 +92,15 @@ class AppState extends ChangeNotifier {
   Uint8List? getThumbnailBytes(String id) =>
       _preloadController.thumbnailBytesFor(id);
 
+  // Forwards the current detail viewport's decode target size (logical size
+  // x devicePixelRatio, computed by the view) to the preload controller so
+  // its tier-1 precache decodes neighbors at the same resolution the view
+  // will request. Silent update, no notifyListeners (mirrors
+  // lastKnownCenter): this doesn't change what's displayed this frame.
+  void setViewportSize(int width, int height) {
+    _preloadController.updateTargetSize(width, height);
+  }
+
   Future<void> openFolder() async {
     final String? directoryPath = await getDirectoryPath();
     if (directoryPath != null) {

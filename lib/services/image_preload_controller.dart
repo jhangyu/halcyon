@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/painting.dart';
+
 import '../models/photo_item.dart';
 import 'native_thumbnail_service.dart';
 
@@ -9,6 +11,24 @@ typedef ImageBytesLoader =
       String path, {
       required ImageRequestPurpose purpose,
     });
+
+/// Shared tier-1 (window-resolution) provider factory. MUST be used by both
+/// the display widget and the precache path with the SAME [bytes] object
+/// identity and the SAME [width]/[height] — the resulting [ResizeImageKey]
+/// is only equal (i.e. resolves as a cache hit instead of a silent second
+/// decode) when all three match.
+ImageProvider tierOneProviderFor(
+  Uint8List bytes, {
+  required int width,
+  required int height,
+}) {
+  return ResizeImage(
+    MemoryImage(bytes),
+    width: width,
+    height: height,
+    policy: ResizeImagePolicy.fit,
+  );
+}
 
 class ImagePreloadController {
   ImagePreloadController({required ImageBytesLoader imageLoader})
@@ -23,6 +43,11 @@ class ImagePreloadController {
   // in-flight load completes so the UI never strands on a permanent spinner.
   final Map<String, List<VoidCallback>> _pendingPreviewNotifies = {};
 
+  // Tier-1 (window-resolution) decode precache bookkeeping.
+  int? _tierOneWidth;
+  int? _tierOneHeight;
+  final Map<String, Object> _tierOneKeys = {};
+
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
   Timer? _thumbnailDebounceTimer;
@@ -36,9 +61,20 @@ class ImagePreloadController {
     _thumbCache.clear();
     _loadingKeys.clear();
     _pendingPreviewNotifies.clear();
+    _tierOneKeys.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
+  }
+
+  /// Called by the view whenever the viewport's decode target size is known
+  /// (window logical size x devicePixelRatio). Used only for the tier-1
+  /// precache; the display path computes and passes the same size directly
+  /// to [tierOneProviderFor] itself, so there is a single source of truth
+  /// per frame and no risk of the two diverging.
+  void updateTargetSize(int width, int height) {
+    _tierOneWidth = width;
+    _tierOneHeight = height;
   }
 
   void dispose() {
@@ -75,6 +111,57 @@ class ImagePreloadController {
       pendingLoads.add(_loadPreview(items[i], notifyLoaded: null));
     }
     await Future.wait(pendingLoads);
+
+    _precacheTierOneWindow(items, currentIndex);
+  }
+
+  // Tier-1 precache: decode current +/-2 at window resolution ahead of
+  // display, using the SAME provider factory the view uses. Requires
+  // [updateTargetSize] to have been called at least once (from a previous
+  // layout pass); no-ops otherwise, degrading to on-demand full decode at
+  // display time (functionally correct, just slower for that frame).
+  void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
+    final width = _tierOneWidth;
+    final height = _tierOneHeight;
+    if (width == null || height == null) return;
+
+    final tierStart = (currentIndex - 2).clamp(0, items.length - 1);
+    final tierEnd = (currentIndex + 2).clamp(0, items.length - 1);
+    final neededIds = <String>{};
+
+    for (var i = tierStart; i <= tierEnd; i++) {
+      final item = items[i];
+      final bytes = _imageCache[item.id];
+      if (bytes == null) continue; // not loaded yet; retried on next pass
+      neededIds.add(item.id);
+      _decodeIntoImageCache(
+        item.id,
+        tierOneProviderFor(bytes, width: width, height: height),
+      );
+    }
+
+    final staleIds = _tierOneKeys.keys
+        .where((id) => !neededIds.contains(id))
+        .toList();
+    for (final id in staleIds) {
+      final key = _tierOneKeys.remove(id);
+      if (key != null) {
+        PaintingBinding.instance.imageCache.evict(key);
+      }
+    }
+  }
+
+  void _decodeIntoImageCache(String id, ImageProvider provider) {
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, synchronousCall) => stream.removeListener(listener),
+      onError: (error, stackTrace) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+    provider
+        .obtainKey(const ImageConfiguration())
+        .then((key) => _tierOneKeys[id] = key);
   }
 
   Future<void> _loadPreview(

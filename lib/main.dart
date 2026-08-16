@@ -3,7 +3,18 @@ import 'package:provider/provider.dart';
 import 'providers/app_state.dart';
 import 'views/main_screen.dart';
 
+// Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
+// decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
+// precaching needs headroom for several images at once.
+const int imageCacheMaxBytes = 500 << 20;
+
+void configureImageCache() {
+  PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheMaxBytes;
+}
+
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  configureImageCache();
   runApp(
     ChangeNotifierProvider(
       create: (context) => AppState(),
