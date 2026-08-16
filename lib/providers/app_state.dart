@@ -6,6 +6,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
+import '../services/decoded_rgba_image_provider.dart';
+import '../services/dng_decode_contract.dart';
 import '../services/image_preload_controller.dart';
 import '../services/native_thumbnail_service.dart';
 import '../services/photo_file_actions.dart';
@@ -13,7 +15,7 @@ import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
 
 typedef ThumbnailLoader =
-    Future<Uint8List?> Function(
+    Future<NativeImageResult> Function(
       String path, {
       required ImageRequestPurpose purpose,
     });
@@ -25,6 +27,7 @@ class AppState extends ChangeNotifier {
     PhotoFileActions? fileActions,
     ImagePreloadController? preloadController,
     ThumbnailLoader? thumbnailLoader,
+    DngFullDecoder? dngDecoder,
   }) : _scanner = scanner ?? PhotoLibraryScanner(),
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
@@ -34,10 +37,14 @@ class AppState extends ChangeNotifier {
              imageLoader:
                  thumbnailLoader ??
                  ((path, {required purpose}) =>
-                     NativeThumbnailService.getThumbnail(
+                     NativeThumbnailService.requestImage(
                        path,
                        purpose: purpose,
                      )),
+             // Null until the app's composition root injects the pkg squad's
+             // adapter. While null, a DNG with no embedded preview falls back
+             // to the legacy CIRAWFilter bytes rather than showing nothing.
+             dngDecoder: dngDecoder,
            ) {
     _initPrefs();
   }
@@ -89,6 +96,14 @@ class AppState extends ChangeNotifier {
 
   Uint8List? get currentImageBytes =>
       _preloadController.imageBytesFor(_selectedItemID);
+
+  /// Non-null when the current item is a DNG with no embedded preview whose
+  /// native RAW decode has landed. Such items have NO preview bytes at all
+  /// ([currentImageBytes] stays null for them), so this single
+  /// full-resolution provider serves what would otherwise be tier-1 and
+  /// tier-2, and the view must check it before it decides to show a spinner.
+  DecodedRgbaImageProvider? get currentDecodedProvider =>
+      _preloadController.decodedProviderFor(_selectedItemID);
 
   Uint8List? getThumbnailBytes(String id) =>
       _preloadController.thumbnailBytesFor(id);

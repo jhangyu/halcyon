@@ -13,6 +13,39 @@ import ImageIO
 // Deliberately Foundation-only (no FlutterMacOS import) so it can be compiled
 // and exercised standalone by scripts/tmp/probe_extract.swift.
 
+// MARK: - Read-only orientation accessor (Round 3b)
+//
+// Reads the IFD0 Orientation tag (0x0112) without performing any extraction
+// judgment. Used by AppDelegate to attach EXIF orientation to the
+// NO_EMBEDDED_PREVIEW signal when extractFullSizeEmbeddedJpeg finds no
+// candidate. Returns 1 (no transform) when the file cannot be parsed or the
+// tag is absent -- mirrors the default used inside extractFullSizeEmbeddedJpeg.
+func readDngOrientation(url: URL) -> UInt32 {
+  guard let data = try? Data(contentsOf: url), data.count >= 8 else { return 1 }
+
+  let start = data.startIndex
+  let b0 = data[start]
+  let b1 = data[start + 1]
+  let littleEndian: Bool
+  if b0 == 0x49 && b1 == 0x49 {
+    littleEndian = true
+  } else if b0 == 0x4D && b1 == 0x4D {
+    littleEndian = false
+  } else {
+    return 1
+  }
+
+  let reader = TIFFReader(data: data, littleEndian: littleEndian)
+  guard let magic = reader.u16(2), magic == 42 else { return 1 }
+  guard let ifd0Offset = reader.u32(4) else { return 1 }
+  guard let (ifd0, _) = reader.readIFD(at: Int(ifd0Offset)) else { return 1 }
+
+  if let entry = ifd0[0x0112], let vals = reader.values(entry), let v = vals.first {
+    return v
+  }
+  return 1
+}
+
 func extractFullSizeEmbeddedJpeg(url: URL) -> Data? {
   guard let data = try? Data(contentsOf: url), data.count >= 8 else { return nil }
 

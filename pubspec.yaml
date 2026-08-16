@@ -39,6 +39,8 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   shared_preferences: ^2.5.4
+  dng_processor:
+    path: ../flutter_dng_decoder/dng_processor
 
 dev_dependencies:
   flutter_test:

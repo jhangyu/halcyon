@@ -107,7 +107,7 @@ void main() {
         final state = AppState(
           thumbnailLoader: (path, {required purpose}) async {
             calls.add(purpose);
-            return Uint8List.fromList([1, 2, 3]);
+            return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
           },
         );
 
@@ -147,7 +147,7 @@ Future<void> _touch(Directory dir, String name) {
 AppState _testState() {
   return AppState(
     thumbnailLoader: (path, {required purpose}) async {
-      return Uint8List.fromList([1, 2, 3]);
+      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
     },
   );
 }

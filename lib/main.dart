@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
+import 'services/dng_decode_service.dart';
 import 'views/main_screen.dart';
 
 // Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
@@ -16,7 +17,12 @@ void configureImageCache() {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   configureImageCache();
-  final appState = AppState(); // PERF-INSTRUMENTATION
+  // Composition root: injects the real RAW decoder. AppState's dngDecoder
+  // defaults to null (which degrades to the legacy CIRAWFilter bytes path),
+  // so this line is what makes the round-3b raw-decode path reachable at all.
+  final appState = AppState(
+    dngDecoder: halcyonDngFullDecoder,
+  ); // PERF-INSTRUMENTATION
   runApp(
     ChangeNotifierProvider.value(
       value: appState, // PERF-INSTRUMENTATION

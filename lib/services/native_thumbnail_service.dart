@@ -20,25 +20,125 @@ enum ImageRequestPurpose {
   final String platformValue;
 }
 
+/// Outcome of a native image-bytes request.
+///
+/// ROUND-3B FROZEN INTEGRATION TYPE (pipe squad). Written by the squad lead
+/// before implementation started so the native-signal half and the decode/
+/// display half program against the same shape without negotiating it
+/// mid-flight. Exactly three variants; do not add a fourth without the
+/// squad lead's sign-off.
+sealed class NativeImageResult {
+  const NativeImageResult();
+}
+
+/// The native side returned encoded image bytes (JPEG). The pre-existing
+/// happy path; replaces the old non-null `Uint8List` return.
+class NativeImageBytes extends NativeImageResult {
+  const NativeImageBytes(this.bytes);
+
+  final Uint8List bytes;
+}
+
+/// The file is a DNG that carries no embedded full-size JPEG preview, so the
+/// caller must run a real RAW decode (see `DngFullDecoder` in
+/// `dng_decode_contract.dart`). This is NOT a failure.
+///
+/// [exifOrientation] is the IFD0 Orientation tag value read natively, in the
+/// range 1..8; it is [kDefaultExifOrientation] when the tag is absent or
+/// unparseable. The decoder does not apply EXIF orientation, so Halcyon must.
+class NativeImageNeedsRawDecode extends NativeImageResult {
+  const NativeImageNeedsRawDecode({required this.exifOrientation});
+
+  final int exifOrientation;
+}
+
+/// A genuine failure (unreadable file, convert failure, native error).
+/// Replaces the old `null` return; callers must treat this, and only this,
+/// as "no image available".
+class NativeImageFailure extends NativeImageResult {
+  const NativeImageFailure(this.code, this.message);
+
+  final String code;
+  final String? message;
+}
+
+/// EXIF Orientation value meaning "no transform"; also the fallback used when
+/// the tag is missing or outside the 1..8 range.
+const int kDefaultExifOrientation = 1;
+
+/// Native error code signalling [NativeImageNeedsRawDecode]. Emitted by
+/// `macos/Runner/AppDelegate.swift` only for `purpose == "preview"` on a
+/// `.dng` whose embedded-JPEG extraction returned nil.
+const String kNoEmbeddedPreviewCode = 'NO_EMBEDDED_PREVIEW';
+
+/// Channel argument name for opting OUT of the [kNoEmbeddedPreviewCode]
+/// signal. When `false`, the native side keeps the pre-round-3b behaviour:
+/// a DNG with no embedded preview falls silently through to the CIRAWFilter
+/// path. This is the safety fallback, used by [NativeThumbnailService.getThumbnail].
+const String kAllowRawDecodeSignalArg = 'allowRawDecodeSignal';
+
 class NativeThumbnailService {
   static const MethodChannel _channel = MethodChannel('halcyon/thumbnail');
 
-  /// Requests the native platform to extract a thumbnail from the given file path.
-  static Future<Uint8List?> getThumbnail(
+  /// Requests image bytes from the native platform, distinguishing "this DNG
+  /// needs a real RAW decode" ([NativeImageNeedsRawDecode]) from a genuine
+  /// failure ([NativeImageFailure]).
+  ///
+  /// Set [allowRawDecodeSignal] to false to force the legacy behaviour, in
+  /// which a DNG with no embedded preview is decoded natively via CIRAWFilter
+  /// and returned as bytes (slow, capped at `targetSize`). That is the
+  /// fallback used when no `DngFullDecoder` is available or when one throws.
+  static Future<NativeImageResult> requestImage(
     String path, {
     ImageRequestPurpose purpose = ImageRequestPurpose.preview,
     int? targetSize,
+    bool allowRawDecodeSignal = true,
   }) async {
     try {
       final Uint8List? bytes = await _channel.invokeMethod('getThumbnail', {
         'path': path,
         'purpose': purpose.platformValue,
         'targetSize': targetSize ?? purpose.targetSize,
+        kAllowRawDecodeSignalArg: allowRawDecodeSignal,
       });
-      return bytes;
+      if (bytes == null) {
+        return const NativeImageFailure('NULL_RESULT', 'Native returned null');
+      }
+      return NativeImageBytes(bytes);
     } on PlatformException catch (e) {
+      if (e.code == kNoEmbeddedPreviewCode) {
+        return NativeImageNeedsRawDecode(
+          exifOrientation: _parseOrientation(e.details),
+        );
+      }
       debugPrint("Failed to get native thumbnail: '${e.message}'.");
-      return null;
+      return NativeImageFailure(e.code, e.message);
     }
+  }
+
+  /// Legacy bytes-or-null entry point, preserved bit-for-bit for callers that
+  /// cannot handle the round-3b result type (`lib/perf/perf_driver.dart`, and
+  /// the raw-decode fallback path). Always sends
+  /// [kAllowRawDecodeSignalArg] = false, so the native side behaves exactly as
+  /// it did before round 3b.
+  static Future<Uint8List?> getThumbnail(
+    String path, {
+    ImageRequestPurpose purpose = ImageRequestPurpose.preview,
+    int? targetSize,
+  }) async {
+    final result = await requestImage(
+      path,
+      purpose: purpose,
+      targetSize: targetSize,
+      allowRawDecodeSignal: false,
+    );
+    return result is NativeImageBytes ? result.bytes : null;
+  }
+
+  /// EXIF Orientation is 1..8; anything else (absent, wrong type, out of
+  /// range) degrades to [kDefaultExifOrientation] rather than throwing.
+  static int _parseOrientation(Object? details) {
+    if (details is int && details >= 1 && details <= 8) return details;
+    return kDefaultExifOrientation;
   }
 }

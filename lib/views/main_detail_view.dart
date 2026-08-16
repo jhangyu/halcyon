@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
+import '../services/decoded_rgba_image_provider.dart';
 import '../services/image_preload_controller.dart';
 
 class MainDetailView extends StatefulWidget {
@@ -108,6 +109,7 @@ class _MainDetailViewState extends State<MainDetailView>
             bytes,
             state.currentItemHasFullSize,
             currentId, // PERF-INSTRUMENTATION
+            state.currentDecodedProvider,
           ),
         ),
 
@@ -248,9 +250,12 @@ class _MainDetailViewState extends State<MainDetailView>
     Uint8List? bytes,
     bool useFullSize,
     String currentId, // PERF-INSTRUMENTATION
+    DecodedRgbaImageProvider? decodedProvider,
   ) {
     _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
-    if (bytes == null) {
+    // A raw-decoded DNG has no preview bytes by construction, so "no bytes"
+    // is only a spinner when there is no decoded image either.
+    if (bytes == null && decodedProvider == null) {
       _perfSpinner(currentId); // PERF-INSTRUMENTATION
       return const Center(child: CircularProgressIndicator());
     }
@@ -272,8 +277,7 @@ class _MainDetailViewState extends State<MainDetailView>
         // decode).
         final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
         final targetWidth = (constraints.maxWidth * devicePixelRatio).round();
-        final targetHeight = (constraints.maxHeight * devicePixelRatio)
-            .round();
+        final targetHeight = (constraints.maxHeight * devicePixelRatio).round();
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
         // useFullSize (AppState.currentItemHasFullSize) is true only when
@@ -285,14 +289,28 @@ class _MainDetailViewState extends State<MainDetailView>
         // like the tier-1 branch below, and never triggers (or waits on) a
         // decode on this build/UI path -- the check itself is bookkeeping,
         // not a resolve.
-        final ImageProvider provider = useFullSize
-            ? fullSizeProviderFor(bytes)
-            : tierOneProviderFor(bytes, width: targetWidth, height: targetHeight);
+        // A decoded RAW image is ALREADY full resolution and already
+        // orientation-corrected, and its item has no bytes to fall back to,
+        // so it wins outright over both byte-backed tiers. The provider
+        // object comes from the preload controller (not built here) so the
+        // display path and the controller's eviction share one object
+        // identity, exactly as the two byte-backed factories require.
+        final ImageProvider provider =
+            decodedProvider ??
+            (useFullSize
+                ? fullSizeProviderFor(bytes!)
+                : tierOneProviderFor(
+                    bytes!,
+                    width: targetWidth,
+                    height: targetHeight,
+                  ));
+        final isFullResolution = decodedProvider != null || useFullSize;
 
         // PERF-INSTRUMENTATION
-        _perfTrack(context, currentId, provider, useFullSize ? 2 : 1);
+        _perfTrack(context, currentId, provider, isFullResolution ? 2 : 1);
 
-        final image = (useFullSize || (targetWidth > 0 && targetHeight > 0))
+        final image =
+            (isFullResolution || (targetWidth > 0 && targetHeight > 0))
             ? Image(
                 image: provider,
                 fit: BoxFit.contain,
@@ -302,7 +320,7 @@ class _MainDetailViewState extends State<MainDetailView>
                     const Icon(Icons.broken_image, size: 64),
               )
             : Image.memory(
-                bytes,
+                bytes!,
                 fit: BoxFit.contain,
                 gaplessPlayback: true,
                 errorBuilder: (context, error, stackTrace) =>

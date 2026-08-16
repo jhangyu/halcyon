@@ -23,8 +23,11 @@ class AppDelegate: FlutterAppDelegate {
         
         let targetSize = args["targetSize"] as? Int ?? 4000
         let purpose = args["purpose"] as? String ?? "preview"
-        
-        self.getFastThumbnail(path: path, targetSize: targetSize, purpose: purpose, result: result)
+        // allowRawDecodeSignal defaults to true when absent (see
+        // kAllowRawDecodeSignalArg in lib/services/native_thumbnail_service.dart).
+        let allowRawDecodeSignal = args["allowRawDecodeSignal"] as? Bool ?? true
+
+        self.getFastThumbnail(path: path, targetSize: targetSize, purpose: purpose, allowRawDecodeSignal: allowRawDecodeSignal, result: result)
       } else {
         result(FlutterMethodNotImplemented)
       }
@@ -81,7 +84,7 @@ class AppDelegate: FlutterAppDelegate {
     if perfEnabled { print("PERFNATIVE|\(Int(ProcessInfo.processInfo.systemUptime * 1_000_000))|\(s)") }
   }
 
-  private func getFastThumbnail(path: String, targetSize: Int, purpose: String, result: @escaping FlutterResult) {
+  private func getFastThumbnail(path: String, targetSize: Int, purpose: String, allowRawDecodeSignal: Bool, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
     let perfName = (path as NSString).lastPathComponent // PERF-INSTRUMENTATION
     let perfEnqueue = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
@@ -127,12 +130,31 @@ class AppDelegate: FlutterAppDelegate {
             passthroughData = data
         } else if isPreviewRequest && isDng {
             let perfReadStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
-            let extracted = extractFullSizeEmbeddedJpeg(url: url) // nil => fall through, not an error
+            let extracted = extractFullSizeEmbeddedJpeg(url: url) // nil => no embedded preview, not an error
             // PERF-INSTRUMENTATION
             if let extracted = extracted {
                 AppDelegate.perfLog("dngPassthrough.read|\(perfName)|bytes=\(extracted.count)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfReadStart) * 1_000_000))")
             } else {
                 AppDelegate.perfLog("dngPassthrough.miss|\(perfName)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfReadStart) * 1_000_000))")
+            }
+
+            // Round 3b: when extraction misses on a preview-purpose DNG and the
+            // caller has not opted out (allowRawDecodeSignal), surface an explicit
+            // NO_EMBEDDED_PREVIEW error carrying EXIF orientation instead of
+            // silently falling through to the slow CIRAWFilter path below. Callers
+            // that need the pre-round-3b fallback behaviour (e.g. the legacy
+            // NativeThumbnailService.getThumbnail) send allowRawDecodeSignal=false,
+            // which keeps this branch a no-op and preserves the old fall-through.
+            if extracted == nil && allowRawDecodeSignal {
+                let orientation = readDngOrientation(url: url)
+                DispatchQueue.main.async {
+                    // PERF-INSTRUMENTATION
+                    AppDelegate.perfLog("result.dispatch|\(perfName)|nativeTotal=\(Int((ProcessInfo.processInfo.systemUptime - perfEnqueue) * 1_000_000))|noEmbeddedPreview")
+                    result(FlutterError(code: "NO_EMBEDDED_PREVIEW",
+                                         message: "DNG has no embedded full-size JPEG preview",
+                                         details: Int(orientation)))
+                }
+                return
             }
             passthroughData = extracted
         }
