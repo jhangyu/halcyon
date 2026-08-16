@@ -1,6 +1,6 @@
 ---
 date: 2026-05-01
-title: "Photo Selector — 專案說明文件 (README)"
+title: "Halcyon — 專案說明文件 (README)"
 ---
 
 ## 🧭 檔案維護政策
@@ -18,7 +18,7 @@ title: "Photo Selector — 專案說明文件 (README)"
 
 ---
 
-# Photo Selector
+# Halcyon
 
 一個高效的 **RAW / JPG 照片快速分類工具**。主線採 Flutter app，並透過 macOS/iOS native bridge 取得平台原生影像能力，幫助攝影師快速瀏覽、標記星號或刪除，並一鍵複製/移動已標記照片到指定資料夾。
 
@@ -44,7 +44,7 @@ title: "Photo Selector — 專案說明文件 (README)"
 本專案主線為 Flutter app；平台原生能力由 Flutter Runner 中的 native bridge 提供：
 
 ```
-Photo_Selector/
+Halcyon/
 ├── lib/
 │   ├── models/                    # PhotoItem 與支援格式 registry
 │   ├── providers/                 # AppState UI 協調層
@@ -68,7 +68,7 @@ Photo_Selector/
 ### Flutter 版（macOS / iOS / Android / Web）
 
 ```bash
-cd /Users/jhangyu/Documents/Photo_Selector
+cd /Users/jhangyu/Documents/Halcyon
 
 # 安裝依賴
 flutter pub get
@@ -109,7 +109,7 @@ Android build 在 macOS 上會優先使用 Temurin JDK 25，找不到時退回 H
 
 | 平台 | 輸出位置 |
 |------|----------|
-| macOS | `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| macOS | `build/macos/Build/Products/Release/halcyon_flutter.app` |
 | Android APK | `build/app/outputs/flutter-apk/` |
 | Android AAB | `build/app/outputs/bundle/` |
 | Web | `build/web/` |
@@ -182,7 +182,7 @@ A: 目前 Flutter 主線仍為**永久刪除**（`file.delete()`）。移到 mac
 
 **Q: 狀態標記如何保存？**
 
-A: 放在照片資料夾根目錄的 `.photo_selector_status.json` 檔案中。JSON 格式，方便版本控制與遷移。
+A: 放在照片資料夾根目錄的 `.halcyon_status.json` 檔案中。JSON 格式，方便版本控制與遷移。
 
 ---
 

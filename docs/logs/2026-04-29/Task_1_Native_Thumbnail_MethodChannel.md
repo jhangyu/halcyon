@@ -22,7 +22,7 @@ status: success
 在 Flutter macOS Runner 中建立原生縮圖提取 MethodChannel handler，使 `NativeThumbnailService.getThumbnail()` 在 macOS 上可用。
 
 ### 現況
-- `lib/services/native_thumbnail_service.dart` 已定義 `MethodChannel('photo_selector/thumbnail')` 與 `getThumbnail()` 方法。
+- `lib/services/native_thumbnail_service.dart` 已定義 `MethodChannel('halcyon/thumbnail')` 與 `getThumbnail()` 方法。
 - `ios/Runner/AppDelegate.swift` 中已有參考實作（使用 `CGImageSourceCreateThumbnailAtIndex`）。
 - `macos/Runner/AppDelegate.swift` **尚未實作** handler——這是本 Task 的核心工作。
 

@@ -1,6 +1,6 @@
 ---
-date: 2026-05-01
-title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
+date: 2026-05-05
+title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 ---
 
 ## 🧭 檔案維護政策
@@ -43,7 +43,7 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 
 ### AD-004｜狀態持久化格式
 - **日期**：2026-04-29
-- **決策**：使用 `.photo_selector_status.json` 存放於當前資料夾，格式為 `{ photoId: "starred"|"trashed"|"unmarked", _last_viewed_id: "..." }`。
+- **決策**：使用 `.halcyon_status.json` 存放於當前資料夾，格式為 `{ photoId: "starred"|"trashed"|"unmarked", _last_viewed_id: "..." }`。
 - **Flutter**：讀寫由 `AppState._saveStatusCache()` / `_saveLastViewedId()` 管理。
 - **SwiftUI**：已退役，不再補建持久化。
 - **依據**：不需要資料庫，JSON 檔直接放在照片目錄中方便遷移與版本控制。
@@ -66,6 +66,13 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 - **相容策略**：Flutter 3.35.1 的 `dev.flutter.flutter-gradle-plugin` 尚未相容 AGP 9 new DSL / built-in Kotlin，因此目前保留 `android.newDsl=false`、`android.builtInKotlin=false` 與 `org.jetbrains.kotlin.android` plugin。
 - **驗證**：`./scripts/build.sh android` 使用 JDK 25 成功產出 `build/app/outputs/flutter-apk/app-release.apk`；`flutter test` 11 個測試通過。
 - **後續**：等 Flutter 升級到支援 AGP 9 new DSL 後，再移除相容旗標並改用 built-in Kotlin。
+
+### AD-008｜Trash 操作透過 macOS MethodChannel
+- **日期**：2026-05-05
+- **決策**：Flutter 刪除已標記照片時不再直接 `File.delete()`，改由 `TrashService` 呼叫 `halcyon/trash` MethodChannel，macOS 端使用 `FileManager.default.trashItem`。
+- **Flutter**：`lib/services/trash_service.dart` 定義 contract；`PhotoFileActions.deleteTrashed()` 透過可注入 `TrashFile` callback 呼叫，方便單元測試。
+- **macOS**：`macos/Runner/AppDelegate.swift` 註冊 `halcyon/trash` channel 與 `trashFile` method。
+- **驗證狀態**：Dart 測試已新增但尚未執行；2026-05-05 容器 PATH 無 `flutter` / `dart`。
 
 ---
 
@@ -118,6 +125,17 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 - **解法**：macOS 原生端需根據 `targetSize` 分流：小圖保留 `CGImageSourceCreateThumbnailAtIndex`，主圖/高解析請求優先使用原圖輸出並保留方向修正。
 - **狀態**：已修復（Task 6）。非 RAW 且 `targetSize > 4000` 的請求改用 `CGImageSourceCreateImageAtIndex` + CoreImage orientation 修正；實機 JPG 視覺覆核待使用者確認。
 
+### G-010｜View 層直接寫入 AppState 欄位（反向資料流）
+- **嚴重程度**：中
+- **問題**：`main_detail_view.dart` 有 4 處在 widget build/callback 中直接對 `AppState` 的 public 欄位做 setter，破壞單向資料流。
+  - Line 94：`context.read<AppState>().shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
+  - Line 177：`context.read<AppState>().lastKnownCenter = center`（`LayoutBuilder` 每次 rebuild 寫入）
+  - Line 181：`context.read<AppState>().pointerPosition = event.localPosition`（hover callback 寫入）
+  - Line 184：`context.read<AppState>().pointerPosition = null`（mouse exit 寫入）
+- **根因**：`app_state.dart:67-73` 的 zoom/animation 欄位（`transformCtrl`、`pointerPosition`、`lastKnownCenter`、`targetMatrix`、`shouldAnimateZoom`）屬於純 View 層狀態，不應放在 business provider。
+- **解法**：Task 19 將 zoom 相關欄位與 `_zoomBy()` 邏輯移至 `_MainDetailViewState`，由 `AnimationController` 本身驅動，不再依賴 provider 旗標；鍵盤縮放改透過 widget 方法觸發。
+- **待辦**：Task 19（Phase 10）。
+
 ### G-009｜JDK 25 需要 Gradle 9.1+，且 Flutter Gradle Plugin 暫需 AGP 9 相容模式
 - **嚴重程度**：中
 - **問題**：舊 toolchain（Gradle 8.12 / AGP 8.9.1 / Kotlin 2.1.0）在 Temurin JDK 25 下會於 Gradle Kotlin DSL 階段失敗，錯誤為 `IllegalArgumentException: 25.0.2`。
@@ -133,18 +151,23 @@ title: "Photo Selector — 全域知識庫與避坑指南 (Memory)"
 | TD-001 | SwiftUI 版本狀態持久化 | 已關閉 | Task 7 退役 SwiftUI，不再實作 |
 | TD-002 | Flutter macOS 原生 MethodChannel | 已關閉 | Task 1 / Task 8 已完成 |
 | TD-003 | 側邊欄縮圖尺寸 / 載入優先順序優化 | 中 | 可根據視窗大小動態調整 targetSize |
-| TD-004 | 刪除操作移到垃圾桶而非永久刪除 | 中 | Flutter `file.delete()` 目前為 unlink |
-| TD-005 | `widget_test.dart` 為預設範本，未反映實際 App | 低 | 需替換為有意義的 smoke test |
-| TD-006 | JPG 主圖與縮圖共用 native API 需明確尺寸契約 | 高 | Task 6 修正 macOS 分流 |
+| TD-004 | 刪除操作移到垃圾桶而非永久刪除 | 待驗證 | Task 12 已改為 `TrashService` + macOS `FileManager.trashItem`；待 `flutter analyze` / `flutter test` / `flutter build macos` 與實機 Trash 驗證 |
+| TD-005 | `widget_test.dart` 為預設範本，未反映實際 App | 已關閉 | Task 3 已替換為有意義的 smoke test |
+| TD-006 | JPG 主圖與縮圖共用 native API 需明確尺寸契約 | 已關閉 | Task 6 / Task 8 修正 macOS 分流 |
 | TD-007 | AppState 職責過大 | 已關閉 | Task 9 已拆分掃描、狀態、快取、檔案操作 |
 | TD-008 | 支援格式定義分散 | 已關閉 | Task 10 已建立 `SupportedPhotoFormats` registry |
-| TD-009 | AGP 9 new DSL / built-in Kotlin 遷移 | 中 | 目前為 Flutter 3.35.1 相容性保留舊 DSL；待 Flutter toolchain 支援後再移除相容旗標 |
+| TD-009 | AGP 9 new DSL / built-in Kotlin 遷移 | 中 | Flutter 3.35.1 相容模式；待 Flutter toolchain 升級後移除相容旗標 |
+| TD-010 | `PhotoFileActions` copy/move/delete 完全無單元測試 | **高** | Task 15 待辦；無測試保護下資料操作風險極高 |
+| TD-011 | Zoom 狀態（`transformCtrl`、`pointerPosition`）混在 `AppState` | 低 | 應提取為獨立 `ZoomState` Provider；Task 19 待辦 |
+| TD-012 | macOS `AppDelegate.swift` 缺乏深層錯誤處理 | 中 | CIContext/CIFilter/CGImage 未加 try-catch；無大型 RAW 記憶體上限；Task 17 待辦 |
+| TD-013 | `sidebar_view.dart:48` `_itemHeight = 48.0` 硬編碼 | 低 | 主題密度改變時 scroll 位置計算會失準 |
+| TD-014 | `sidebar_view.dart` 三處重複 iconColor 判斷且色值不一致 | 低 | Line 114-117（`32,32,32`）vs Line 229-231、250-252（`59,59,59`）— 需提取 `_iconColor()` helper；Task 20 待辦 |
 
 ---
 
 ## 重要約定
 
-1. **JSON 狀態檔**：放在照片目錄根目錄，命名為 `.photo_selector_status.json`，以 `.` 開頭確保隱藏。
+1. **JSON 狀態檔**：放在照片目錄根目錄，命名為 `.halcyon_status.json`，以 `.` 開頭確保隱藏。
 2. **側邊欄寬度**：預設 270px，可拖曳調整（最小 180px，最大 600px）。
 3. **縮圖目標尺寸**：側邊欄 200px，主圖 10000px（Full Resolution 預覽）；native 端需依 targetSize 分流避免主圖退化為縮圖。
 4. **鍵盤快捷鍵**（Flutter）：

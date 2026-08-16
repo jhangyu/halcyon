@@ -15,9 +15,7 @@ enum ImageRequestPurpose {
 }
 
 class NativeThumbnailService {
-  static const MethodChannel _channel = MethodChannel(
-    'photo_selector/thumbnail',
-  );
+  static const MethodChannel _channel = MethodChannel('halcyon/thumbnail');
 
   /// Requests the native platform to extract a thumbnail from the given file path.
   static Future<Uint8List?> getThumbnail(

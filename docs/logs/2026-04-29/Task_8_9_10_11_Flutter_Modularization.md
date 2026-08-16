@@ -43,4 +43,4 @@ Phase 4 目標是讓 Flutter 主線從大型 `AppState` 收斂為可測、可維
 
 - `flutter analyze`：0 issues。
 - `flutter test`：11 tests passed。
-- `flutter build macos`：成功產出 `build/macos/Build/Products/Release/photo_selector_flutter.app`。
+- `flutter build macos`：成功產出 `build/macos/Build/Products/Release/halcyon_flutter.app`。

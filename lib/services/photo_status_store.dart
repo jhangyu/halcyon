@@ -13,7 +13,7 @@ class PhotoStatusSnapshot {
 
 class PhotoStatusStore {
   File statusFileFor(Directory dir) {
-    return File(p.join(dir.path, '.photo_selector_status.json'));
+    return File(p.join(dir.path, '.halcyon_status.json'));
   }
 
   Future<PhotoStatusSnapshot> applySavedStatuses(

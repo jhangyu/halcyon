@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:photo_selector_flutter/main.dart';
-import 'package:photo_selector_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/main.dart';
+import 'package:halcyon_flutter/providers/app_state.dart';
 
 void main() {
   setUp(() {
@@ -23,7 +23,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AppState(),
-        child: const PhotoSelectorApp(),
+        child: const HalcyonApp(),
       ),
     );
 

@@ -91,7 +91,7 @@ status: success
 ### 2026-04-29T00:55:00+08:00 — 驗證結果
 - `flutter analyze`：通過，`No issues found!`
 - `flutter test`：通過，`All tests passed!`
-- `flutter build macos`：通過，輸出 `build/macos/Build/Products/Release/photo_selector_flutter.app (39.8MB)`
+- `flutter build macos`：通過，輸出 `build/macos/Build/Products/Release/halcyon_flutter.app (39.8MB)`
 
 ---
 

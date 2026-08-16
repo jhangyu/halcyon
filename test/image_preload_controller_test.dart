@@ -2,8 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:photo_selector_flutter/models/photo_item.dart';
-import 'package:photo_selector_flutter/services/image_preload_controller.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_preload_controller.dart';
 
 void main() {
   test(

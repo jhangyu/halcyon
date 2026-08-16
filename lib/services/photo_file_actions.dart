@@ -3,8 +3,16 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/photo_item.dart';
+import 'trash_service.dart';
+
+typedef TrashFile = Future<void> Function(File file);
 
 class PhotoFileActions {
+  PhotoFileActions({TrashFile? trashFile})
+    : _trashFile = trashFile ?? TrashService.trashFile;
+
+  final TrashFile _trashFile;
+
   Future<void> processStarred(
     List<PhotoItem> items,
     Directory destination, {
@@ -54,9 +62,16 @@ class PhotoFileActions {
           file.parent.path,
           '._${p.basename(file.path)}',
         );
-        await file.delete();
-        await _deleteIfExists(srcSidecarPath);
+        await _trashFile(file);
+        await _trashIfExists(srcSidecarPath);
       }
+    }
+  }
+
+  Future<void> _trashIfExists(String path) async {
+    final file = File(path);
+    if (await file.exists()) {
+      await _trashFile(file);
     }
   }
 

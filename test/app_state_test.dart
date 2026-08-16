@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:photo_selector_flutter/models/photo_item.dart';
-import 'package:photo_selector_flutter/providers/app_state.dart';
-import 'package:photo_selector_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -18,9 +18,7 @@ void main() {
     test(
       'scans supported files, ignores hidden files, and groups by photo id',
       () async {
-        final dir = await Directory.systemTemp.createTemp(
-          'photo_selector_scan_',
-        );
+        final dir = await Directory.systemTemp.createTemp('halcyon_scan_');
         addTearDown(() => dir.delete(recursive: true));
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0001.arw');
@@ -38,13 +36,11 @@ void main() {
     );
 
     test('restores saved statuses and last viewed id from JSON', () async {
-      final dir = await Directory.systemTemp.createTemp(
-        'photo_selector_status_',
-      );
+      final dir = await Directory.systemTemp.createTemp('halcyon_status_');
       addTearDown(() => dir.delete(recursive: true));
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
-      await File(p.join(dir.path, '.photo_selector_status.json')).writeAsString(
+      await File(p.join(dir.path, '.halcyon_status.json')).writeAsString(
         json.encode({
           '_last_viewed_id': 'IMG_0002',
           'IMG_0001': 'starred',
@@ -60,7 +56,7 @@ void main() {
       final jsonMap =
           json.decode(
                 await File(
-                  p.join(dir.path, '.photo_selector_status.json'),
+                  p.join(dir.path, '.halcyon_status.json'),
                 ).readAsString(),
               )
               as Map<String, dynamic>;
@@ -68,7 +64,7 @@ void main() {
     });
 
     test('scans RW2 files into photo groups', () async {
-      final dir = await Directory.systemTemp.createTemp('photo_selector_rw2_');
+      final dir = await Directory.systemTemp.createTemp('halcyon_rw2_');
       addTearDown(() => dir.delete(recursive: true));
       await _touch(dir, 'P1000001.rw2');
 
@@ -84,9 +80,7 @@ void main() {
     test(
       'auto-advance moves to the next photo after applying a new status',
       () async {
-        final dir = await Directory.systemTemp.createTemp(
-          'photo_selector_mark_',
-        );
+        final dir = await Directory.systemTemp.createTemp('halcyon_mark_');
         addTearDown(() => dir.delete(recursive: true));
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0002.jpg');
@@ -105,9 +99,7 @@ void main() {
     test(
       'uses semantic image request purposes for preview and sidebar thumbnail loading',
       () async {
-        final dir = await Directory.systemTemp.createTemp(
-          'photo_selector_request_',
-        );
+        final dir = await Directory.systemTemp.createTemp('halcyon_request_');
         addTearDown(() => dir.delete(recursive: true));
         await _touch(dir, 'IMG_0001.jpg');
 
@@ -128,7 +120,7 @@ void main() {
     );
 
     test('nextPhoto and previousPhoto move selection within bounds', () async {
-      final dir = await Directory.systemTemp.createTemp('photo_selector_nav_');
+      final dir = await Directory.systemTemp.createTemp('halcyon_nav_');
       addTearDown(() => dir.delete(recursive: true));
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');

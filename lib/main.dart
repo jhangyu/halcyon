@@ -7,18 +7,18 @@ void main() {
   runApp(
     ChangeNotifierProvider(
       create: (context) => AppState(),
-      child: const PhotoSelectorApp(),
+      child: const HalcyonApp(),
     ),
   );
 }
 
-class PhotoSelectorApp extends StatelessWidget {
-  const PhotoSelectorApp({super.key});
+class HalcyonApp extends StatelessWidget {
+  const HalcyonApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Photo Selector',
+      title: 'Halcyon',
       themeMode: ThemeMode.system, // Adapt to macOS system theme
       // Antigravity Day Theme
       theme: ThemeData(

@@ -1,6 +1,6 @@
 ---
-date: 2026-05-01
-title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
+date: 2026-05-05
+title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 ---
 
 ## 🧭 檔案維護政策
@@ -39,11 +39,12 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 | 2 | Flutter macOS 原生整合 | ✅ 已完成 | macOS MethodChannel 實作、語意化影像 request contract |
 | 3 | 單元測試覆蓋 | ✅ 已完成 | `app_state_test.dart`、`photo_item_test.dart`、widget smoke test |
 | 4 | Flutter 架構模組化 | ✅ 已完成 | AppState 拆分、影像 request contract、格式 registry |
-| 5 | 生產力增強 | 🔲 待辦 | Trash 操作、CLI 工具、CI/CD |
+| 5 | 生產力增強 | 🔲 進行中 | Trash MethodChannel（Task 12）、PhotoFileActions 測試（Task 15）、CI/CD（Task 18）|
 | 6 | 影像載入相容性修正 | ✅ 已完成 | JPG 主圖高解析載入、RW2 掃描支援 |
 | 7 | Flutter 主線整理 | ✅ 已完成 | SwiftUI 退役、文件與任務收斂 |
-| 8 | 專案結構整理 | ✅ 已完成 | `apps/`、`assets/`、`artifacts/`、`local_data/` 分層 |
+| 8 | 專案結構整理 | ✅ 已完成 | `assets/`、`artifacts/`、`local_data/` 分層 |
 | 9 | Android build toolchain 升級 | ✅ 已完成 | Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21、JDK 25 build |
+| 10 | 技術債清償 | 🔲 待辦 | Auto-advance 修正（Task 16）、AppDelegate 強化（Task 17）、Zoom 狀態下沉（Task 19）、sidebar 重複邏輯（Task 20）|
 
 ---
 
@@ -174,16 +175,24 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 
 ---
 
-## Phase 5 — 生產力增強 🔲 待辦
+## Phase 5 — 生產力增強 🔲 進行中
 
-**目標**：提升工具可用性與長期維護性。
+**目標**：消除資料安全風險、強化測試防護、建立 CI/CD 自動化。
 
 **交付物**：
-- Trash 操作（取代永久刪除）
-- 統一建置入口：`scripts/build.sh`（已完成；支援 macOS / Android / Web / Windows / Linux / all）
-- CLI 工具：`scripts/batch_tag.dart`（批次標記腳本，待辦）
-- 效能分析：記憶體使用報告
-- CI/CD：GitHub Actions 自動化測試腳本
+
+| Task | 說明 | 優先級 | 狀態 |
+|------|------|--------|------|
+| Task 12 | Trash MethodChannel（`deleteTrashed()` 改為 macOS Trash）| 🔴 緊急 | 待驗證 |
+| Task 15 | `PhotoFileActions` copy/move/delete 單元測試補強 | 🔴 高 | 🔲 待辦 |
+| Task 18 | CI/CD GitHub Actions（`flutter analyze` + `flutter test` + `flutter build macos`）| 🟡 中 | 🔲 待辦 |
+| — | 統一建置入口 `scripts/build.sh` | ✅ 已完成 | 支援 macOS / Android / Web / all |
+| — | CLI 工具 `scripts/batch_tag.dart` | 🟢 低 | 🔲 待辦（後排）|
+
+**驗收標準**：
+- Task 12 完成後，照片刪除流程不再永久移除檔案
+- Task 15 完成後，`flutter test` 測試數 ≥ 16，覆蓋 copy/move/trash 三條路徑
+- Task 18 完成後，每次 push 到 main 自動執行完整驗證
 
 ---
 
@@ -225,6 +234,30 @@ title: "Photo Selector — 中長期里程碑與路線圖 (Plan)"
 
 ---
 
+## Phase 10 — 技術債清償 🔲 待辦
+
+**目標**：消除技術債評估（2026-05-04）識別出的中低優先架構問題，降低未來維護成本。
+
+**觸發條件**：Phase 5 主要任務（Task 12、Task 15）完成後開始。
+
+**交付物**：
+
+| Task | 說明 | 來源 | 優先級 |
+|------|------|------|--------|
+| Task 16 | G-005 Auto-advance Toggle off 不應前進的行為修正 | G-005 | 🟡 中 |
+| Task 17 | macOS `AppDelegate.swift` CIContext/CIFilter 錯誤處理強化 | TD-012 | 🟡 中 |
+| Task 19 | Zoom 狀態下沉至 View 層，消除反向資料流（G-010、TD-011）| G-010 / TD-011 | 🟡 中 |
+| Task 20 | `sidebar_view.dart` iconColor 重複邏輯提取（Quick Win）| TD-014 | 🟢 低 |
+| — | AGP 9 new DSL 遷移（`android.newDsl=false` 移除）| TD-009 | 🟢 低（等 Flutter 升級）|
+
+**驗收標準**：
+- Task 16 完成後，G-005 狀態更新為已修復，行為有測試覆蓋
+- Task 17 完成後，native 端對無效輸入回傳 `FlutterError`，不 crash
+- Task 19 完成後，`AppState` 不持有任何 zoom/animation 欄位；`main_detail_view.dart` 無反向 setter
+- Task 20 完成後，`sidebar_view.dart` iconColor 邏輯只定義一次，色值一致
+
+---
+
 ## 路線圖總覽
 
 ```
@@ -236,7 +269,8 @@ Phase 0 ✅ ──────────────────────�
                           └── Phase 4 ✅
                                 └── Phase 8 ✅
                                       └── Phase 9 ✅ Android toolchain
-                                            └── Phase 5 🔲 ←───── 下一個焦點
+                                            └── Phase 5 🔲 ←───── 當前焦點
+                                                  └── Phase 10 🔲 技術債清償
 ```
 
 ---

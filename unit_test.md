@@ -1,6 +1,6 @@
 ---
-date: 2026-05-01
-title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
+date: 2026-05-05
+title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 ---
 
 ## 🧭 檔案維護政策
@@ -33,11 +33,12 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 | 優先順序 | 模組 | 原因 |
 |----------|------|------|
 | P0 | `AppState` | 所有核心邏輯集中處，破壞性風險最高 |
+| P0 | `PhotoFileActions` | copy/move/delete 直接操作使用者檔案，完全無測試（TD-010）|
 | P1 | `PhotoItem.bestFileToLoad` | 影響縮圖來源決策 |
 | P1 | `NativeThumbnailService` | Flutter macOS 整合關鍵路徑 |
 | P2 | `MainScreen` | 鍵盤快捷鍵、側邊欄拖曳 |
 | P2 | `SidebarView` | 縮圖預載觸發邏輯 |
-| P3 | `MainDetailView` | 動畫、放大縮小 |
+| P3 | `MainDetailView` | 動畫、放大縮小（Task 19 完成後 zoom 邏輯移至 View 層）|
 
 ---
 
@@ -54,13 +55,13 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 | 放大縮小 | ✅ | |
 | 複製星號檔案 | ✅ | |
 | 移動星號檔案 | ✅ | |
-| 刪除已標記檔案 | ✅ | 目前仍為永久刪除，Task 12 改為 Trash |
+| 刪除已標記檔案 | ✅ | Task 12 已改為 Trash service，待完整 Flutter/macOS 驗證 |
 | Auto-advance | ✅ | |
 | Overwrite-existing | ✅ | |
 | 狀態持久化（JSON）| ✅ | |
 | macOS Day/Night Theme | ✅ | |
 | 設定對話框 | ✅ | |
-| Trash 而非永久刪除 | ❌ | Flutter Task 12 |
+| Trash 而非永久刪除 | 待驗證 | Task 12 已新增 MethodChannel 實作與 Dart 測試；待 macOS 實機驗證 |
 
 ---
 
@@ -87,7 +88,7 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 | **測試 ID** | TC-002 |
 | **名稱** | AppState 正確解析並還原 starred/trashed 狀態 |
 | **測試類型** | 單元測試 |
-| **測試資料** | `.photo_selector_status.json` 含 `_last_viewed_id` 與 `{"photoId": "starred"}` |
+| **測試資料** | `.halcyon_status.json` 含 `_last_viewed_id` 與 `{"photoId": "starred"}` |
 | **預期結果** | 載入後 `items[i].status == PhotoStatus.starred`，`_selectedItemID == lastViewedId` |
 | **驗證方式** | `test/app_state_test.dart` |
 | **狀態** | ✅ 已通過 |
@@ -188,6 +189,90 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-011｜PhotoFileActions — copy 成功情境
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-011 |
+| **名稱** | `processStarred()` copy 模式正確複製已標記照片至目標目錄 |
+| **測試類型** | 單元測試（使用 `dart:io` temp 目錄，不 mock）|
+| **測試資料** | temp 來源目錄含 `IMG_001.jpg`（status: starred）、`IMG_002.jpg`（status: unmarked）|
+| **預期結果** | 目標目錄僅出現 `IMG_001.jpg`；來源目錄兩者仍存在（copy 非 move）|
+| **驗證方式** | `test/photo_file_actions_test.dart` |
+| **狀態** | 🔲 Task 15 待建立 |
+
+---
+
+### TC-012｜PhotoFileActions — move 模式含 sidecar 清理
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-012 |
+| **名稱** | `processStarred()` move 模式移動後清除 AppleDouble sidecar |
+| **測試類型** | 單元測試（使用 `dart:io` temp 目錄）|
+| **測試資料** | temp 來源目錄含 `IMG_001.arw`（status: starred）與 `._IMG_001.arw`（sidecar）|
+| **預期結果** | `IMG_001.arw` 出現在目標目錄；來源目錄的原檔與 sidecar 均消失；目標目錄無 sidecar |
+| **驗證方式** | `test/photo_file_actions_test.dart` |
+| **狀態** | 🔲 Task 15 待建立 |
+
+---
+
+### TC-013｜PhotoFileActions — overwriteExisting=false 跳過已存在目標
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-013 |
+| **名稱** | `processStarred()` 在 `overwriteExisting=false` 且目標已存在時跳過複製 |
+| **測試類型** | 單元測試 |
+| **測試資料** | 目標目錄已存在 `IMG_001.jpg`；來源目錄亦有 `IMG_001.jpg`（status: starred）|
+| **預期結果** | 目標目錄的 `IMG_001.jpg` 內容與呼叫前一致（未被覆蓋）|
+| **驗證方式** | `test/photo_file_actions_test.dart` |
+| **狀態** | 🔲 Task 15 待建立 |
+
+---
+
+### TC-014｜AppState — Toggle off 時 auto-advance 不前進
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-014 |
+| **名稱** | `markCurrent()` 在 Toggle off（狀態已相同）時不觸發 auto-advance |
+| **測試類型** | 單元測試 |
+| **測試資料** | `autoAdvance=true`；當前照片 status 已為 `starred`；再次呼叫 `markCurrent(PhotoStatus.starred)` |
+| **預期結果** | status 切換為 `unmarked`；`selectedItemID` 保持不變（不前進到下一張）|
+| **驗證方式** | `test/app_state_test.dart` |
+| **狀態** | 🔲 Task 16 待建立（需先與使用者確認 G-005 行為）|
+
+---
+
+### TC-015｜PhotoFileActions — Trash 成功情境
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-015 |
+| **名稱** | `deleteTrashed()` 透過 Trash service 處理已標記刪除的原檔與 AppleDouble sidecar |
+| **測試類型** | 單元測試（注入 trash callback，使用 `dart:io` temp 目錄）|
+| **測試資料** | temp 來源目錄含 `IMG_0001.jpg`（status: trashed）、`._IMG_0001.jpg`、`IMG_0002.jpg`（status: unmarked）|
+| **預期結果** | trash callback 收到 `IMG_0001.jpg` 與 `._IMG_0001.jpg`；未標記檔案不受影響 |
+| **驗證方式** | `test/photo_file_actions_test.dart` |
+| **狀態** | 待執行（2026-05-05 容器內 `flutter` / `dart` 不在 PATH） |
+
+---
+
+### TC-016｜PhotoFileActions — Trash 失敗保留原檔
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-016 |
+| **名稱** | `deleteTrashed()` 在 Trash service 失敗時拋出錯誤且保留來源檔 |
+| **測試類型** | 單元測試（注入失敗 trash callback）|
+| **測試資料** | temp 來源目錄含 `IMG_0001.jpg`（status: trashed）|
+| **預期結果** | 呼叫拋出 `FileSystemException`；`IMG_0001.jpg` 仍存在 |
+| **驗證方式** | `test/photo_file_actions_test.dart` |
+| **狀態** | 待執行（2026-05-05 容器內 `flutter` / `dart` 不在 PATH） |
+
+---
+
 ### TC-010｜NativeThumbnailService — JPG 主圖尺寸契約
 
 | 欄位 | 內容 |
@@ -207,7 +292,7 @@ title: "Photo Selector — 測試策略與品質門檻 (Unit Test)"
 ### Flutter 測試指令
 
 ```bash
-cd /Users/jhangyu/Documents/Photo_Selector
+cd /Users/jhangyu/project/Halcyon
 
 # 執行所有測試
 flutter test
@@ -221,20 +306,22 @@ flutter test --coverage
 
 ## 成功標準
 
-| 指標 | 目前 | Phase 3 目標 |
-|------|------|-------------|
-| 測試案例總數 | 11 | ≥ 5 |
-| TC-001 ~ TC-010 通過率 | 11 個測試通過；TC-007/TC-008 以底層行為覆蓋 | 100% |
-| `flutter analyze` | 0 issues（Task 6） | 0 errors, 0 warnings |
-| 覆蓋率門檻 | - | > 60%（行覆蓋）|
+| 指標 | 目前 | Phase 5 目標 | Phase 10 目標 |
+|------|------|-------------|--------------|
+| 測試案例總數 | 11 | ≥ 16（含 TC-011~TC-014）| ≥ 18 |
+| TC-001 ~ TC-014 通過率 | 11/11 通過；TC-011~TC-014 待建立 | TC-011~TC-013 通過 | TC-014 通過（G-005 確認後）|
+| `flutter analyze` | 0 issues | 0 errors, 0 warnings | 0 errors, 0 warnings |
+| 覆蓋率門檻 | — | > 60%（行覆蓋）| > 70% |
+| `PhotoFileActions` 覆蓋 | 0% | copy/move/trash 三條路徑均覆蓋 | 同 Phase 5 |
 
 ### 判定條件
 
-全部滿足以下條件才視為 Phase 3 完成：
-1. `flutter test` exit code = 0
-2. TC-001 ~ TC-010 矩陣狀態全部為 ✅ 已通過或已有等價底層行為覆蓋
-3. `flutter analyze` 無 error
-4. `task.md` Task 3 所有子任務為 ✅ 完成
+全部滿足以下條件才視為 Phase 5 完成：
+1. `flutter test` exit code = 0，測試數 ≥ 16
+2. TC-001 ~ TC-013 矩陣狀態全部為 ✅ 已通過
+3. `flutter analyze` 無 error / warning
+4. `task.md` Task 12、Task 15 所有子任務為 ✅ 完成
+5. Task 12 完成後：照片標記刪除後移入 macOS Trash，不永久消失
 
 ---
 
@@ -244,7 +331,7 @@ flutter test --coverage
   - **範例指令**：`./scripts/build.sh`、`./scripts/build.sh android`、`./scripts/build.sh web`、`./scripts/build.sh android-aab --release`
   - **必要輸入**：可選 target；可選 `--debug` / `--profile` / `--release`；可選環境變數 `BUILD_MODE`
   - **契約檢查摘要**：檢查 Flutter CLI 是否存在、target 是否為支援值、host OS 是否支援對應 desktop target；Android build 會套用 JDK 25 / 21 / 17 fallback。
-  - **主要輸出**：根目錄 `build/`；Android APK 為 `build/app/outputs/flutter-apk/app-release.apk`，Web 為 `build/web/`，macOS 為 `build/macos/Build/Products/<Mode>/photo_selector_flutter.app`
+  - **主要輸出**：根目錄 `build/`；Android APK 為 `build/app/outputs/flutter-apk/app-release.apk`，Web 為 `build/web/`，macOS 為 `build/macos/Build/Products/<Mode>/halcyon_flutter.app`
   - **成功判定**：腳本 exit code = 0，且輸出路徑存在。
   - **相容性影響**：Android 目前使用 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，以支援 Temurin JDK 25。
 - 目前無專用測試腳本，依賴 `flutter test` 標準指令。若需批次測試可建立 `scripts/run_tests.sh`。
@@ -255,16 +342,16 @@ flutter test --coverage
 |------|------|------|------|
 | 2026-04-29 | Task 6 | `flutter analyze` | ✅ 通過，0 issues |
 | 2026-04-29 | Task 6 | `flutter test` | ✅ 通過，1 個 widget smoke test |
-| 2026-04-29 | Task 6 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| 2026-04-29 | Task 6 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/halcyon_flutter.app` |
 | 2026-04-29 | Task 7 | `flutter analyze` | ✅ 通過，0 issues |
 | 2026-04-29 | Task 7 | `flutter test` | ✅ 通過，1 個 widget smoke test |
-| 2026-04-29 | Task 7 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| 2026-04-29 | Task 7 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/halcyon_flutter.app` |
 | 2026-04-29 | Phase 2/3/4 | `flutter analyze` | ✅ 通過，0 issues |
 | 2026-04-29 | Phase 2/3/4 | `flutter test` | ✅ 通過，11 個測試 |
-| 2026-04-29 | Phase 2/3/4 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| 2026-04-29 | Phase 2/3/4 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/halcyon_flutter.app` |
 | 2026-04-29 | Task 13 | `flutter test` | ✅ 通過，11 個測試 |
 | 2026-04-29 | Task 13 | `flutter analyze` | ✅ 通過，0 issues |
-| 2026-04-29 | Task 13 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/photo_selector_flutter.app` |
+| 2026-04-29 | Task 13 | `flutter build macos` | ✅ 通過，產出 `build/macos/Build/Products/Release/halcyon_flutter.app` |
 | 2026-04-29 | Build script | `./scripts/build.sh web` | ✅ 通過，產出 `build/web/` |
 | 2026-04-29 | Build script | `./scripts/build.sh android` | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-04-29 | Build script | `./scripts/build.sh android` with JDK 21 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |

@@ -1,6 +1,6 @@
 ---
 date: 2026-05-01
-title: "Photo Selector Flutter — 套件說明文件"
+title: "Halcyon Flutter — 套件說明文件"
 ---
 
 ## 🧭 檔案維護政策
@@ -11,11 +11,11 @@ title: "Photo Selector Flutter — 套件說明文件"
 
 **必填欄位**：`date`（YYYY-MM-DD）、`title`。
 
-**跨檔同步對象**：`/Users/jhangyu/Documents/Photo_Selector/README.md`（專案總覽）、`/Users/jhangyu/Documents/Photo_Selector/file_index.md`（目錄結構）。
+**跨檔同步對象**：`/Users/jhangyu/Documents/Halcyon/README.md`（專案總覽）、`/Users/jhangyu/Documents/Halcyon/file_index.md`（目錄結構）。
 
 ---
 
-# Photo Selector — Flutter 跨平台版
+# Halcyon — Flutter 跨平台版
 
 一個 Flutter 跨平台 RAW / JPG 照片快速分類工具（macOS/iOS/Android/Web）。
 

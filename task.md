@@ -1,6 +1,6 @@
 ---
-date: 2026-05-01
-title: "Photo Selector — 任務真實狀態來源 (Task)"
+date: 2026-05-05
+title: "Halcyon — 任務真實狀態來源 (Task)"
 ---
 
 ## 🧭 檔案維護政策
@@ -25,8 +25,8 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 
 - **Task**: 12 — Flutter Trash MethodChannel
 - **Log File**: [Task_12_Flutter_Trash_MethodChannel.md](docs/logs/2026-04-29/Task_12_Flutter_Trash_MethodChannel.md)
-- **中斷點與交接 (Handover)**: Phase 2/3/4、Task 13 專案結構整理、Task 14 Android toolchain JDK 25 升級皆已完成；Flutter app 位於專案根目錄，Android build 已可用 Temurin JDK 25 產出 APK。下一步回到 Phase 5 的 Trash MethodChannel，避免照片永久刪除。
-- **下一個子步驟**: 進入 Phase 5，將 `deleteTrashed()` 從永久刪除改為 macOS Trash MethodChannel。
+- **中斷點與交接 (Handover)**: Task 12 已完成 Flutter `TrashService` contract、macOS `halcyon/trash` handler、`PhotoFileActions.deleteTrashed()` 改接 Trash service，並新增 trash 行為單元測試；目前容器 PATH 無 `flutter`/`dart`，尚未完成自動化驗證。
+- **下一個子步驟**: 在具備 Flutter SDK 的 macOS 環境執行 `flutter analyze` / `flutter test` / `flutter build macos`，並用真實照片資料夾確認檔案進入 Trash。
 
 ---
 
@@ -159,7 +159,122 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 
 **目標**：將 Flutter `deleteTrashed()` 從永久刪除改為 macOS Trash，避免不可逆刪除照片。
 
-**驗收標準**：已標記 trashed 的檔案移入 macOS Trash；失敗時保留錯誤訊息且不清除狀態；測試或手動驗證記錄於 Task log。
+**子任務**：
+- [x] 12.1 評估方案：Swift `FileManager.trashItem` 透過 MethodChannel（`halcyon/trash` channel）
+- [x] 12.2 新增 `lib/services/trash_service.dart`：Flutter 端 MethodChannel 呼叫介面
+- [x] 12.3 在 `macos/Runner/AppDelegate.swift` 新增 `trash_service` handler
+- [x] 12.4 修改 `PhotoFileActions.deleteTrashed()` 改呼叫 `TrashService`；失敗時保留原檔與狀態
+- [x] 12.5 補充 Task log、`unit_test.md`；新增 Dart trash 行為測試
+- [ ] 12.6 驗證：`flutter analyze` / `flutter test` / `flutter build macos`；手動確認照片移入垃圾桶
+
+**驗收標準**：已標記 trashed 的檔案移入 macOS Trash；失敗時保留錯誤訊息且不清除狀態；`flutter analyze` / `flutter test` / `flutter build macos` 通過。
+
+**目前狀態**：實作完成但驗證受阻（2026-05-05 容器內 `flutter` / `dart` 不在 PATH）。新增 `test/photo_file_actions_test.dart`，待可用 Flutter SDK 環境重跑完整驗證。
+
+---
+
+### Task 15｜PhotoFileActions 單元測試補強 🔲 待辦
+
+**目標**：補上 `PhotoFileActions` copy/move/delete 的單元測試，消除資料操作無測試保護的風險（TD-010）。
+
+**子任務**：
+- [ ] 15.1 建立 `test/photo_file_actions_test.dart`
+- [ ] 15.2 測試 `processStarred()` — copy 成功、目的地已存在、來源不存在（各一案例）
+- [ ] 15.3 測試 `processStarred()` — move 模式成功、sidecar AppleDouble 清理
+- [ ] 15.4 測試 `deleteTrashed()`（Task 12 完成後）— Trash 成功、失敗保留狀態
+- [ ] 15.5 更新 `unit_test.md` 登錄新測試案例
+
+**驗收標準**：`flutter test` 新增 5+ 測試案例且全數通過；覆蓋 copy/move/trash 三條路徑的成功與失敗情境。
+
+---
+
+### Task 16｜G-005 Auto-advance Toggle 行為確認與修正 🔲 待辦
+
+**目標**：釐清並修正 `markCurrent()` 在 Toggle off 時是否應自動前進的行為（G-005）。
+
+**子任務**：
+- [ ] 16.1 與使用者確認預期行為：Toggle off 時不應前進（待確認）
+- [ ] 16.2 若確認不前進，修改 `AppState.markCurrent()` 邏輯
+- [ ] 16.3 在 `test/app_state_test.dart` 新增 toggle-off 不前進的測試案例
+- [ ] 16.4 更新 `memory.md` G-005 狀態為已修復
+
+**驗收標準**：G-005 行為已確認並記錄；測試覆蓋 toggle-off 情境；`flutter test` 全數通過。
+
+---
+
+### Task 17｜macOS AppDelegate.swift 錯誤處理強化 🔲 待辦
+
+**目標**：強化 `macos/Runner/AppDelegate.swift` 的錯誤處理，防止 CIContext/CIFilter 邊界情況導致 native crash（TD-012）。
+
+**子任務**：
+- [ ] 17.1 在 `CIContext.init`、`CIFilter.init` 加入 optional guard 或 try-catch 等效防護
+- [ ] 17.2 在 EXIF orientation enum cast（`Int32`）加入範圍驗證（有效值：1–8）
+- [ ] 17.3 評估大型 RAW 檔案（>100MB）解碼時是否需要記憶體上限保護
+- [ ] 17.4 驗證 `flutter build macos` 通過；記錄 Task log
+
+**驗收標準**：native 端對無效輸入回傳明確 `FlutterError`，不 crash；`flutter build macos` 成功；`memory.md` TD-012 更新。
+
+---
+
+### Task 18｜CI/CD GitHub Actions 自動化 🔲 待辦
+
+**目標**：建立 GitHub Actions workflow，每次 push 自動執行 `flutter analyze`、`flutter test`、`flutter build macos`，防止回歸（Phase 5 交付物）。
+
+**子任務**：
+- [ ] 18.1 建立 `.github/workflows/ci.yml`：triggers on push/PR to main
+- [ ] 18.2 Job 1：`flutter analyze` + `flutter test`（在 macOS runner）
+- [ ] 18.3 Job 2：`flutter build macos --release`（artifact upload 可選）
+- [ ] 18.4 在 `unit_test.md` 登錄 CI 執行命令
+- [ ] 18.5 更新 `file_index.md` 加入 `.github/` 目錄
+
+**驗收標準**：PR 頁面顯示 CI 狀態；`flutter analyze` + `flutter test` 必須通過才可合併。
+
+---
+
+### Task 19｜Zoom 狀態下沉至 View 層（消除反向資料流）🔲 待辦
+
+**目標**：將 `AppState` 中的 zoom/animation 純 View 狀態還給 `_MainDetailViewState`，消除 view 直接寫入 provider 的反向資料流（G-010、TD-011）。
+
+**背景**：架構審查（2026-05-04）確認以下欄位屬於純 View 層，不應存在 business provider：
+- `app_state.dart:67` `transformCtrl`（`TransformationController`）
+- `app_state.dart:68` `pointerPosition`（mouse hover 位置）
+- `app_state.dart:69` `lastKnownCenter`（layout 中心，LayoutBuilder 每幀寫入）
+- `app_state.dart:72` `targetMatrix`（動畫目標矩陣，one-shot 旗標）
+- `app_state.dart:73` `shouldAnimateZoom`（one-shot 觸發旗標）
+
+並確認以下反向寫入需消除：
+- `main_detail_view.dart:94` `shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
+- `main_detail_view.dart:177` `lastKnownCenter = center`（LayoutBuilder callback 每次 rebuild 寫入）
+- `main_detail_view.dart:181` `pointerPosition = event.localPosition`
+- `main_detail_view.dart:184` `pointerPosition = null`
+
+**子任務**：
+- [ ] 19.1 在 `_MainDetailViewState` 新增 zoom 欄位：`_transformCtrl`、`_pointerPosition`、`_lastKnownCenter`
+- [ ] 19.2 將 `_zoomBy()` 邏輯（`app_state.dart:187-216`）搬入 `_MainDetailViewState`，以本地 `setState()` 驅動動畫，不再透過 `AppState.shouldAnimateZoom`
+- [ ] 19.3 keyboard zoom（S/X 由 `main_screen.dart` 轉發）改為直接呼叫 `_MainDetailViewState` 的 `stepZoomIn()` / `stepZoomOut()` 公開方法（或透過 GlobalKey / callback 傳遞）
+- [ ] 19.4 `AppState` 移除五個 zoom 欄位與 `stepZoomIn()`、`stepZoomOut()`、`_zoomBy()`；`dispose()` 移除 `transformCtrl.dispose()`
+- [ ] 19.5 `flutter analyze` / `flutter test` 全數通過；更新 `file_index.md`
+
+**驗收標準**：`AppState` 不再持有任何 zoom/animation 欄位；`main_detail_view.dart` 不再對 `AppState` 做 setter 操作；`flutter test` 全數通過；無功能回歸。
+
+---
+
+### Task 20｜SidebarView iconColor 重複邏輯提取 🔲 待辦
+
+**目標**：消除 `sidebar_view.dart` 中三處重複且色值不一致的 iconColor 判斷邏輯（TD-014），提取為私有 helper（Quick Win，1–2 小時）。
+
+**背景**：架構審查（2026-05-04）發現以下三處重複，且 title color（`32,32,32`）與 icon color（`59,59,59`）存在不一致：
+- `sidebar_view.dart:114-117`：header title color（`32,32,32`）
+- `sidebar_view.dart:229-231`：`_buildTopActions` iconColor（`59,59,59`）
+- `sidebar_view.dart:250-252`：`_buildActionMenu` iconColor（`59,59,59`，完全重複）
+
+**子任務**：
+- [ ] 20.1 在 `_SidebarViewState` 新增私有 helper `Color _iconColor(BuildContext context)`，統一使用 `59,59,59` 作為 light mode icon 色值
+- [ ] 20.2 將 Line 229-231 與 Line 250-252 改呼叫 `_iconColor(context)`
+- [ ] 20.3 確認 Line 114-117 的 title color 是否應與 icon color 一致（如是，一同修正；如否，加 comment 說明差異）
+- [ ] 20.4 `flutter analyze` / `flutter test` 通過
+
+**驗收標準**：`sidebar_view.dart` 中 iconColor 邏輯只定義一次；`flutter analyze` 0 issues；無視覺回歸。
 
 ### Task 13｜專案資料夾結構整理 ✅ 已完成
 
@@ -214,6 +329,7 @@ title: "Photo Selector — 任務真實狀態來源 (Task)"
 | 指標 | 數值 |
 |------|------|
 | 現有測試數 | 11 |
-| 目標測試數 | 5+ |
+| 目標測試數（Task 15/16 完成後）| 18+ |
 | 已通過測試數 | 11 |
+| 測試覆蓋缺口 | `PhotoFileActions`（copy/move/delete）完全未覆蓋 |
 | 測試覆蓋策略 | 詳見 `unit_test.md` |

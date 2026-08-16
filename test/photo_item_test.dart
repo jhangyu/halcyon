@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:photo_selector_flutter/models/photo_item.dart';
-import 'package:photo_selector_flutter/models/supported_photo_formats.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 
 void main() {
   group('PhotoItem.bestFileToLoad', () {

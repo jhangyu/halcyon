@@ -7,10 +7,12 @@ import ImageIO
 class AppDelegate: FlutterAppDelegate {
   override func applicationDidFinishLaunching(_ aNotification: Notification) {
     let controller = mainFlutterWindow?.contentViewController as! FlutterViewController
-    let channel = FlutterMethodChannel(name: "photo_selector/thumbnail",
-                                       binaryMessenger: controller.engine.binaryMessenger)
+    let thumbnailChannel = FlutterMethodChannel(name: "halcyon/thumbnail",
+                                                binaryMessenger: controller.engine.binaryMessenger)
+    let trashChannel = FlutterMethodChannel(name: "halcyon/trash",
+                                            binaryMessenger: controller.engine.binaryMessenger)
     
-    channel.setMethodCallHandler({
+    thumbnailChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if call.method == "getThumbnail" {
         guard let args = call.arguments as? [String: Any],
@@ -27,6 +29,46 @@ class AppDelegate: FlutterAppDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
+
+    trashChannel.setMethodCallHandler({
+      (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+      if call.method == "trashFile" {
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String,
+              !path.isEmpty else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing path", details: nil))
+          return
+        }
+
+        self.trashFile(path: path, result: result)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    })
+  }
+
+  private func trashFile(path: String, result: @escaping FlutterResult) {
+    let url = URL(fileURLWithPath: path)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+      guard FileManager.default.fileExists(atPath: url.path) else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "NOT_FOUND", message: "File does not exist", details: path))
+        }
+        return
+      }
+
+      do {
+        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        DispatchQueue.main.async {
+          result(nil)
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "TRASH_FAILED", message: error.localizedDescription, details: path))
+        }
+      }
+    }
   }
   
   private func getFastThumbnail(path: String, targetSize: Int, purpose: String, result: @escaping FlutterResult) {

@@ -1,6 +1,6 @@
 ---
-date: 2026-05-01
-title: "Photo Selector — 專案檔案地圖與目錄對照 (File Index)"
+date: 2026-05-05
+title: "Halcyon — 專案檔案地圖與目錄對照 (File Index)"
 ---
 
 ## 🧭 檔案維護政策
@@ -21,10 +21,10 @@ title: "Photo Selector — 專案檔案地圖與目錄對照 (File Index)"
 
 ## 📁 專案根目錄
 
-`/Users/jhangyu/Documents/Photo_Selector/`
+`/Users/jhangyu/Documents/Halcyon/`
 
 ```
-Photo_Selector/
+Halcyon/
 ├── rule.md                        # 開發標準作業程序（SOP）
 ├── memory.md                      # 全域知識庫與 Gotchas
 ├── task.md                        # 任務真實狀態看板
@@ -49,9 +49,10 @@ Photo_Selector/
 │   │   ├── services/
 │   │   │   ├── native_thumbnail_service.dart  # MethodChannel 影像 request contract
 │   │   │   ├── photo_library_scanner.dart     # 資料夾掃描與分組服務
-│   │   │   ├── photo_status_store.dart        # `.photo_selector_status.json` 讀寫服務
+│   │   │   ├── photo_status_store.dart        # `.halcyon_status.json` 讀寫服務
 │   │   │   ├── image_preload_controller.dart  # 主圖/縮圖 sliding window cache
-│   │   │   └── photo_file_actions.dart        # copy/move/delete 檔案操作服務
+│   │   │   ├── photo_file_actions.dart        # copy/move/trash 檔案操作服務
+│   │   │   └── trash_service.dart             # macOS Trash MethodChannel contract
 │   │   └── views/
 │   │       ├── main_screen.dart       # Scaffold + 鍵盤快捷鍵 + 側邊欄拖曳調整
 │   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載
@@ -61,6 +62,7 @@ Photo_Selector/
 │   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose 測試
 │   │   ├── image_preload_controller_test.dart  # sliding window cache 驅逐測試
 │   │   ├── photo_item_test.dart  # PhotoItem 與格式 registry 測試
+│   │   ├── photo_file_actions_test.dart  # PhotoFileActions trash/copy/move 行為測試
 │   │   └── widget_test.dart      # 有效 widget smoke test
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）
 │   │   └── Runner/
@@ -132,9 +134,10 @@ Photo_Selector/
 |------|----------|------|
 | `AppState` | `lib/providers/app_state.dart` | UI 狀態協調、選取、標記、設定與服務呼叫 |
 | `PhotoLibraryScanner` | `lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
-| `PhotoStatusStore` | `lib/services/photo_status_store.dart` | `.photo_selector_status.json` 讀寫與 orphan cleanup |
+| `PhotoStatusStore` | `lib/services/photo_status_store.dart` | `.halcyon_status.json` 讀寫與 orphan cleanup |
 | `ImagePreloadController` | `lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
-| `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/delete 檔案操作 |
+| `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/trash 檔案操作 |
+| `TrashService` | `lib/services/trash_service.dart` | `halcyon/trash` MethodChannel contract，將檔案移入 macOS Trash |
 | `NativeThumbnailService` | `lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
 | `SupportedPhotoFormats` | `lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
 
@@ -143,7 +146,7 @@ Photo_Selector/
 | 約定 | 路徑/值 |
 |------|---------|
 | 照片支援副檔名 | `.jpg`, `.jpeg`, `.arw`, `.rw2`, `.dng`, `.heic`, `.png` |
-| JSON 狀態檔 | `{folder}/.photo_selector_status.json` |
+| JSON 狀態檔 | `{folder}/.halcyon_status.json` |
 | 側邊欄縮圖 targetSize | `200`（px）|
 | 主圖 targetSize | `10000`（px，高解析/全尺寸預覽）|
 | 側邊欄寬度範圍 | 180px – 600px（預設 270px）|

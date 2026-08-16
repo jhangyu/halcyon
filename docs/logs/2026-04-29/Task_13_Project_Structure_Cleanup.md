@@ -35,7 +35,7 @@ status: success
 - **待確認**: 若未來需要納入示範照片，需另建小型 fixture，不使用 `local_data/` 的私人照片樣本。
 
 ### 2026-04-29
-- `photo_selector_flutter/` → 專案根目錄
+- `halcyon_flutter/` → 專案根目錄
 - `icon.png` / `icon.svg` → `assets/icons/`
 - `DNG/` / `JPG/` → `local_data/photo_samples/`
 - `PhotoSelector.zip` → `artifacts/archives/`

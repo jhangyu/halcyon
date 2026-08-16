@@ -39,4 +39,4 @@ Phase 3 目標是取代只有 widget smoke test 的低覆蓋狀態，補上 AppS
 
 - `flutter test`：11 tests passed。
 - `flutter analyze`：0 issues。
-- `flutter build macos`：成功產出 `build/macos/Build/Products/Release/photo_selector_flutter.app`。
+- `flutter build macos`：成功產出 `build/macos/Build/Products/Release/halcyon_flutter.app`。
