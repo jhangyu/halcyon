@@ -2,8 +2,33 @@
 
 > **建立時間**：2026-08-17 00:55（UTC+8）
 > **交接目的**：讓下一個 session 在 `flutter_dng_decoder` 解除 libjpeg sandbox 阻斷後，**重新整合並驗證**已完成的 Halcyon 管路。終態是：無內嵌預覽的 DNG 在 release `.app` 內走真解碼上屏，且 `rawDecode.ready` 在沙箱下實測非零。
-> **目前判定**：**阻塞（外部相依）**。Halcyon 端管路已完成、已 commit、已驗證；等對方交付。
-> **可信版本錨點**：branch `main`；HEAD `f55915c`；程式碼交付 tip `bcc096b`。所有驗證證據綁定 `bcc096b`（見 §7 註記）。
+> **目前判定**：**阻塞已解除，功能已實測可用。待使用者真機視覺確認 + 待 decoder 端提交。** 見 §0.1。
+> **可信版本錨點**：branch `main`；HEAD `f55915c`；程式碼交付 tip `bcc096b`。**Halcyon 端零改動**——阻斷純由對方修復解除。
+
+## 0.1 更新：2026-08-17 00:53 阻斷已解除，端到端通過
+
+decoder 團隊採用**靜態連結**（我們建議的方案 B）。Halcyon 端**未做任何改動**即生效。
+
+```
+D1  otool -L <their dylib>  過濾後只剩 @rpath 自身 —— /opt/homebrew 與 libjpeg 皆消失
+R1  flutter build macos --release            EXIT=0，Halcyon.app 44.1MB，dylib 已嵌入
+    嵌入副本 otool -L 過濾後只剩自身一行（零非系統相依）
+R2  flutter test                             EXIT=0  +58 All tests passed!
+    run_probe_extract.sh                     EXIT=0  ALL PASS（3a 未破壞）
+R3  沙箱端到端（6 張 bare-CFA、release .app）
+    perf.init=1（前置條件滿足，驅動確實跑了）
+    rawDecode.ready = 9      rawDecode.fail = 0
+    4080x3056、image.painted|tier=2 ×6（全解析度上屏）
+    [DngNativeBindings] loaded: .../Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib
+```
+
+**兩件事同時被證明**：功能可用；以及 production 的 `$execDir/../Frameworks/` 載入路徑首次被實證——因為他們也實作了我們請求的「印解析後絕對路徑」（handover §5），原本**不可滿足**的 Z3 判準現在既可滿足也已滿足。
+
+解碼耗時：cold 491–601ms、warm 150–159ms。**均在 1s 門檻內但 cold 偏高**，是 round 3c 的題目，非本輪缺陷。
+
+**證據時效警告**：本次驗證期間 decoder 的樹**正在移動**（`??` → `A`，並新增 `THIRD_PARTY_LICENSES.md` 與 `dng_bindings_openfirst_test.dart`）。Halcyon 樹前後完全一致（`tmp/verify/r3c/tree_before.txt` vs `tree_after.txt`，差異全部落在 decoder 側）。**待對方 commit 後應重跑一次 R1–R3 取得綁定 hash 的證據**——這正是 §9 所述 path 依賴活體耦合的直接後果。
+
+**Artifact**：`tmp/verify/r3c/`（build.txt、otool.txt、suite.txt、probe.txt、relaunch.log、perf.log、tree_before/after.txt）
 
 ## 0. 接手速讀（60 秒）
 
@@ -122,10 +147,11 @@ dyld:   found: dylib-from-disk-error: "/opt/homebrew/..." => "file system sandbo
 
 | 優先 | 狀態 | 議題 | 解除條件 | 下一動作 | 完成條件 |
 |---|---|---|---|---|---|
-| **P0** | **[B]** | decoder 的 libjpeg 絕對路徑連結 | 對方改為靜態連結或 `@rpath`＋隨附 | 跑 §12 D1 | `otool -L` 無 `/opt/homebrew` 行 |
-| P1 | [U] | 重整合驗證 | P0 解除 | 跑 §12 R1–R4 | `rawDecode.ready` 非零、零 `rawDecode.fail`、輸出 4080×3056 |
-| P1 | [U] | 若對方選「隨附 libjpeg」而非靜態連結 | 對方回覆方案 | 檢查 `--embed-macos-dylib-only` 是否嵌入兩個檔；否則改 `project.pbxproj` 的 Run Script | `Frameworks/` 同時含 dylib 與 `libjpeg.8.dylib` |
-| P1 | [D] | **使用者真機視覺確認** | P1 通過 | 請使用者實際開圖 | 使用者確認清晰度與速度 |
+| ~~P0~~ | **[C]** | ~~decoder 的 libjpeg 絕對路徑連結~~ | **已於 2026-08-17 00:53 解除**（對方靜態連結） | — | 見 §0.1 |
+| ~~P1~~ | **[C]** | ~~重整合驗證~~ | — | — | `ready=9 fail=0`，見 §0.1 |
+| ~~P1~~ | **[R]** | ~~若對方選「隨附 libjpeg」~~ | 不適用——對方選靜態連結，嵌入步驟零改動 | — | — |
+| **P0** | **[D]** | **使用者真機視覺確認** | 現在就可以做 | 請使用者實際開一張手機直出 DNG 並放大 | 使用者確認 5x 清晰、切換不卡；**同時看顏色**（見下列 P1） |
+| **P1** | **[U]** | decoder 尚未 commit | 對方 `git commit` | 重跑 §12 R1–R3 取得綁定 hash 的證據 | `git -C ../flutter_dng_decoder status --short` 為空且驗證重跑通過 |
 | P2 | [U] | 非 RGGB 顏色 | decoder `bb6f5e7` 已 commit 但**我方未驗** | 真機確認時一併看 | 藍天是藍的 |
 | P2 | [U] | orientation 2–8 | — | 僅合成 2×3 fixture 驗證過；`orient=1` 是恆等變換，**不能當作方向功能已驗證** | 取得真實非正立樣本 |
 | P2 | [U] | 記憶體持續行為 | — | fixture 皆 2×2/2×3；真實 49.9MB buffer 只在 patched build 走過一次 | 真機持續導航無抖動 |
