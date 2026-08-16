@@ -84,16 +84,29 @@ class ImagePreloadController {
 
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
-  /// Whether the full-size (tier-2) decode for [id] has landed in
-  /// ImageCache **for the item's current bytes**. Re-derived at read time
-  /// against `_imageCache[id]` and `imageCache.containsKey` (both are plain
-  /// bookkeeping lookups, never a resolve) rather than trusted from a
-  /// standing flag: `_tierTwoReadyIds` alone cannot tell a currently-valid
-  /// entry from one decoded for bytes that have since been evicted/replaced
-  /// by [preloadImages]'s bytes-window sweep, or from an entry ImageCache
-  /// itself dropped under LRU pressure. The display side uses this to
-  /// switch providers seamlessly (gaplessPlayback) once it's true.
+  /// Whether the full-size (tier-2) decode for [id] has COMPLETED and the
+  /// resulting ImageCache entry is still resident **for the item's current
+  /// bytes**. This is a conjunction of two independent facts, both
+  /// required (round-2 review BLOCKER 1 and BLOCKER 3 each came from
+  /// having only one of them):
+  ///   1. `_tierTwoReadyIds.contains(id)` -- the decode listener's onImage
+  ///      callback fired, i.e. the decode actually finished. Without this,
+  ///      `ImageCache.containsKey` returns true for a PENDING entry too
+  ///      (SDK image_cache.dart: `_pendingImages[key] != null ||
+  ///      _cache[key] != null`), and `MemoryImage.obtainKey` resolves
+  ///      synchronously right after `resolve()` inserts the pending entry
+  ///      -- so a containsKey-only check flips true the instant a ~124ms
+  ///      full-frame decode STARTS, not when it lands, which is worse than
+  ///      not having tier-2 at all (BLOCKER 3).
+  ///   2. `identical(decodedFor, currentBytes)` + `containsKey(key)` -- the
+  ///      finished entry is still the one for the CURRENT bytes and is
+  ///      still actually resident, not stale bookkeeping for bytes that
+  ///      were since replaced/evicted (BLOCKER 1).
+  /// Both checks are plain bookkeeping lookups, never a resolve. The
+  /// display side uses this to switch providers seamlessly
+  /// (gaplessPlayback) once it's true.
   bool isFullSizeReady(String id) {
+    if (!_tierTwoReadyIds.contains(id)) return false;
     final key = _tierTwoKeys[id];
     if (key == null) return false;
     final decodedFor = _tierTwoBytes[id];

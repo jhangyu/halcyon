@@ -193,13 +193,15 @@ class _MainDetailViewState extends State<MainDetailView>
             .round();
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
-        // useFullSize (AppState.currentItemHasFullSize) re-checks ImageCache
-        // for the CURRENT bytes at read time, not a standing flag, so this
-        // is true only when the tier-2 entry for these exact bytes is
-        // actually resident — selecting it here is a plain ImageCache hit,
-        // exactly like the tier-1 branch below, and never triggers a decode
-        // on this build/UI path (the check itself is bookkeeping, not a
-        // resolve).
+        // useFullSize (AppState.currentItemHasFullSize) is true only when
+        // BOTH: the tier-2 decode for the CURRENT bytes has actually
+        // COMPLETED (not merely started -- ImageCache.containsKey alone
+        // would also be true for a still-pending decode), AND the
+        // resulting entry is still resident under that same bytes object.
+        // Selecting it here is therefore a plain ImageCache hit, exactly
+        // like the tier-1 branch below, and never triggers (or waits on) a
+        // decode on this build/UI path -- the check itself is bookkeeping,
+        // not a resolve.
         final ImageProvider provider = useFullSize
             ? fullSizeProviderFor(bytes)
             : tierOneProviderFor(bytes, width: targetWidth, height: targetHeight);

@@ -15,6 +15,15 @@ final _tinyPngBytes = base64Decode(
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
 );
 
+/// An ImageStreamCompleter that never emits an image and never errors --
+/// used to deterministically simulate a decode that is PENDING forever,
+/// without racing a real (near-instant) engine decode. When pre-inserted
+/// into ImageCache under the exact key a real decode would use,
+/// ImageCache.putIfAbsent returns this existing entry instead of starting
+/// a new decode, so any code path that resolves that provider joins this
+/// completer and never observes completion.
+class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
+
 void main() {
   test(
     'preloadImages evicts preview cache entries outside the sliding window',
@@ -550,6 +559,77 @@ void main() {
                 'actually holds an entry for the CURRENT bytes object',
           );
         }
+      });
+    },
+  );
+
+  testWidgets(
+    'isFullSizeReady stays false while the tier-2 decode is still PENDING, '
+    'not just when it is missing (round-2 review BLOCKER 3)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              Uint8List.fromList(_tinyPngBytes),
+        );
+        addTearDown(controller.dispose);
+
+        final items = List.generate(10, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        controller.updateTargetSize(10, 10);
+
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+
+        final bytes = controller.imageBytesFor(items[5].id)!;
+        final tierTwoKey = await fullSizeProviderFor(
+          bytes,
+        ).obtainKey(ImageConfiguration.empty);
+
+        // Deterministically simulate "decode started, not yet finished":
+        // pre-insert a never-completing entry under the SAME key the
+        // controller's own tier-2 decode will resolve to. When the
+        // debounce fires and the controller calls
+        // fullSizeProviderFor(bytes).resolve(...), Flutter's
+        // ImageCache.putIfAbsent finds this key already present and
+        // returns the existing (never-completing) entry instead of
+        // starting a real decode -- so the controller's own completion
+        // listener never fires, and this test never depends on how fast a
+        // real decode happens to run.
+        final ic = PaintingBinding.instance.imageCache;
+        ic.putIfAbsent(
+          tierTwoKey,
+          () => _NeverCompletingImageStreamCompleter(),
+        );
+        addTearDown(() => ic.evict(tierTwoKey));
+
+        // Let the debounce fire; the controller's decode attempt joins the
+        // pre-inserted pending entry above and will never complete.
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(tierTwoKey),
+          isTrue,
+          reason:
+              'sanity check: the pending entry is present in ImageCache '
+              '(this is the fact BLOCKER 3 showed containsKey alone '
+              'cannot distinguish from "decode finished")',
+        );
+        expect(
+          controller.isFullSizeReady(items[5].id),
+          isFalse,
+          reason:
+              'the tier-2 decode never completed (still pending) -- '
+              'isFullSizeReady must not report true just because '
+              'ImageCache.containsKey is true for a pending entry, or the '
+              'display would switch to a full-size provider whose image '
+              'has not finished decoding yet',
+        );
       });
     },
   );
