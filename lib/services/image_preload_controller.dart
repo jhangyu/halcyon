@@ -18,6 +18,10 @@ class ImagePreloadController {
   final Map<String, Uint8List> _imageCache = {};
   final Map<String, Uint8List> _thumbCache = {};
   final Set<String> _loadingKeys = {};
+  // Callbacks from callers who selected an item while its preview load was
+  // already in-flight (started by a previous preload pass). Flushed once the
+  // in-flight load completes so the UI never strands on a permanent spinner.
+  final Map<String, List<VoidCallback>> _pendingPreviewNotifies = {};
 
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
@@ -31,6 +35,7 @@ class ImagePreloadController {
     _imageCache.clear();
     _thumbCache.clear();
     _loadingKeys.clear();
+    _pendingPreviewNotifies.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
@@ -76,23 +81,47 @@ class ImagePreloadController {
     PhotoItem item, {
     required VoidCallback? notifyLoaded,
   }) async {
-    if (_imageCache.containsKey(item.id) || _loadingKeys.contains(item.id)) {
+    final id = item.id;
+    if (_imageCache.containsKey(id)) {
+      return;
+    }
+
+    if (_loadingKeys.contains(id)) {
+      // Someone else's load for this item is already in flight (e.g. it was
+      // queued by a previous preload pass, or the caller selected an item
+      // that is mid-window-load). Register to be notified when it lands
+      // instead of dropping the callback, which used to strand the spinner
+      // forever.
+      if (notifyLoaded != null) {
+        _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
+      }
       return;
     }
 
     final file = item.bestFileToLoad;
     if (file == null) return;
 
-    _loadingKeys.add(item.id);
-    final bytes = await _imageLoader(
-      file.path,
-      purpose: ImageRequestPurpose.preview,
-    );
-    if (bytes != null) {
-      _imageCache[item.id] = bytes;
-      notifyLoaded?.call();
+    _loadingKeys.add(id);
+    try {
+      final bytes = await _imageLoader(
+        file.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      if (bytes != null) {
+        _imageCache[id] = bytes;
+        notifyLoaded?.call();
+        final pending = _pendingPreviewNotifies.remove(id);
+        if (pending != null) {
+          for (final cb in pending) {
+            cb();
+          }
+        }
+      } else {
+        _pendingPreviewNotifies.remove(id);
+      }
+    } finally {
+      _loadingKeys.remove(id);
     }
-    _loadingKeys.remove(item.id);
   }
 
   Future<void> preloadThumbnails({
