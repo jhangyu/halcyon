@@ -65,9 +65,11 @@ class ImagePreloadController {
       notifyLoaded: notifyLoaded,
     );
 
+    final pendingLoads = <Future<void>>[];
     for (var i = startIdx; i <= endIdx; i++) {
-      await _loadPreview(items[i], notifyLoaded: null);
+      pendingLoads.add(_loadPreview(items[i], notifyLoaded: null));
     }
+    await Future.wait(pendingLoads);
   }
 
   Future<void> _loadPreview(
