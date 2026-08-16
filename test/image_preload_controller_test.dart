@@ -366,6 +366,26 @@ void main() {
             notifyLoaded: () {},
           );
           await Future<void>.delayed(const Duration(milliseconds: 20));
+
+          // Discriminating mid-burst check (round-2 review BLOCKER 2: the
+          // original version of this test only asserted the END state,
+          // which a debounce-removed mutant also satisfies once index 2
+          // scrolls out and gets swept -- it can't tell "never queued"
+          // from "queued, then evicted"). Sampled after EVERY step,
+          // including the very first (right after navigating to index 2
+          // itself): each navigation event cancels and reschedules the
+          // debounce timer, so nothing should ever have had 250ms of
+          // quiet to actually start decoding. A debounce-removed mutant
+          // starts decoding within tens of ms of each step and fails this
+          // assertion immediately after the first step.
+          expect(
+            controller.isFullSizeReady(items[2].id),
+            isFalse,
+            reason:
+                'index 2 must not be queued for a full-size decode this '
+                'early -- a debounce-removed controller already starts '
+                'decoding within a single burst step',
+          );
         }
 
         // Let the debounce settle on the FINAL position (index 5).
@@ -450,6 +470,86 @@ void main() {
               'index 4 is still inside the tier-1 (+/-2) window; evicting '
               'its tier-2 entry must not have evicted tier-1 too',
         );
+      });
+    },
+  );
+
+  testWidgets(
+    'isFullSizeReady does not report stale readiness after an item leaves '
+    'and re-enters the bytes window with a new bytes object (round-2 '
+    'review BLOCKER 1)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final controller = ImagePreloadController(
+          // A fresh Uint8List every call -- an item reloaded after leaving
+          // the -3..+5 bytes window gets a NEW bytes object, exactly as the
+          // real native loader would produce for a re-fetch.
+          imageLoader: (path, {required purpose}) async =>
+              Uint8List.fromList(_tinyPngBytes),
+        );
+        addTearDown(controller.dispose);
+
+        final items = List.generate(20, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        controller.updateTargetSize(10, 10);
+
+        Future<void> go(int i) => controller.preloadImages(
+          items: items,
+          selectedItemId: items[i].id,
+          notifyLoaded: () {},
+        );
+
+        await go(5);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        expect(controller.isFullSizeReady(items[5].id), isTrue);
+        final originalBytes = controller.imageBytesFor(items[5].id)!;
+        final originalKey = await fullSizeProviderFor(
+          originalBytes,
+        ).obtainKey(ImageConfiguration.empty);
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(originalKey),
+          isTrue,
+        );
+
+        // Rapid excursion far enough (>= 4 steps, i.e. beyond the -3..+5
+        // bytes window) and back, all inside the debounce window so the
+        // tier-2 sweep never runs mid-excursion -- this is exactly the
+        // burst the review's probe used to reproduce the stale flag.
+        for (final idx in [6, 7, 8, 9, 10, 9, 8, 7, 6, 5]) {
+          await go(idx);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+
+        final currentBytes = controller.imageBytesFor(items[5].id)!;
+        expect(
+          identical(originalBytes, currentBytes),
+          isFalse,
+          reason:
+              'index 5 left the -3..+5 bytes window during the excursion '
+              'and must have been reloaded as a new bytes object -- this '
+              'test is only meaningful if that precondition holds',
+        );
+
+        // The discriminating assertion: readiness must be false or must
+        // point at a cache entry for the CURRENT bytes, never at the old,
+        // orphaned entry. Against the pre-fix id-keyed Set alone, this
+        // reads true while the cache has no entry for the current bytes
+        // (the review's reproduced failure mode).
+        final isReady = controller.isFullSizeReady(items[5].id);
+        if (isReady) {
+          final currentKey = await fullSizeProviderFor(
+            currentBytes,
+          ).obtainKey(ImageConfiguration.empty);
+          expect(
+            PaintingBinding.instance.imageCache.containsKey(currentKey),
+            isTrue,
+            reason:
+                'isFullSizeReady must not report true unless ImageCache '
+                'actually holds an entry for the CURRENT bytes object',
+          );
+        }
       });
     },
   );

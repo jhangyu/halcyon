@@ -62,8 +62,18 @@ class ImagePreloadController {
   // key namespace (MemoryImage keys, distinct from tier-1's ResizeImageKey)
   // and own eviction so the two tiers coexist without either clobbering the
   // other's ImageCache entry for the same item id.
+  //
+  // _tierTwoKeys/_tierTwoBytes/_tierTwoReadyIds are id-keyed, but the
+  // ImageCache entry they describe is keyed by BYTES OBJECT IDENTITY
+  // (MemoryImage.== compares bytes by identity). When an item leaves the
+  // bytes window (-3..+5) and later returns, _imageCache[id] holds a NEW
+  // Uint8List, so a stale id-keyed "ready" flag would silently point at an
+  // ImageCache entry for bytes that are no longer current -- readiness
+  // must be re-derived at read time against the CURRENT bytes, not trusted
+  // from bookkeeping alone (round-2 review BLOCKER 1).
   Timer? _tierTwoDebounceTimer;
   final Map<String, Object> _tierTwoKeys = {};
+  final Map<String, Uint8List> _tierTwoBytes = {};
   final Set<String> _tierTwoReadyIds = {};
 
   int _lastPreloadStart = -1;
@@ -75,11 +85,24 @@ class ImagePreloadController {
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
   /// Whether the full-size (tier-2) decode for [id] has landed in
-  /// ImageCache. The display side uses this to switch providers seamlessly
-  /// (gaplessPlayback) once it's true, and to know it never has to resolve
-  /// the full-size provider itself just to find out — that resolve would be
-  /// the exact full-frame decode-on-the-UI-path this round exists to avoid.
-  bool isFullSizeReady(String id) => _tierTwoReadyIds.contains(id);
+  /// ImageCache **for the item's current bytes**. Re-derived at read time
+  /// against `_imageCache[id]` and `imageCache.containsKey` (both are plain
+  /// bookkeeping lookups, never a resolve) rather than trusted from a
+  /// standing flag: `_tierTwoReadyIds` alone cannot tell a currently-valid
+  /// entry from one decoded for bytes that have since been evicted/replaced
+  /// by [preloadImages]'s bytes-window sweep, or from an entry ImageCache
+  /// itself dropped under LRU pressure. The display side uses this to
+  /// switch providers seamlessly (gaplessPlayback) once it's true.
+  bool isFullSizeReady(String id) {
+    final key = _tierTwoKeys[id];
+    if (key == null) return false;
+    final decodedFor = _tierTwoBytes[id];
+    final currentBytes = _imageCache[id];
+    if (decodedFor == null || !identical(decodedFor, currentBytes)) {
+      return false;
+    }
+    return PaintingBinding.instance.imageCache.containsKey(key);
+  }
 
   void reset() {
     _imageCache.clear();
@@ -88,7 +111,11 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _tierOneKeys.clear();
     _tierTwoDebounceTimer?.cancel();
+    for (final key in _tierTwoKeys.values) {
+      PaintingBinding.instance.imageCache.evict(key);
+    }
     _tierTwoKeys.clear();
+    _tierTwoBytes.clear();
     _tierTwoReadyIds.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
@@ -128,7 +155,20 @@ class ImagePreloadController {
       neededIds.add(items[i].id);
     }
 
-    _imageCache.removeWhere((key, _) => !neededIds.contains(key));
+    // Any id dropped here will get a NEW Uint8List object if it's loaded
+    // again later (see _loadPreview below) — the tier-2 entry decoded for
+    // its OLD bytes is now orphaned (wrong cache key for the item going
+    // forward) and must be evicted, not left to linger under a stale id
+    // -> key mapping (round-2 review BLOCKER 1).
+    final droppedIds = <String>[];
+    _imageCache.removeWhere((id, _) {
+      final drop = !neededIds.contains(id);
+      if (drop) droppedIds.add(id);
+      return drop;
+    });
+    for (final id in droppedIds) {
+      _evictTierTwoEntry(id);
+    }
 
     await _loadPreview(
       items.firstWhere((item) => item.id == selectedItemId),
@@ -178,7 +218,15 @@ class ImagePreloadController {
       final bytes = _imageCache[item.id];
       if (bytes == null) continue; // not loaded yet; retried on next pass
       neededIds.add(item.id);
-      if (_tierTwoReadyIds.contains(item.id)) continue; // already decoded
+      // Only skip if the id's ready flag was set for THESE bytes -- if the
+      // item's bytes were replaced (e.g. it briefly left the -3..+5 window
+      // and got reloaded) since the last decode, this is stale and must be
+      // redone against the current object, not the one the old key points
+      // at (round-2 review BLOCKER 1).
+      final alreadyDecoded =
+          _tierTwoReadyIds.contains(item.id) &&
+          identical(_tierTwoBytes[item.id], bytes);
+      if (alreadyDecoded) continue;
       _decodeFullSizeIntoImageCache(item.id, bytes, notifyLoaded);
     }
 
@@ -186,11 +234,7 @@ class ImagePreloadController {
         .where((id) => !neededIds.contains(id))
         .toList();
     for (final id in staleIds) {
-      final key = _tierTwoKeys.remove(id);
-      _tierTwoReadyIds.remove(id);
-      if (key != null) {
-        PaintingBinding.instance.imageCache.evict(key);
-      }
+      _evictTierTwoEntry(id);
     }
   }
 
@@ -211,9 +255,22 @@ class ImagePreloadController {
       onError: (error, stackTrace) => stream.removeListener(listener),
     );
     stream.addListener(listener);
-    provider
-        .obtainKey(const ImageConfiguration())
-        .then((key) => _tierTwoKeys[id] = key);
+    provider.obtainKey(const ImageConfiguration()).then((key) {
+      _tierTwoKeys[id] = key;
+      _tierTwoBytes[id] = bytes;
+    });
+  }
+
+  // Removes id's tier-2 bookkeeping and evicts its ImageCache entry (if
+  // any). Never touches _tierOneKeys or _imageCache -- tier-1 and the bytes
+  // cache have their own, separate lifecycles.
+  void _evictTierTwoEntry(String id) {
+    final key = _tierTwoKeys.remove(id);
+    _tierTwoBytes.remove(id);
+    _tierTwoReadyIds.remove(id);
+    if (key != null) {
+      PaintingBinding.instance.imageCache.evict(key);
+    }
   }
 
   // Tier-1 precache: decode current +/-2 at window resolution ahead of
@@ -307,6 +364,21 @@ class ImagePreloadController {
       } else {
         _pendingPreviewNotifies.remove(id);
       }
+    } catch (_) {
+      // The loader threw (e.g. a PlatformException the native side didn't
+      // convert to null, or a MissingPluginException on an unimplemented
+      // platform handler). Flush anyone who selected this item while the
+      // load was in flight so they don't strand on a permanent spinner and
+      // the pending-notify map doesn't grow unbounded -- same rationale as
+      // the success path (R3), just reached via the exception path
+      // (round-2 review S1). Preserve existing error propagation.
+      final pending = _pendingPreviewNotifies.remove(id);
+      if (pending != null) {
+        for (final cb in pending) {
+          cb();
+        }
+      }
+      rethrow;
     } finally {
       _loadingKeys.remove(id);
     }
