@@ -143,11 +143,17 @@ void main() {
     // PopupMenuButton widget, so this is still the real wired-up code, not a
     // reimplementation — sidesteps only the animation-Future indirection,
     // and runs fine under runAsync exactly like the AppState-level tests do.
+    final menuItem = tester.widget<PopupMenuItem<String>>(
+      find.ancestor(
+        of: find.text('Recycle Trashed'),
+        matching: find.byType(PopupMenuItem<String>),
+      ),
+    );
     final button = tester.widget<PopupMenuButton<String>>(
       find.byType(PopupMenuButton<String>),
     );
     await tester.runAsync(() async {
-      button.onSelected!('delete');
+      button.onSelected!(menuItem.value!);
       await Future<void>.delayed(const Duration(milliseconds: 200));
     });
     await tester.pumpAndSettle();
