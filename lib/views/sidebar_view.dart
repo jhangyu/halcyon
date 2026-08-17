@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import 'package:file_selector/file_selector.dart';
+import 'batch_delete_feedback.dart';
 import 'settings_dialog.dart';
 
 class SidebarView extends StatefulWidget {
@@ -170,7 +171,7 @@ class _SidebarViewState extends State<SidebarView> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildStatusIcon(item.status),
+                          _buildStatusIcon(item.status, state.recycleMode),
                           if (item.status != PhotoStatus.unmarked)
                             const SizedBox(width: 8),
                           _buildListThumbnail(state, item.id),
@@ -190,12 +191,16 @@ class _SidebarViewState extends State<SidebarView> {
     );
   }
 
-  Widget _buildStatusIcon(PhotoStatus status) {
+  Widget _buildStatusIcon(PhotoStatus status, bool recycleMode) {
     switch (status) {
       case PhotoStatus.starred:
         return const Icon(Icons.star, color: Colors.amber, size: 16);
       case PhotoStatus.trashed:
-        return const Icon(Icons.delete, color: Colors.red, size: 16);
+        return Icon(
+          recycleMode ? Icons.restore_from_trash : Icons.delete,
+          color: Colors.red,
+          size: 16,
+        );
       case PhotoStatus.unmarked:
         return const SizedBox.shrink();
     }
@@ -266,7 +271,9 @@ class _SidebarViewState extends State<SidebarView> {
             await state.processStarred(dest, value == 'move');
           }
         } else if (value == 'delete') {
-          await state.deleteTrashed();
+          final result = await state.deleteTrashed();
+          if (!context.mounted) return;
+          showBatchDeleteFeedback(context, result);
         } else if (value == 'settings') {
           showDialog(context: context, builder: (ctx) => SettingsDialog());
         }
@@ -305,9 +312,9 @@ class _SidebarViewState extends State<SidebarView> {
           PopupMenuItem(
             value: 'delete',
             enabled: hasTrashed,
-            child: const Text(
-              'Delete Trashed',
-              style: TextStyle(color: Colors.red),
+            child: Text(
+              state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
+              style: const TextStyle(color: Colors.red),
             ),
           ),
           const PopupMenuDivider(),
