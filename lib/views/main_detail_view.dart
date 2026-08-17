@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
-import '../models/photo_item.dart';
 import '../services/decoded_rgba_image_provider.dart';
 import '../services/image_preload_controller.dart';
+import 'photo_action_bar.dart';
 
 class MainDetailView extends StatefulWidget {
   const MainDetailView({super.key});
@@ -118,57 +118,7 @@ class _MainDetailViewState extends State<MainDetailView>
           bottom: 30,
           left: 0,
           right: 0,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 10,
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      item.status == PhotoStatus.starred
-                          ? Icons.star
-                          : Icons.star_border,
-                      color: item.status == PhotoStatus.starred
-                          ? Colors.amber
-                          : null,
-                    ),
-                    onPressed: () => context.read<AppState>().markCurrent(
-                      PhotoStatus.starred,
-                    ),
-                    tooltip: 'Star (S)',
-                  ),
-                  const SizedBox(width: 20),
-                  IconButton(
-                    icon: Icon(
-                      item.status == PhotoStatus.trashed
-                          ? Icons.delete
-                          : Icons.delete_outline,
-                      color: item.status == PhotoStatus.trashed
-                          ? Colors.red
-                          : null,
-                    ),
-                    onPressed: () => context.read<AppState>().markCurrent(
-                      PhotoStatus.trashed,
-                    ),
-                    tooltip: 'Trash (X)',
-                  ),
-                ],
-              ),
-            ),
-          ),
+          child: Center(child: PhotoActionBar(item: item)),
         ),
       ],
     );
