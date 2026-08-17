@@ -11,6 +11,9 @@ class SupportedPhotoFormats {
     '.dng',
     '.heic',
     '.png',
+    '.cr2',
+    '.nef',
+    '.orf',
   };
 
   static const preferredLoadExtensions = <String>[

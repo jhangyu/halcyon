@@ -74,6 +74,29 @@ void main() {
       expect(state.items, hasLength(1));
       expect(state.items.single.files.single.path, endsWith('P1000001.rw2'));
     });
+
+    test('groups CR2/NEF/ORF raw files with their JPG sibling', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_raw_ext_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0001.cr2');
+      await _touch(dir, 'IMG_0002.jpg');
+      await _touch(dir, 'IMG_0002.nef');
+      await _touch(dir, 'IMG_0003.jpg');
+      await _touch(dir, 'IMG_0003.orf');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+
+      expect(state.items.map((item) => item.id), [
+        'IMG_0001',
+        'IMG_0002',
+        'IMG_0003',
+      ]);
+      for (final item in state.items) {
+        expect(item.files, hasLength(2), reason: '${item.id} lost its raw');
+      }
+    });
   });
 
   group('AppState selection and marking', () {
