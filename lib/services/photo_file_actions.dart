@@ -9,7 +9,7 @@ typedef TrashFile = Future<void> Function(File file);
 typedef MoveFile = Future<void> Function(File file, String newPath);
 
 /// Result of a recycle batch. [failures] entries are
-/// "<filename>: <error message>" and MUST be surfaced to the user — a
+/// `"<filename>: <error message>"` and MUST be surfaced to the user — a
 /// silently failed delete looks identical to a broken app.
 class RecycleOutcome {
   const RecycleOutcome({required this.movedCount, required this.failures});
