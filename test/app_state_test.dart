@@ -138,6 +138,40 @@ void main() {
       expect(state.selectedItemID, 'IMG_0001');
     });
   });
+
+  group('AppState.openPhotoAtPath', () {
+    test('loads the containing folder and selects the given file', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0002.dng');
+
+      final state = _testState();
+      await state.openPhotoAtPath(p.join(dir.path, 'IMG_0002.dng'));
+
+      expect(state.currentDir?.path, dir.path);
+      expect(state.items.map((item) => item.id), ['IMG_0001', 'IMG_0002']);
+      expect(state.selectedItemID, 'IMG_0002');
+    });
+
+    test('ignores unsupported files instead of clearing the folder', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      // Deliberately in a different folder: without the guard, currentDir
+      // would move here and the folder in view would be lost.
+      final other = await Directory.systemTemp.createTemp('halcyon_other_');
+      addTearDown(() => other.delete(recursive: true));
+      await _touch(other, 'notes.txt');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+      await state.openPhotoAtPath(p.join(other.path, 'notes.txt'));
+
+      expect(state.currentDir?.path, dir.path);
+      expect(state.selectedItemID, 'IMG_0001');
+    });
+  });
 }
 
 Future<void> _touch(Directory dir, String name) {

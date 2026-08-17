@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
 import 'services/dng_decode_service.dart';
+import 'services/open_with_channel.dart';
 import 'views/main_screen.dart';
 
 // Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
@@ -23,6 +24,9 @@ void main() {
   final appState = AppState(
     dngDecoder: halcyonDngFullDecoder,
   ); // PERF-INSTRUMENTATION
+  // Finder "Open With" / shell association: load the file's folder and select
+  // that photo. Registered before runApp so a launch-time file isn't missed.
+  OpenWithChannel.listen(appState.openPhotoAtPath);
   runApp(
     ChangeNotifierProvider.value(
       value: appState, // PERF-INSTRUMENTATION

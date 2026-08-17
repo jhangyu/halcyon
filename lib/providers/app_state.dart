@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
+import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/decoded_rgba_image_provider.dart';
 import '../services/dng_decode_contract.dart';
@@ -130,6 +131,18 @@ class AppState extends ChangeNotifier {
     if (directoryPath != null) {
       await loadFolder(Directory(directoryPath));
     }
+  }
+
+  /// Opens the folder containing [path] and selects that photo. Entry point
+  /// for OS-handed files (see [OpenWithChannel]); unsupported extensions are
+  /// ignored rather than clearing the folder the user is already viewing.
+  Future<void> openPhotoAtPath(String path) async {
+    if (!SupportedPhotoFormats.isSupportedPath(path)) return;
+    final file = File(path);
+    await loadFolder(
+      file.parent,
+      targetSelectionId: SupportedPhotoFormats.photoIdFor(file),
+    );
   }
 
   Future<void> loadFolder(

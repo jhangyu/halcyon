@@ -5,6 +5,15 @@ import ImageIO
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  // Finder "Open With" delivery. Push-only: Flutter's channel buffers hold a
+  // platform->Dart message until Dart registers its handler, so we never have
+  // to know whether Dart is up yet. The one case buffers cannot cover is an
+  // open event arriving before the channel object exists at all (cold start,
+  // odoc lands before applicationDidFinishLaunching) -- that one waits in
+  // pendingOpenFile and is flushed the moment the channel is created.
+  private var openWithChannel: FlutterMethodChannel?
+  private var pendingOpenFile: String?
+
   override func applicationDidFinishLaunching(_ aNotification: Notification) {
     let controller = mainFlutterWindow?.contentViewController as! FlutterViewController
     let thumbnailChannel = FlutterMethodChannel(name: "halcyon/thumbnail",
@@ -48,6 +57,34 @@ class AppDelegate: FlutterAppDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
+
+    let openWithChannel = FlutterMethodChannel(name: "halcyon/open_with",
+                                               binaryMessenger: controller.engine.binaryMessenger)
+    self.openWithChannel = openWithChannel
+    if let pending = pendingOpenFile {
+      pendingOpenFile = nil
+      openWithChannel.invokeMethod("openFile", arguments: pending)
+    }
+  }
+
+  // Both entry points macOS uses for document-open; older systems call
+  // openFile:, current ones call open urls:.
+  override func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+    handleOpen(path: filename)
+    return true
+  }
+
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    guard let url = urls.first(where: { $0.isFileURL }) else { return }
+    handleOpen(path: url.path)
+  }
+
+  private func handleOpen(path: String) {
+    if let channel = openWithChannel {
+      channel.invokeMethod("openFile", arguments: path)
+    } else {
+      pendingOpenFile = path
+    }
   }
 
   private func trashFile(path: String, result: @escaping FlutterResult) {
