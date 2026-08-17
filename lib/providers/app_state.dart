@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
@@ -20,6 +21,22 @@ typedef ThumbnailLoader =
       String path, {
       required ImageRequestPurpose purpose,
     });
+
+/// Outcome of a batch delete, returned to the view layer so feedback lives
+/// in the widgets rather than the provider. Failures are never swallowed.
+class BatchDeleteResult {
+  const BatchDeleteResult({
+    required this.recycled,
+    required this.movedCount,
+    required this.failures,
+    this.trashDirPath,
+  });
+
+  final bool recycled;
+  final int movedCount;
+  final List<String> failures;
+  final String? trashDirPath;
+}
 
 class AppState extends ChangeNotifier {
   AppState({
@@ -65,6 +82,10 @@ class AppState extends ChangeNotifier {
   bool _overwriteExisting = true;
   SharedPreferences? _prefs;
 
+  // Per-folder, deliberately NOT persisted: every loadFolder re-detects, so
+  // a new card always starts from the safe default.
+  bool _recycleMode = false;
+
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     _autoAdvance = _prefs?.getBool('autoAdvance') ?? false;
@@ -86,6 +107,13 @@ class AppState extends ChangeNotifier {
   Directory? get currentDir => _currentDir;
   bool get autoAdvance => _autoAdvance;
   bool get overwriteExisting => _overwriteExisting;
+
+  bool get recycleMode => _recycleMode;
+
+  void toggleRecycleMode() {
+    _recycleMode = !_recycleMode;
+    notifyListeners();
+  }
 
   PhotoItem? get currentItem {
     if (_selectedItemID == null) return null;
@@ -158,6 +186,9 @@ class AppState extends ChangeNotifier {
 
     try {
       _items = await _scanner.scan(dir);
+      // A folder holding same-name sibling groups is a camera card being
+      // culled: default to recycling so a mis-click can't take the RAW with it.
+      _recycleMode = _items.any((item) => item.files.length > 1);
       String? lastViewedId;
 
       try {
@@ -369,23 +400,45 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteTrashed() async {
+  Future<BatchDeleteResult> deleteTrashed() async {
     final currentId = _selectedItemID;
     final currentIndex = _items.indexWhere((i) => i.id == currentId);
+    final dir = _currentDir;
+    final recycled = _recycleMode;
+
+    var movedCount = 0;
+    final failures = <String>[];
+    String? trashDirPath;
 
     try {
-      await _fileActions.deleteTrashed(_items);
+      if (recycled && dir != null) {
+        trashDirPath = p.join(dir.path, '.trash');
+        final outcome = await _fileActions.recycleTrashed(_items, dir);
+        movedCount = outcome.movedCount;
+        failures.addAll(outcome.failures);
+      } else {
+        await _fileActions.deleteTrashed(_items);
+      }
     } catch (e) {
-      debugPrint("Error deleting trashed items: $e");
+      // Previously this only debugPrint()ed, so a card where the system trash
+      // is unavailable looked like a broken app. Report it instead.
+      failures.add('$e');
     }
 
-    if (_currentDir != null) {
+    if (dir != null) {
       await loadFolder(
-        _currentDir!,
+        dir,
         targetSelectionId: currentId,
         targetFallbackIndex: currentIndex,
       );
     }
+
+    return BatchDeleteResult(
+      recycled: recycled,
+      movedCount: movedCount,
+      failures: failures,
+      trashDirPath: trashDirPath,
+    );
   }
 
   @override

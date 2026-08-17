@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/photo_file_actions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -193,6 +194,110 @@ void main() {
 
       expect(state.currentDir?.path, dir.path);
       expect(state.selectedItemID, 'IMG_0001');
+    });
+  });
+
+  group('AppState recycle mode', () {
+    test('defaults on when a folder has same-name sibling groups', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_mode_on_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0001.dng');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+
+      expect(state.recycleMode, isTrue);
+    });
+
+    test('defaults off when every photo has a single extension', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_mode_off_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0002.jpg');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+
+      expect(state.recycleMode, isFalse);
+    });
+
+    test('toggles both ways and notifies listeners', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_mode_tog_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+      var notifications = 0;
+      state.addListener(() => notifications++);
+
+      expect(state.recycleMode, isFalse);
+      state.toggleRecycleMode();
+      expect(state.recycleMode, isTrue);
+      state.toggleRecycleMode();
+      expect(state.recycleMode, isFalse);
+      expect(notifications, 2);
+    });
+
+    test('recycle mode moves files to .trash instead of the system trash',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_mode_run_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0001.dng');
+
+      final trashed = <String>[];
+      final state = AppState(
+        fileActions: PhotoFileActions(trashFile: (file) async {
+          trashed.add(file.path);
+          await file.delete();
+        }),
+        thumbnailLoader: (path, {required purpose}) async {
+          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+        },
+      );
+      await state.loadFolder(dir);
+      state.markCurrent(PhotoStatus.trashed);
+
+      final result = await state.deleteTrashed();
+
+      expect(result.recycled, isTrue);
+      expect(result.movedCount, 2);
+      expect(result.failures, isEmpty);
+      expect(result.trashDirPath, p.join(dir.path, '.trash'));
+      expect(trashed, isEmpty, reason: 'system trash must not be used');
+      expect(
+        await File(p.join(dir.path, '.trash', 'IMG_0001.jpg')).exists(),
+        isTrue,
+      );
+      expect(state.items, isEmpty, reason: 'folder reloaded after recycle');
+    });
+
+    test('direct mode still routes through the system trash', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_mode_dir_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+
+      final trashed = <String>[];
+      final state = AppState(
+        fileActions: PhotoFileActions(trashFile: (file) async {
+          trashed.add(file.path);
+          await file.delete();
+        }),
+        thumbnailLoader: (path, {required purpose}) async {
+          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+        },
+      );
+      await state.loadFolder(dir);
+      expect(state.recycleMode, isFalse);
+      state.markCurrent(PhotoStatus.trashed);
+
+      final result = await state.deleteTrashed();
+
+      expect(result.recycled, isFalse);
+      expect(trashed, hasLength(1));
+      expect(await Directory(p.join(dir.path, '.trash')).exists(), isFalse);
     });
   });
 }
