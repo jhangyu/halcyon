@@ -1,0 +1,227 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/rename_rule.dart';
+import 'package:halcyon_flutter/services/rename_service.dart';
+import 'package:path/path.dart' as p;
+
+void main() {
+  const dir = '/photos';
+  final mtime = DateTime(2020, 1, 2, 3, 4, 5);
+
+  PhotoItem item(String id, List<String> names) => PhotoItem(
+    id: id,
+    files: names.map((n) => File(p.join(dir, n))).toList(),
+  );
+
+  ExifMetadata at(DateTime d) => ExifMetadata(captureDate: d, camera: 'X-T5');
+
+  List<RenamePlan> plan(
+    List<PhotoItem> items, {
+    required Map<String, ExifMetadata?> metadata,
+    String template = RenameRule.kDefaultTemplate,
+    Set<String> existing = const {},
+  }) {
+    return planRenames(
+      items: items,
+      metadata: metadata,
+      fileModified: {for (final i in items) i.id: mtime},
+      rule: RenameRule(template),
+      existingNames: existing,
+    );
+  }
+
+  test('TC-031 sibling RAW + JPG + sidecar all get the same new base', () {
+    final plans = plan(
+      [item('DSC_0431', ['DSC_0431.NEF', 'DSC_0431.JPG'])],
+      metadata: {'DSC_0431': at(DateTime(2026, 4, 7, 9, 3, 5))},
+      existing: {'DSC_0431.NEF', 'DSC_0431.JPG', '._DSC_0431.NEF'},
+    );
+
+    expect(plans.single.newId, '2026-04-07-09-03-05');
+    // Each file is followed by its own sidecar, so the NEF's `._` companion
+    // sits between the NEF and the JPG.
+    expect(plans.single.moves.map((m) => p.basename(m.to)), [
+      '2026-04-07-09-03-05.NEF',
+      '._2026-04-07-09-03-05.NEF',
+      '2026-04-07-09-03-05.JPG',
+    ]);
+    expect(plans.single.moves.first.from, p.join(dir, 'DSC_0431.NEF'));
+  });
+
+  test('TC-032 same-second items with {seq} number in original-name order', () {
+    final shot = DateTime(2026, 4, 7, 9, 3, 5);
+    final plans = plan(
+      [
+        item('B', ['B.JPG']),
+        item('A', ['A.JPG']),
+      ],
+      metadata: {'B': at(shot), 'A': at(shot)},
+      template: '{YYYY}{MM}{DD}_{seq:3}',
+    );
+
+    expect(plans.map((x) => x.newId), ['20260407_002', '20260407_001']);
+  });
+
+  test('TC-033 collision without {seq} falls back to -1/-2', () {
+    final shot = DateTime(2026, 4, 7, 9, 3, 5);
+    final plans = plan(
+      [
+        item('A', ['A.JPG']),
+        item('B', ['B.JPG']),
+        item('C', ['C.JPG']),
+      ],
+      metadata: {'A': at(shot), 'B': at(shot), 'C': at(shot)},
+    );
+
+    expect(plans.map((x) => x.newId), [
+      '2026-04-07-09-03-05',
+      '2026-04-07-09-03-05-1',
+      '2026-04-07-09-03-05-2',
+    ]);
+  });
+
+  test('TC-034 a name already in the folder is never reused', () {
+    final plans = plan(
+      [item('A', ['A.JPG'])],
+      metadata: {'A': at(DateTime(2026, 4, 7, 9, 3, 5))},
+      existing: {'A.JPG', '2026-04-07-09-03-05.JPG'},
+    );
+
+    expect(plans.single.newId, '2026-04-07-09-03-05-1');
+  });
+
+  test('TC-035 an item already named correctly produces no moves', () {
+    final plans = plan(
+      [item('2026-04-07-09-03-05', ['2026-04-07-09-03-05.JPG'])],
+      metadata: {'2026-04-07-09-03-05': at(DateTime(2026, 4, 7, 9, 3, 5))},
+      existing: {'2026-04-07-09-03-05.JPG'},
+    );
+
+    expect(plans, isEmpty);
+  });
+
+  test('TC-036 missing metadata still renames, using file mtime', () {
+    final plans = plan(
+      [item('A', ['A.JPG'])],
+      metadata: {'A': null},
+    );
+
+    expect(plans.single.newId, '2020-01-02-03-04-05');
+  });
+
+  group('apply + undo', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_test_');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    Future<File> touch(String name) async {
+      final f = File(p.join(tempDir.path, name));
+      await f.writeAsString(name);
+      return f;
+    }
+
+    RenamePlan planFor(String oldBase, String newBase, List<String> exts) {
+      return RenamePlan(
+        oldId: oldBase,
+        newId: newBase,
+        moves: [
+          for (final ext in exts)
+            RenameMove(
+              from: p.join(tempDir.path, '$oldBase$ext'),
+              to: p.join(tempDir.path, '$newBase$ext'),
+            ),
+        ],
+      );
+    }
+
+    test('TC-037 renames every file and reports progress', () async {
+      await touch('A.NEF');
+      await touch('A.JPG');
+      await touch('B.JPG');
+      final progress = <int>[];
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.NEF', '.JPG']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+        onProgress: (done, total) {
+          expect(total, 2);
+          progress.add(done);
+        },
+      );
+
+      expect(outcome.renamedCount, 2);
+      expect(outcome.failures, isEmpty);
+      expect(outcome.cancelled, isFalse);
+      expect(progress, [1, 2]);
+      expect(File(p.join(tempDir.path, 'new-A.NEF')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'new-A.JPG')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'new-B.JPG')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'A.NEF')).existsSync(), isFalse);
+    });
+
+    test('TC-038 undo restores every original name and drops the log',
+        () async {
+      await touch('A.NEF');
+      await touch('B.JPG');
+      await applyRenames(
+        [planFor('A', 'new-A', ['.NEF']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+      );
+
+      final outcome = await undoLastRename(tempDir);
+
+      expect(outcome.renamedCount, 2);
+      expect(File(p.join(tempDir.path, 'A.NEF')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'B.JPG')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'new-A.NEF')).existsSync(), isFalse);
+      expect(
+        File(p.join(tempDir.path, kRenameLogName)).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('TC-039 a missing source is a failure, not an aborted batch',
+        () async {
+      await touch('B.JPG');
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.NEF']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+      );
+
+      expect(outcome.renamedCount, 1);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.failures.single, contains('A.NEF'));
+      expect(File(p.join(tempDir.path, 'new-B.JPG')).existsSync(), isTrue);
+    });
+
+    test('TC-040 cancel stops the batch and leaves a replayable log',
+        () async {
+      await touch('A.JPG');
+      await touch('B.JPG');
+      var seen = 0;
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.JPG']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+        isCancelled: () => seen++ > 0,
+      );
+
+      expect(outcome.cancelled, isTrue);
+      expect(outcome.renamedCount, 1);
+      expect(File(p.join(tempDir.path, 'new-A.JPG')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'B.JPG')).existsSync(), isTrue);
+
+      await undoLastRename(tempDir);
+      expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+    });
+  });
+}
