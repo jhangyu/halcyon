@@ -33,10 +33,11 @@ Out of scope:
 |---|---|
 | D1 | Scope of operation = all photos in the current folder. |
 | D2 | `{seq}` is a user-placed variable, default width 1 digit (`{seq:3}` for 3). A hard collision that survives planning still gets a `-1`/`-2` suffix as a last resort — never overwrite. |
-| D3 | Reversible: write `.halcyon_rename_log.json` in the folder AND expose a one-shot Undo. Plus a pre-flight preview of 5 randomly picked files. |
+| D3 | Reversible: write `.halcyon_rename_log.jsonl` in the folder AND expose a one-shot Undo. Plus a pre-flight preview of 5 randomly picked files. |
 | D4 | EXIF source = native macOS `CGImageSource` with a pure-Dart fallback on other platforms. Per `PhotoItem`, read metadata **once** from `bestFileToLoad` (JPG preferred) and apply it to every file in the group. |
 | D5 | Variable set covers date/time components, camera info, shooting parameters, and file-related tokens. |
 | D6 | Missing EXIF: capture date falls back to file mtime; all other missing variables render as an empty string. Files are never skipped for missing metadata. |
+| D7 | A custom rule is persisted per folder under the `_rename_rule` key of `.halcyon_status.json`, and pre-filled when the dialog reopens. Picking a built-in preset clears the key. |
 
 ## UI
 
@@ -73,6 +74,10 @@ updates while the rule is being edited.
   `old name → new name`, recomputed on every template change. Re-rolls with a
   small shuffle button.
 - **Run** starts the batch and closes the dialog; **Cancel** dismisses.
+- **Rule memory**: when the dialog opens, a previously saved custom rule for
+  this folder is pre-filled and the preset selection starts on `Custom...`. If
+  no custom rule is saved, the default preset is selected. The rule is written
+  back on Run, not on every keystroke.
 
 ### Variables
 
@@ -124,8 +129,10 @@ typedef ExifBatchReader =
 - macOS: one `MethodChannel('halcyon/exif')` call per chunk of 500 paths; the
   Swift side uses `DispatchQueue.concurrentPerform` over
   `CGImageSourceCopyPropertiesAtIndex` (header only, no pixel decode).
-- Other platforms: the same interface backed by a Dart TIFF/EXIF header parse
-  running in an isolate pool.
+- Other platforms: the same interface backed by the `exif` pub package parsing
+  the file header inside `Isolate.run`. Writing a TIFF parser by hand is not
+  worth it for a fallback path — the package covers the standard IFD0/ExifIFD/GPS
+  tags this feature needs.
 - Injected into `AppState` as a typedef, mirroring the existing `DngFullDecoder`
   seam, so tests substitute a fake reader.
 
@@ -149,8 +156,9 @@ class RenamePlan {
 - `applyRenames(plans, onProgress, cancelToken)` — serial `File.rename`. Rename
   is a same-volume metadata operation (microseconds); running it in parallel
   buys nothing and turns collision avoidance into a race. Each completed plan is
-  appended to `.halcyon_rename_log.json` before moving on, so a cancel or crash
-  still leaves an undoable record.
+  appended to `.halcyon_rename_log.jsonl` before moving on, so a cancel or crash
+  still leaves an undoable record. The log is JSON Lines, not one JSON array:
+  10,000 rewrites of a growing array would be O(n²), an append-only sink is O(n).
 - `undoLast(dir)` — replays the log in reverse.
 
 ### `AppState`
@@ -160,6 +168,14 @@ class RenamePlan {
   entries.** `.halcyon_status.json` is keyed by `PhotoItem.id` (the basename);
   without a remap every star/trash mark and the last-viewed pointer is lost.
   Same remap applies on undo.
+- **Rule persistence (D7)**: `PhotoStatusStore` gains
+  `loadRenameRule(dir)` / `saveRenameRule(dir, String? rule)` writing the
+  `_rename_rule` key of the same JSON file (`null` deletes the key).
+  **Gotcha**: `saveStatuses()` rebuilds the map from scratch and today only
+  carries `_last_viewed_id` forward — it must carry `_rename_rule` forward too,
+  or the first star after a rename silently drops the saved rule. Same for
+  `applySavedStatuses()`'s stale-key cleanup, which must not treat
+  `_rename_rule` as an orphaned photo id.
 - Item `id` and `files` are updated in place and `notifyListeners()` is called
   once at the end of the batch, not per file.
 
@@ -197,6 +213,9 @@ Unit tests with a fake `ExifBatchReader`, mostly against the pure planner:
 | 9 | Undo log round-trip restores every original name |
 | 10 | Status store keys are remapped after rename (stars survive) |
 | 11 | Cancel mid-batch leaves a valid, replayable log |
+| 12 | A custom rule survives a round-trip through `.halcyon_status.json` |
+| 13 | `saveStatuses()` after a star change preserves both `_last_viewed_id` and `_rename_rule` |
+| 14 | `applySavedStatuses()` does not treat `_rename_rule` as a stale photo key |
 
 Each gets a TC-NNN entry in `unit_test.md`.
 
