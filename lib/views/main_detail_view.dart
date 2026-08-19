@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
 import '../services/decoded_rgba_image_provider.dart';
@@ -114,12 +115,14 @@ class _MainDetailViewState extends State<MainDetailView>
       children: [
         // Viewer Area
         Positioned.fill(
-          child: _buildZoomableViewer(
-            bytes,
-            state.currentItemHasFullSize,
-            currentId, // PERF-INSTRUMENTATION
-            state.currentDecodedProvider,
-          ),
+          child: state.currentItemFailed
+              ? _buildUnreadable(item)
+              : _buildZoomableViewer(
+                  bytes,
+                  state.currentItemHasFullSize,
+                  currentId, // PERF-INSTRUMENTATION
+                  state.currentDecodedProvider,
+                ),
         ),
 
         // Floating Action Bar (Bottom Center)
@@ -203,6 +206,21 @@ class _MainDetailViewState extends State<MainDetailView>
       stream.removeListener(listener);
     });
     stream.addListener(listener);
+  }
+
+  // Shown instead of the otherwise-permanent spinner when the file is
+  // unreadable (AppState.currentItemFailed).
+  Widget _buildUnreadable(PhotoItem item) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.broken_image_outlined, size: 64),
+          const SizedBox(height: 12),
+          Text('無法讀取「${item.displayName}」\n檔案可能已損毀或格式不支援'),
+        ],
+      ),
+    );
   }
 
   Widget _buildZoomableViewer(

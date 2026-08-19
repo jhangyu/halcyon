@@ -110,6 +110,13 @@ class ImagePreloadController {
   final Map<String, DecodedRgbaImageProvider> _decodedProviders = {};
   final Set<String> _rawDecodesInFlight = {};
 
+  // Items the native side could not read at all (corrupt/truncated file,
+  // unsupported format). Without this the view has no way to tell "not loaded
+  // yet" from "will never load" and shows a spinner forever; it also stops the
+  // preload pass re-asking the native side on every navigation for an answer
+  // that cannot change. Cleared only by [reset] (i.e. a folder reload).
+  final Set<String> _failedIds = {};
+
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
   Timer? _thumbnailDebounceTimer;
@@ -123,6 +130,10 @@ class ImagePreloadController {
   Uint8List? imageBytesFor(String? id) => id == null ? null : _imageCache[id];
 
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
+
+  /// True when [id]'s image could not be read and never will be in this
+  /// session. The view shows an error instead of a spinner.
+  bool hasFailed(String? id) => id != null && _failedIds.contains(id);
 
   /// The full-resolution, orientation-corrected provider for a DNG that had
   /// no embedded preview and was decoded natively, or null if [id] is not
@@ -204,6 +215,7 @@ class ImagePreloadController {
       _evictTierTwoEntry(id);
     }
     _needsRawDecode.clear();
+    _failedIds.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
@@ -493,7 +505,13 @@ class ImagePreloadController {
       path,
       purpose: ImageRequestPurpose.preview,
     );
-    if (bytes == null) return;
+    if (bytes == null) {
+      // Last resort exhausted: the RAW decode threw AND CIRAWFilter can't read
+      // it either. Same "unreadable" verdict as the bytes path.
+      _failedIds.add(id);
+      notifyLoaded?.call();
+      return;
+    }
     _imageCache[id] = bytes;
     notifyLoaded?.call();
   }
@@ -653,6 +671,12 @@ class ImagePreloadController {
     // round-trip per navigation for an answer that cannot change.
     if (_needsRawDecode.containsKey(id)) return;
 
+    // Same reasoning for a file the native side already refused to read.
+    if (_failedIds.contains(id)) {
+      notifyLoaded?.call();
+      return;
+    }
+
     if (_loadingKeys.contains(id)) {
       // Someone else's load for this item is already in flight (e.g. it was
       // queued by a previous preload pass, or the caller selected an item
@@ -685,15 +709,21 @@ class ImagePreloadController {
       );
       if (bytes != null) {
         _imageCache[id] = bytes;
+      } else if (!_needsRawDecode.containsKey(id)) {
+        // No bytes and not a raw-decode item: the file is unreadable. Mark it
+        // so the view can say so instead of spinning forever. Notifying here
+        // is what actually gets the spinner replaced.
+        _failedIds.add(id);
+      }
+      // A raw-decode item is the only case with nothing to report yet:
+      // tier-2 owns it and will notify when the decode lands.
+      final resolved = bytes != null || _failedIds.contains(id);
+      final pending = _pendingPreviewNotifies.remove(id);
+      if (resolved) {
         notifyLoaded?.call();
-        final pending = _pendingPreviewNotifies.remove(id);
-        if (pending != null) {
-          for (final cb in pending) {
-            cb();
-          }
+        for (final cb in pending ?? const <VoidCallback>[]) {
+          cb();
         }
-      } else {
-        _pendingPreviewNotifies.remove(id);
       }
     } catch (_) {
       // The loader threw (e.g. a PlatformException the native side didn't

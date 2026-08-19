@@ -158,6 +158,10 @@ class AppState extends ChangeNotifier {
   DecodedRgbaImageProvider? get currentDecodedProvider =>
       _preloadController.decodedProviderFor(_selectedItemID);
 
+  /// True when the current item's file could not be read at all (corrupt or
+  /// unsupported). The view shows an error instead of a spinner.
+  bool get currentItemFailed => _preloadController.hasFailed(_selectedItemID);
+
   Uint8List? getThumbnailBytes(String id) =>
       _preloadController.thumbnailBytesFor(id);
 
