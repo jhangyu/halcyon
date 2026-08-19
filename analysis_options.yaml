@@ -9,6 +9,14 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # scripts/ holds throwaway tooling and snapshot backups of app code —
+  # scripts/tmp/r2_backup/ is a partial copy whose imports no longer resolve.
+  # Analysing it made `flutter analyze` exit 1 with 51 errors that say nothing
+  # about the shipped app, which turns the gate into noise nobody reads.
+  exclude:
+    - scripts/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
