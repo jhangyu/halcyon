@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-20
 title: "Halcyon — 任務真實狀態來源 (Task)"
 ---
 
@@ -23,9 +23,13 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: 19 — Zoom 狀態下沉至 View 層（`ZoomController`）✅ **已完成並驗收**（commit `6d74cd4`，2026-08-19）
+- **Task**: EXIF 重新命名（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-10）✅ **已完成，Task 10 文件同步收尾**（commit `58fe681`，2026-08-20）
+- **中斷點與交接 (Handover)**: 批次重新命名（模板/preset/自訂規則）+ undo 全部落地，見下方「已完成任務」EXIF 重新命名條目。本輪（Task 10）只補文件，未動程式碼；`memory.md`/`unit_test.md`/`file_index.md`/`handover.md` 已同步。**未重跑** `flutter test`/`flutter analyze`（本輪 worker 無執行環境），沿用各任務自身 commit 時的通過紀錄，待下一次有執行環境的 session 或使用者確認整套仍綠。
+- **下一個子步驟**: 使用者手動驗收（開真實資料夾、跑重新命名、確認星號保留、undo、確認自訂規則被記住——plan Task 6 Step 4 / Task 8 Step 6，本專案禁止 agent-driven UI 驗證，只能由使用者親自跑）。
+
+- **前一個 Task**: 19 — Zoom 狀態下沉至 View 層（`ZoomController`）✅ **已完成並驗收**（commit `6d74cd4`，2026-08-19）
 - **中斷點與交接 (Handover)**: 新增 `lib/views/zoom_controller.dart`；`MainScreen` 建立/釋放並注入 `MainDetailView(zoom:)`；`AppState` 已無 zoom 欄位與方法。`flutter analyze lib test` 0 issues、`flutter test` 115 綠（新增 11 案例 = TC-023，以 9 個 mutant 證明鑑別力）、`flutter build macos --release` 成功。使用者已用 release build 完成 `docs/logs/2026-08-19/zoom-state-extraction-handover.md` §12 的 7 項手動驗收，**全數通過**。收斂契約與 parking-lot 見 `docs/logs/2026-08-19/task19-convergence-contract.md`。
-- **下一個子步驟**: 無。下一個任務由使用者指定；parking-lot 五項（listener 的 widget 級測試、`transformCtrl.dispose()` 斷言、`MainDetailView` 的 `const`、`maxScale` 與字面 5.0 未綁定、controller 生命週期縮短）待裁決。
+- **下一個子步驟**: 無。parking-lot 五項（listener 的 widget 級測試、`transformCtrl.dispose()` 斷言、`MainDetailView` 的 `const`、`maxScale` 與字面 5.0 未綁定、controller 生命週期縮短）待裁決。
 
 - **前一個 Task**: 26 — Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
 - **中斷點與交接 (Handover)**: 已完成。`SidebarView` 不再用 `ScrollController` listener 計算可視範圍，改由 `ListView.builder` 的 `itemBuilder` 逐格回報建置到的 index，一幀結束後彙整成範圍呼叫 `AppState.preloadThumbnails()`；`ImagePreloadController` 接手 prefetch margin（`thumbnailPrefetchMargin = 20`）並新增 generation 計數器讓過期批次自我中止。`flutter test` 85 個測試通過（exit code 0，2026-08-19 重跑），`flutter analyze lib test` 0 issues。詳見 `handover.md` 本輪交接摘要。
@@ -422,6 +426,39 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
+### Task 27｜EXIF 重新命名（批次、可 undo）✅ 已完成
+
+**目標**：從 EXIF metadata（或 preset/自訂模板）批次重新命名資料夾內所有照片，10,000 檔規模下可用，且可完整 undo。
+
+**Log / 契約**：`docs/superpowers/plans/2026-08-19-exif-rename.md`（實作計畫）、`docs/logs/2026-08-20/exif-rename-convergence-contract.md`（收斂契約）。
+
+**已落地**（`58fe681` 及其前 6 個 commit，2026-08-20）：
+- `lib/services/rename_rule.dart`：`RenameRule`/`ExifMetadata` 純函式模板渲染，presets、變數 chip 分組。
+- `lib/services/rename_service.dart`：`planRenames`（無碰撞規劃，sibling/sidecar 同群組同新名）+ `applyRenames`/`undoLastRename`（JSONL undo journal `.halcyon_rename_log.jsonl`）。
+- `lib/services/photo_status_store.dart`：`loadRenameRule`/`saveRenameRule`/`remapKeys`，`_rename_rule` 納入 `reservedKeys`。
+- `lib/services/exif_metadata_service.dart`：`halcyon/exif` batch reader（macOS 原生優先，`exif` package fallback），`kExifChunkSize = 500`。
+- `macos/Runner/AppDelegate.swift`：`halcyon/exif` channel，header-only、`DispatchQueue.concurrentPerform` 平行讀取。
+- `lib/providers/app_state.dart`：`renameByExif`/`undoRename`/`cancelRename`/`isRenaming`/`readMetadataFor`/`loadSavedRenameRule`；`StatusMessage` 新增 `actionLabel`/`onAction`。
+- `lib/views/rename_dialog.dart`：兩窗格對話框（preset/自訂規則/變數 chip + 5 筆即時預覽），`kRenameMenuValue` 選單常數。
+- `lib/views/sidebar_view.dart`：「Rename by EXIF...」選單項。
+- `lib/views/status_line.dart`：重新命名進度「取消」按鈕、完成後「還原」按鈕。
+
+**測試**：TC-024~TC-056（33 案例），詳見 `unit_test.md` 測試案例矩陣；分布於 `test/rename_rule_test.dart`、`test/rename_service_test.dart`、`test/photo_status_store_test.dart`、`test/exif_metadata_service_test.dart`、`test/app_state_test.dart`、`test/rename_dialog_test.dart`、`test/sidebar_view_test.dart`、`test/status_line_test.dart`。
+
+**驗收標準**：`flutter analyze` 0 issues；`flutter test` 全數通過（含 TC-024~TC-056）；RAW+JPG 對重新命名後仍同組；星號/垃圾桶標記與 last-viewed 指標隨重新命名 remap；undo 可完整還原檔名與標記。
+
+**已知限制**（詳見 `memory.md` TD-015~TD-018 與 `handover.md`）：
+- plan Task 6 Step 4 / Task 8 Step 6 的實機 `flutter run -d macos` 驗收**未執行**（agent-driven UI 驗證本專案禁止）——**待使用者手動驗收**：開真實資料夾、跑重新命名、確認星號保留、undo、確認自訂規則被記住。改以 headless Swift probe 對 `local_data/photo_samples/`（SONY JPG + Panasonic DNG）驗證原生 EXIF 讀取回傳真實值。
+- `{direction}`（GPS image direction）未曾對含 GPS EXIF 的真實照片驗證過（手上無此類樣本）。
+- `AppState.cancelRename()`/`isRenaming` 與 `readMetadataFor` 的 >500 筆 chunking，在 AppState 層無直接測試（皆由對應 service 層案例覆蓋：TC-040、TC-047）。
+- **刻意排除範圍**：Windows/Android/Linux 原生 EXIF handler（僅 Dart `exif` package fallback）、重新命名資料夾內子集、跨資料夾搬移檔案。
+
+**文件更正**（Task 10 執行時發現，已同步進 `memory.md`）：
+- 計畫文件 Task 8 程式碼註解引用「memory.md G-005」/「memory.md G-009」描述選單字串比對陷阱與 FakeAsync tap 掛住陷阱，但這兩個編號在本檔實際指向別的事；正確條目已記錄為 G-012、G-013。經 grep 確認，這兩個錯誤引註字串並未真的落地進 `lib/`/`test/` 原始碼。
+- 計畫文件標注 tech stack 為「Flutter 3.35 / Dart 3.9」，實際安裝為 **Flutter 3.44.6 / Dart 3.12.2**；`lib/views/rename_dialog.dart` 因此使用 `RadioGroup<String>` 祖先 widget 而非計畫字面給出的已棄用 `RadioListTile.groupValue`/`onChanged` 寫法（見 `memory.md` G-014）。
+
+---
+
 ## 已完成摘要
 
 ### Phase 1 以前（含 Phase 1）
@@ -441,7 +478,7 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 | 指標 | 數值 |
 |------|------|
 | 現有測試數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 |
+| 新增測試數（EXIF 重新命名，TC-024~TC-056，commit `58fe681`）| +33（各檔以 `grep -c` 核對數量與計畫聲稱一致；**本輪未重跑** `flutter test` 確認整套綠燈，見上方 Task 27「已知限制」） |
 | 目標測試數（Task 15/16 完成後）| 18+（已達成）|
-| 已通過測試數 | 85（exit code 0）|
-| 測試覆蓋缺口 | Task 16（G-005 toggle-off 行為）尚無對應測試；DNG 解碼/回收模式/perf 相關測試檔已於本輪登錄對應 Task（22/23/25），仍未逐條列入 `unit_test.md` TC 矩陣（該檔的已知限制節有記錄） |
+| 測試覆蓋缺口 | Task 16（G-005 toggle-off 行為）尚無對應測試；DNG 解碼/回收模式/perf 相關測試檔已於本輪登錄對應 Task（22/23/25），仍未逐條列入 `unit_test.md` TC 矩陣（該檔的已知限制節有記錄）；EXIF 重新命名的已知測試缺口見 `memory.md` TD-017/TD-018 |
 | 測試覆蓋策略 | 詳見 `unit_test.md` |

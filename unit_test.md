@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-20
 title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 ---
 
@@ -69,6 +69,7 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | 影像切換 tier-1/tier-2 sliding preload | ✅ | `lib/services/image_preload_controller.dart`；`test/image_preload_controller_test.dart`（22 案例）覆蓋 |
 | Finder「開啟方式」冷啟動 | ✅（macOS）| `lib/services/open_with_channel.dart`；Windows/Android 原生轉發未實作 |
 | Sidebar 縮圖預載改為 itemBuilder 驅動 | ✅ | 取代 scroll listener 觸發模式；`test/sidebar_view_test.dart` 覆蓋資料夾重載迴歸案例 |
+| EXIF 重新命名（批次、可 undo）| ✅ | 模板渲染＋碰撞規劃為純函式、JSONL undo journal、macOS `halcyon/exif` 原生 batch channel、兩窗格對話框、status line undo/cancel；Windows/Android 只有 `exif` package fallback，實機視覺覆核待補（見 `memory.md` TD-015） |
 
 ---
 
@@ -359,6 +360,436 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-024｜RenameRule — 預設模板渲染零填日期與時間
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-024 |
+| **名稱** | default template renders zero-padded date and time |
+| **測試類型** | 單元測試（純函式）|
+| **預期結果** | `RenameRule.kDefaultTemplate` 渲染出 `2026-04-07-09-03-05` |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-025｜RenameRule — `{seq}` 預設 1 位數，`{seq:3}` 零填 3 位
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-025 |
+| **名稱** | `{seq}` defaults to one digit, `{seq:3}` zero-pads to three |
+| **測試類型** | 單元測試 |
+| **預期結果** | `{seq}` 對 seq=7 輸出 `7`；`{seq:3}` 對 7 輸出 `007`、對 1234 輸出 `1234`（不截斷）|
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-026｜RenameRule — 缺 capture date 退回檔案 mtime
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-026 |
+| **名稱** | missing capture date falls back to file mtime |
+| **測試類型** | 單元測試 |
+| **預期結果** | `meta.captureDate == null` 或 `meta == null` 時，日期欄位改用 `fileModified` |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-027｜RenameRule — 非日期變數渲染，缺值時輸出空字串
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-027 |
+| **名稱** | non-date variables render, missing ones render empty |
+| **測試類型** | 單元測試 |
+| **預期結果** | `{camera}`/`{lens}`/`{make}`/`{artist}`/`{f}`/`{focal}`/`{iso}`/`{shutter}`/`{direction}`/`{orig}` 各自渲染正確值；缺值變數輸出空字串而非拋錯 |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-028｜RenameRule — 路徑不合法字元被取代、頭尾修剪
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-028 |
+| **名稱** | path-hostile characters are replaced, edges trimmed |
+| **測試類型** | 單元測試 |
+| **預期結果** | `/`、`:` 等字元換成 `_`；頭尾空白與 `.` 被修剪 |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-029｜RenameRule — 未知變數與空結果回報為錯誤
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-029 |
+| **名稱** | unknown variable and empty result are reported as errors |
+| **測試類型** | 單元測試 |
+| **預期結果** | `{fstop}`（未知變數）與空模板的 `.error` 非 null；合法模板 `.error` 為 null |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-030｜RenameRule — 每個 preset 皆為合法模板，預設排第一
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-030 |
+| **名稱** | every preset is a valid template and the default is first |
+| **測試類型** | 單元測試 |
+| **預期結果** | `RenameRule.presets.first.template == kDefaultTemplate`；每個 preset 的 `.error` 皆為 null |
+| **驗證方式** | `test/rename_rule_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-031｜planRenames — sibling RAW + JPG + sidecar 共用同一新 base
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-031 |
+| **名稱** | sibling RAW + JPG + sidecar all get the same new base |
+| **測試類型** | 單元測試（純函式）|
+| **預期結果** | 同一 `PhotoItem` 的 NEF/JPG/`._` sidecar 全部渲染同一新 base；moves 順序為「每個檔案後面緊跟它自己的 sidecar」|
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-032｜planRenames — 同秒項目依原始檔名順序編號 `{seq}`
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-032 |
+| **名稱** | same-second items with `{seq}` number in original-name order |
+| **測試類型** | 單元測試 |
+| **預期結果** | 兩張同秒拍攝的照片依 id 字母序取得 `_001`/`_002`，與掃描順序無關 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-033｜planRenames — 無 `{seq}` 時碰撞退回 `-1`/`-2` 後綴
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-033 |
+| **名稱** | collision without `{seq}` falls back to -1/-2 |
+| **測試類型** | 單元測試 |
+| **預期結果** | 三張同秒照片渲染同名時，第二、三張分別得到 `-1`、`-2` 後綴 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-034｜planRenames — 資料夾內已存在的檔名永不重用
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-034 |
+| **名稱** | a name already in the folder is never reused |
+| **測試類型** | 單元測試 |
+| **預期結果** | `existingNames` 內已有的目標名會被跳過，改附加 `-1` 後綴 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-035｜planRenames — 已符合命名規則的項目不產生任何 move
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-035 |
+| **名稱** | an item already named correctly produces no moves |
+| **測試類型** | 單元測試 |
+| **預期結果** | 渲染結果與現有 id 相同的項目被跳過（不進 `plans`），避免 undo log 記錄無意義的 no-op |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-036｜planRenames — 缺 metadata 仍能命名，改用檔案 mtime
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-036 |
+| **名稱** | missing metadata still renames, using file mtime |
+| **測試類型** | 單元測試 |
+| **預期結果** | `metadata[id] == null` 時仍成功規劃重新命名，日期取自 `fileModified` |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-037｜applyRenames — 重新命名每個檔案並回報進度
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-037 |
+| **名稱** | renames every file and reports progress |
+| **測試類型** | 單元測試（`dart:io` temp 目錄）|
+| **預期結果** | 兩個 plan 全部檔案成功改名；`onProgress` 依序回報 `[1, 2]`；`outcome.renamedCount == 2`、`failures` 為空 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-038｜undoLastRename — 還原每個原始檔名並刪除 log
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-038 |
+| **名稱** | undo restores every original name and drops the log |
+| **測試類型** | 單元測試（`dart:io` temp 目錄）|
+| **預期結果** | 呼叫 `undoLastRename` 後所有檔案恢復原名；`kRenameLogName` 檔案被刪除 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-039｜applyRenames — 來源檔案不存在算失敗，不中斷整批
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-039 |
+| **名稱** | a missing source is a failure, not an aborted batch |
+| **測試類型** | 單元測試 |
+| **預期結果** | 一個 plan 的來源檔不存在時計入 `failures`（含檔名），其餘 plan 仍正常完成 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-040｜applyRenames — 取消會停止批次並留下可重播的 log
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-040 |
+| **名稱** | cancel stops the batch and leaves a replayable log |
+| **測試類型** | 單元測試 |
+| **預期結果** | `isCancelled` 在第二個 plan 前回傳 true 時，`outcome.cancelled == true` 且只完成一個 plan；隨後 `undoLastRename` 仍可正確還原已完成的部分 |
+| **驗證方式** | `test/rename_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-041｜PhotoStatusStore — 自訂規則可完整往返讀寫
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-041 |
+| **名稱** | a custom rule survives a round trip |
+| **測試類型** | 單元測試 |
+| **預期結果** | `saveRenameRule` 存入後 `loadRenameRule` 讀回相同字串；存 `null` 會刪除該 key |
+| **驗證方式** | `test/photo_status_store_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-042｜PhotoStatusStore — saveStatuses 保留 `_last_viewed_id` 與 `_rename_rule`
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-042 |
+| **名稱** | saveStatuses preserves `_last_viewed_id` and `_rename_rule` |
+| **測試類型** | 單元測試 |
+| **預期結果** | 呼叫 `saveStatuses` 重建 map 後，先前存入的 `_rename_rule`、`_last_viewed_id` 仍存在 JSON 中 |
+| **驗證方式** | `test/photo_status_store_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-043｜PhotoStatusStore — applySavedStatuses 不把 `_rename_rule` 當成過期 key
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-043 |
+| **名稱** | applySavedStatuses does not treat `_rename_rule` as a stale key |
+| **測試類型** | 單元測試 |
+| **預期結果** | 過期 key 清理邏輯不會誤刪 `reservedKeys` 內的 `_rename_rule` |
+| **驗證方式** | `test/photo_status_store_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-044｜PhotoStatusStore — remapKeys 一併搬移標記與 last-viewed id
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-044 |
+| **名稱** | remapKeys moves marks and the last-viewed id to new ids |
+| **測試類型** | 單元測試 |
+| **預期結果** | `remapKeys` 後舊 id 的星號/垃圾桶標記與 `_last_viewed_id` 全部轉移到新 id；`_rename_rule` 不受影響 |
+| **驗證方式** | `test/photo_status_store_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-045｜ExifMetadataService — 完整解碼原生 map
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-045 |
+| **名稱** | decodes a full native map |
+| **測試類型** | 單元測試 |
+| **預期結果** | `metadataFromMap` 正確解出 `captureDate`/`camera`/`lens`/`make`/`artist`/`shutter`/`aperture`/`focalLength`/`gpsImgDirection`/`iso` |
+| **驗證方式** | `test/exif_metadata_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-046｜ExifMetadataService — null map、缺日期、垃圾日期皆優雅降級
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-046 |
+| **名稱** | a null map, a missing date and a junk date all degrade |
+| **測試類型** | 單元測試 |
+| **預期結果** | `metadataFromMap(null)` 回傳 null；空 map 回傳非 null 但欄位皆 null；無法解析的日期字串回傳 `captureDate == null` 而非拋錯 |
+| **驗證方式** | `test/exif_metadata_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-047｜ExifMetadataService — readBatch 分批且保持順序
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-047 |
+| **名稱** | readBatch chunks the paths and preserves order |
+| **測試類型** | 單元測試（mock `MethodChannel`）|
+| **預期結果** | 1200 個路徑依 `kExifChunkSize`（500）分成 `[500, 500, 200]` 三批呼叫；結果與輸入順序一致 |
+| **驗證方式** | `test/exif_metadata_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-048｜ExifMetadataService — channel 失敗回傳 null 而非拋錯
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-048 |
+| **名稱** | a channel failure yields nulls rather than throwing |
+| **測試類型** | 單元測試（mock `MethodChannel` 拋 `PlatformException`）|
+| **預期結果** | `readBatch` 回傳與輸入等長、全為 null 的清單，不向上拋出例外 |
+| **驗證方式** | `test/exif_metadata_service_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-049｜AppState — renameByExif 重新命名並把星號帶到新 id
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-049 |
+| **名稱** | renames files and moves the star to the new id |
+| **測試類型** | 單元測試（`dart:io` temp 目錄，注入 fake `exifReader`）|
+| **預期結果** | RAW+JPG 對與另一張單檔皆被重新命名；已加星的項目在新 id 下仍為 `starred`；`selectedItemID` 跟著換成新 id |
+| **驗證方式** | `test/app_state_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-050｜AppState — undoRename 還原原始檔名與星號
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-050 |
+| **名稱** | undo restores the original names and the star |
+| **測試類型** | 單元測試 |
+| **預期結果** | `undoRename()` 後檔案恢復原名，`items.single.id`/`status` 皆還原 |
+| **驗證方式** | `test/app_state_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-051｜AppState — 自訂規則會被儲存，改回 preset 會清除
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-051 |
+| **名稱** | a custom rule is saved; a preset clears it |
+| **測試類型** | 單元測試 |
+| **預期結果** | `isCustom: true` 呼叫後 `loadSavedRenameRule()` 回傳該模板；之後以 `isCustom: false` 呼叫內建 preset 後 `loadSavedRenameRule()` 回傳 null |
+| **驗證方式** | `test/app_state_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-052｜RenameDialog — 每個 preset 與每個變數 chip 都會渲染
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-052 |
+| **名稱** | every preset and every variable chip is rendered |
+| **測試類型** | Widget Test |
+| **預期結果** | `RenameRule.presets` 每個 label、`Custom...`、`RenameRule.variableGroups` 每個 token 皆能在畫面上找到 |
+| **驗證方式** | `test/rename_dialog_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-053｜RenameDialog — 不合法規則停用 Rename 按鈕並顯示原因
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-053 |
+| **名稱** | an invalid rule disables Rename and shows the reason |
+| **測試類型** | Widget Test |
+| **預期結果** | 輸入 `{fstop}` 後畫面顯示含「Unknown variable」的錯誤文字；`FilledButton.onPressed` 為 null |
+| **驗證方式** | `test/rename_dialog_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-054｜RenameDialog — 點擊 chip 會把 token 附加到規則欄位
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-054 |
+| **名稱** | tapping a chip appends its token to the rule |
+| **測試類型** | Widget Test |
+| **預期結果** | 輸入 `{YYYY}` 後點擊 `{camera}` chip，`TextField.controller.text` 變成 `{YYYY}{camera}` |
+| **驗證方式** | `test/rename_dialog_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-055｜SidebarView — 用共用常數觸發 onSelected 會開啟對話框
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-055 |
+| **名稱** | onSelected with the shared constant opens the dialog |
+| **測試類型** | Widget Test |
+| **背景** | `testWidgets` 中對 `PopupMenuItem` tap 會在 `FakeAsync` 下掛住（見 `memory.md` G-013），改直接呼叫 `PopupMenuButton.onSelected!`；同時驗證選單 `value` 與呼叫端共用 `kRenameMenuValue`（見 `memory.md` G-012） |
+| **預期結果** | 呼叫 `button.onSelected!(kRenameMenuValue)` 後 `find.byType(RenameDialog)` 找到一個 widget |
+| **驗證方式** | `test/sidebar_view_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-056｜StatusLine — 帶 action 的訊息渲染按鈕且只觸發一次
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-056 |
+| **名稱** | an action message renders a button that fires once |
+| **測試類型** | Widget Test |
+| **預期結果** | `StatusMessage(actionLabel: '還原', onAction: ...)` 渲染出「還原」按鈕；點擊一次後 callback 恰好觸發一次 |
+| **驗證方式** | `test/status_line_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
 ### TC-018｜StatusLine — 顯示時序與淡出
 
 | 欄位 | 內容 |
@@ -407,6 +838,7 @@ flutter test --coverage
 | 指標 | 目前 | Phase 5 目標 | Phase 10 目標 |
 |------|------|-------------|--------------|
 | 測試案例總數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 | ≥ 16（含 TC-011~TC-014，已達成）| ≥ 18（已達成）|
+| 測試案例總數（EXIF 重新命名新增，commit `58fe681`）| +33（TC-024~TC-056，各檔逐一 `grep -c "test(\|testWidgets("` 核對過與計畫聲稱數一致）| — | — |
 | TC-001 ~ TC-022 通過率 | 全數 ✅ 已通過，僅 TC-014 仍待建立（行為已確認正確，純缺 regression test，見 Task 16）| TC-011~TC-013 通過 | TC-014 通過 |
 | `flutter analyze` | 0 issues | 0 errors, 0 warnings | 0 errors, 0 warnings |
 | 覆蓋率門檻 | — | > 60%（行覆蓋）| > 70% |
@@ -459,8 +891,11 @@ flutter test --coverage
 | 2026-08-19 | 狀態列（status line）與唯讀資料夾警告 | `flutter test` | ✅ 通過，84 個測試（exit code 0，commit `123727b`） |
 | 2026-08-19 | Sidebar itemBuilder 驅動預載（Task 26）+ 文件全面重寫 | `flutter test` | ✅ 通過，85 個測試（exit code 0，commit `d0eb855`） |
 | 2026-08-19 | 文件全面重寫（本輪） | `flutter analyze lib test` | ✅ 通過，0 issues |
+| 2026-08-20 | EXIF 重新命名（Task 1-9，commit `58fe681`）| — | 本輪僅補文件（Task 10），無執行環境可重跑 `flutter test`/`flutter analyze`；各新增測試檔的 TC 數已用 `grep -c` 逐檔核對與計畫聲稱一致（見上方測試案例矩陣），但整套綠燈狀態沿用各任務自身 commit 訊息與 review 紀錄，未在本輪重新實跑，待下一次有執行環境的 session 或使用者確認 |
 
 **已知限制**：TC-019 ~ TC-022 為本輪新增，覆蓋 sidebar 重載迴歸、tier-1/tier-2 preload、DNG 解碼、回收模式，但仍是每個測試檔一條摘要 TC，未逐一案例對應（例如 `image_preload_controller_test.dart` 22 個案例只對應 TC-020 一條）。`flutter build macos` 與 macOS 實機視覺覆核（Trash、`.trash` 回收、Finder 開啟方式冷啟動、DNG 大圖顯示）本輪未重跑，沿用先前紀錄。
+
+**EXIF 重新命名已知限制**（2026-08-20，見 `memory.md` TD-015~TD-018）：plan Task 6 Step 4 / Task 8 Step 6 的實機 `flutter run -d macos` 驗收未執行（agent-driven UI 驗證本專案禁止），改以 headless Swift probe 對 `local_data/photo_samples/` 驗證原生 EXIF 讀取；`{direction}`（GPS）未曾對含 GPS 的真實照片驗證過；`AppState.cancelRename()`/`isRenaming` 與 `readMetadataFor` 的 >500 筆 chunking 在 AppState 層無直接測試（皆由 service 層對應案例覆蓋）。刻意排除範圍：Windows/Android/Linux 原生 EXIF（僅 Dart `exif` package fallback）、重新命名資料夾內子集、跨資料夾搬移檔案。
 
 ---
 

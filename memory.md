@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-20
 title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 ---
 
@@ -136,6 +136,22 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **驗證**：新增 `test/zoom_controller_test.dart`（9 案例，TC-023），以 8 個 mutant 逐一證明鑑別力；`flutter analyze lib test` 0 issues。
 - **對應任務**：`task.md` Task 19；關閉 G-010 / TD-011。
 
+### AD-016｜EXIF 重新命名：命名策略與 I/O 分離
+- **日期**：2026-08-20
+- **決策**：`RenameRule.render`（模板 → 檔名）與 `planRenames`（檔名 → 無碰撞計畫）皆為純函式；只有 `applyRenames` 觸碰檔案系統。整個命名策略因此可在不落地任何照片的情況下完整單元測試，這也是讓 10,000 檔案規模路徑未來能安全變更的關鍵。
+- **依據**：重新命名採序列執行——`File.rename` 是同一 volume 內的 metadata 操作，平行化沒有效益，反而會讓 planner 的碰撞規避退化成 race；10,000 張照片真正的成本在讀取 EXIF，那一段才是平行的（macOS 原生端 header-only、每個項目只讀一次而非每個檔案讀一次）。
+- **Flutter**：`lib/services/rename_rule.dart`、`lib/services/rename_service.dart`。
+- **驗證**：`test/rename_rule_test.dart`（TC-024~TC-030）、`test/rename_service_test.dart`（TC-031~TC-040）。
+- **對應任務**：EXIF 重新命名功能（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-3）。
+
+### AD-017｜EXIF 每個項目只讀一次，來源為 JPG sibling
+- **日期**：2026-08-20
+- **決策**：RAW+JPG 為同一次拍攝，`PhotoItem.bestFileToLoad` 選出 JPG，其 metadata 套用到該群組所有檔案；不重複讀取 RAW header 以避免對相同資料做兩次工。
+- **依據**：省去對同一拍攝重複解析 EXIF 的成本；與 AD-002（RAW 優先載入策略中 JPG 優先）方向一致。
+- **Flutter**：`lib/providers/app_state.dart:readMetadataFor()`。
+- **驗證**：`test/app_state_test.dart`（TC-049~TC-051）。
+- **對應任務**：EXIF 重新命名功能（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 7）。
+
 ---
 
 ## Gotchas（踩坑紀錄）
@@ -186,6 +202,33 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **解法**：macOS 原生端需根據 `targetSize` 分流：小圖保留 `CGImageSourceCreateThumbnailAtIndex`，主圖/高解析請求優先使用原圖輸出並保留方向修正。
 - **狀態**：已修復（Task 6）。非 RAW 且 `targetSize > 4000` 的請求改用 `CGImageSourceCreateImageAtIndex` + CoreImage orientation 修正；實機 JPG 視覺覆核待使用者確認。
 
+### G-011｜`.halcyon_status.json` 以檔名為 key，重新命名必須 remap
+- **嚴重程度**：高
+- **問題**：每一個星號、垃圾桶標記與 last-viewed 指標都存在 `PhotoItem.id`（即 basename）底下；任何會重新命名檔案的功能，若不呼叫 `PhotoStatusStore.remapKeys`，標記會被靜默孤立（orphan）。
+- **相關陷阱**：`saveStatuses()` 會從頭重建整個 map，只把 `PhotoStatusStore.reservedKeys` 內的 key 帶過去；新增一個非照片 key 卻忘記加進該 set，下一次標星就會把它沖掉。
+- **解法**：EXIF 重新命名（`AppState.renameByExif` / `undoRename`）在套用/還原批次後皆呼叫 `remapKeys`；`_rename_rule` 已加入 `reservedKeys`。
+- **驗證**：`test/photo_status_store_test.dart`（TC-041~TC-044）、`test/app_state_test.dart`（TC-049~TC-051）。
+
+### G-012｜`PopupMenuItem` 的 `value` 與 `onSelected` 以字串比對，寫錯字面量會讓選單項目靜默失效
+- **嚴重程度**：中
+- **問題**：`PopupMenuItem` 的 `value` 與 `onSelected` 分支是用字串比對配對；兩邊字面量若不一致，選單項目會靜默失效，且若測試也硬寫字面量，測試本身也抓不到這個 bug。
+- **解法**：`kRenameMenuValue`（定義於 `lib/views/rename_dialog.dart`）由選單定義與 `sidebar_view.dart` 的 `onSelected` 分支共用同一常數；`test/sidebar_view_test.dart` 的 TC-055 也引用同一常數而非硬寫 `'rename'`，確保常數改名時測試會一起失敗。
+- **驗證**：`test/sidebar_view_test.dart`（TC-055）。
+- **注意（文件更正）**：EXIF 重新命名的實作計畫（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 8）在要求寫入的程式碼註解中引用「memory.md G-005」描述此陷阱，但該編號在本檔實際指向另一件事（Auto-advance / Status Toggle，見上）；正確編號是本條 G-012。經全文 grep `lib/`、`test/` 確認，實作並未真的落地這個錯誤引註字串，僅計畫文件本身寫錯。
+
+### G-013｜`testWidgets` 中對 `PopupMenuItem` 執行 tap 會在 FakeAsync 下掛住
+- **嚴重程度**：中
+- **問題**：在 `testWidgets` 內對 `PopupMenuButton` 開出的 `PopupMenuItem` 執行 `tester.tap()` 後等待其消失（dismiss animation），會在 `FakeAsync` zone 下永久掛住。
+- **解法**：測試改為直接抓 widget 拿到 `PopupMenuButton<String>` 實例，手動呼叫其 `onSelected!(value)`，不透過 tap 觸發選單互動。
+- **驗證**：`test/sidebar_view_test.dart`（TC-055，`button.onSelected!(kRenameMenuValue)`）。
+- **注意（文件更正）**：實作計畫在要求寫入的程式碼註解中引用「memory.md G-009」描述此陷阱，但該編號在本檔實際指向另一件事（JDK 25 / Gradle 相容性，見上）；正確編號是本條 G-013。經全文 grep `lib/`、`test/` 確認，實作並未真的落地這個錯誤引註字串，僅計畫文件本身寫錯。
+
+### G-014｜實際 toolchain 是 Flutter 3.44.6 / Dart 3.12.2，`RadioListTile.groupValue`/`onChanged` 已棄用
+- **嚴重程度**：低
+- **問題**：EXIF 重新命名的實作計畫標注 tech stack 為「Flutter 3.35 / Dart 3.9」，但本機實際安裝的 toolchain 是 **Flutter 3.44.6 / Dart 3.12.2**；`RadioListTile` 的 `groupValue`/`onChanged` 參數在 Flutter 3.32 之後已棄用。
+- **解法**：`lib/views/rename_dialog.dart`（`rename_dialog.dart:178` 起）改用 `RadioGroup<String>` 祖先 widget 包裹一組 `RadioListTile`，而非計畫文件中字面給出的 `groupValue`/`onChanged` 寫法。
+- **注意**：不要把這裡「修回」計畫文件中的舊寫法——那是已棄用的 API，日後升級 Flutter 版本前都應保持 `RadioGroup` 寫法。
+
 ### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
 - **嚴重程度**：中
 - **現況**：`main_detail_view.dart` 有至少 5 處在 widget build/callback 中直接對 `AppState` 的 public 欄位做 setter，破壞單向資料流（原記載 4 處，本輪多發現 1 處）：
@@ -225,6 +268,10 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 | TD-012 | macOS `AppDelegate.swift` 缺乏深層錯誤處理 | 中 | CIContext/CIFilter/CGImage 未加 try-catch；無大型 RAW 記憶體上限；Task 17 待辦 |
 | TD-013 | `sidebar_view.dart:48` `_itemHeight = 48.0` 硬編碼 | 低 | 主題密度改變時 scroll 位置計算會失準 |
 | TD-014 | `sidebar_view.dart` 重複 iconColor 判斷且色值不一致（2026-08-19 重新核實：回收模式改動後已增至 4 處重複，行號全部位移）| 低 | Line 150（`32,32,32`）vs Line 197、266-268、287-289、322-324（皆 `59,59,59`）— 需提取 `_iconColor()` helper；Task 20 待辦。行號取自本輪讀取當下，另一 session 正對此檔做未提交 flicker-fix，下一輪需重新核對 |
+| TD-015 | EXIF 重新命名實機驗收未執行 | 中 | plan Task 6 Step 4 / Task 8 Step 6（`flutter run -d macos` 對真實資料夾操作）未執行——本專案禁止 agent-driven UI 驗證；改以 headless Swift probe 對 `local_data/photo_samples/`（一張 SONY JPG、一張 Panasonic DNG）驗證原生 EXIF 讀取回傳真實值。使用者手動驗收（開資料夾、跑重新命名、確認星號保留、undo、確認自訂規則被記住）仍待補 |
+| TD-016 | `{direction}`（GPS image direction）未端到端驗證 | 低 | 目前手上沒有任何含 GPS EXIF 的樣本照片；`RenameRule`/`ExifMetadataService` 對 `direction` 的映射邏輯有單元測試覆蓋，但未曾對真實 GPS 資料跑過 |
+| TD-017 | `AppState.cancelRename()` / `isRenaming` 無專屬測試 | 低 | 計畫本身未要求此項；取消行為在 service 層由 TC-040 覆蓋，AppState 協調層目前無直接測試 |
+| TD-018 | `readMetadataFor` 超過 500 筆的 chunking 在 AppState 層未測試 | 低 | service 層由 TC-047 覆蓋 chunking 行為；AppState 呼叫端把批次串起來的迴圈邏輯目前沒有直接測試 |
 
 ---
 

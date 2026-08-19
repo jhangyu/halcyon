@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-20
 title: "Halcyon — 專案檔案地圖與目錄對照 (File Index)"
 ---
 
@@ -60,15 +60,19 @@ Halcyon/
 │   │   │   ├── dng_decode_contract.dart       # DngFullDecoder / DecodedRgba 解碼介面契約
 │   │   │   ├── dng_decode_service.dart        # DNG 全尺寸解碼服務（flutter_dng_decoder 整合）
 │   │   │   ├── open_with_channel.dart         # Finder「開啟方式」冷啟動 MethodChannel
-│   │   │   └── thumbnail_export_service.dart  # 星號照片批次匯出縮圖（長邊 ≤ 2048px、bounded concurrency 4、EXIF 保留）
+│   │   │   ├── thumbnail_export_service.dart  # 星號照片批次匯出縮圖（長邊 ≤ 2048px、bounded concurrency 4、EXIF 保留）
+│   │   │   ├── rename_rule.dart                # EXIF 檔名模板純函式渲染（ExifMetadata、RenameRule、presets、variableGroups）
+│   │   │   ├── rename_service.dart             # 無碰撞重新命名規劃（planRenames）+ 套用與 JSONL undo journal（applyRenames/undoLastRename）
+│   │   │   └── exif_metadata_service.dart      # `halcyon/exif` batch reader（macOS 原生優先，`exif` package fallback）
 │   │   └── views/
 │   │       ├── main_screen.dart       # Scaffold + 鍵盤快捷鍵 + 側邊欄拖曳調整
-│   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載 + 回收模式狀態圖示
+│   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載 + 回收模式狀態圖示 + Rename by EXIF... 選單項
 │   │       ├── main_detail_view.dart  # ZoomableImageView + 浮動操作列
 │   │       ├── zoom_controller.dart   # View 層縮放狀態（由 MainScreen 持有並 dispose；跨照片保留）
 │   │       ├── photo_action_bar.dart  # 浮動操作列（星號/刪除/回收模式切換按鈕）
-│   │       ├── status_line.dart       # 取代 SnackBar 的自訂狀態列 widget：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；重點字反相對比配色
+│   │       ├── status_line.dart       # 取代 SnackBar 的自訂狀態列 widget：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；重點字反相對比配色；支援重新命名 undo/cancel 按鈕
 │   │       ├── batch_delete_feedback.dart  # 批次刪除回饋：成功走 status line，失敗走阻斷式 AlertDialog
+│   │       ├── rename_dialog.dart     # 兩窗格 EXIF 重新命名對話框（preset/自訂規則/變數 chip + 即時預覽）
 │   │       └── settings_dialog.dart   # Auto-advance + Overwrite-existing 設定
 │   ├── test/
 │   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose、唯讀資料夾警告測試
@@ -85,11 +89,16 @@ Halcyon/
 │   │   ├── dng_extractor_swift_test.dart # 已交付 DNG extractor 對應 Swift 測試套件
 │   │   ├── native_thumbnail_service_test.dart  # NativeThumbnailService request contract 測試
 │   │   ├── thumbnail_export_service_test.dart  # ThumbnailExportService 匯出行為測試（bounded concurrency、EXIF 保留、進度回報）
+│   │   ├── rename_rule_test.dart         # RenameRule 模板渲染測試（TC-024~TC-030）
+│   │   ├── rename_service_test.dart      # planRenames/applyRenames/undoLastRename 測試（TC-031~TC-040）
+│   │   ├── photo_status_store_test.dart  # PhotoStatusStore 規則持久化與 key remap 測試（TC-041~TC-044）
+│   │   ├── exif_metadata_service_test.dart  # ExifMetadataService batch reader 測試（TC-045~TC-048）
+│   │   ├── rename_dialog_test.dart       # RenameDialog widget 測試（TC-052~TC-054）
 │   │   ├── main_test.dart        # main() 啟動流程測試
 │   │   └── widget_test.dart      # 有效 widget smoke test
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）
 │   │   └── Runner/
-│   │       └── AppDelegate.swift  # getThumbnail handler + preview/thumbnail native logic
+│   │       └── AppDelegate.swift  # getThumbnail handler + preview/thumbnail native logic；`halcyon/exif` batch EXIF 讀取 handler（header-only、native-parallel）
 │   ├── ios/                      # Flutter iOS Runner（參考實作）
 │   │   └── Runner/
 │   │       └── AppDelegate.swift  # MethodChannel handler 參考
@@ -167,7 +176,10 @@ Halcyon/
 | `DngDecodeService` / `DngDecodeContract` | `lib/services/dng_decode_service.dart`、`lib/services/dng_decode_contract.dart` | DNG 全尺寸解碼服務與介面契約（`flutter_dng_decoder` 整合） |
 | `DecodedRgbaImageProvider` | `lib/services/decoded_rgba_image_provider.dart` | 已解碼 RGBA 緩衝轉 `ui.Image` provider |
 | `OpenWithChannel` | `lib/services/open_with_channel.dart` | Finder「開啟方式」冷啟動 MethodChannel |
-| `StatusLine` | `lib/views/status_line.dart` | 取代 SnackBar 的自訂狀態列 widget（唯讀資料夾警告、批次刪除成功訊息） |
+| `StatusLine` | `lib/views/status_line.dart` | 取代 SnackBar 的自訂狀態列 widget（唯讀資料夾警告、批次刪除成功訊息、重新命名 undo/cancel） |
+| `RenameRule` / `planRenames` / `applyRenames` | `lib/services/rename_rule.dart`、`lib/services/rename_service.dart` | EXIF 檔名模板純函式渲染 + 無碰撞規劃 + 套用與 JSONL undo journal |
+| `ExifMetadataService` | `lib/services/exif_metadata_service.dart` | `halcyon/exif` batch 讀取（macOS 原生優先、`exif` package fallback），chunk 大小 `kExifChunkSize = 500` |
+| `RenameDialog` | `lib/views/rename_dialog.dart` | 兩窗格 EXIF 重新命名對話框；`kRenameMenuValue` 常數與 `sidebar_view.dart` 選單共用 |
 
 ## 重要路徑約定
 
@@ -185,3 +197,5 @@ Halcyon/
 | Status line 時序 | 2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除（取代 SnackBar 250ms 淡出）|
 | 資料夾可寫性探測 | `PhotoStatusStore.isWritable()`：建立再刪除 `.halcyon_write_probe`（exFAT noowners 掛載下權限位不可靠，僅能實測）|
 | 回收模式 | 同名 sibling（`.cr2`/`.nef`/`.orf`…）自動分組，批次刪除移入資料夾內 `.trash`，碰撞時附加後綴 |
+| EXIF 重新命名 undo log | `{folder}/.halcyon_rename_log.jsonl`（append-only，JSON Lines 而非陣列，避免 10,000 筆時 O(n²) 重寫） |
+| EXIF 讀取 channel | `halcyon/exif`（macOS 原生，header-only、`DispatchQueue.concurrentPerform` 平行讀取）；chunk 大小 `kExifChunkSize = 500` |

@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-20
 title: "Halcyon — 短期交接摘要 (Handover)"
 ---
 
@@ -21,7 +21,25 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 當前任務
 
-**本輪（2026-08-19）｜Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）**
+**本輪（2026-08-20）｜EXIF 重新命名（批次、可 undo，commit `58fe681`，Task 10 文件收尾）**
+
+已落地（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-9）：
+- 批次從 EXIF metadata 重新命名資料夾內所有照片：`RenameRule`（純函式模板渲染，含 4 個 preset 與自訂規則）+ `planRenames`（無碰撞規劃，RAW/JPG/sidecar 同群組同新名，碰撞附加 `-1`/`-2`）+ `applyRenames`/`undoLastRename`（`.halcyon_rename_log.jsonl` append-only undo journal，避免 10,000 筆時 O(n²) 重寫陣列）。
+- macOS `halcyon/exif` MethodChannel：header-only、`DispatchQueue.concurrentPerform` 平行讀取 EXIF；非 macOS 平台落回 Dart `exif` package（單檔跑在獨立 isolate）。
+- `AppState.renameByExif`/`undoRename`：重新命名後透過 `PhotoStatusStore.remapKeys` 把星號、垃圾桶標記與 last-viewed 指標一併轉移到新檔名；自訂規則存進 `.halcyon_status.json` 的 `_rename_rule`（已納入 `reservedKeys`），下次開對話框會預先帶入。
+- `lib/views/rename_dialog.dart`：兩窗格對話框（preset/自訂規則/變數 chip 左欄，5 筆隨機樣本即時預覽右欄），從側邊欄選單「Rename by EXIF...」開啟。
+- `lib/views/status_line.dart`：重新命名進行中顯示「取消」，完成後顯示「還原」。
+- 33 個新測試（TC-024~TC-056），分散在 8 個測試檔，詳見 `unit_test.md` 測試案例矩陣與 `task.md` Task 27。
+
+**待使用者手動驗收（未執行、非本輪代理可做）**：本專案禁止 agent-driven UI 驗證（模擬點擊/osascript/截圖），plan Task 6 Step 4 / Task 8 Step 6 要求的 `flutter run -d macos` 實機操作未執行。請開一個含 JPG+RAW sibling 的真實資料夾，執行：重新命名整批（確認 preview 顯示真實 camera/lens/日期值）→ 確認 RAW+JPG 對得到同一新檔名 → 確認已加星的照片在新檔名下仍是星號 → 點「還原」確認檔名與星號都回復 → 重開對話框確認上次用過的自訂規則被記住。
+
+**刻意排除範圍（out of scope，非遺漏）**：Windows/Android/Linux 原生 EXIF 讀取（僅有 Dart `exif` package fallback，未做原生 handler）；重新命名資料夾內的子集（一律全資料夾）；把檔案搬到別的資料夾（只在原地重新命名）；任何超出 `docs/mockups/exif-rename/variant-2-twopane.html` 的 UI 改版。
+
+**其他已知限制**：`{direction}`（GPS image direction）沒有含 GPS 資料的樣本照片可驗證，端到端未曾實測；`AppState.cancelRename()`/`isRenaming` 與 `readMetadataFor` 的 >500 筆 chunking 在 AppState 層無直接測試（service 層由 TC-040、TC-047 覆蓋）。文件更正（計畫文件寫錯的兩個 gotcha 引註編號、實際 toolchain 版本與 `RadioGroup` 寫法）已記入 `memory.md` G-012~G-014。
+
+---
+
+**上一輪（2026-08-19）｜Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）**
 
 已落地：
 - `SidebarView` 移除 `ScrollController` scroll listener，改由 `ListView.builder` 的 `itemBuilder` 逐格回報建置到的 index，一幀結束後彙整成「純可視範圍」呼叫 `AppState.preloadThumbnails()`。修正的 bug：回收/刪除/複製/移動觸發 `loadFolder()` 重載資料夾、清空縮圖快取後，捲動離開頂端的清單只靠 scroll listener 觸發重新請求，結果持續空白直到使用者再次捲動。
@@ -54,17 +72,18 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 - **Task 24 完成**：Finder「開啟方式」冷啟動（`lib/services/open_with_channel.dart`，macOS 已實作，Windows/Android 未實作）。
 - **Task 25 完成**：回收模式（`.trash`）批次刪除（`PhotoFileActions.recycleTrashed()`，同名 sibling 自動分組、碰撞附加後綴、失敗清單回報）。
 - **Task 26 完成**：Sidebar 縮圖預載改由 `itemBuilder` 驅動，取代 scroll listener（詳見本檔「當前任務」）。
+- **Task 27 完成**：EXIF 重新命名（批次、可 undo）——`RenameRule`/`planRenames`/`applyRenames`/`undoLastRename`、macOS `halcyon/exif` channel、`AppState.renameByExif`/`undoRename`、兩窗格對話框、status line undo/cancel，33 個新測試（TC-024~TC-056）。使用者手動驗收未執行，見本檔「當前任務」。
 
 ---
 
 ## 下一步
 
-**已確認完成、原列於此處的舊項目**：Task 12（Trash MethodChannel，`flutter test` 已通過含 trash 案例）、Task 15（`test/photo_file_actions_test.dart` 已存在於 `git ls-files`）。以下為本次同步時仍待辦或需人工核實的項目：
+**已確認完成、原列於此處的舊項目**：Task 12（Trash MethodChannel，`flutter test` 已通過含 trash 案例）、Task 15（`test/photo_file_actions_test.dart` 已存在於 `git ls-files`）、Task 19（Zoom 狀態下沉，已驗收關閉）。以下為本次同步時仍待辦或需人工核實的項目：
 
-1. **`task.md` / `plan.md` 回溯同步** — ✅ 已於 2026-08-19 本輪完成：Task 22~26（DNG 解碼整合、tier-1/tier-2 preload、Finder 開啟方式、回收模式、sidebar itemBuilder 預載）已逐條登錄並附 commit hash 證據。
+1. **EXIF 重新命名使用者手動驗收**（高，見本檔「當前任務」）：`flutter run -d macos` 對真實資料夾操作，本專案禁止代理執行，只能由使用者完成。
 2. **Task 20 — sidebar iconColor Quick Win**（低）：`sidebar_view.dart` iconColor 重複邏輯是否已在後續回收模式改動中處理，需重新核實現狀再排入。
-3. **Task 19 — Zoom 狀態下沉**（中）：`main_detail_view.dart` 反向寫入 AppState 欄位（G-010）是否仍存在，需重新核實現狀再排入。
-4. **G-005（Auto-advance Toggle off 行為）**：行為已核實正確（`app_state.dart:337-351`），不需使用者確認；`test/app_state_test.dart` 仍缺對應 regression test（`unit_test.md` TC-014）。
+3. **G-005（Auto-advance Toggle off 行為）**：行為已核實正確（`app_state.dart:337-351`），不需使用者確認；`test/app_state_test.dart` 仍缺對應 regression test（`unit_test.md` TC-014）。
+4. **重跑 `flutter test`/`flutter analyze` 確認 EXIF 重新命名整套仍綠**：本輪文件同步 worker 無執行環境，各測試檔案的 TC 數量已用 `grep -c` 核對，但未實際執行整套測試。
 
 ---
 
@@ -86,6 +105,8 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 | AD-012 | Finder 開啟方式走 push-only MethodChannel | 冷啟動時 Dart 詢問原生端會輸掉與 engine 初始化的競速 |
 | AD-013 | 回收模式（`.trash`）sibling 分組、碰撞附加後綴 | 同 volume rename 瞬時可用；批次失敗需個別回報不中斷整批 |
 | AD-014 | Sidebar 縮圖預載改由 `itemBuilder` 驅動，取代 scroll listener | `ListView.builder` 重建即免費重算可視範圍，資料夾重載後自我修復 |
+| AD-016 | EXIF 重新命名：命名策略純函式化，只有 `applyRenames` 碰檔案系統，序列執行 | 整條命名邏輯可不落地照片單元測試；rename 是同 volume metadata 操作，平行化沒有效益反而製造 race |
+| AD-017 | EXIF 每個項目只讀一次，來源為 JPG sibling | 避免對同一次拍攝的 RAW+JPG 重複解析 EXIF |
 
 ---
 
@@ -107,4 +128,5 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 - 支援副檔名：`jpg`、`jpeg`、`arw`、`rw2`、`dng`、`heic`、`png`
 - 狀態訊息一律走 `AppState.showStatus()` + `StatusLine`，不再使用 SnackBar
 - 側邊欄縮圖預載觸發來源：`ListView.builder` 的 `itemBuilder`（不再是 scroll listener），prefetch margin 由 `ImagePreloadController.thumbnailPrefetchMargin` 決定
-- `flutter test` 最新一次全套執行結果：85 個測試通過（exit code 0，2026-08-19，commit `d0eb855`）；`flutter analyze lib test`：0 issues
+- `flutter test` 最新一次「實跑並確認」全套執行結果：85 個測試通過（exit code 0，2026-08-19，commit `d0eb855`）；`flutter analyze lib test`：0 issues。EXIF 重新命名（commit `58fe681`）新增 33 個測試（TC-024~TC-056），各任務自身 commit 時皆回報通過，但 Task 10 文件收尾 worker 無執行環境重跑整套，待下次確認
+- EXIF 重新命名 undo journal：`{folder}/.halcyon_rename_log.jsonl`（JSON Lines、append-only）；重新命名一律呼叫 `PhotoStatusStore.remapKeys` 搬移標記，否則星號/垃圾桶標記會被靜默孤立（`memory.md` G-011）
