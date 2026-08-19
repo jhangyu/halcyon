@@ -18,16 +18,23 @@ class _SidebarViewState extends State<SidebarView> {
   static const double _itemHeight = 48.0; // Approx height of ListTile
   String? _lastSelectedId;
 
+  // What the list actually built this frame, accumulated by [_noteBuiltIndex]
+  // and flushed once per frame. This — not the scroll offset — is the source
+  // of truth for "what is on screen": ListView.builder builds exactly the
+  // visible rows (plus cacheExtent), so any rebuild re-derives the range for
+  // free. That's what makes the sidebar self-heal after AppState.loadFolder
+  // resets the thumbnail cache (recycle/delete/copy/move all reload the
+  // folder); the old scroll-listener model only re-requested when the user
+  // happened to scroll, which is why thumbnails stayed blank until then.
+  int _minBuiltIndex = -1;
+  int _maxBuiltIndex = -1;
+  bool _sweepScheduled = false;
+
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
-    // Initial load after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _onScroll();
-        _ensureSelectedVisible(context.read<AppState>());
-      }
+      if (mounted) _ensureSelectedVisible(context.read<AppState>());
     });
   }
 
@@ -37,21 +44,25 @@ class _SidebarViewState extends State<SidebarView> {
     super.dispose();
   }
 
-  void _onScroll() {
-    final state = context.read<AppState>();
-    if (state.items.isEmpty) return;
-
-    if (!_scrollController.hasClients) return;
-
-    final double scrollOffset = _scrollController.offset;
-    final double viewportHeight = _scrollController.position.viewportDimension;
-
-    final int firstVisibleIdx = (scrollOffset / _itemHeight).floor();
-    final int lastVisibleIdx = ((scrollOffset + viewportHeight) / _itemHeight)
-        .ceil();
-
-    // Request thumbnails for visible +/- 20
-    state.preloadThumbnails(firstVisibleIdx - 20, lastVisibleIdx + 20);
+  void _noteBuiltIndex(int index) {
+    if (_minBuiltIndex == -1 || index < _minBuiltIndex) _minBuiltIndex = index;
+    if (index > _maxBuiltIndex) _maxBuiltIndex = index;
+    if (_sweepScheduled) return;
+    _sweepScheduled = true;
+    // Requesting during build would notifyListeners mid-build; defer to the
+    // end of the frame, where the range is also complete.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sweepScheduled = false;
+      final first = _minBuiltIndex;
+      final last = _maxBuiltIndex;
+      _minBuiltIndex = -1;
+      _maxBuiltIndex = -1;
+      if (!mounted || first == -1) return;
+      // The controller expands this by its own prefetch margin and fetches
+      // the visible rows first; an unchanged range is a no-op there, so
+      // reporting every frame costs nothing.
+      context.read<AppState>().preloadThumbnails(first, last);
+    });
   }
 
   void _ensureSelectedVisible(AppState state) {
@@ -94,7 +105,10 @@ class _SidebarViewState extends State<SidebarView> {
       });
     }
 
-    return Container(
+    // Material, not a plain Container: it's the nearest Material ancestor for
+    // the rows below, so ListTile's own background and ink paint normally
+    // instead of being hidden behind a ColoredBox (framework assertion).
+    return Material(
       color: Theme.of(context).colorScheme.surfaceContainer,
       child: Column(
         children: [
@@ -131,23 +145,24 @@ class _SidebarViewState extends State<SidebarView> {
                 controller: _scrollController,
                 itemCount: state.items.length,
                 itemBuilder: (context, index) {
+                  _noteBuiltIndex(index);
                   final item = state.items[index];
                   final isSelected = item.id == state.selectedItemID;
 
-                  return Container(
+                  return SizedBox(
                     height: _itemHeight,
-                    alignment: Alignment.center,
-                    color: isSelected
-                        ? const Color.fromRGBO(
-                            128,
-                            128,
-                            128,
-                            0.15,
-                          ) // Slightly darker for better visibility
-                        : Colors.transparent,
                     child: ListTile(
                       dense: true,
                       minVerticalPadding: 0,
+                      // Painted by the tile itself rather than a wrapping
+                      // ColoredBox, which would hide the tile's own background
+                      // and ink splashes (framework assertion).
+                      selectedTileColor: const Color.fromRGBO(
+                        128,
+                        128,
+                        128,
+                        0.15,
+                      ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                       ),

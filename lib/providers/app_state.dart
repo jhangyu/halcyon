@@ -245,7 +245,10 @@ class AppState extends ChangeNotifier {
         } else {
           selectItem(_items.first.id);
         }
-        preloadThumbnails(0, 20); // Initial preloading window for the sidebar
+        // Warm the top of the list for a sidebar that hasn't laid out yet
+        // (and for headless callers). Once the sidebar builds a frame it
+        // reports its real visible range, which supersedes this.
+        preloadThumbnails(0, 0);
       } else {
         notifyListeners();
       }
@@ -393,7 +396,8 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  // Preload a specific range of thumbnails (targetSize 200) for the sidebar +/- 20 range
+  // [startIdx]..[endIdx] is the sidebar's VISIBLE row range; the controller
+  // adds its own prefetch margin around it (see thumbnailPrefetchMargin).
   Future<void> preloadThumbnails(int startIdx, int endIdx) async {
     await _preloadController.preloadThumbnails(
       items: _items,

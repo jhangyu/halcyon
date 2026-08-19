@@ -44,6 +44,10 @@ ImageProvider fullSizeProviderFor(Uint8List bytes) => MemoryImage(bytes);
 /// expensive full-frame decodes for images the user only passed through.
 const Duration tierTwoNavigationDebounce = Duration(milliseconds: 250);
 
+/// Rows of sidebar thumbnails fetched (and kept cached) beyond each edge of
+/// the visible range. See [ImagePreloadController.preloadThumbnails].
+const int thumbnailPrefetchMargin = 20;
+
 class ImagePreloadController {
   ImagePreloadController({
     required ImageBytesLoader imageLoader,
@@ -109,6 +113,12 @@ class ImagePreloadController {
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
   Timer? _thumbnailDebounceTimer;
+  // Bumped by every new thumbnail request and by [reset]. The running batch
+  // carries the generation it started with and stops as soon as it no longer
+  // matches, so a batch whose range is already stale (fast scroll, or a folder
+  // reload that cleared _thumbCache underneath it) cannot keep spending
+  // channel round-trips or write thumbnails for a list that is gone.
+  int _thumbBatchGeneration = 0;
 
   Uint8List? imageBytesFor(String? id) => id == null ? null : _imageCache[id];
 
@@ -197,6 +207,7 @@ class ImagePreloadController {
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
+    _thumbBatchGeneration++;
   }
 
   /// Called by the view whenever the viewport's decode target size is known
@@ -704,6 +715,16 @@ class ImagePreloadController {
     }
   }
 
+  /// Loads sidebar thumbnails for the VISIBLE range [startIdx]..[endIdx],
+  /// plus [thumbnailPrefetchMargin] rows of prefetch on each side.
+  ///
+  /// The caller passes what it can actually see (the sidebar reports the index
+  /// range its `itemBuilder` built this frame); the margin is this class's
+  /// business, so the fetch ORDER can put every visible row ahead of every
+  /// prefetched one. That ordering is the point: the range is up to 41 rows and
+  /// the loop is sequential, so a start-to-end sweep would spend 20 round-trips
+  /// on off-screen rows above the viewport before touching a single row the
+  /// user is looking at.
   Future<void> preloadThumbnails({
     required List<PhotoItem> items,
     required int startIdx,
@@ -719,25 +740,41 @@ class ImagePreloadController {
     _lastPreloadStart = safeStart;
     _lastPreloadEnd = safeEnd;
 
+    // Supersede any batch still running for the previous range.
+    final generation = ++_thumbBatchGeneration;
+
     _thumbnailDebounceTimer?.cancel();
     _thumbnailDebounceTimer = Timer(
       const Duration(milliseconds: 100),
       () async {
-        final neededThumbIds = <String>{};
+        // Visible first, top to bottom; then outward from the viewport edges,
+        // one row below then one row above, so the direction the user is more
+        // likely to scroll is never starved by the other side.
+        final order = <int>[];
         for (var i = safeStart; i <= safeEnd; i++) {
-          neededThumbIds.add(items[i].id);
+          order.add(i);
+        }
+        for (var d = 1; d <= thumbnailPrefetchMargin; d++) {
+          if (safeEnd + d < items.length) order.add(safeEnd + d);
+          if (safeStart - d >= 0) order.add(safeStart - d);
         }
 
+        final neededThumbIds = {for (final i in order) items[i].id};
         _thumbCache.removeWhere((key, _) => !neededThumbIds.contains(key));
 
-        for (final id in neededThumbIds) {
+        for (final index in order) {
+          // A newer range (or a folder reload) arrived while we were awaiting;
+          // everything from here on is for a viewport that no longer exists.
+          if (generation != _thumbBatchGeneration) return;
+
+          final item = items[index];
+          final id = item.id;
           final loadingKey = 'thumb_$id';
           if (_thumbCache.containsKey(id) ||
               _loadingKeys.contains(loadingKey)) {
             continue;
           }
 
-          final item = items.firstWhere((candidate) => candidate.id == id);
           final file = item.bestFileToLoad;
           if (file == null) continue;
 
@@ -749,11 +786,12 @@ class ImagePreloadController {
             file.path,
             purpose: ImageRequestPurpose.sidebarThumbnail,
           );
+          _loadingKeys.remove(loadingKey);
+          if (generation != _thumbBatchGeneration) return;
           if (result is NativeImageBytes) {
             _thumbCache[id] = result.bytes;
             notifyLoaded();
           }
-          _loadingKeys.remove(loadingKey);
         }
       },
     );

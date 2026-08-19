@@ -34,13 +34,15 @@ void main() {
   // every frame a selected row paints. flutter_test fails a test that has
   // an un-acknowledged framework exception, so drain it via
   // tester.takeException() after each pump that could have triggered it.
+  // One warning per painted row, so drain until empty rather than once.
   void drainListTileWarning(WidgetTester tester) {
-    final exception = tester.takeException();
-    if (exception != null &&
-        !exception.toString().contains(
-          'ListTile background color or ink splashes may be invisible',
-        )) {
-      throw exception;
+    for (var exception = tester.takeException(); exception != null; ) {
+      if (!exception.toString().contains(
+        'ListTile background color or ink splashes may be invisible',
+      )) {
+        throw exception;
+      }
+      exception = tester.takeException();
     }
   }
 
@@ -83,6 +85,56 @@ void main() {
     await tester.pump();
     drainListTileWarning(tester);
   }
+
+  // Regression: recycling/deleting reloads the folder, which resets the
+  // thumbnail cache. The sidebar used to re-request thumbnails only from its
+  // scroll listener, so a list scrolled away from the top came back blank and
+  // stayed blank until the user scrolled. Requests are now driven by
+  // itemBuilder, so every row that paints must have been asked for.
+  testWidgets('every visible row is requested again after a folder reload', (
+    tester,
+  ) async {
+    late Directory dir;
+    late AppState state;
+    final requested = <String>[];
+
+    await tester.runAsync(() async {
+      dir = await Directory.systemTemp.createTemp('halcyon_sidebar_reload_');
+      addTearDown(() => dir.delete(recursive: true));
+      for (var i = 1; i <= 60; i++) {
+        final name = 'IMG_${i.toString().padLeft(4, '0')}.jpg';
+        await File(p.join(dir.path, name)).writeAsBytes([1, 2, 3]);
+      }
+      state = AppState(
+        thumbnailLoader: (path, {required purpose}) async {
+          if (purpose == ImageRequestPurpose.sidebarThumbnail) {
+            requested.add(p.basenameWithoutExtension(path));
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      await state.loadFolder(dir);
+    });
+
+    await pumpSidebar(tester, state);
+    // Scroll well away from the top — the old bug only showed up here.
+    await tester.drag(find.byType(ListView), const Offset(0, -1500));
+    await tester.pump(const Duration(milliseconds: 200));
+    drainListTileWarning(tester);
+
+    requested.clear();
+    await tester.runAsync(() => state.loadFolder(dir));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    drainListTileWarning(tester);
+
+    final visibleNames = tester
+        .widgetList<ListTile>(find.byType(ListTile))
+        .map((tile) => (tile.title! as Text).data!)
+        .toList();
+    expect(visibleNames, isNotEmpty);
+    expect(requested, containsAll(visibleNames));
+  });
 
   testWidgets('trashed status icon follows the mode', (tester) async {
     final state = await stateForFolder(tester, withSibling: true);
