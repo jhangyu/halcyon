@@ -4,6 +4,7 @@ import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import 'package:file_selector/file_selector.dart';
 import 'batch_delete_feedback.dart';
+import 'rename_dialog.dart';
 import 'settings_dialog.dart';
 
 /// Shared menu-item value for "Thumbnail Starred...", referenced by
@@ -326,6 +327,8 @@ class _SidebarViewState extends State<SidebarView> {
           final result = await state.deleteTrashed();
           if (!context.mounted) return;
           showBatchDeleteFeedback(context, result);
+        } else if (value == kRenameMenuValue) {
+          showDialog(context: context, builder: (ctx) => const RenameDialog());
         } else if (value == 'settings') {
           showDialog(context: context, builder: (ctx) => SettingsDialog());
         }
@@ -363,6 +366,14 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasStarred,
             child: Text(
               'Thumbnail Starred...',
+              style: TextStyle(color: actionTextColor),
+            ),
+          ),
+          PopupMenuItem(
+            value: kRenameMenuValue,
+            enabled: state.items.isNotEmpty,
+            child: Text(
+              'Rename by EXIF...',
               style: TextStyle(color: actionTextColor),
             ),
           ),

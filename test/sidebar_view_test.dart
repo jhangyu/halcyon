@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/views/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
@@ -167,4 +168,24 @@ void main() {
       expect(outFile.existsSync(), isTrue);
     },
   );
+
+  testWidgets('TC-055 onSelected with the shared constant opens the dialog', (
+    tester,
+  ) async {
+    final state = await stateForFolder(tester, withSibling: false);
+    await pumpSidebar(tester, state);
+
+    // ponytail: tapping the menu item hangs under FakeAsync in this codebase
+    // (see the export test above) — invoke the real onSelected directly. Using
+    // kRenameMenuValue on both sides is the point: a literal here would still
+    // pass while the menu entry was silently dead.
+    final button = tester.widget<PopupMenuButton<String>>(
+      find.byType(PopupMenuButton<String>),
+    );
+    button.onSelected!(kRenameMenuValue);
+    await tester.pump();
+    drainListTileWarning(tester);
+
+    expect(find.byType(RenameDialog), findsOneWidget);
+  });
 }
