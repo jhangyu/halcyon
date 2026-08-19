@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Halcyon — EXIF Rename (Variant 2: Two-pane builder + live preview)</title>
+<style>
+  :root {
+    --bg-window: #2d2d2d;
+    --bg-titlebar: #323232;
+    --bg-dialog: #383838;
+    --bg-pane: #333333;
+    --bg-surface: #414141;
+    --bg-surface-hi: #4a4a4a;
+    --bg-input: #262626;
+    --border: #515151;
+    --border-soft: #454545;
+    --text: #e0e0e0;
+    --text-dim: #9a9a9a;
+    --text-faint: #6f6f6f;
+    --accent: #0a84ff;
+    --accent-dim: #0a84ff33;
+    --danger: #ff453a;
+    --success: #32d74b;
+    --radius: 8px;
+    --radius-sm: 5px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #1c1c1c;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .stage {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 40px 20px 60px;
+    gap: 28px;
+  }
+
+  .stage-label {
+    color: #6f6f6f;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: -14px;
+  }
+
+  /* ---- Faux app window frame ---- */
+  .app-window {
+    width: 1180px;
+    max-width: 96vw;
+    background: var(--bg-window);
+    border-radius: 12px;
+    box-shadow: 0 30px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+    overflow: hidden;
+    border: 1px solid #1a1a1a;
+  }
+
+  .titlebar {
+    height: 38px;
+    background: var(--bg-titlebar);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    border-bottom: 1px solid #232323;
+    position: relative;
+  }
+  .traffic { display: flex; gap: 8px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .traffic .r { background: #ff5f57; }
+  .traffic .y { background: #febc2e; }
+  .traffic .g { background: #28c840; }
+  .titlebar .win-title {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: 12.5px; color: #a8a8a8; font-weight: 600; pointer-events: none;
+  }
+
+  .app-body {
+    display: flex;
+    height: 640px;
+    background: #2b2b2b;
+  }
+  .app-sidebar {
+    width: 210px;
+    background: var(--bg-titlebar);
+    border-right: 1px solid #232323;
+    padding: 14px 10px;
+    flex-shrink: 0;
+  }
+  .app-sidebar .sb-title { font-size: 11px; color: var(--text-faint); padding: 4px 8px 10px; text-transform: uppercase; letter-spacing: .04em;}
+  .app-sidebar .sb-item { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; color: var(--text-dim); margin-bottom: 2px; }
+  .app-sidebar .sb-item.active { background: var(--accent); color: #fff; }
+  .app-sidebar .sb-item.menu-highlight { background: #4a4a4a; color: var(--text); position: relative; }
+  .app-sidebar .sb-menu-flyout {
+    margin-top: 4px; margin-left: 10px; background: #3d3d3d; border: 1px solid #4d4d4d;
+    border-radius: 8px; padding: 4px; width: 178px; box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .app-sidebar .flyout-item { padding: 6px 8px; border-radius: 5px; font-size: 12.5px; color: var(--text-dim); }
+  .app-sidebar .flyout-item.highlight { background: var(--accent-dim); color: #fff; border: 1px solid var(--accent); }
+  .app-sidebar .flyout-item .kbd { float: right; color: var(--text-faint); font-size: 10.5px; }
+  .app-sidebar .flyout-divider { height: 1px; background: #4d4d4d; margin: 4px 2px; }
+
+  .app-main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    font-size: 12px;
+    background:
+      repeating-linear-gradient(45deg, #2f2f2f 0 2px, #2b2b2b 2px 40px);
+    position: relative;
+  }
+  .app-main .dim-hint {
+    background: rgba(0,0,0,0.4);
+    padding: 6px 12px;
+    border-radius: 6px;
+  }
+
+  /* ---- Dialog overlay ---- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dialog {
+    width: 880px;
+    max-width: 92vw;
+    background: var(--bg-dialog);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .dialog-header {
+    padding: 16px 22px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .dialog-header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .dialog-header .subtitle { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
+  .scope-chip {
+    font-size: 11px; color: var(--text-dim); background: var(--bg-surface);
+    border: 1px solid var(--border-soft); padding: 3px 9px; border-radius: 20px;
+  }
+
+  .dialog-body {
+    display: flex;
+    height: 480px;
+  }
+
+  /* ---- Left pane: builder ---- */
+  .pane-left {
+    width: 380px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-soft);
+    background: var(--bg-pane);
+    padding: 16px 18px;
+    overflow-y: auto;
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 8px;
+  }
+  .section-label:not(:first-child) { margin-top: 20px; }
+
+  .preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .preset-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .preset-row:hover { background: var(--bg-surface); }
+  .preset-row.selected {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+  }
+  .preset-row input[type="radio"] {
+    accent-color: var(--accent);
+    width: 15px; height: 15px; flex-shrink: 0; margin: 0;
+  }
+  .preset-row .preset-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .preset-row .preset-name { font-size: 12.5px; color: var(--text); }
+  .preset-row .preset-pattern {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .preset-row.custom .preset-name { color: var(--accent); font-weight: 600; }
+
+  .rule-editor-block {
+    margin-top: 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    padding: 10px 10px 8px;
+  }
+  .rule-editor-block.disabled { opacity: 0.4; pointer-events: none; }
+  .rule-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    outline: none;
+    padding: 2px 0 8px;
+    border-bottom: 1px solid var(--border-soft);
+    caret-color: var(--accent);
+  }
+  .rule-caret {
+    background: var(--accent);
+    width: 1px;
+    display: inline-block;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .rule-hint {
+    margin-top: 7px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .rule-hint.ok { color: var(--success); }
+  .rule-hint.err { color: var(--danger); }
+
+  .var-groups { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+  .var-group-title { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 5px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .chip:hover { background: var(--bg-surface-hi); border-color: var(--accent); color: var(--accent); }
+  .chip:active { transform: translateY(1px); }
+
+  /* ---- Right pane: live preview ---- */
+  .pane-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 18px;
+    min-width: 0;
+  }
+  .preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .preview-header .section-label { margin: 0; }
+  .shuffle-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--text-dim);
+    background: var(--bg-surface); border: 1px solid var(--border-soft);
+    border-radius: 6px; padding: 4px 9px; cursor: pointer;
+  }
+  .shuffle-btn:hover { color: var(--text); border-color: var(--accent); }
+  .shuffle-btn svg { width: 11px; height: 11px; }
+
+  .preview-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .preview-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+  }
+  .preview-card .old-name {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    text-decoration: line-through;
+    text-decoration-color: #7a4444;
+    margin-bottom: 4px;
+  }
+  .preview-card .arrow-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .preview-card .arrow { color: var(--text-faint); font-size: 11px; flex-shrink: 0; }
+  .preview-card .new-name {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--success);
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .preview-card .ext {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .preview-card .badges { margin-left: auto; display: flex; gap: 4px; }
+  .badge { font-size: 9.5px; color: var(--text-faint); background: var(--bg-surface); border-radius: 3px; padding: 1px 5px; }
+
+  .preview-footnote {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-faint);
+    line-height: 1.5;
+  }
+
+  .dialog-footer {
+    padding: 12px 22px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dialog-footer .footer-info { font-size: 11px; color: var(--text-faint); }
+  .footer-actions { display: flex; gap: 8px; }
+  .btn {
+    font-size: 12.5px;
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--bg-surface-hi); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #1a90ff; }
+
+  /* ---- Status line strip demo ---- */
+  .status-strip {
+    width: 880px;
+    max-width: 92vw;
+    background: var(--bg-dialog);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 14px 20px;
+  }
+  .status-strip .strip-title {
+    font-size: 11px; color: var(--text-faint); text-transform: uppercase;
+    letter-spacing: .05em; margin-bottom: 10px;
+  }
+  .status-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-pane);
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  .status-row:last-child { margin-bottom: 0; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  .status-dot.done { background: var(--success); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .status-text { color: var(--text); flex: 1; }
+  .status-progress {
+    width: 120px; height: 4px; background: var(--bg-input); border-radius: 4px; overflow: hidden; flex-shrink: 0;
+  }
+  .status-progress .fill { height: 100%; background: var(--accent); }
+  .status-undo {
+    font-size: 11.5px; color: var(--accent); cursor: pointer; font-weight: 600; flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <div class="stage-label">Halcyon — EXIF Rename — Variant 2 · Two-pane: builder left, live preview right</div>
+
+  <div class="app-window">
+    <div class="titlebar">
+      <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      <div class="win-title">Halcyon — /Volumes/SD_CARD/2026-08-19_shoot</div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="sb-title">Folder</div>
+        <div class="sb-item active">2026-08-19_shoot</div>
+        <div class="sb-item" style="margin-top:16px; opacity:.55;">···</div>
+        <div class="sb-item menu-highlight">
+          Actions ▾
+          <div class="sb-menu-flyout">
+            <div class="flyout-item">Copy Starred…</div>
+            <div class="flyout-item">Move Starred…</div>
+            <div class="flyout-divider"></div>
+            <div class="flyout-item highlight">Rename by EXIF…</div>
+            <div class="flyout-divider"></div>
+            <div class="flyout-item">Recycle Trashed<span class="kbd">⌘⌫</span></div>
+            <div class="flyout-item">Delete Trashed</div>
+          </div>
+        </div>
+      </div>
+      <div class="app-main">
+        <div class="overlay">
+
+          <!-- ============ RENAME DIALOG ============ -->
+          <div class="dialog">
+            <div class="dialog-header">
+              <div>
+                <h1>Rename by EXIF</h1>
+                <div class="subtitle">Applies to all 10,238 photos in this folder · reversible via Undo</div>
+              </div>
+              <div class="scope-chip">Whole folder</div>
+            </div>
+
+            <div class="dialog-body">
+
+              <!-- LEFT: builder -->
+              <div class="pane-left">
+                <p class="section-label">Preset</p>
+                <div class="preset-list">
+                  <label class="preset-row">
+                    <input type="radio" name="preset" checked>
+                    <span class="preset-text">
+                      <span class="preset-name">Default</span>
+                      <span class="preset-pattern">{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}</span>
+                    </span>
+                  </label>
+                  <label class="preset-row">
+                    <input type="radio" name="preset">
+                    <span class="preset-text">
+                      <span class="preset-name">Compact</span>
+                      <span class="preset-pattern">{YYYY}{MM}{DD}_{hh}{mm}{ss}</span>
+                    </span>
+                  </label>
+                  <label class="preset-row">
+                    <input type="radio" name="preset">
+                    <span class="preset-text">
+                      <span class="preset-name">Camera-style</span>
+                      <span class="preset-pattern">IMG_{YYYY}{MM}{DD}_{hh}{mm}{ss}</span>
+                    </span>
+                  </label>
+                  <label class="preset-row">
+                    <input type="radio" name="preset">
+                    <span class="preset-text">
+                      <span class="preset-name">Sequence</span>
+                      <span class="preset-pattern">{YYYY}-{MM}-{DD}_{seq}</span>
+                    </span>
+                  </label>
+                  <label class="preset-row selected custom">
+                    <input type="radio" name="preset" checked>
+                    <span class="preset-text">
+                      <span class="preset-name">Custom…</span>
+                      <span class="preset-pattern">build your own rule below</span>
+                    </span>
+                  </label>
+                </div>
+
+                <p class="section-label">Rule template</p>
+                <div class="rule-editor-block">
+                  <div class="rule-input">{camera}_{YYYY}{MM}{DD}_{seq:3}<span class="rule-caret">&nbsp;</span></div>
+                  <div class="rule-hint ok">✓ Valid — resolves to a non-empty, unique-safe name</div>
+                </div>
+
+                <p class="section-label">Insert variable</p>
+                <div class="var-groups">
+                  <div class="var-group">
+                    <div class="var-group-title">Date / time</div>
+                    <div class="chip-row">
+                      <span class="chip">{YYYY}</span>
+                      <span class="chip">{MM}</span>
+                      <span class="chip">{DD}</span>
+                      <span class="chip">{hh}</span>
+                      <span class="chip">{mm}</span>
+                      <span class="chip">{ss}</span>
+                    </div>
+                  </div>
+                  <div class="var-group">
+                    <div class="var-group-title">Camera</div>
+                    <div class="chip-row">
+                      <span class="chip">{camera}</span>
+                      <span class="chip">{lens}</span>
+                      <span class="chip">{make}</span>
+                      <span class="chip">{artist}</span>
+                    </div>
+                  </div>
+                  <div class="var-group">
+                    <div class="var-group-title">Shooting</div>
+                    <div class="chip-row">
+                      <span class="chip">{f}</span>
+                      <span class="chip">{focal}</span>
+                      <span class="chip">{iso}</span>
+                      <span class="chip">{shutter}</span>
+                      <span class="chip">{direction}</span>
+                    </div>
+                  </div>
+                  <div class="var-group">
+                    <div class="var-group-title">File</div>
+                    <div class="chip-row">
+                      <span class="chip">{seq}</span>
+                      <span class="chip">{orig}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- RIGHT: live preview -->
+              <div class="pane-right">
+                <div class="preview-header">
+                  <p class="section-label">Preview · 5 random files</p>
+                  <div class="shuffle-btn">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                      <path d="M2 4h3l2 3M14 12h-3l-2-3M2 12h3l7-8h2M11 2l2 2-2 2M11 14l2-2-2-2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Re-roll
+                  </div>
+                </div>
+
+                <div class="preview-list">
+                  <div class="preview-card">
+                    <div class="old-name">DSC_0431.NEF</div>
+                    <div class="arrow-row">
+                      <span class="arrow">→</span>
+                      <span class="new-name">A7IV_20260819_001</span>
+                      <span class="ext">.NEF</span>
+                      <span class="badges"><span class="badge">+ .JPG</span></span>
+                    </div>
+                  </div>
+                  <div class="preview-card">
+                    <div class="old-name">IMG_2210.JPG</div>
+                    <div class="arrow-row">
+                      <span class="arrow">→</span>
+                      <span class="new-name">A7IV_20260819_002</span>
+                      <span class="ext">.JPG</span>
+                    </div>
+                  </div>
+                  <div class="preview-card">
+                    <div class="old-name">DSC_0499.NEF</div>
+                    <div class="arrow-row">
+                      <span class="arrow">→</span>
+                      <span class="new-name">A7IV_20260819_003</span>
+                      <span class="ext">.NEF</span>
+                      <span class="badges"><span class="badge">+ ._sidecar</span></span>
+                    </div>
+                  </div>
+                  <div class="preview-card">
+                    <div class="old-name">_MG_8871.CR2</div>
+                    <div class="arrow-row">
+                      <span class="arrow">→</span>
+                      <span class="new-name">EOS-R5_20260819_004</span>
+                      <span class="ext">.CR2</span>
+                    </div>
+                  </div>
+                  <div class="preview-card">
+                    <div class="old-name">P1050122.ORF</div>
+                    <div class="arrow-row">
+                      <span class="arrow">→</span>
+                      <span class="new-name">_20260819_005</span>
+                      <span class="ext">.ORF</span>
+                      <span class="badges"><span class="badge">no camera tag</span></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="preview-footnote">
+                  Missing metadata renders as an empty string (see row 5: no {camera} tag). Recomputed on every
+                  keystroke in the rule template. RAW + JPG + AppleDouble sidecar of the same shot always share
+                  the new base name.
+                </div>
+              </div>
+
+            </div>
+
+            <div class="dialog-footer">
+              <div class="footer-info">10,238 files · non-writable folders can't reach this dialog</div>
+              <div class="footer-actions">
+                <button class="btn">Cancel</button>
+                <button class="btn btn-primary">Run Rename</button>
+              </div>
+            </div>
+          </div>
+          <!-- ============ /RENAME DIALOG ============ -->
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Status line states strip ============ -->
+  <div class="status-strip">
+    <div class="strip-title">Status line — three states (from spec)</div>
+    <div class="status-row">
+      <span class="status-dot busy"></span>
+      <span class="status-text">Reading EXIF 4,120 / 10,238…</span>
+      <div class="status-progress"><div class="fill" style="width:40%"></div></div>
+    </div>
+    <div class="status-row">
+      <span class="status-dot busy"></span>
+      <span class="status-text">Renaming 3,214 / 10,238…</span>
+      <div class="status-progress"><div class="fill" style="width:31%"></div></div>
+    </div>
+    <div class="status-row">
+      <span class="status-dot done"></span>
+      <span class="status-text">Renamed 10,238 · 12 failed</span>
+      <span class="status-undo">Undo</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Minimal interaction demo: preset selection toggles the custom rule editor's
+  // disabled look, and chips insert their token into the rule template at the
+  // end of the current text (caret-insert stand-in for the mockup).
+  (function () {
+    var presetRows = document.querySelectorAll('.preset-row');
+    var ruleBlock = document.querySelector('.rule-editor-block');
+    var ruleInput = document.querySelector('.rule-input');
+    var caret = document.querySelector('.rule-caret');
+
+    presetRows.forEach(function (row) {
+      row.addEventListener('click', function () {
+        presetRows.forEach(function (r) { r.classList.remove('selected'); });
+        row.classList.add('selected');
+        var isCustom = row.classList.contains('custom');
+        ruleBlock.classList.toggle('disabled', !isCustom);
+      });
+    });
+
+    document.querySelectorAll('.chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        if (ruleBlock.classList.contains('disabled')) return;
+        var token = chip.textContent;
+        var textNode = document.createTextNode(token);
+        ruleInput.insertBefore(textNode, caret);
+      });
+    });
+
+    document.querySelector('.shuffle-btn').addEventListener('click', function () {
+      var cards = document.querySelectorAll('.preview-card');
+      cards.forEach(function (c) {
+        c.style.opacity = '0.3';
+        setTimeout(function () { c.style.opacity = '1'; }, 180);
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

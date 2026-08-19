@@ -52,17 +52,26 @@ that hardcodes the string will not catch this; the test must reference the same
 constant the widget uses).
 
 ### Rename dialog
-- **Preset dropdown**, five entries:
+
+Layout: **two-pane, ~880px wide** (chosen mockup:
+`docs/mockups/exif-rename/variant-2-twopane.html`). Left pane holds the preset
+list and the rule editor; right pane holds the live preview, so the result
+updates while the rule is being edited.
+
+- **Preset list** (radio rows in the left pane, always visible — not a
+  dropdown), five entries:
   1. `{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}` (default)
   2. `{YYYY}{MM}{DD}_{hh}{mm}{ss}`
   3. `IMG_{YYYY}{MM}{DD}_{hh}{mm}{ss}`
   4. `{YYYY}-{MM}-{DD}_{seq}`
   5. `Custom...` — reveals the rule editor
-- **Rule editor**: a `TextField` holding the template, plus tappable variable
-  chips that insert at the caret. Invalid template (unknown variable, empty
-  result) disables the Run button and shows the reason inline.
-- **Preview**: 5 randomly chosen items rendered as `old name → new name`,
-  recomputed on every template change. Re-rolls with a small shuffle button.
+- **Rule editor** (left pane, below the presets): a `TextField` holding the
+  template, plus tappable variable chips grouped by category that insert at the
+  caret. Invalid template (unknown variable, empty result) disables the Run
+  button and shows the reason inline.
+- **Preview** (right pane): 5 randomly chosen items rendered as
+  `old name → new name`, recomputed on every template change. Re-rolls with a
+  small shuffle button.
 - **Run** starts the batch and closes the dialog; **Cancel** dismisses.
 
 ### Variables
@@ -70,8 +79,8 @@ constant the widget uses).
 | Group | Tokens |
 |---|---|
 | Date/time | `{YYYY}` `{MM}` `{DD}` `{hh}` `{mm}` `{ss}` |
-| Camera | `{camera}` (model) `{lens}` (lens model) `{make}` (manufacturer) |
-| Shooting | `{f}` (aperture) `{focal}` (focal length, mm) `{iso}` `{shutter}` |
+| Camera | `{camera}` (model) `{lens}` (lens model) `{make}` (manufacturer) `{artist}` (EXIF Artist / photographer) |
+| Shooting | `{f}` (aperture) `{focal}` (focal length, mm) `{iso}` `{shutter}` `{direction}` (GPS image direction, whole degrees) |
 | File | `{seq}` (sequence, `{seq:N}` for zero-padded width N, default 1) `{orig}` (original basename without extension) |
 
 Values are sanitised for filesystem safety: `/`, `:`, and NUL are replaced with
@@ -102,10 +111,11 @@ sidebar_view (menu) ─▶ RenameDialog ─▶ AppState.renameByExif(rule)
 ```dart
 class ExifMetadata {
   final DateTime? captureDate;
-  final String? camera, lens, make;
+  final String? camera, lens, make, artist;
   final double? aperture, focalLength;
   final int? iso;
   final String? shutter;
+  final double? gpsImgDirection; // kCGImagePropertyGPSImgDirection
 }
 
 typedef ExifBatchReader =
@@ -190,10 +200,9 @@ Unit tests with a fake `ExifBatchReader`, mostly against the pure planner:
 
 Each gets a TC-NNN entry in `unit_test.md`.
 
-## Follow-up
+## UI decision record
 
-UI layout is decided separately: a small team using
-`/ui-ux-pro-max:ui-ux-pro-max` produces 3–4 function-focused HTML mockups of the
-rename dialog (differing in how presets and the rule editor are organised —
-dropdown + collapse, tabs, single expanded page, draggable chips). The chosen
-mockup pins down the dialog layout before implementation.
+Four mockups were produced in `docs/mockups/exif-rename/` (compact dropdown,
+two-pane, token-pill builder, right-docked inspector). **variant-2-twopane is
+the chosen layout**; the other three are kept for reference only and are not
+implemented.

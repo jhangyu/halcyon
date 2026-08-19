@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Halcyon — Rename by EXIF (Variant 3: Token Builder)</title>
+<style>
+  :root {
+    --bg-window: #2D2D2D;
+    --surface: #515151;
+    --surface-container: #3B3B3B;
+    --surface-highest: #323232;
+    --on-surface: #E0E0E0;
+    --on-surface-dim: #9A9A9A;
+    --primary: #0A84FF;
+    --primary-dim: #0A84FF33;
+    --divider: #515151;
+    --dialog-bg: #3C3C3C;
+    --pill-bg: #454545;
+    --pill-border: #5C5C5C;
+    --pill-text: #F2F2F2;
+    --literal-bg: #38414c;
+    --literal-border: #4a5560;
+    --danger: #FF6B6B;
+    --success: #32D74B;
+    font-size: 13px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 40px 20px 80px;
+    background: #1c1c1e;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    color: var(--on-surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #8E8E93;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+
+  /* ---------- Faux macOS app window ---------- */
+  .app-window {
+    width: 980px;
+    max-width: 96vw;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 30px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
+    background: var(--bg-window);
+    position: relative;
+  }
+  .titlebar {
+    height: 38px;
+    background: #2b2b2b;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 8px;
+    border-bottom: 1px solid #232323;
+  }
+  .traffic { width: 12px; height: 12px; border-radius: 50%; }
+  .t-red { background: #FF5F57; }
+  .t-yellow { background: #FEBC2E; }
+  .t-green { background: #28C840; }
+  .titlebar-label {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: #9a9a9a;
+    margin-right: 44px;
+  }
+  .app-body {
+    display: flex;
+    height: 560px;
+  }
+  .sidebar-fake {
+    width: 240px;
+    background: var(--surface-container);
+    border-right: 1px solid #262626;
+    padding: 10px 0;
+    color: var(--on-surface-dim);
+    font-size: 12px;
+  }
+  .sidebar-fake .row {
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sidebar-fake .row.hl {
+    background: var(--surface-highest);
+    color: var(--on-surface);
+    border-left: 2px solid var(--primary);
+  }
+  .thumb-stub {
+    width: 22px; height: 22px; border-radius: 3px;
+    background: linear-gradient(135deg,#5a5a5a,#3a3a3a);
+    flex-shrink: 0;
+  }
+  .main-fake {
+    flex: 1;
+    background: var(--surface, #444);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b6b6b;
+    font-size: 13px;
+  }
+  .main-fake::before {
+    content: "Preview pane (dimmed behind modal)";
+  }
+  .scrim {
+    position: absolute;
+    inset: 38px 0 0 0;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(1px);
+  }
+
+  /* ---------- Dialog ---------- */
+  .dialog {
+    position: absolute;
+    top: 50%;
+    left: calc(50% + 120px);
+    transform: translate(-50%, -50%);
+    width: 640px;
+    max-height: 500px;
+    background: var(--dialog-bg);
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .dialog-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid #2f2f2f;
+  }
+  .dialog-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .dialog-header p {
+    margin: 4px 0 0;
+    font-size: 11.5px;
+    color: var(--on-surface-dim);
+  }
+  .dialog-content {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--on-surface-dim);
+    margin: 0 0 8px;
+  }
+
+  /* Preset row */
+  .preset-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .preset-chip {
+    padding: 6px 11px;
+    border-radius: 7px;
+    background: var(--surface-highest);
+    border: 1px solid #4a4a4a;
+    color: var(--on-surface);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .preset-chip:hover { border-color: #6a6a6a; }
+  .preset-chip.active {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    color: #cfe6ff;
+  }
+  .preset-chip .mono {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 10.5px;
+    color: var(--on-surface-dim);
+    display: block;
+    margin-top: 2px;
+  }
+  .preset-chip.active .mono { color: #a9d3ff; }
+
+  /* Token builder row */
+  .builder-box {
+    border: 1px solid #4a4a4a;
+    border-radius: 8px;
+    background: var(--surface-container);
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .builder-toprow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .toggle-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--on-surface-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .switch {
+    width: 30px; height: 17px;
+    border-radius: 9px;
+    background: #5a5a5a;
+    position: relative;
+    transition: background .15s;
+  }
+  .switch.on { background: var(--primary); }
+  .switch .knob {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: white;
+    transition: left .15s;
+  }
+  .switch.on .knob { left: 15px; }
+
+  #token-track {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-height: 36px;
+    padding: 4px;
+    border-radius: 6px;
+  }
+  #token-track.drag-over { background: rgba(10,132,255,0.08); }
+
+  .token-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 6px 5px 10px;
+    border-radius: 16px;
+    background: var(--pill-bg);
+    border: 1px solid var(--pill-border);
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--pill-text);
+    cursor: grab;
+    user-select: none;
+  }
+  .token-pill:active { cursor: grabbing; }
+  .token-pill.literal {
+    background: var(--literal-bg);
+    border-color: var(--literal-border);
+    font-family: inherit;
+    color: #c9d6e3;
+  }
+  .token-pill .rm {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    color: #cfcfcf;
+  }
+  .token-pill .rm:hover { background: var(--danger); color: white; }
+  .token-pill.dragging { opacity: 0.35; }
+
+  .add-literal-btn {
+    padding: 5px 10px;
+    border-radius: 16px;
+    border: 1px dashed #666;
+    background: transparent;
+    color: var(--on-surface-dim);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .add-literal-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+  .template-text-view {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: #262626;
+    border-radius: 6px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: #d8d8d8;
+    border: 1px solid #3a3a3a;
+    display: none;
+  }
+  .template-text-view.show { display: block; }
+
+  .empty-hint {
+    font-size: 11px;
+    color: #7a7a7a;
+    font-style: italic;
+  }
+
+  /* Palette */
+  .palette-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .palette-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .palette-group-label {
+    width: 62px;
+    flex-shrink: 0;
+    font-size: 10.5px;
+    color: var(--on-surface-dim);
+    padding-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .palette-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .var-chip {
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: #454545;
+    border: 1px solid #565656;
+    color: #d7e4f2;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .var-chip:hover {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    color: #cfe6ff;
+  }
+
+  /* Preview */
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .reroll-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid #565656;
+    color: var(--on-surface-dim);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .reroll-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+  .preview-list {
+    border: 1px solid #444;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .preview-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--surface-container);
+  }
+  .preview-row:nth-child(even) { background: #363636; }
+  .preview-row .old { color: #9a9a9a; flex: 1; text-align: right; }
+  .preview-row .arrow { color: #6a6a6a; }
+  .preview-row .new { color: #cfe6ff; flex: 1; }
+
+  .dialog-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #2f2f2f;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    align-items: center;
+  }
+  .footer-hint {
+    font-size: 10.5px;
+    color: var(--on-surface-dim);
+    margin-right: auto;
+  }
+  .btn {
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn-cancel {
+    background: transparent;
+    border-color: #5a5a5a;
+    color: var(--on-surface);
+  }
+  .btn-cancel:hover { background: rgba(255,255,255,0.05); }
+  .btn-run {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+  }
+  .btn-run:hover { background: #2196ff; }
+  .btn-run:disabled {
+    background: #4a4a4a;
+    color: #8a8a8a;
+    cursor: not-allowed;
+  }
+
+  /* ---------- Status line strip ---------- */
+  .statusline-panel {
+    width: 980px;
+    max-width: 96vw;
+    background: #232323;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .statusline-panel h3 {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: #8E8E93;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .status-sample {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: var(--surface-container);
+    border-radius: 7px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .status-sample:last-child { margin-bottom: 0; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot-progress { background: var(--primary); animation: pulse 1.2s infinite; }
+  .dot-done { background: var(--success); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .status-bar-track {
+    flex: 1;
+    height: 4px;
+    background: #4a4a4a;
+    border-radius: 2px;
+    overflow: hidden;
+    max-width: 160px;
+  }
+  .status-bar-fill { height: 100%; background: var(--primary); }
+  .status-undo {
+    color: var(--primary);
+    cursor: pointer;
+    font-weight: 600;
+    margin-left: auto;
+  }
+  .status-fail { color: var(--danger); }
+
+  .note {
+    color: #6a6a6a;
+    font-size: 11.5px;
+    max-width: 640px;
+    text-align: center;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<h1>Halcyon — Rename by EXIF · Variant 3: Token Builder ("rule as draggable pills")</h1>
+
+<div class="app-window">
+  <div class="titlebar">
+    <div class="traffic t-red"></div>
+    <div class="traffic t-yellow"></div>
+    <div class="traffic t-green"></div>
+    <div class="titlebar-label">Halcyon — /Volumes/SD_CARD/DCIM/2026-08-19</div>
+  </div>
+  <div class="app-body">
+    <div class="sidebar-fake">
+      <div class="row"><span class="thumb-stub"></span> DSC_0428.NEF</div>
+      <div class="row"><span class="thumb-stub"></span> DSC_0429.NEF</div>
+      <div class="row hl"><span class="thumb-stub"></span> DSC_0430.NEF ★</div>
+      <div class="row"><span class="thumb-stub"></span> DSC_0431.NEF</div>
+      <div class="row"><span class="thumb-stub"></span> IMG_2210.JPG</div>
+      <div class="row"><span class="thumb-stub"></span> IMG_2211.JPG</div>
+    </div>
+    <div class="main-fake"></div>
+    <div class="scrim"></div>
+
+    <div class="dialog">
+      <div class="dialog-header">
+        <h2>Rename by EXIF</h2>
+        <p>10,238 photos in this folder will be renamed. This cannot be undone after the next batch.</p>
+      </div>
+
+      <div class="dialog-content">
+        <p class="section-label">Presets</p>
+        <div class="preset-row" id="preset-row">
+          <button class="preset-chip active" data-preset="p1">Default<span class="mono">{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}</span></button>
+          <button class="preset-chip" data-preset="p2">Compact<span class="mono">{YYYY}{MM}{DD}_{hh}{mm}{ss}</span></button>
+          <button class="preset-chip" data-preset="p3">IMG prefix<span class="mono">IMG_{YYYY}{MM}{DD}_{hh}{mm}{ss}</span></button>
+          <button class="preset-chip" data-preset="p4">Date + seq<span class="mono">{YYYY}-{MM}-{DD}_{seq}</span></button>
+          <button class="preset-chip" data-preset="custom">Custom…<span class="mono">build below</span></button>
+        </div>
+
+        <p class="section-label">Rule</p>
+        <div class="builder-box">
+          <div class="builder-toprow">
+            <span style="font-size:11px;color:#8a8a8a;">Click a variable below to append it, drag pills to reorder</span>
+            <label class="toggle-text" id="text-toggle-label">
+              <span class="switch" id="text-toggle"><span class="knob"></span></span>
+              Show as text
+            </label>
+          </div>
+          <div id="token-track"></div>
+          <div style="margin-top:8px;">
+            <button class="add-literal-btn" id="add-literal">+ literal text…</button>
+          </div>
+          <div class="template-text-view" id="template-text-view"></div>
+        </div>
+
+        <p class="section-label">Variable palette</p>
+        <div class="palette-groups">
+          <div class="palette-group">
+            <div class="palette-group-label">Date/time</div>
+            <div class="palette-chips">
+              <button class="var-chip" data-tok="{YYYY}">{YYYY}</button>
+              <button class="var-chip" data-tok="{MM}">{MM}</button>
+              <button class="var-chip" data-tok="{DD}">{DD}</button>
+              <button class="var-chip" data-tok="{hh}">{hh}</button>
+              <button class="var-chip" data-tok="{mm}">{mm}</button>
+              <button class="var-chip" data-tok="{ss}">{ss}</button>
+            </div>
+          </div>
+          <div class="palette-group">
+            <div class="palette-group-label">Camera</div>
+            <div class="palette-chips">
+              <button class="var-chip" data-tok="{camera}">{camera}</button>
+              <button class="var-chip" data-tok="{lens}">{lens}</button>
+              <button class="var-chip" data-tok="{make}">{make}</button>
+            </div>
+          </div>
+          <div class="palette-group">
+            <div class="palette-group-label">Shooting</div>
+            <div class="palette-chips">
+              <button class="var-chip" data-tok="{f}">{f}</button>
+              <button class="var-chip" data-tok="{focal}">{focal}</button>
+              <button class="var-chip" data-tok="{iso}">{iso}</button>
+              <button class="var-chip" data-tok="{shutter}">{shutter}</button>
+            </div>
+          </div>
+          <div class="palette-group">
+            <div class="palette-group-label">File</div>
+            <div class="palette-chips">
+              <button class="var-chip" data-tok="{seq}">{seq}</button>
+              <button class="var-chip" data-tok="{orig}">{orig}</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-header">
+          <p class="section-label" style="margin:0;">Preview (5 random files)</p>
+          <button class="reroll-btn" id="reroll-btn">🔀 Re-roll</button>
+        </div>
+        <div class="preview-list" id="preview-list"></div>
+      </div>
+
+      <div class="dialog-footer">
+        <span class="footer-hint" id="footer-hint">Rule is valid</span>
+        <button class="btn btn-cancel">Cancel</button>
+        <button class="btn btn-run" id="run-btn">Run</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="statusline-panel">
+  <h3>Status line — three states from the spec</h3>
+  <div class="status-sample">
+    <span class="status-dot dot-progress"></span>
+    <span>Reading EXIF 4,120 / 10,238…</span>
+    <span class="status-bar-track"><span class="status-bar-fill" style="width:40%;"></span></span>
+  </div>
+  <div class="status-sample">
+    <span class="status-dot dot-progress"></span>
+    <span>Renaming 3,214 / 10,238…</span>
+    <span class="status-bar-track"><span class="status-bar-fill" style="width:31%;"></span></span>
+  </div>
+  <div class="status-sample">
+    <span class="status-dot dot-done"></span>
+    <span>Renamed 10,226 · <span class="status-fail">12 failed</span></span>
+    <span class="status-undo">Undo</span>
+  </div>
+</div>
+
+<p class="note">
+  Function-only mockup for layout comparison. The rule is represented as a track of
+  removable, reorderable pills built from a categorised variable palette, so the user
+  never has to type template syntax. "Show as text" reveals the underlying string for
+  power users. Preview and validity update live as pills are added, removed, or reordered.
+</p>
+
+<script>
+(function () {
+  var PRESETS = {
+    p1: [tok('{YYYY}'), lit('-'), tok('{MM}'), lit('-'), tok('{DD}'), lit('-'), tok('{hh}'), lit('-'), tok('{mm}'), lit('-'), tok('{ss}')],
+    p2: [tok('{YYYY}'), tok('{MM}'), tok('{DD}'), lit('_'), tok('{hh}'), tok('{mm}'), tok('{ss}')],
+    p3: [lit('IMG_'), tok('{YYYY}'), tok('{MM}'), tok('{DD}'), lit('_'), tok('{hh}'), tok('{mm}'), tok('{ss}')],
+    p4: [tok('{YYYY}'), lit('-'), tok('{MM}'), lit('-'), tok('{DD}'), lit('_'), tok('{seq}')]
+  };
+
+  var SAMPLES = [
+    { orig: 'DSC_0428', ext: '.NEF', date: new Date(2026, 6, 14, 9, 12, 5),  camera: 'Z8', lens: '24-70mm f2.8', make: 'NIKON', f: '2.8', focal: '35', iso: '400', shutter: '1-500' },
+    { orig: 'DSC_0431', ext: '.NEF', date: new Date(2026, 6, 14, 9, 14, 41), camera: 'Z8', lens: '24-70mm f2.8', make: 'NIKON', f: '4.0', focal: '50', iso: '200', shutter: '1-250' },
+    { orig: 'IMG_2210',  ext: '.JPG', date: new Date(2026, 6, 14, 9, 20, 3),  camera: 'iPhone 15 Pro', lens: '', make: 'Apple', f: '1.8', focal: '26', iso: '64', shutter: '1-2000' },
+    { orig: 'DSC_0512',  ext: '.NEF', date: new Date(2026, 6, 14, 11, 2, 55), camera: 'Z8', lens: '70-200mm f2.8', make: 'NIKON', f: '2.8', focal: '135', iso: '800', shutter: '1-1000' },
+    { orig: 'IMG_2255',  ext: '.JPG', date: new Date(2026, 6, 14, 11, 40, 18), camera: 'iPhone 15 Pro', lens: '', make: 'Apple', f: '1.8', focal: '26', iso: '50', shutter: '1-4000' },
+    { orig: 'DSC_0560',  ext: '.NEF', date: new Date(2026, 6, 14, 13, 5, 2),  camera: 'Z8', lens: '24-70mm f2.8', make: 'NIKON', f: '5.6', focal: '24', iso: '100', shutter: '1-500' },
+    { orig: 'IMG_2299',  ext: '.JPG', date: new Date(2026, 6, 14, 14, 22, 9), camera: 'iPhone 15 Pro', lens: '', make: 'Apple', f: '1.8', focal: '26', iso: '32', shutter: '1-3000' }
+  ];
+
+  var track = [];
+  var seqCounter = 1;
+  var pillId = 0;
+
+  function tok(t) { return { id: 'p' + (pillId++), kind: 'var', value: t }; }
+  function lit(t) { return { id: 'p' + (pillId++), kind: 'literal', value: t }; }
+
+  function pad(n, w) { w = w || 2; n = String(n); while (n.length < w) n = '0' + n; return n; }
+
+  function renderField(sample, tokStr, seqNum) {
+    var d = sample.date;
+    switch (tokStr) {
+      case '{YYYY}': return String(d.getFullYear());
+      case '{MM}': return pad(d.getMonth() + 1);
+      case '{DD}': return pad(d.getDate());
+      case '{hh}': return pad(d.getHours());
+      case '{mm}': return pad(d.getMinutes());
+      case '{ss}': return pad(d.getSeconds());
+      case '{camera}': return sample.camera || '';
+      case '{lens}': return sample.lens || '';
+      case '{make}': return sample.make || '';
+      case '{f}': return sample.f || '';
+      case '{focal}': return sample.focal || '';
+      case '{iso}': return sample.iso || '';
+      case '{shutter}': return sample.shutter || '';
+      case '{seq}': return String(seqNum);
+      case '{orig}': return sample.orig;
+      default: return '';
+    }
+  }
+
+  function templateString() {
+    return track.map(function (p) { return p.value; }).join('');
+  }
+
+  function renderName(sample, seqNum) {
+    var out = '';
+    track.forEach(function (p) {
+      out += p.kind === 'var' ? renderField(sample, p.value, seqNum) : p.value;
+    });
+    return out;
+  }
+
+  function renderTrack() {
+    var el = document.getElementById('token-track');
+    el.innerHTML = '';
+    if (track.length === 0) {
+      var hint = document.createElement('span');
+      hint.className = 'empty-hint';
+      hint.textContent = 'No tokens yet — click a variable below or pick a preset.';
+      el.appendChild(hint);
+    }
+    track.forEach(function (p, idx) {
+      var pill = document.createElement('div');
+      pill.className = 'token-pill' + (p.kind === 'literal' ? ' literal' : '');
+      pill.draggable = true;
+      pill.dataset.idx = idx;
+      var label = document.createElement('span');
+      label.textContent = p.value;
+      pill.appendChild(label);
+      var rm = document.createElement('span');
+      rm.className = 'rm';
+      rm.textContent = '✕';
+      rm.addEventListener('click', function () {
+        track.splice(idx, 1);
+        renderAll();
+      });
+      pill.appendChild(rm);
+
+      pill.addEventListener('dragstart', function (e) {
+        pill.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', String(idx));
+      });
+      pill.addEventListener('dragend', function () { pill.classList.remove('dragging'); });
+      el.appendChild(pill);
+    });
+
+    el.ondragover = function (e) { e.preventDefault(); el.classList.add('drag-over'); };
+    el.ondragleave = function () { el.classList.remove('drag-over'); };
+    el.ondrop = function (e) {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      var from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      var target = e.target.closest('.token-pill');
+      var to = target ? parseInt(target.dataset.idx, 10) : track.length - 1;
+      if (isNaN(from) || isNaN(to) || from === to) return;
+      var item = track.splice(from, 1)[0];
+      track.splice(to, 0, item);
+      renderAll();
+    };
+  }
+
+  function renderTextView() {
+    document.getElementById('template-text-view').textContent = templateString() || '(empty template)';
+  }
+
+  function renderPreview() {
+    var list = document.getElementById('preview-list');
+    list.innerHTML = '';
+    var picked = SAMPLES.slice(0, 5);
+    var valid = track.length > 0;
+    picked.forEach(function (s, i) {
+      var row = document.createElement('div');
+      row.className = 'preview-row';
+      var oldName = s.orig + s.ext;
+      var newName = valid ? (renderName(s, i + 1) + s.ext) : '(no rule)';
+      row.innerHTML =
+        '<span class="old">' + oldName + '</span>' +
+        '<span class="arrow">→</span>' +
+        '<span class="new">' + newName + '</span>';
+      list.appendChild(row);
+    });
+
+    var hint = document.getElementById('footer-hint');
+    var runBtn = document.getElementById('run-btn');
+    if (!valid) {
+      hint.textContent = 'Add at least one token to build a rule';
+      hint.style.color = 'var(--danger)';
+      runBtn.disabled = true;
+    } else {
+      hint.textContent = 'Rule is valid — 10,238 files will be renamed';
+      hint.style.color = '';
+      runBtn.disabled = false;
+    }
+  }
+
+  function clearPresetActive() {
+    document.querySelectorAll('.preset-chip').forEach(function (b) { b.classList.remove('active'); });
+  }
+
+  function renderAll() {
+    renderTrack();
+    renderTextView();
+    renderPreview();
+  }
+
+  document.getElementById('preset-row').addEventListener('click', function (e) {
+    var btn = e.target.closest('.preset-chip');
+    if (!btn) return;
+    clearPresetActive();
+    btn.classList.add('active');
+    var key = btn.dataset.preset;
+    if (key === 'custom') {
+      track = [];
+    } else {
+      track = PRESETS[key].map(function (p) { return Object.assign({}, p, { id: 'p' + (pillId++) }); });
+    }
+    renderAll();
+  });
+
+  document.querySelectorAll('.var-chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      clearPresetActive();
+      document.querySelector('.preset-chip[data-preset="custom"]').classList.add('active');
+      track.push(tok(chip.dataset.tok));
+      renderAll();
+    });
+  });
+
+  document.getElementById('add-literal').addEventListener('click', function () {
+    var v = window.prompt('Literal text to insert (e.g. "_" or "-")', '_');
+    if (v === null || v === '') return;
+    clearPresetActive();
+    document.querySelector('.preset-chip[data-preset="custom"]').classList.add('active');
+    track.push(lit(v));
+    renderAll();
+  });
+
+  var toggle = document.getElementById('text-toggle');
+  var toggleOn = false;
+  document.getElementById('text-toggle-label').addEventListener('click', function () {
+    toggleOn = !toggleOn;
+    toggle.classList.toggle('on', toggleOn);
+    document.getElementById('template-text-view').classList.toggle('show', toggleOn);
+  });
+
+  document.getElementById('reroll-btn').addEventListener('click', function () {
+    SAMPLES.sort(function () { return Math.random() - 0.5; });
+    renderPreview();
+  });
+
+  // init with default preset
+  track = PRESETS.p1.map(function (p) { return Object.assign({}, p, { id: 'p' + (pillId++) }); });
+  renderAll();
+})();
+</script>
+
+</body>
+</html>

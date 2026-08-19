@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Halcyon — EXIF Rename (Variant 1: Compact dropdown + collapsible editor)</title>
+<style>
+  :root {
+    --bg-app: #2d2d2d;
+    --bg-sidebar: #3b3b3b;
+    --bg-surface: #515151;
+    --bg-surface-high: #323232;
+    --bg-dialog: #3b3b3b;
+    --bg-field: #2d2d2d;
+    --bg-chip: #4a4a4a;
+    --bg-chip-hover: #565656;
+    --border: #515151;
+    --border-strong: #6a6a6a;
+    --text: #e0e0e0;
+    --text-dim: #9a9a9a;
+    --text-faint: #767676;
+    --accent: #0a84ff;
+    --accent-dim: rgba(10, 132, 255, 0.16);
+    --danger: #ff453a;
+    --success: #32d74b;
+    --radius: 8px;
+    --radius-sm: 5px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #1a1a1a;
+    font-family: var(--font);
+    color: var(--text);
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+    padding: 40px 16px 64px;
+  }
+
+  h1.page-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #8a8a8a;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  /* ---------- Faux app window frame ---------- */
+  .app-window {
+    width: 980px;
+    max-width: 96vw;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 2px 0 rgba(255,255,255,0.03) inset;
+    background: var(--bg-app);
+    border: 1px solid #1f1f1f;
+  }
+
+  .titlebar {
+    height: 38px;
+    background: linear-gradient(#3a3a3a, #333333);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    position: relative;
+    border-bottom: 1px solid #232323;
+  }
+
+  .traffic-lights { display: flex; gap: 8px; }
+  .traffic-lights span {
+    width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+  }
+  .tl-close { background: #ff5f57; }
+  .tl-min { background: #febc2e; }
+  .tl-zoom { background: #28c840; }
+
+  .titlebar-label {
+    position: absolute;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 500;
+    color: #c7c7c7;
+    pointer-events: none;
+  }
+
+  .app-body {
+    display: flex;
+    height: 560px;
+    position: relative;
+  }
+
+  .sidebar {
+    width: 220px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid #2a2a2a;
+    padding: 10px 0;
+    flex-shrink: 0;
+  }
+
+  .sidebar-item {
+    padding: 7px 14px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 2px solid transparent;
+  }
+  .sidebar-item.selected {
+    background: #464646;
+    color: var(--text);
+    border-left-color: var(--accent);
+  }
+  .sidebar-thumb {
+    width: 20px; height: 20px; border-radius: 3px;
+    background: linear-gradient(135deg,#5a5a5a,#3f3f3f);
+    flex-shrink: 0;
+  }
+
+  .main-preview {
+    flex: 1;
+    background: repeating-linear-gradient(45deg, #262626, #262626 12px, #242424 12px, #242424 24px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    font-size: 12px;
+  }
+
+  /* ---------- Modal scrim + dialog ---------- */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dialog {
+    width: 520px;
+    max-width: 92%;
+    background: var(--bg-dialog);
+    border-radius: var(--radius);
+    border: 1px solid #4a4a4a;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+  }
+
+  .dialog-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid #333;
+  }
+  .dialog-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 2px;
+  }
+  .dialog-subtitle {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .dialog-body {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  /* Preset dropdown */
+  .preset-select {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-field) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%239a9a9a"/></svg>') no-repeat right 12px center;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: 9px 32px 9px 12px;
+    font-size: 13px;
+    font-family: var(--mono);
+    cursor: pointer;
+  }
+  .preset-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* Collapsible custom editor */
+  .custom-editor {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .custom-editor.open { display: flex; }
+
+  .template-input {
+    width: 100%;
+    background: var(--bg-field);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: 9px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .template-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .template-error {
+    display: none;
+    font-size: 11px;
+    color: var(--danger);
+    padding-left: 2px;
+  }
+  .template-error.show { display: block; }
+
+  .chip-group { display: flex; flex-direction: column; gap: 6px; }
+  .chip-group-label {
+    font-size: 10px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--bg-chip);
+    color: #cfe8ff;
+    border: 1px solid #5c5c5c;
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s ease, transform 0.08s ease;
+  }
+  .chip:hover { background: var(--bg-chip-hover); border-color: var(--accent); }
+  .chip:active { transform: scale(0.96); }
+
+  /* Preview */
+  .preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .reroll-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text-dim);
+    font-size: 11px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .reroll-btn:hover { color: var(--text); border-color: var(--accent); }
+  .reroll-btn svg { width: 11px; height: 11px; }
+
+  .preview-list {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .preview-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--bg-field);
+  }
+  .preview-row:nth-child(even) { background: rgba(255,255,255,0.02); }
+  .preview-row + .preview-row { border-top: 1px solid var(--border); }
+  .pv-old { color: var(--text-faint); flex: 1; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pv-arrow { color: var(--accent); flex-shrink: 0; }
+  .pv-new { color: #a9e8b8; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid #333;
+    background: rgba(0,0,0,0.12);
+  }
+  .btn {
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--bg-surface-high); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #2b96ff; }
+
+  /* ---------- Status line strip ---------- */
+  .statusline-demo {
+    width: 980px;
+    max-width: 96vw;
+    background: var(--bg-sidebar);
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 14px 18px;
+  }
+  .statusline-demo h2 {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 0 0 10px;
+  }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    padding: 8px 10px;
+    background: var(--bg-app);
+    border-radius: 6px;
+    margin-bottom: 6px;
+  }
+  .status-row:last-child { margin-bottom: 0; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.busy { background: var(--accent); animation: pulse 1.2s infinite ease-in-out; }
+  .status-dot.done { background: var(--success); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .status-text { color: var(--text); flex: 1; }
+  .status-undo {
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+  .status-progress {
+    width: 90px;
+    height: 4px;
+    background: #545454;
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .status-progress-fill { height: 100%; background: var(--accent); }
+
+  .caption {
+    width: 980px;
+    max-width: 96vw;
+    font-size: 11px;
+    color: #7a7a7a;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Variant 1 &mdash; Compact: dropdown + collapsible editor</h1>
+
+<div class="app-window">
+  <div class="titlebar">
+    <div class="traffic-lights">
+      <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+    </div>
+    <div class="titlebar-label">Halcyon &mdash; /Volumes/SD_CARD/DCIM/2026-08-17</div>
+  </div>
+  <div class="app-body">
+    <div class="sidebar">
+      <div class="sidebar-item selected"><span class="sidebar-thumb"></span>DSC_0431.NEF</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>DSC_0432.NEF</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>IMG_2210.JPG</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>IMG_2211.JPG</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>DSC_0433.NEF</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>_MG_9987.CR2</div>
+      <div class="sidebar-item"><span class="sidebar-thumb"></span>_MG_9988.CR2</div>
+    </div>
+    <div class="main-preview">10,238 photos loaded &middot; preview area</div>
+
+    <!-- ================= DIALOG ================= -->
+    <div class="scrim">
+      <div class="dialog">
+        <div class="dialog-header">
+          <p class="dialog-title">Rename by EXIF</p>
+          <p class="dialog-subtitle">Applies to all 10,238 photos in this folder</p>
+        </div>
+
+        <div class="dialog-body">
+          <div>
+            <label class="field-label" for="preset">Preset</label>
+            <select id="preset" class="preset-select" onchange="onPresetChange(this)">
+              <option value="p1" selected>{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}</option>
+              <option value="p2">{YYYY}{MM}{DD}_{hh}{mm}{ss}</option>
+              <option value="p3">IMG_{YYYY}{MM}{DD}_{hh}{mm}{ss}</option>
+              <option value="p4">{YYYY}-{MM}-{DD}_{seq}</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          <div id="customEditor" class="custom-editor">
+            <div>
+              <label class="field-label" for="template">Template</label>
+              <input id="template" class="template-input" type="text"
+                     value="{camera}_{YYYY}{MM}{DD}_{seq:3}"
+                     oninput="renderPreview()">
+              <p id="templateError" class="template-error">Unknown variable: {lense} &mdash; did you mean {lens}?</p>
+            </div>
+
+            <div class="chip-group">
+              <span class="chip-group-label">Date / time</span>
+              <div class="chip-row">
+                <span class="chip" onclick="insertChip('{YYYY}')">{YYYY}</span>
+                <span class="chip" onclick="insertChip('{MM}')">{MM}</span>
+                <span class="chip" onclick="insertChip('{DD}')">{DD}</span>
+                <span class="chip" onclick="insertChip('{hh}')">{hh}</span>
+                <span class="chip" onclick="insertChip('{mm}')">{mm}</span>
+                <span class="chip" onclick="insertChip('{ss}')">{ss}</span>
+              </div>
+            </div>
+
+            <div class="chip-group">
+              <span class="chip-group-label">Camera</span>
+              <div class="chip-row">
+                <span class="chip" onclick="insertChip('{camera}')">{camera}</span>
+                <span class="chip" onclick="insertChip('{lens}')">{lens}</span>
+                <span class="chip" onclick="insertChip('{make}')">{make}</span>
+              </div>
+            </div>
+
+            <div class="chip-group">
+              <span class="chip-group-label">Shooting</span>
+              <div class="chip-row">
+                <span class="chip" onclick="insertChip('{f}')">{f}</span>
+                <span class="chip" onclick="insertChip('{focal}')">{focal}</span>
+                <span class="chip" onclick="insertChip('{iso}')">{iso}</span>
+                <span class="chip" onclick="insertChip('{shutter}')">{shutter}</span>
+              </div>
+            </div>
+
+            <div class="chip-group">
+              <span class="chip-group-label">File</span>
+              <div class="chip-row">
+                <span class="chip" onclick="insertChip('{seq}')">{seq}</span>
+                <span class="chip" onclick="insertChip('{orig}')">{orig}</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="preview-header">
+              <label class="field-label" style="margin:0;">Preview (5 random files)</label>
+              <button class="reroll-btn" onclick="renderPreview()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                  <path d="M20 11a8 8 0 1 0-2 5.3M20 5v6h-6"/>
+                </svg>
+                Re-roll
+              </button>
+            </div>
+            <div id="previewList" class="preview-list"></div>
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <button class="btn" type="button">Cancel</button>
+          <button class="btn btn-primary" type="button" id="runBtn">Rename 10,238 files</button>
+        </div>
+      </div>
+    </div>
+    <!-- ============= /DIALOG ============= -->
+
+  </div>
+</div>
+
+<div class="statusline-demo">
+  <h2>Status line states (from spec)</h2>
+  <div class="status-row">
+    <span class="status-dot busy"></span>
+    <span class="status-text">Reading EXIF 4,120 / 10,238&hellip;</span>
+    <span class="status-progress"><span class="status-progress-fill" style="width:40%"></span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-dot busy"></span>
+    <span class="status-text">Renaming 3,214 / 10,238&hellip;</span>
+    <span class="status-progress"><span class="status-progress-fill" style="width:31%"></span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-dot done"></span>
+    <span class="status-text">Renamed 10,238 &middot; 12 failed</span>
+    <span class="status-undo">Undo</span>
+  </div>
+</div>
+
+<p class="caption">Static mockup for layout comparison only &mdash; no data leaves this page, no network requests.</p>
+
+<script>
+  var samples = [
+    { orig: "DSC_0431.NEF",  camera: "NIKON Z6III", date: "2026-08-17", time: "09-14-02", seq: "001" },
+    { orig: "IMG_2210.JPG",  camera: "Canon EOS R5", date: "2026-08-17", time: "09-14-55", seq: "002" },
+    { orig: "DSC_0432.NEF",  camera: "NIKON Z6III", date: "2026-08-17", time: "09-16-40", seq: "003" },
+    { orig: "_MG_9987.CR2",  camera: "Canon EOS R5", date: "2026-08-17", time: "10-02-11", seq: "004" },
+    { orig: "IMG_2211.JPG",  camera: "Canon EOS R5", date: "2026-08-17", time: "10-05-33", seq: "005" }
+  ];
+
+  var presets = {
+    p1: function(s) { return s.date + "-" + s.time; },
+    p2: function(s) { return s.date.replace(/-/g, "") + "_" + s.time.replace(/-/g, ""); },
+    p3: function(s) { return "IMG_" + s.date.replace(/-/g, "") + "_" + s.time.replace(/-/g, ""); },
+    p4: function(s) { return s.date + "_" + s.seq; }
+  };
+
+  function currentTemplateResult(s) {
+    var presetVal = document.getElementById('preset').value;
+    if (presetVal !== 'custom') {
+      return presets[presetVal](s);
+    }
+    var tpl = document.getElementById('template').value;
+    return tpl
+      .replace('{YYYY}', s.date.slice(0,4))
+      .replace('{MM}', s.date.slice(5,7))
+      .replace('{DD}', s.date.slice(8,10))
+      .replace('{camera}', s.camera)
+      .replace('{seq:3}', s.seq)
+      .replace('{seq}', String(parseInt(s.seq,10)));
+  }
+
+  function extOf(name) {
+    var m = name.match(/\.[^.]+$/);
+    return m ? m[0] : '';
+  }
+
+  function renderPreview() {
+    var list = document.getElementById('previewList');
+    list.innerHTML = '';
+    samples.forEach(function(s) {
+      var newName = currentTemplateResult(s) + extOf(s.orig).toLowerCase();
+      var row = document.createElement('div');
+      row.className = 'preview-row';
+      row.innerHTML =
+        '<span class="pv-old">' + s.orig + '</span>' +
+        '<span class="pv-arrow">&rarr;</span>' +
+        '<span class="pv-new">' + newName + '</span>';
+      list.appendChild(row);
+    });
+  }
+
+  function onPresetChange(sel) {
+    var editor = document.getElementById('customEditor');
+    var runBtn = document.getElementById('runBtn');
+    if (sel.value === 'custom') {
+      editor.classList.add('open');
+    } else {
+      editor.classList.remove('open');
+      document.getElementById('templateError').classList.remove('show');
+      runBtn.disabled = false;
+    }
+    renderPreview();
+  }
+
+  function insertChip(token) {
+    var input = document.getElementById('template');
+    var start = input.selectionStart || input.value.length;
+    var end = input.selectionEnd || input.value.length;
+    var val = input.value;
+    input.value = val.slice(0, start) + token + val.slice(end);
+    input.focus();
+    var pos = start + token.length;
+    input.setSelectionRange(pos, pos);
+    renderPreview();
+  }
+
+  renderPreview();
+</script>
+
+</body>
+</html>
