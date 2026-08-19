@@ -23,9 +23,9 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: 19 — Zoom 狀態下沉至 View 層（`ZoomController`），程式碼與測試已完成，**待使用者手動驗收**（尚未 commit）
-- **中斷點與交接 (Handover)**: 新增 `lib/views/zoom_controller.dart`；`MainScreen` 建立/釋放並注入 `MainDetailView(zoom:)`；`AppState` 已無 zoom 欄位與方法。`flutter analyze lib test` 0 issues、`flutter test` 全綠（新增 9 案例 = TC-023，以 8 個 mutant 證明鑑別力，證據於 `tmp/verify/`）。**剩餘唯一缺口**：`docs/logs/2026-08-19/zoom-state-extraction-handover.md` §12 的 7 項手動操作驗收（縮放上下限、游標焦點、畫面中心焦點、trackpad、跨照片保留、拖動 sidebar 後焦點、連按兩次 `↑`）——連續互動自動化測試涵蓋不到。
-- **下一個子步驟**: 使用者手動驗收 7 項清單 → 通過後 commit。
+- **Task**: 19 — Zoom 狀態下沉至 View 層（`ZoomController`）✅ **已完成並驗收**（commit `6d74cd4`，2026-08-19）
+- **中斷點與交接 (Handover)**: 新增 `lib/views/zoom_controller.dart`；`MainScreen` 建立/釋放並注入 `MainDetailView(zoom:)`；`AppState` 已無 zoom 欄位與方法。`flutter analyze lib test` 0 issues、`flutter test` 115 綠（新增 11 案例 = TC-023，以 9 個 mutant 證明鑑別力）、`flutter build macos --release` 成功。使用者已用 release build 完成 `docs/logs/2026-08-19/zoom-state-extraction-handover.md` §12 的 7 項手動驗收，**全數通過**。收斂契約與 parking-lot 見 `docs/logs/2026-08-19/task19-convergence-contract.md`。
+- **下一個子步驟**: 無。下一個任務由使用者指定；parking-lot 五項（listener 的 widget 級測試、`transformCtrl.dispose()` 斷言、`MainDetailView` 的 `const`、`maxScale` 與字面 5.0 未綁定、controller 生命週期縮短）待裁決。
 
 - **前一個 Task**: 26 — Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
 - **中斷點與交接 (Handover)**: 已完成。`SidebarView` 不再用 `ScrollController` listener 計算可視範圍，改由 `ListView.builder` 的 `itemBuilder` 逐格回報建置到的 index，一幀結束後彙整成範圍呼叫 `AppState.preloadThumbnails()`；`ImagePreloadController` 接手 prefetch margin（`thumbnailPrefetchMargin = 20`）並新增 generation 計數器讓過期批次自我中止。`flutter test` 85 個測試通過（exit code 0，2026-08-19 重跑），`flutter analyze lib test` 0 issues。詳見 `handover.md` 本輪交接摘要。
