@@ -10,11 +10,14 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/decoded_rgba_image_provider.dart';
 import '../services/dng_decode_contract.dart';
+import '../services/exif_metadata_service.dart';
 import '../services/image_preload_controller.dart';
 import '../services/native_thumbnail_service.dart';
 import '../services/photo_file_actions.dart';
 import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
+import '../services/rename_rule.dart';
+import '../services/rename_service.dart';
 import '../services/thumbnail_export_service.dart';
 
 typedef ThumbnailLoader =
@@ -59,7 +62,9 @@ class AppState extends ChangeNotifier {
     ThumbnailLoader? thumbnailLoader,
     DngFullDecoder? dngDecoder,
     ThumbnailExportService? exportService,
+    ExifBatchReader? exifReader,
   }) : _scanner = scanner ?? PhotoLibraryScanner(),
+       _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
        _exportService = exportService ?? ThumbnailExportService(),
@@ -86,6 +91,19 @@ class AppState extends ChangeNotifier {
   final PhotoFileActions _fileActions;
   final ImagePreloadController _preloadController;
   final ThumbnailExportService _exportService;
+  final ExifBatchReader _exifReader;
+
+  bool _isRenaming = false;
+  bool _renameCancelled = false;
+
+  /// old id -> new id for the most recent batch, used to unwind marks on undo.
+  Map<String, String> _lastRenameIdMap = const {};
+
+  bool get isRenaming => _isRenaming;
+
+  void cancelRename() {
+    _renameCancelled = true;
+  }
 
   Directory? _currentDir;
   List<PhotoItem> _items = [];
@@ -459,6 +477,153 @@ class AppState extends ChangeNotifier {
       failures: failures,
       trashDirPath: trashDirPath,
     );
+  }
+
+  Future<String?> loadSavedRenameRule() async {
+    final dir = _currentDir;
+    if (dir == null) return null;
+    return _statusStore.loadRenameRule(dir);
+  }
+
+  /// Reads EXIF for [items], one read per item (from the JPG sibling when
+  /// there is one — see [PhotoItem.bestFileToLoad]) and keyed by item id.
+  /// The dialog uses this for its 5-file preview; [renameByExif] uses it for
+  /// the whole folder.
+  Future<Map<String, ExifMetadata?>> readMetadataFor(
+    List<PhotoItem> items, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final paths = <String>[];
+    final ids = <String>[];
+    for (final item in items) {
+      final file = item.bestFileToLoad;
+      if (file == null) continue;
+      ids.add(item.id);
+      paths.add(file.path);
+    }
+
+    final out = <String, ExifMetadata?>{};
+    for (var start = 0; start < paths.length; start += kExifChunkSize) {
+      final end = (start + kExifChunkSize).clamp(0, paths.length);
+      final chunk = await _exifReader(paths.sublist(start, end));
+      for (var i = 0; i < chunk.length; i++) {
+        out[ids[start + i]] = chunk[i];
+      }
+      onProgress?.call(end, paths.length);
+    }
+    return out;
+  }
+
+  /// Renames every photo in the current folder from [rule]. [isCustom] is
+  /// true when the rule came from the editor rather than a built-in preset;
+  /// only custom rules are remembered for the folder.
+  Future<void> renameByExif(RenameRule rule, {required bool isCustom}) async {
+    final dir = _currentDir;
+    if (dir == null || _items.isEmpty || _isRenaming) return;
+
+    _isRenaming = true;
+    _renameCancelled = false;
+    notifyListeners();
+
+    try {
+      final metadata = await readMetadataFor(
+        _items,
+        onProgress: (done, total) {
+          showStatus(StatusMessage('讀取 EXIF *$done/$total*…'));
+        },
+      );
+
+      final fileModified = <String, DateTime>{};
+      final existingNames = <String>{};
+      for (final entity in dir.listSync()) {
+        existingNames.add(p.basename(entity.path));
+      }
+      for (final item in _items) {
+        final file = item.bestFileToLoad;
+        if (file == null) continue;
+        fileModified[item.id] = file.statSync().modified;
+      }
+
+      final plans = planRenames(
+        items: _items,
+        metadata: metadata,
+        fileModified: fileModified,
+        rule: rule,
+        existingNames: existingNames,
+      );
+
+      if (plans.isEmpty) {
+        showStatus(const StatusMessage('沒有檔案需要重新命名'));
+        return;
+      }
+
+      // Assigned only after the early return: an empty batch must not clobber
+      // the previous batch's undo map.
+      _lastRenameIdMap = {for (final plan in plans) plan.oldId: plan.newId};
+
+      final outcome = await applyRenames(
+        plans,
+        dir,
+        onProgress: (done, total) {
+          showStatus(StatusMessage('重新命名 *$done/$total*…'));
+        },
+        isCancelled: () => _renameCancelled,
+      );
+
+      // The status file is keyed by item id (the basename), so without this
+      // every star, trash mark and the last-viewed pointer would be orphaned.
+      await _statusStore.remapKeys(dir, {
+        for (final plan in plans) plan.oldId: plan.newId,
+      });
+      await _statusStore.saveRenameRule(dir, isCustom ? rule.template : null);
+
+      final currentPlan = plans.where((x) => x.oldId == _selectedItemID);
+      await loadFolder(
+        dir,
+        targetSelectionId: currentPlan.isEmpty
+            ? _selectedItemID
+            : currentPlan.first.newId,
+      );
+
+      var message = '已重新命名 *${outcome.renamedCount}* 個項目';
+      if (outcome.cancelled) message += '（已取消）';
+      if (outcome.failures.isNotEmpty) {
+        message += '，*${outcome.failures.length}* 個失敗';
+        for (final failure in outcome.failures.take(3)) {
+          debugPrint('Rename failure: $failure');
+        }
+      }
+      showStatus(StatusMessage(message));
+    } catch (e) {
+      showStatus(StatusMessage('重新命名失敗：$e'));
+    } finally {
+      _isRenaming = false;
+      notifyListeners();
+    }
+  }
+
+  /// Replays the folder's rename journal backwards. No-op when there is none.
+  Future<void> undoRename() async {
+    final dir = _currentDir;
+    if (dir == null || _isRenaming) return;
+
+    final logExists = File(p.join(dir.path, kRenameLogName)).existsSync();
+    if (!logExists) {
+      showStatus(const StatusMessage('沒有可還原的重新命名紀錄'));
+      return;
+    }
+
+    final outcome = await undoLastRename(dir);
+
+    // The journal is per FILE; the status file is keyed per ITEM (basename
+    // without extension), so remap with the inverse of the batch's id map.
+    await _statusStore.remapKeys(dir, {
+      for (final entry in _lastRenameIdMap.entries) entry.value: entry.key,
+    });
+    _lastRenameIdMap = const {};
+
+    await loadFolder(dir);
+    showStatus(StatusMessage('已還原 *${outcome.renamedCount}* 個檔案的原始檔名'));
   }
 
   @override

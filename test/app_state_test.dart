@@ -8,6 +8,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:halcyon_flutter/services/photo_file_actions.dart';
+import 'package:halcyon_flutter/services/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -349,6 +350,106 @@ void main() {
       expect(result.recycled, isFalse);
       expect(trashed, hasLength(1));
       expect(await Directory(p.join(dir.path, '.trash')).exists(), isFalse);
+    });
+  });
+
+  group('renameByExif', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_state_');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    Future<void> touch(String name) =>
+        File(p.join(tempDir.path, name)).writeAsString(name);
+
+    AppState buildState() {
+      return AppState(
+        thumbnailLoader: (path, {required purpose}) async {
+          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+        },
+        exifReader: (paths) async => [
+          for (final path in paths)
+            ExifMetadata(
+              captureDate: path.contains('A')
+                  ? DateTime(2026, 4, 7, 9, 3, 5)
+                  : DateTime(2026, 4, 7, 10, 0, 0),
+            ),
+        ],
+      );
+    }
+
+    test('TC-049 renames files and moves the star to the new id', () async {
+      await touch('A.NEF');
+      await touch('A.JPG');
+      await touch('B.JPG');
+
+      final state = buildState();
+      await state.loadFolder(tempDir);
+      state.selectItem('A');
+      state.markCurrent(PhotoStatus.starred);
+
+      await state.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      final names =
+          tempDir
+              .listSync()
+              .map((e) => p.basename(e.path))
+              .where((n) => !n.startsWith('.'))
+              .toList()
+            ..sort();
+      expect(names, [
+        '2026-04-07-09-03-05.JPG',
+        '2026-04-07-09-03-05.NEF',
+        '2026-04-07-10-00-00.JPG',
+      ]);
+
+      final renamed = state.items.firstWhere(
+        (i) => i.id == '2026-04-07-09-03-05',
+      );
+      expect(renamed.status, PhotoStatus.starred);
+      expect(state.selectedItemID, '2026-04-07-09-03-05');
+    });
+
+    test('TC-050 undo restores the original names and the star', () async {
+      await touch('A.JPG');
+
+      final state = buildState();
+      await state.loadFolder(tempDir);
+      state.selectItem('A');
+      state.markCurrent(PhotoStatus.starred);
+      await state.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      await state.undoRename();
+
+      expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+      expect(state.items.single.id, 'A');
+      expect(state.items.single.status, PhotoStatus.starred);
+    });
+
+    test('TC-051 a custom rule is saved; a preset clears it', () async {
+      await touch('A.JPG');
+      final state = buildState();
+      await state.loadFolder(tempDir);
+
+      await state.renameByExif(const RenameRule('{YYYY}_{seq}'), isCustom: true);
+      expect(await state.loadSavedRenameRule(), '{YYYY}_{seq}');
+
+      await state.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+      expect(await state.loadSavedRenameRule(), isNull);
     });
   });
 }
