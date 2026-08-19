@@ -29,11 +29,14 @@ title: "Halcyon — 專案說明文件 (README)"
 | 功能 | 說明 |
 |------|------|
 | 📁 **資料夾瀏覽** | 支援 RAW（JPG+ARW+RW2+DNG+HEIC）與標準圖片自動分組 |
-| 🔍 **滑動視窗預載** | 大圖 ±3~5 張 / 縮圖 ±20 張，記憶體永遠安全 |
+| 🔍 **滑動視窗預載** | 主圖 tier-1/tier-2 sliding preload、縮圖依可視範圍 + prefetch margin，記憶體永遠安全 |
+| 🖼 **DNG 全尺寸解碼** | 無內嵌預覽的 DNG 透過 `dng_processor` 原生解碼，非降級縮圖 |
 | ⭐ **星號 / 刪除標記** | `S` 鍵標星號，`X` 鍵標刪除，狀態自動持久化 |
+| 🗑 **回收模式（.trash）/ macOS Trash** | 刪除不再永久遺失；可切換資料夾內回收或系統垃圾桶 |
 | 📋 **一鍵複製/移動** | 將所有星號檔案複製或移動到指定資料夾 |
 | 🔄 **Auto-advance** | 標記後自動前進下一張，保持工作流不中斷 |
 | 🔎 **縮放檢視** | `↑` / `↓` 鍵放大縮小，最大 5x 放大 |
+| 📂 **Finder「開啟方式」冷啟動** | macOS 已支援；Windows/Android 尚未實作 |
 | 🌙 **macOS Day/Night Theme** | 完全適配 macOS 亮色/深色模式 |
 | 📱 **Flutter 主線** | Flutter UI + macOS/iOS MethodChannel 原生整合 |
 
@@ -178,7 +181,7 @@ A: macOS 平台的 MethodChannel handler 已可編譯，仍需使用真實 RAW/J
 
 **Q: 刪除的照片去了哪裡？**
 
-A: 目前 Flutter 主線仍為**永久刪除**（`file.delete()`）。移到 macOS Trash 的 MethodChannel 已列入 Task 12 / TD-004。
+A: 不再是永久刪除。有兩條路徑：macOS 系統垃圾桶（`TrashService` 透過 `halcyon/trash` MethodChannel，`FileManager.trashItem`）與資料夾內回收模式（同名 sibling RAW 一併移入 `<資料夾>/.trash/`，碰撞附加 `-1`/`-2` 後綴）。可在浮動操作列的刪除按鈕上右鍵切換模式。
 
 **Q: 狀態標記如何保存？**
 

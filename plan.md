@@ -39,13 +39,13 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 | 2 | Flutter macOS 原生整合 | ✅ 已完成 | macOS MethodChannel 實作、語意化影像 request contract |
 | 3 | 單元測試覆蓋 | ✅ 已完成 | `app_state_test.dart`、`photo_item_test.dart`、widget smoke test |
 | 4 | Flutter 架構模組化 | ✅ 已完成 | AppState 拆分、影像 request contract、格式 registry |
-| 5 | 生產力增強 | 🔲 進行中 | Trash MethodChannel（Task 12）、PhotoFileActions 測試（Task 15）、CI/CD（Task 18）|
+| 5 | 生產力增強 | 🔲 進行中 | Trash MethodChannel（Task 12，自動化驗證通過）、PhotoFileActions 測試（Task 15 待辦）、CI/CD（Task 18 待辦）|
 | 6 | 影像載入相容性修正 | ✅ 已完成 | JPG 主圖高解析載入、RW2 掃描支援 |
 | 7 | Flutter 主線整理 | ✅ 已完成 | SwiftUI 退役、文件與任務收斂 |
 | 8 | 專案結構整理 | ✅ 已完成 | `assets/`、`artifacts/`、`local_data/` 分層 |
 | 9 | Android build toolchain 升級 | ✅ 已完成 | Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21、JDK 25 build |
 | 10 | 技術債清償 | 🔲 待辦 | Auto-advance 修正（Task 16）、AppDelegate 強化（Task 17）、Zoom 狀態下沉（Task 19）、sidebar 重複邏輯（Task 20）|
-| 11 | 影像切換延遲與 DNG 解碼整合 | ✅ 已完成 | Tier-1/tier-2 sliding preload、DNG 全尺寸解碼整合（`flutter_dng_decoder`）、Finder 開啟方式冷啟動、回收模式（`.trash`）批次刪除、唯讀資料夾 status line 警告（詳見 `handover.md` 本輪交接摘要；此段為本次同步時補記，尚未逐 Phase 拆解子任務） |
+| 11 | 影像切換延遲與 DNG 解碼整合 | ✅ 已完成 | Tier-1/tier-2 sliding preload（Task 23）、DNG 全尺寸解碼整合（Task 22）、Finder 開啟方式冷啟動（Task 24）、回收模式（`.trash`）批次刪除（Task 25）、唯讀資料夾 status line 警告（Task 21）、sidebar itemBuilder 驅動預載（Task 26）|
 
 ---
 
@@ -184,7 +184,7 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 
 | Task | 說明 | 優先級 | 狀態 |
 |------|------|--------|------|
-| Task 12 | Trash MethodChannel（`deleteTrashed()` 改為 macOS Trash）| 🔴 緊急 | 待驗證 |
+| Task 12 | Trash MethodChannel（`deleteTrashed()` 改為 macOS Trash）| 🔴 緊急 | ✅ 自動化驗證通過（`flutter analyze`/`flutter build macos` 與實機 Trash 覆核仍待使用者補做，見 `memory.md` TD-004）|
 | Task 15 | `PhotoFileActions` copy/move/delete 單元測試補強 | 🔴 高 | 🔲 待辦 |
 | Task 18 | CI/CD GitHub Actions（`flutter analyze` + `flutter test` + `flutter build macos`）| 🟡 中 | 🔲 待辦 |
 | — | 統一建置入口 `scripts/build.sh` | ✅ 已完成 | 支援 macOS / Android / Web / all |
@@ -245,17 +245,33 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 
 | Task | 說明 | 來源 | 優先級 |
 |------|------|------|--------|
-| Task 16 | G-005 Auto-advance Toggle off 不應前進的行為修正 | G-005 | 🟡 中 |
+| Task 16 | G-005 Auto-advance Toggle off——行為已確認正確（`app_state.dart:337-351`），僅缺 regression test | G-005 | 🟢 低（降級，原判斷有誤）|
 | Task 17 | macOS `AppDelegate.swift` CIContext/CIFilter 錯誤處理強化 | TD-012 | 🟡 中 |
 | Task 19 | Zoom 狀態下沉至 View 層，消除反向資料流（G-010、TD-011）| G-010 / TD-011 | 🟡 中 |
 | Task 20 | `sidebar_view.dart` iconColor 重複邏輯提取（Quick Win）| TD-014 | 🟢 低 |
 | — | AGP 9 new DSL 遷移（`android.newDsl=false` 移除）| TD-009 | 🟢 低（等 Flutter 升級）|
 
 **驗收標準**：
-- Task 16 完成後，G-005 狀態更新為已修復，行為有測試覆蓋
+- Task 16 完成後，`test/app_state_test.dart` 新增 TC-014 regression test 並通過（行為本身已確認正確，不需再修邏輯）
 - Task 17 完成後，native 端對無效輸入回傳 `FlutterError`，不 crash
 - Task 19 完成後，`AppState` 不持有任何 zoom/animation 欄位；`main_detail_view.dart` 無反向 setter
 - Task 20 完成後，`sidebar_view.dart` iconColor 邏輯只定義一次，色值一致
+
+---
+
+## Phase 11 — 影像切換延遲與 DNG 解碼整合 ✅ 已完成
+
+**目標**：降低圖片切換延遲、補上 DNG 無內嵌預覽時的全尺寸解碼路徑，並收斂本輪新增的資料操作與可靠性功能。
+
+**主要交付物**（詳見 `task.md` 對應 Task）：
+- Task 21：唯讀資料夾警告 + StatusLine（commit `123727b`）
+- Task 22：DNG 全尺寸解碼整合（`flutter_dng_decoder`，commit `bcc096b` 等）
+- Task 23：影像切換延遲 tier-1/tier-2 sliding preload（commit `de7cf5b` 等）
+- Task 24：Finder「開啟方式」冷啟動（commit `aefad64`）
+- Task 25：回收模式（`.trash`）批次刪除（commit `9520ab4`～`307afec`）
+- Task 26：Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
+
+**驗證結果**：`flutter test` 85 個測試通過（exit code 0，2026-08-19）；`flutter analyze lib test` 0 issues。`flutter build macos` 本階段未重跑。
 
 ---
 
@@ -270,8 +286,9 @@ Phase 0 ✅ ──────────────────────�
                           └── Phase 4 ✅
                                 └── Phase 8 ✅
                                       └── Phase 9 ✅ Android toolchain
-                                            └── Phase 5 🔲 ←───── 當前焦點
-                                                  └── Phase 10 🔲 技術債清償
+                                            └── Phase 11 ✅ 影像切換延遲與 DNG 解碼整合
+                                                  └── Phase 5 🔲 ←───── 當前焦點
+                                                        └── Phase 10 🔲 技術債清償
 ```
 
 ---

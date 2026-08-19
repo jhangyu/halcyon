@@ -23,11 +23,11 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: 21 — 唯讀資料夾警告 + StatusLine（commit `123727b`）
-- **中斷點與交接 (Handover)**: 已完成。`PhotoStatusStore.isWritable()` 探測可寫性、`AppState` 新增 `StatusMessage`/`showStatus()`、`lib/views/status_line.dart` 取代 SnackBar、批次刪除成功訊息改走 status line；`flutter test` 84 個測試通過（exit code 0）。詳見 `handover.md` 本輪交接摘要。
-- **下一個子步驟**: 無立即待辦；`git status` 顯示樹上乾淨（除本次文件同步外）。
+- **Task**: 26 — Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
+- **中斷點與交接 (Handover)**: 已完成。`SidebarView` 不再用 `ScrollController` listener 計算可視範圍，改由 `ListView.builder` 的 `itemBuilder` 逐格回報建置到的 index，一幀結束後彙整成範圍呼叫 `AppState.preloadThumbnails()`；`ImagePreloadController` 接手 prefetch margin（`thumbnailPrefetchMargin = 20`）並新增 generation 計數器讓過期批次自我中止。`flutter test` 85 個測試通過（exit code 0，2026-08-19 重跑），`flutter analyze lib test` 0 issues。詳見 `handover.md` 本輪交接摘要。
+- **下一個子步驟**: 無立即待辦；`git status --short` 除本次文件同步與非 in-scope 目錄外無其他改動。
 
-**文件債提醒**：本區塊此前（2026-05-05）停留在 Task 12，期間主線已完成 Task 12 自動化驗證、回收模式（`.trash` 批次刪除，見 `9520ab4`~`307afec`）、DNG 解碼整合（`bcc096b` 等）、影像切換延遲多輪優化（`3cbc5ff` 等）、Finder 開啟方式（`aefad64`）等工作，但未逐項在下方任務清單登錄或關閉對應 Task。下一輪應派工對照 `git log` 逐一核實並補登 Task 狀態，而非直接信任下方清單的 🔲/✅ 標記。
+**文件債狀態**：本檔此前長期停留在 Task 12，Task 22~26（DNG 解碼整合、影像切換延遲 tier-1/tier-2 sliding preload、Finder 開啟方式、回收模式、sidebar itemBuilder 預載）已於本輪對照 `git log` 逐一核實並補登於下方任務清單，文件債已清償。
 
 ---
 
@@ -77,16 +77,11 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
-### Task 5｜刪除操作改為 Trash 而非永久刪除 🔲 待辦
+### Task 5｜刪除操作改為 Trash 而非永久刪除 ✅ 已由 Task 12 / Task 25 取代完成
 
-**目標**：將 Flutter `AppState.deleteTrashed()` 從 `file.delete()`（永久刪除）改為移到垃圾桶。
+**原目標**：將 Flutter `AppState.deleteTrashed()` 從 `file.delete()`（永久刪除）改為移到垃圾桶。
 
-**子任務**：
-- [ ] 5.1 評估方案：使用 Swift FFI 或等待 `file_selector` 支援 `trash`（詳見 `memory.md` TD-004）
-- [ ] 5.2 若需要 Native Plugin，評估建立 `trash_service.dart` + MethodChannel
-- [ ] 5.3 更新 `memory.md` TD-004 狀態
-
-**驗收標準**：刪除檔案進入 macOS 垃圾桶而非永久消失。
+**現況**：Task 12 已建立 `TrashService`（`lib/services/trash_service.dart:6`，`halcyon/trash` MethodChannel）取代永久刪除；Task 25（回收模式）在此之上新增資料夾內 `.trash` 路徑（`lib/services/photo_file_actions.dart:91` `recycleTrashed()`），兩條路徑皆不再使用裸 `file.delete()`。本任務原始子任務已被後續任務吸收，不再單獨追蹤。
 
 ---
 
@@ -189,17 +184,19 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
-### Task 16｜G-005 Auto-advance Toggle 行為確認與修正 🔲 待辦
+### Task 16｜G-005 Toggle-off 缺測試覆蓋 🔲 待辦（行為已確認正確，僅缺回歸測試）
 
-**目標**：釐清並修正 `markCurrent()` 在 Toggle off 時是否應自動前進的行為（G-005）。
+**現況**（2026-08-19 對照 `lib/providers/app_state.dart:337-351` 核實）：`markCurrent()` 的 toggle-off 分支（`item.status == status` 時，`app_state.dart:340-341`）只執行 `item.status = PhotoStatus.unmarked`，**不會**呼叫 `nextPhoto()`；`_autoAdvance` 判斷式（`app_state.dart:344`）只存在於「設定新狀態」的 else 分支內。也就是說 G-005 原先描述的「toggle off 時不論如何都會前進」的行為**目前不成立**——程式碼已是預期行為（toggle off 不前進）。原始 Task 16 的子任務 16.1/16.2（確認並修正行為）已無需執行。
+
+**唯一剩餘缺口**：`test/app_state_test.dart` 沒有對應的 regression test 鎖住這個行為（見 `unit_test.md` TC-014），若日後重構 `markCurrent()` 沒有測試會發現迴歸。
 
 **子任務**：
-- [ ] 16.1 與使用者確認預期行為：Toggle off 時不應前進（待確認）
-- [ ] 16.2 若確認不前進，修改 `AppState.markCurrent()` 邏輯
-- [ ] 16.3 在 `test/app_state_test.dart` 新增 toggle-off 不前進的測試案例
-- [ ] 16.4 更新 `memory.md` G-005 狀態為已修復
+- [x] 16.1 確認預期行為：對照 `app_state.dart:337-351` 核實，toggle off 已不前進，無需再問使用者（原子任務 16.1「待確認」已解除）
+- [x] 16.2 修改邏輯：不需要，現況已正確
+- [ ] 16.3 在 `test/app_state_test.dart` 新增 toggle-off 不前進的 regression test（TC-014）
+- [x] 16.4 更新 `memory.md` G-005 狀態為已確認正確（本輪已更新）
 
-**驗收標準**：G-005 行為已確認並記錄；測試覆蓋 toggle-off 情境；`flutter test` 全數通過。
+**驗收標準**：`test/app_state_test.dart` 新增 TC-014 對應案例並通過；`flutter test` 全數通過。
 
 ---
 
@@ -236,23 +233,25 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 **目標**：將 `AppState` 中的 zoom/animation 純 View 狀態還給 `_MainDetailViewState`，消除 view 直接寫入 provider 的反向資料流（G-010、TD-011）。
 
-**背景**：架構審查（2026-05-04）確認以下欄位屬於純 View 層，不應存在 business provider：
-- `app_state.dart:67` `transformCtrl`（`TransformationController`）
-- `app_state.dart:68` `pointerPosition`（mouse hover 位置）
-- `app_state.dart:69` `lastKnownCenter`（layout 中心，LayoutBuilder 每幀寫入）
-- `app_state.dart:72` `targetMatrix`（動畫目標矩陣，one-shot 旗標）
-- `app_state.dart:73` `shouldAnimateZoom`（one-shot 觸發旗標）
+**現況核實（2026-08-19，取代 2026-05-04 架構審查行號）**：以下欄位確認仍存在於 `AppState` 且仍是純 View 層狀態：
+- `app_state.dart:113` `transformCtrl`（`TransformationController`）
+- `app_state.dart:114` `pointerPosition`（mouse hover 位置）
+- `app_state.dart:115` `lastKnownCenter`（layout 中心，`LayoutBuilder` 每幀寫入）
+- `app_state.dart:118` `targetMatrix`（動畫目標矩陣，one-shot 旗標）
+- `app_state.dart:119` `shouldAnimateZoom`（one-shot 觸發旗標）
+- `app_state.dart:298-334` `stepZoomIn()`/`stepZoomOut()`/`_zoomBy()` 目前仍是 `main_screen.dart:99,102`（`↑`/`↓` 鍵）呼叫的唯一入口
 
-並確認以下反向寫入需消除：
-- `main_detail_view.dart:94` `shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
-- `main_detail_view.dart:177` `lastKnownCenter = center`（LayoutBuilder callback 每次 rebuild 寫入）
-- `main_detail_view.dart:181` `pointerPosition = event.localPosition`
-- `main_detail_view.dart:184` `pointerPosition = null`
+以下反向寫入確認仍存在（行號已更新）：
+- `main_detail_view.dart:99` `context.read<AppState>().shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
+- `main_detail_view.dart:220` `context.read<AppState>().lastKnownCenter = center`（`LayoutBuilder` callback 每次 rebuild 寫入）
+- `main_detail_view.dart:282` `context.read<AppState>().pointerPosition = event.localPosition`（`MouseRegion.onHover`）
+- `main_detail_view.dart:285` `context.read<AppState>().pointerPosition = null`（`MouseRegion.onExit`）
+- 額外發現（本輪新記錄，2026-05-04 審查未列）：`main_detail_view.dart:32` `_animController` 的 listener 每個動畫 tick 都寫入 `context.read<AppState>().transformCtrl.value = _zoomAnimation!.value`，是比上述 4 處更高頻的反向寫入。
 
 **子任務**：
 - [ ] 19.1 在 `_MainDetailViewState` 新增 zoom 欄位：`_transformCtrl`、`_pointerPosition`、`_lastKnownCenter`
-- [ ] 19.2 將 `_zoomBy()` 邏輯（`app_state.dart:187-216`）搬入 `_MainDetailViewState`，以本地 `setState()` 驅動動畫，不再透過 `AppState.shouldAnimateZoom`
-- [ ] 19.3 keyboard zoom（S/X 由 `main_screen.dart` 轉發）改為直接呼叫 `_MainDetailViewState` 的 `stepZoomIn()` / `stepZoomOut()` 公開方法（或透過 GlobalKey / callback 傳遞）
+- [ ] 19.2 將 `_zoomBy()` 邏輯（`app_state.dart:306-334`）搬入 `_MainDetailViewState`，以本地 `setState()` 驅動動畫，不再透過 `AppState.shouldAnimateZoom`
+- [ ] 19.3 keyboard zoom（`main_screen.dart:99,102` 目前呼叫 `state.stepZoomIn()`/`state.stepZoomOut()`）改為直接呼叫 `_MainDetailViewState` 的公開方法（GlobalKey 或 callback 傳遞）
 - [ ] 19.4 `AppState` 移除五個 zoom 欄位與 `stepZoomIn()`、`stepZoomOut()`、`_zoomBy()`；`dispose()` 移除 `transformCtrl.dispose()`
 - [ ] 19.5 `flutter analyze` / `flutter test` 全數通過；更新 `file_index.md`
 
@@ -264,18 +263,105 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 **目標**：消除 `sidebar_view.dart` 中三處重複且色值不一致的 iconColor 判斷邏輯（TD-014），提取為私有 helper（Quick Win，1–2 小時）。
 
-**背景**：架構審查（2026-05-04）發現以下三處重複，且 title color（`32,32,32`）與 icon color（`59,59,59`）存在不一致：
-- `sidebar_view.dart:114-117`：header title color（`32,32,32`）
-- `sidebar_view.dart:229-231`：`_buildTopActions` iconColor（`59,59,59`）
-- `sidebar_view.dart:250-252`：`_buildActionMenu` iconColor（`59,59,59`，完全重複）
+**現況核實（2026-08-19，取代 2026-05-04 架構審查行號——回收模式改動後行號已全部位移，且重複處從 3 處增至 4 處）**：
+- `sidebar_view.dart:150`：header title color（`32,32,32`，與其餘處不同值）
+- `sidebar_view.dart:197`：清單選取列 title color（`59,59,59`，內嵌於 `itemBuilder` 的 `TextStyle`）
+- `sidebar_view.dart:266-268`：`_buildTopActions()` 內 `iconColor`（`59,59,59`）
+- `sidebar_view.dart:287-289`：`_buildActionMenu()` 內 `iconColor`（`59,59,59`，與上一處完全重複）
+- `sidebar_view.dart:322-324`：`_buildActionMenu()` 的 `itemBuilder` 閉包內 `actionTextColor`（`59,59,59`，第四處重複）
+
+（讀取時另一 session 正對本檔做未提交的 flicker-fix，上列行號取自本輪讀取當下的檔案內容，非最終落地版本；下一輪核對時請重新抓行號。）
 
 **子任務**：
-- [ ] 20.1 在 `_SidebarViewState` 新增私有 helper `Color _iconColor(BuildContext context)`，統一使用 `59,59,59` 作為 light mode icon 色值
-- [ ] 20.2 將 Line 229-231 與 Line 250-252 改呼叫 `_iconColor(context)`
-- [ ] 20.3 確認 Line 114-117 的 title color 是否應與 icon color 一致（如是，一同修正；如否，加 comment 說明差異）
+- [ ] 20.1 在 `_SidebarViewState` 新增私有 helper `Color _iconColor(BuildContext context)`，統一使用 `59,59,59` 作為 light mode icon/文字色值
+- [ ] 20.2 將 197、266-268、287-289、322-324 四處改呼叫 `_iconColor(context)`
+- [ ] 20.3 確認 Line 150 的 header title color（`32,32,32`）是否應與其餘 `59,59,59` 一致（如是，一同修正；如否，加 comment 說明差異）
 - [ ] 20.4 `flutter analyze` / `flutter test` 通過
 
 **驗收標準**：`sidebar_view.dart` 中 iconColor 邏輯只定義一次；`flutter analyze` 0 issues；無視覺回歸。
+
+---
+
+### Task 22｜DNG 全尺寸解碼整合（`flutter_dng_decoder`）✅ 已完成
+
+**目標**：為沒有內嵌可用全尺寸 JPEG 預覽的 DNG 檔案提供真正的全尺寸 RAW 解碼路徑，取代降級顯示縮圖。
+
+**已落地**（`8e6a1cf`、`b557261`、`bcc096b`、`6d7b8bd`、`f55915c`、`61c48fa`、`87d8463`，2026-08-16）：
+- `lib/services/dng_decode_contract.dart`：`DecodedRgba` / `DngFullDecoder` 介面契約，讓解碼路徑可用 fake decoder 測試而不必載入原生 dylib。
+- `lib/services/dng_decode_service.dart`：整合 `dng_processor` package（`package:dng_processor/src/dng_decoder_service.dart`，見檔頭 `// ignore: implementation_imports` 註記）。
+- `lib/services/decoded_rgba_image_provider.dart`：已解碼 RGBA 緩衝轉 `ui.Image` provider。
+- `lib/perf/perf_driver.dart`、`lib/perf/perf_log.dart`：永久保留、`HALCYON_PERF_DIR` 環境變數 gate 的效能埋點（`test/dng_decoder_smoke_test.dart`、`test/dng_extractor_swift_test.dart`、`test/decoded_rgba_image_provider_test.dart` 覆蓋）。
+
+**驗收標準**：DNG 檔案在無內嵌全尺寸 JPEG 時可透過 `dng_processor` 解碼顯示；`flutter test` 通過對應測試檔；效能埋點在未設定 `HALCYON_PERF_DIR` 時為結構性 no-op。
+
+**驗證結果**：本輪重跑 `flutter test`（85 個測試，含上述三個測試檔）與 `flutter analyze lib test`（0 issues）皆通過（2026-08-19）。`flutter build macos` 本輪未重跑。
+
+---
+
+### Task 23｜影像切換延遲 Tier-1/Tier-2 Sliding Preload ✅ 已完成
+
+**目標**：降低圖片切換延遲，在維持記憶體安全的滑動視窗前提下新增全尺寸解碼快取層。
+
+**已落地**（`adfa624`、`e64b7aa`、`d574a9b`、`be38953`、`de7cf5b`、`5a8684e`、`bbde960`、`1339a25`、`3cbc5ff`，2026-08-16）：
+- `lib/services/image_preload_controller.dart`：tier-1（視窗解析度預解碼快取，500MB `ImageCache`）與 tier-2（全尺寸解碼層，與 tier-1 並存）。
+- 修正 BLOCKER 1（過期 tier-2 ready flag）、B2、BLOCKER 3（tier-2 completion flag 需為必要條件而非可省略）三個 review 發現的問題。
+- `test/image_preload_controller_test.dart`：22 個測試涵蓋滑動視窗驅逐、tier-1/tier-2 raw-decode 路徑、decode/dispose 平衡。
+
+**驗收標準**：`flutter test` 通過 `image_preload_controller_test.dart` 全部案例；tier-2 完成旗標須與 tier-1 共同構成完整條件（BLOCKER 3 迴歸測試覆蓋兩個方向）。
+
+**驗證結果**：本輪重跑 `flutter test` 該檔 22 個測試全數通過（2026-08-19）。
+
+---
+
+### Task 24｜Finder「開啟方式」冷啟動 ✅ 已完成
+
+**目標**：支援使用者從 Finder「打開方式」直接啟動 Halcyon 並開啟指定照片所在資料夾。
+
+**已落地**（`aefad64`，2026-08-17）：
+- `lib/services/open_with_channel.dart`：`halcyon/open_with` MethodChannel，Push-only 設計（避免冷啟動時 Dart 詢問原生端而輸掉與 Flutter engine 初始化的競速）。
+- macOS 端：`macos/Runner/AppDelegate.swift` 已實作；Windows／Android 尚未實作原生轉發（見檔頭註記）。
+- 沙箱設定移除：macOS entitlements 移除 sandbox 限制以支援任意路徑的 Finder 開啟請求。
+
+**驗收標準**：從 Finder 對支援格式的照片選擇「打開方式 → Halcyon」可正確開啟其所在資料夾並選取該照片。
+
+**已知限制**：Windows／Android 平台轉發未實作，`OpenWithChannel.listen()` 在這些平台上目前恆為 no-op（尚無對應原生呼叫）。真機 macOS 冷啟動視覺覆核建議由使用者補做。
+
+---
+
+### Task 25｜回收模式（`.trash`）批次刪除 ✅ 已完成
+
+**目標**：新增資料夾內回收模式，將已標記刪除的照片（含同名 sibling RAW 檔）批次移入資料夾內 `.trash` 子目錄，而非（或除了）macOS 系統垃圾桶。
+
+**已落地**（`9520ab4` spec、`01694dc` plan、`3cc1e79` 收斂契約、`8646f86`、`128be52`、`bd38051`、`eb6d282`、`1cc846e`、`ffeae4e`、`307afec`，2026-08-17～2026-08-18）：
+- `lib/services/photo_file_actions.dart:91` `recycleTrashed()`：同名 sibling（`.cr2`/`.nef`/`.orf` 等）自動分組移入 `<dir>/.trash/`，同檔名碰撞附加 `-1`、`-2` 後綴（`_availablePath()`），回傳 `RecycleOutcome`（`movedCount` + `failures` 清單，見 `photo_file_actions.dart:14`）。
+- `lib/views/photo_action_bar.dart`：mode-aware 刪除按鈕，右鍵切換回收模式／永久刪除模式。
+- `lib/views/batch_delete_feedback.dart`：批次刪除成功走 status line，失敗則為阻斷式 `AlertDialog`（列出 `failures`）。
+- `lib/views/sidebar_view.dart`：mode-aware 側邊欄狀態圖示與選單標籤。
+- `680acb4`（2026-08-17，非本任務主線但相依）：修正 CR2/NEF/ORF 掃描分組邏輯，確保 sibling RAW 能正確與 JPG 同組。
+
+**驗收標準**：回收模式下刪除已標記照片會移入 `.trash` 而非消失；失敗的檔案（例如權限拒絕）需在 `failures` 中回報且不中斷其餘批次；`test/photo_file_actions_test.dart`、`test/sidebar_view_test.dart`、`test/photo_action_bar_test.dart`、`test/batch_delete_feedback_test.dart` 覆蓋。
+
+**驗證結果**：本輪重跑 `flutter test` 上述測試檔全數通過（2026-08-19）。
+
+---
+
+### Task 26｜Sidebar 縮圖預載改為 itemBuilder 驅動 ✅ 已完成
+
+**目標**：修正回收/刪除/複製/移動觸發 `loadFolder()` 重新整理資料夾後，側邊欄縮圖快取被清空但捲動監聽器不會主動重新請求，導致捲動離開頂端的清單縮圖持續空白直到使用者再次捲動的問題。
+
+**已落地**（`d0eb855`，2026-08-19）：
+- `lib/views/sidebar_view.dart`：移除 `ScrollController` 監聽器（`_onScroll`），改由 `ListView.builder` 的 `itemBuilder` 呼叫 `_noteBuiltIndex(index)` 逐格記錄本幀建置到的 index，於 `addPostFrameCallback` 彙整成範圍後呼叫 `AppState.preloadThumbnails(first, last)`（回報「可視範圍」，不含 prefetch margin）。
+- `lib/providers/app_state.dart:preloadThumbnails()`：文件註解更新為「呼叫端傳入可視範圍，margin 由 controller 決定」；初始化呼叫改為 `preloadThumbnails(0, 0)`（先前為硬編碼 `(0, 20)`），因為 sidebar 尚未 layout 完成時的暖身視窗現在由 controller 的 margin 提供。
+- `lib/services/image_preload_controller.dart`：新增 `thumbnailPrefetchMargin`（20）常數；請求順序改為「可視列（由上到下）→ 視窗上下邊緣向外交錯」而非線性掃過整個 `start-20..end+20` 範圍，避免使用者實際看到的列排在 20 個畫面外列之後才被請求；新增 `_thumbBatchGeneration` 計數器，`reset()` 與每次新範圍呼叫都會遞增，讓過期批次（快速捲動或資料夾重載）在下一次 await 前自我中止，不再浪費 channel 往返或寫入已不存在清單的縮圖。
+- `sidebar_view.dart`：選取列背景由外層 `Container` 改為 `ListTile.selectedTileColor`，容器本身改用 `Material`（而非 `Container`）以提供最近的 Material 祖先，消除 framework 對「ListTile 背景色/ink splash 可能不可見」的斷言警告（`test/sidebar_view_test.dart` 的 `drainListTileWarning()` 因此改為逐一排空而非只清一次）。
+
+**新增測試**：`test/sidebar_view_test.dart`「every visible row is requested again after a folder reload」— 60 項清單捲動離開頂端後觸發 `loadFolder()`，斷言重新繪製的每一列都出現在重新請求清單中。
+
+**驗收標準**：資料夾重載後，畫面上實際可見的縮圖列必定會被重新請求，不依賴使用者主動捲動；`flutter test` 全數通過。
+
+**驗證結果**：`flutter test` 85 個測試通過（exit code 0，2026-08-19）；`flutter analyze lib test` 0 issues。`flutter build macos` 與真機視覺覆核本輪未重跑。
+
+---
 
 ### Task 13｜專案資料夾結構整理 ✅ 已完成
 
@@ -325,7 +411,7 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 **驗收標準**：唯讀資料夾開啟時顯示含「唯讀」字樣的警告；SnackBar 呼叫點清零，改用 `StatusLine`；`flutter test` 全數通過。
 
-**驗證結果**：`flutter test` 84 個測試通過（exit code 0，2026-08-19）。`flutter analyze` / `flutter build macos` 本輪未重跑。
+**驗證結果**：`flutter test` 84 個測試通過（exit code 0，commit `123727b` 當時）；`flutter analyze` / `flutter build macos` 該輪未重跑。Task 26 落地後（含新增的 sidebar reload 迴歸測試）重跑為 85 個測試通過。
 
 ---
 
@@ -347,8 +433,8 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 | 指標 | 數值 |
 |------|------|
-| 現有測試數（`flutter test` 實跑，2026-08-19）| 84 |
+| 現有測試數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 |
 | 目標測試數（Task 15/16 完成後）| 18+（已達成）|
-| 已通過測試數 | 84（exit code 0）|
-| 測試覆蓋缺口 | Task 16（G-005 toggle-off 行為）尚無對應測試；DNG/回收模式/perf 相關測試檔未逐條登錄於 `unit_test.md` TC 矩陣 |
+| 已通過測試數 | 85（exit code 0）|
+| 測試覆蓋缺口 | Task 16（G-005 toggle-off 行為）尚無對應測試；DNG 解碼/回收模式/perf 相關測試檔已於本輪登錄對應 Task（22/23/25），仍未逐條列入 `unit_test.md` TC 矩陣（該檔的已知限制節有記錄） |
 | 測試覆蓋策略 | 詳見 `unit_test.md` |

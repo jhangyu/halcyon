@@ -55,16 +55,20 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | 放大縮小 | ✅ | |
 | 複製星號檔案 | ✅ | |
 | 移動星號檔案 | ✅ | |
-| 刪除已標記檔案 | ✅ | Task 12 已改為 Trash service，待完整 Flutter/macOS 驗證 |
+| 刪除已標記檔案 | ✅ | Task 12 已改為 Trash service；Task 25 新增資料夾內回收模式（`.trash`）作為替代路徑，`flutter analyze` / `flutter build macos` 與實機覆核待補 |
 | Auto-advance | ✅ | |
 | Overwrite-existing | ✅ | |
 | 狀態持久化（JSON）| ✅ | |
 | macOS Day/Night Theme | ✅ | |
 | 設定對話框 | ✅ | |
-| Trash 而非永久刪除 | 待驗證 | Task 12 已新增 MethodChannel 實作與 Dart 測試；待 macOS 實機驗證 |
-| 回收模式（.trash 批次刪除）| ✅ | 同名 sibling 自動分組，`test/photo_file_actions_test.dart` / `test/sidebar_view_test.dart` 覆蓋 |
+| Trash 而非永久刪除 | ✅（自動化驗證通過） | Task 12 已新增 MethodChannel 實作與 Dart 測試；macOS 實機視覺覆核仍待補 |
+| 回收模式（.trash 批次刪除）| ✅ | 同名 sibling 自動分組，`test/photo_file_actions_test.dart` / `test/sidebar_view_test.dart` / `test/photo_action_bar_test.dart` / `test/batch_delete_feedback_test.dart` 覆蓋 |
 | 唯讀資料夾警告 | ✅ | `PhotoStatusStore.isWritable()` 建立/刪除 probe 檔案偵測；`loadFolder()` 推送 status line 警告 |
 | Status line（取代 SnackBar）| ✅ | `lib/views/status_line.dart`；`test/status_line_test.dart` 覆蓋時序與 emphasis 配色 |
+| DNG 全尺寸解碼 | ✅ | `dng_processor` 整合，無內嵌預覽時真正解碼而非降級縮圖；`test/dng_decoder_smoke_test.dart` / `test/dng_extractor_swift_test.dart` / `test/decoded_rgba_image_provider_test.dart` 覆蓋 |
+| 影像切換 tier-1/tier-2 sliding preload | ✅ | `lib/services/image_preload_controller.dart`；`test/image_preload_controller_test.dart`（22 案例）覆蓋 |
+| Finder「開啟方式」冷啟動 | ✅（macOS）| `lib/services/open_with_channel.dart`；Windows/Android 原生轉發未實作 |
+| Sidebar 縮圖預載改為 itemBuilder 驅動 | ✅ | 取代 scroll listener 觸發模式；`test/sidebar_view_test.dart` 覆蓋資料夾重載迴歸案例 |
 
 ---
 
@@ -244,7 +248,7 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | **測試資料** | `autoAdvance=true`；當前照片 status 已為 `starred`；再次呼叫 `markCurrent(PhotoStatus.starred)` |
 | **預期結果** | status 切換為 `unmarked`；`selectedItemID` 保持不變（不前進到下一張）|
 | **驗證方式** | `test/app_state_test.dart` |
-| **狀態** | 🔲 Task 16 待建立（需先與使用者確認 G-005 行為）|
+| **狀態** | 🔲 Task 16 待建立——**行為已於 2026-08-19 對照 `app_state.dart:337-351` 核實為正確**（toggle-off 分支不呼叫 `nextPhoto()`），不再需要使用者確認；純粹缺一個鎖住此行為的 regression test |
 
 ---
 
@@ -285,6 +289,56 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | **測試類型** | 單元測試 |
 | **預期結果** | `state.status?.text` 包含「唯讀」 |
 | **驗證方式** | `test/app_state_test.dart`（`warns on the status line when the folder is read-only`） |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-019｜SidebarView — 資料夾重載後每個可視列都會被重新請求
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-019 |
+| **名稱** | 捲動離開頂端後 `loadFolder()` 重載資料夾，畫面上實際繪製的每一列縮圖都出現在重新請求清單中 |
+| **測試類型** | Widget Test |
+| **背景** | 回收/刪除/複製/移動皆會呼叫 `loadFolder()` 重載，重置 `ImagePreloadController` 的縮圖快取；2026-08-19 前縮圖請求只由 `ScrollController` 監聽器觸發，捲動離開頂端的清單重載後會持續空白直到使用者再次捲動（見 `memory.md` AD-014） |
+| **預期結果** | 60 項清單捲動離開頂端、重載資料夾後，`tester.widgetList<ListTile>` 取得的可見列名稱全部出現在 `preloadThumbnails` 的請求記錄中 |
+| **驗證方式** | `test/sidebar_view_test.dart`（`every visible row is requested again after a folder reload`） |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-020｜ImagePreloadController — Tier-1/Tier-2 滑動視窗與 raw-decode 平衡
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-020 |
+| **名稱** | tier-1/tier-2 並存的滑動視窗快取正確驅逐、raw-decode 路徑每次視窗掃描只請求原生端一次、decode/dispose handle 平衡不洩漏 |
+| **測試類型** | 單元測試 |
+| **驗證方式** | `test/image_preload_controller_test.dart`（22 個測試案例，含 BLOCKER 1/B2/BLOCKER 3 迴歸測試） |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-021｜DNG 全尺寸解碼路徑
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-021 |
+| **名稱** | 無內嵌全尺寸 JPEG 預覽的 DNG 走 `dng_processor` 原生解碼，`DecodedRgba` 正確轉為 `ui.Image` |
+| **測試類型** | 單元測試（部分為對已交付 Swift extractor 的對應測試） |
+| **驗證方式** | `test/dng_decoder_smoke_test.dart`、`test/dng_extractor_swift_test.dart`、`test/decoded_rgba_image_provider_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-022｜PhotoFileActions — 回收模式（`.trash`）批次移動
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-022 |
+| **名稱** | `recycleTrashed()` 將已標記刪除項目（含同名 sibling）移入 `.trash`，碰撞附加後綴，失敗項目回報於 `RecycleOutcome.failures` |
+| **測試類型** | 單元測試（`dart:io` temp 目錄）＋ Widget Test（mode-aware UI） |
+| **驗證方式** | `test/photo_file_actions_test.dart`、`test/sidebar_view_test.dart`、`test/photo_action_bar_test.dart`、`test/batch_delete_feedback_test.dart` |
 | **狀態** | ✅ 已通過 |
 
 ---
@@ -336,8 +390,8 @@ flutter test --coverage
 
 | 指標 | 目前 | Phase 5 目標 | Phase 10 目標 |
 |------|------|-------------|--------------|
-| 測試案例總數（`flutter test` 實跑）| 84 | ≥ 16（含 TC-011~TC-014，已達成）| ≥ 18（已達成）|
-| TC-001 ~ TC-018 通過率 | 全數 ✅ 已通過，僅 TC-014 仍待建立（Task 16 / G-005 未確認）| TC-011~TC-013 通過 | TC-014 通過（G-005 確認後）|
+| 測試案例總數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 | ≥ 16（含 TC-011~TC-014，已達成）| ≥ 18（已達成）|
+| TC-001 ~ TC-022 通過率 | 全數 ✅ 已通過，僅 TC-014 仍待建立（行為已確認正確，純缺 regression test，見 Task 16）| TC-011~TC-013 通過 | TC-014 通過 |
 | `flutter analyze` | 0 issues | 0 errors, 0 warnings | 0 errors, 0 warnings |
 | 覆蓋率門檻 | — | > 60%（行覆蓋）| > 70% |
 | `PhotoFileActions` 覆蓋 | 0% | copy/move/trash 三條路徑均覆蓋 | 同 Phase 5 |
@@ -386,9 +440,11 @@ flutter test --coverage
 | 2026-05-01 | Android toolchain upgrade | `./gradlew assembleRelease` with JDK 25 | ✅ 通過；Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式 |
 | 2026-05-01 | Build script | `./scripts/build.sh android` with JDK 25 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-05-01 | Regression | `flutter test` | ✅ 通過，11 個測試 |
-| 2026-08-19 | 狀態列（status line）與唯讀資料夾警告 | `flutter test` | ✅ 通過，84 個測試（exit code 0） |
+| 2026-08-19 | 狀態列（status line）與唯讀資料夾警告 | `flutter test` | ✅ 通過，84 個測試（exit code 0，commit `123727b`） |
+| 2026-08-19 | Sidebar itemBuilder 驅動預載（Task 26）+ 文件全面重寫 | `flutter test` | ✅ 通過，85 個測試（exit code 0，commit `d0eb855`） |
+| 2026-08-19 | 文件全面重寫（本輪） | `flutter analyze lib test` | ✅ 通過，0 issues |
 
-**已知限制**：測試檔數量自 2026-05-05 起大幅成長（新增 `photo_action_bar_test.dart`、`decoded_rgba_image_provider_test.dart`、`dng_decoder_smoke_test.dart`、`dng_extractor_swift_test.dart`、`native_thumbnail_service_test.dart`、`main_test.dart` 等，對應 DNG 解碼整合、回收模式、Finder 開啟等未在本檔逐條登錄的功能），本輪僅補登與 status line / 唯讀警告直接相關的 TC-017、TC-018；其餘測試檔尚缺 TC 矩陣條目，屬於本檔待補的既有落差。
+**已知限制**：TC-019 ~ TC-022 為本輪新增，覆蓋 sidebar 重載迴歸、tier-1/tier-2 preload、DNG 解碼、回收模式，但仍是每個測試檔一條摘要 TC，未逐一案例對應（例如 `image_preload_controller_test.dart` 22 個案例只對應 TC-020 一條）。`flutter build macos` 與 macOS 實機視覺覆核（Trash、`.trash` 回收、Finder 開啟方式冷啟動、DNG 大圖顯示）本輪未重跑，沿用先前紀錄。
 
 ---
 
