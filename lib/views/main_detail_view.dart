@@ -7,9 +7,13 @@ import '../providers/app_state.dart';
 import '../services/decoded_rgba_image_provider.dart';
 import '../services/image_preload_controller.dart';
 import 'photo_action_bar.dart';
+import 'zoom_controller.dart';
 
 class MainDetailView extends StatefulWidget {
-  const MainDetailView({super.key});
+  /// Zoom state, owned by `MainScreen` so it outlives photo switches.
+  final ZoomController zoom;
+
+  const MainDetailView({super.key, required this.zoom});
 
   @override
   State<MainDetailView> createState() => _MainDetailViewState();
@@ -29,13 +33,41 @@ class _MainDetailViewState extends State<MainDetailView>
     );
     _animController.addListener(() {
       if (_zoomAnimation != null) {
-        context.read<AppState>().transformCtrl.value = _zoomAnimation!.value;
+        widget.zoom.transformCtrl.value = _zoomAnimation!.value;
       }
     });
+    widget.zoom.addListener(_onZoomRequested);
+  }
+
+  @override
+  void didUpdateWidget(MainDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.zoom != widget.zoom) {
+      oldWidget.zoom.removeListener(_onZoomRequested);
+      widget.zoom.addListener(_onZoomRequested);
+    }
+  }
+
+  /// Consumes the controller's one-shot animation request. This runs off the
+  /// controller's notification rather than from `build()`, so the flag is
+  /// cleared immediately by its only consumer instead of via a post-frame
+  /// callback, and no zoom state is written during a build.
+  void _onZoomRequested() {
+    final zoom = widget.zoom;
+    final target = zoom.targetMatrix;
+    if (!zoom.shouldAnimateZoom || target == null) return;
+    zoom.shouldAnimateZoom = false;
+
+    _zoomAnimation =
+        Matrix4Tween(begin: zoom.transformCtrl.value, end: target).animate(
+          CurvedAnimation(parent: _animController, curve: Curves.fastOutSlowIn),
+        );
+    _animController.forward(from: 0);
   }
 
   @override
   void dispose() {
+    widget.zoom.removeListener(_onZoomRequested);
     _animController.dispose();
     super.dispose();
   }
@@ -76,29 +108,6 @@ class _MainDetailViewState extends State<MainDetailView>
 
     if (currentId == null || item == null) {
       return const Center(child: CircularProgressIndicator());
-    }
-
-    // Trigger animation if requested by AppState
-    if (state.shouldAnimateZoom && state.targetMatrix != null) {
-      _zoomAnimation =
-          Matrix4Tween(
-            begin: state.transformCtrl.value,
-            end: state.targetMatrix!,
-          ).animate(
-            CurvedAnimation(
-              parent: _animController,
-              curve: Curves.fastOutSlowIn,
-            ),
-          );
-
-      _animController.forward(from: 0);
-
-      // Reset the flag off-frame so we don't continuously re-trigger
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          context.read<AppState>().shouldAnimateZoom = false;
-        }
-      });
     }
 
     return Stack(
@@ -216,8 +225,10 @@ class _MainDetailViewState extends State<MainDetailView>
           constraints.maxWidth / 2,
           constraints.maxHeight / 2,
         );
-        // Silently update layout center
-        context.read<AppState>().lastKnownCenter = center;
+        // Silently update layout center: a plain field write, deliberately
+        // NOT a notifying setter -- notifying from inside a LayoutBuilder
+        // builder would rebuild forever.
+        widget.zoom.lastKnownCenter = center;
 
         // Tier-1 decode target = window logical size x devicePixelRatio.
         // Forward it to AppState so the preload controller's precache
@@ -279,13 +290,13 @@ class _MainDetailViewState extends State<MainDetailView>
 
         return MouseRegion(
           onHover: (event) {
-            context.read<AppState>().pointerPosition = event.localPosition;
+            widget.zoom.pointerPosition = event.localPosition;
           },
           onExit: (event) {
-            context.read<AppState>().pointerPosition = null;
+            widget.zoom.pointerPosition = null;
           },
           child: InteractiveViewer(
-            transformationController: context.read<AppState>().transformCtrl,
+            transformationController: widget.zoom.transformCtrl,
             minScale: 1.0,
             maxScale: 5.0,
             trackpadScrollCausesScale: true,

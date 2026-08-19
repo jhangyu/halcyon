@@ -59,11 +59,13 @@ Halcyon/
 │   │   │   ├── decoded_rgba_image_provider.dart  # 已解碼 RGBA 緩衝轉 Flutter `ui.Image` provider
 │   │   │   ├── dng_decode_contract.dart       # DngFullDecoder / DecodedRgba 解碼介面契約
 │   │   │   ├── dng_decode_service.dart        # DNG 全尺寸解碼服務（flutter_dng_decoder 整合）
-│   │   │   └── open_with_channel.dart         # Finder「開啟方式」冷啟動 MethodChannel
+│   │   │   ├── open_with_channel.dart         # Finder「開啟方式」冷啟動 MethodChannel
+│   │   │   └── thumbnail_export_service.dart  # 星號照片批次匯出縮圖（長邊 ≤ 2048px、bounded concurrency 4、EXIF 保留）
 │   │   └── views/
 │   │       ├── main_screen.dart       # Scaffold + 鍵盤快捷鍵 + 側邊欄拖曳調整
 │   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載 + 回收模式狀態圖示
 │   │       ├── main_detail_view.dart  # ZoomableImageView + 浮動操作列
+│   │       ├── zoom_controller.dart   # View 層縮放狀態（由 MainScreen 持有並 dispose；跨照片保留）
 │   │       ├── photo_action_bar.dart  # 浮動操作列（星號/刪除/回收模式切換按鈕）
 │   │       ├── status_line.dart       # 取代 SnackBar 的自訂狀態列 widget：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；重點字反相對比配色
 │   │       ├── batch_delete_feedback.dart  # 批次刪除回饋：成功走 status line，失敗走阻斷式 AlertDialog
@@ -71,6 +73,7 @@ Halcyon/
 │   ├── test/
 │   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose、唯讀資料夾警告測試
 │   │   ├── image_preload_controller_test.dart  # sliding window cache 驅逐與 tier-1/tier-2 raw-decode 測試
+│   │   ├── zoom_controller_test.dart  # ZoomController 上下限、≤1.05 歸零、焦點選擇測試（TC-023）
 │   │   ├── photo_item_test.dart  # PhotoItem 與格式 registry 測試
 │   │   ├── photo_file_actions_test.dart  # PhotoFileActions trash/copy/move 行為測試
 │   │   ├── photo_action_bar_test.dart    # 浮動操作列按鈕與回收模式切換測試
@@ -81,6 +84,7 @@ Halcyon/
 │   │   ├── dng_decoder_smoke_test.dart   # DNG 解碼 smoke test
 │   │   ├── dng_extractor_swift_test.dart # 已交付 DNG extractor 對應 Swift 測試套件
 │   │   ├── native_thumbnail_service_test.dart  # NativeThumbnailService request contract 測試
+│   │   ├── thumbnail_export_service_test.dart  # ThumbnailExportService 匯出行為測試（bounded concurrency、EXIF 保留、進度回報）
 │   │   ├── main_test.dart        # main() 啟動流程測試
 │   │   └── widget_test.dart      # 有效 widget smoke test
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）
@@ -157,7 +161,8 @@ Halcyon/
 | `ImagePreloadController` | `lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
 | `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/trash 檔案操作；回收模式（`.trash`）批次刪除與 sibling 分組移動 |
 | `TrashService` | `lib/services/trash_service.dart` | `halcyon/trash` MethodChannel contract，將檔案移入 macOS Trash 或資料夾內 `.trash` |
-| `NativeThumbnailService` | `lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
+| `NativeThumbnailService` | `lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` / `export` MethodChannel request contract |
+| `ThumbnailExportService` | `lib/services/thumbnail_export_service.dart` | 星號照片批次縮圖匯出（長邊 ≤ 2048px、bounded concurrency 4、保留 EXIF、進度回報） |
 | `SupportedPhotoFormats` | `lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
 | `DngDecodeService` / `DngDecodeContract` | `lib/services/dng_decode_service.dart`、`lib/services/dng_decode_contract.dart` | DNG 全尺寸解碼服務與介面契約（`flutter_dng_decoder` 整合） |
 | `DecodedRgbaImageProvider` | `lib/services/decoded_rgba_image_provider.dart` | 已解碼 RGBA 緩衝轉 `ui.Image` provider |

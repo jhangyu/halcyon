@@ -109,14 +109,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Zoom retention
-  final TransformationController transformCtrl = TransformationController();
-  Offset? pointerPosition;
-  Offset lastKnownCenter = const Offset(400, 300);
-
-  // Animation requests
-  Matrix4? targetMatrix;
-  bool shouldAnimateZoom = false;
+  // Zoom/animation state deliberately does NOT live here: it is pure view
+  // state, owned by ZoomController (lib/views/zoom_controller.dart), which
+  // MainScreen creates. See memory.md G-010 / Task 19.
 
   List<PhotoItem> get items => _items;
   String? get selectedItemID => _selectedItemID;
@@ -173,8 +168,9 @@ class AppState extends ChangeNotifier {
   // Forwards the current detail viewport's decode target size (logical size
   // x devicePixelRatio, computed by the view) to the preload controller so
   // its tier-1 precache decodes neighbors at the same resolution the view
-  // will request. Silent update, no notifyListeners (mirrors
-  // lastKnownCenter): this doesn't change what's displayed this frame.
+  // will request. Silent update, no notifyListeners: this doesn't change what
+  // is displayed this frame, and it is written from inside a LayoutBuilder
+  // builder where notifying would rebuild forever.
   void setViewportSize(int width, int height) {
     _preloadController.updateTargetSize(width, height);
   }
@@ -292,46 +288,6 @@ class AppState extends ChangeNotifier {
     if (idx > 0) {
       selectItem(_items[idx - 1].id);
     }
-  }
-
-  // Zoom logic
-  void stepZoomIn() {
-    _zoomBy(1.25);
-  }
-
-  void stepZoomOut() {
-    _zoomBy(1 / 1.25);
-  }
-
-  void _zoomBy(double scaleFactor) {
-    double currentScale = transformCtrl.value.getMaxScaleOnAxis();
-    double targetScale = currentScale * scaleFactor;
-
-    // If we're hitting or going below 1.0x, snap perfectly back to the center avoiding boundary drifting
-    if (targetScale <= 1.05) {
-      targetMatrix = Matrix4.identity();
-      shouldAnimateZoom = true;
-      notifyListeners();
-      return;
-    }
-
-    if (targetScale > 5.0) {
-      scaleFactor = 5.0 / currentScale;
-    }
-
-    if (scaleFactor == 1.0) return;
-
-    final focalPoint = pointerPosition ?? lastKnownCenter;
-
-    // Translate to focal point, scale, and translate back
-    final Matrix4 m = Matrix4.identity()
-      ..translateByDouble(focalPoint.dx, focalPoint.dy, 0, 1)
-      ..scaleByDouble(scaleFactor, scaleFactor, 1, 1)
-      ..translateByDouble(-focalPoint.dx, -focalPoint.dy, 0, 1);
-
-    targetMatrix = m.multiplied(transformCtrl.value);
-    shouldAnimateZoom = true;
-    notifyListeners();
   }
 
   void markCurrent(PhotoStatus status) {
@@ -479,7 +435,6 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _viewDebounceTimer?.cancel();
     _preloadController.dispose();
-    transformCtrl.dispose();
     super.dispose();
   }
 }

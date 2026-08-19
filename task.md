@@ -23,7 +23,11 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: 26 — Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
+- **Task**: 19 — Zoom 狀態下沉至 View 層（`ZoomController`），程式碼與測試已完成，**待使用者手動驗收**（尚未 commit）
+- **中斷點與交接 (Handover)**: 新增 `lib/views/zoom_controller.dart`；`MainScreen` 建立/釋放並注入 `MainDetailView(zoom:)`；`AppState` 已無 zoom 欄位與方法。`flutter analyze lib test` 0 issues、`flutter test` 全綠（新增 9 案例 = TC-023，以 8 個 mutant 證明鑑別力，證據於 `tmp/verify/`）。**剩餘唯一缺口**：`docs/logs/2026-08-19/zoom-state-extraction-handover.md` §12 的 7 項手動操作驗收（縮放上下限、游標焦點、畫面中心焦點、trackpad、跨照片保留、拖動 sidebar 後焦點、連按兩次 `↑`）——連續互動自動化測試涵蓋不到。
+- **下一個子步驟**: 使用者手動驗收 7 項清單 → 通過後 commit。
+
+- **前一個 Task**: 26 — Sidebar 縮圖預載改為 itemBuilder 驅動（commit `d0eb855`）
 - **中斷點與交接 (Handover)**: 已完成。`SidebarView` 不再用 `ScrollController` listener 計算可視範圍，改由 `ListView.builder` 的 `itemBuilder` 逐格回報建置到的 index，一幀結束後彙整成範圍呼叫 `AppState.preloadThumbnails()`；`ImagePreloadController` 接手 prefetch margin（`thumbnailPrefetchMargin = 20`）並新增 generation 計數器讓過期批次自我中止。`flutter test` 85 個測試通過（exit code 0，2026-08-19 重跑），`flutter analyze lib test` 0 issues。詳見 `handover.md` 本輪交接摘要。
 - **下一個子步驟**: 無立即待辦；`git status --short` 除本次文件同步與非 in-scope 目錄外無其他改動。
 
@@ -229,9 +233,11 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
-### Task 19｜Zoom 狀態下沉至 View 層（消除反向資料流）🔲 待辦
+### Task 19｜Zoom 狀態下沉至 View 層（消除反向資料流）✅ 已完成（2026-08-19，待使用者手動驗收）
 
-**目標**：將 `AppState` 中的 zoom/animation 純 View 狀態還給 `_MainDetailViewState`，消除 view 直接寫入 provider 的反向資料流（G-010、TD-011）。
+**目標**：將 `AppState` 中的 zoom/animation 純 View 狀態移至 view 層，消除 view 直接寫入 provider 的反向資料流（G-010、TD-011）。
+
+**實作結果（方案 B，與下方原始子任務規劃不同——已由使用者拍板）**：狀態沒有搬進 `_MainDetailViewState`，而是搬進獨立的 `lib/views/zoom_controller.dart`（`ZoomController extends ChangeNotifier`），由 `_MainScreenState` 建立與 dispose 並注入 `MainDetailView(zoom: _zoom)`。原因：controller 若建在 `MainDetailView` 內，照片切換重建時會遺失縮放狀態；獨立 controller 另使縮放邏輯可脫離 widget 做單元測試。詳見 `memory.md` AD-015 與 `docs/logs/2026-08-19/zoom-state-extraction-handover.md`。
 
 **現況核實（2026-08-19，取代 2026-05-04 架構審查行號）**：以下欄位確認仍存在於 `AppState` 且仍是純 View 層狀態：
 - `app_state.dart:113` `transformCtrl`（`TransformationController`）
@@ -249,13 +255,14 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 - 額外發現（本輪新記錄，2026-05-04 審查未列）：`main_detail_view.dart:32` `_animController` 的 listener 每個動畫 tick 都寫入 `context.read<AppState>().transformCtrl.value = _zoomAnimation!.value`，是比上述 4 處更高頻的反向寫入。
 
 **子任務**：
-- [ ] 19.1 在 `_MainDetailViewState` 新增 zoom 欄位：`_transformCtrl`、`_pointerPosition`、`_lastKnownCenter`
-- [ ] 19.2 將 `_zoomBy()` 邏輯（`app_state.dart:306-334`）搬入 `_MainDetailViewState`，以本地 `setState()` 驅動動畫，不再透過 `AppState.shouldAnimateZoom`
-- [ ] 19.3 keyboard zoom（`main_screen.dart:99,102` 目前呼叫 `state.stepZoomIn()`/`state.stepZoomOut()`）改為直接呼叫 `_MainDetailViewState` 的公開方法（GlobalKey 或 callback 傳遞）
-- [ ] 19.4 `AppState` 移除五個 zoom 欄位與 `stepZoomIn()`、`stepZoomOut()`、`_zoomBy()`；`dispose()` 移除 `transformCtrl.dispose()`
-- [ ] 19.5 `flutter analyze` / `flutter test` 全數通過；更新 `file_index.md`
+- [x] 19.1 新增 `lib/views/zoom_controller.dart`，持有五個 zoom 欄位並自行建立/釋放 `transformCtrl`（取代原規劃的「欄位放進 `_MainDetailViewState`」）
+- [x] 19.2 `_zoomBy()` 邏輯搬入 `ZoomController`；動畫改由 controller 的 listener（`_onZoomRequested`）觸發，不再於 `build()` 內讀旗標、不再用 post-frame callback 清旗標
+- [x] 19.3 keyboard zoom（`main_screen.dart`）改為直接呼叫 `_zoom.stepZoomIn()` / `_zoom.stepZoomOut()`（未使用 GlobalKey）
+- [x] 19.4 `AppState` 已移除五個 zoom 欄位與 `stepZoomIn()`、`stepZoomOut()`、`_zoomBy()`；`dispose()` 已移除 `transformCtrl.dispose()`
+- [x] 19.5 `flutter analyze lib test` 0 issues；`flutter test` 全綠（新增 `test/zoom_controller_test.dart` 9 案例 = TC-023）
+- [ ] 19.6 使用者手動驗收（`docs/logs/2026-08-19/zoom-state-extraction-handover.md` §12 七項清單）——自動化測試涵蓋不到連續互動，此項未做完不算收尾
 
-**驗收標準**：`AppState` 不再持有任何 zoom/animation 欄位；`main_detail_view.dart` 不再對 `AppState` 做 setter 操作；`flutter test` 全數通過；無功能回歸。
+**驗收標準**：`AppState` 不再持有任何 zoom/animation 欄位；`main_detail_view.dart` 不再對 `AppState` 做 zoom setter 操作（僅剩 `openFolder()` 與 `setViewportSize()` 兩處與 zoom 無關的呼叫）；`flutter test` 全數通過；無功能回歸。
 
 ---
 

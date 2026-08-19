@@ -126,6 +126,16 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **驗證**：新增 `test/sidebar_view_test.dart`「every visible row is requested again after a folder reload」；`flutter test` 85 個測試通過，`flutter analyze lib test` 0 issues（2026-08-19）。
 - **對應任務**：`task.md` Task 26。
 
+### AD-015｜Zoom 狀態下沉至 view 層 `ZoomController`，動畫請求改由通知驅動
+- **日期**：2026-08-19
+- **決策**：新增 `lib/views/zoom_controller.dart`（`ZoomController extends ChangeNotifier`），持有 `transformCtrl`、`pointerPosition`、`lastKnownCenter`、`targetMatrix`、`shouldAnimateZoom` 與 `stepZoomIn/stepZoomOut/_zoomBy`。**由 `_MainScreenState` 建立與 dispose**，以參數注入 `MainDetailView(zoom: _zoom)`；`AppState` 不再有任何 zoom 狀態。
+- **依據**：縮放是純畫面狀態。反向資料流（G-010）的單一成因是「鍵盤入口在父層 `MainScreen`，狀態在子層」，以 provider 當管道；獨立 controller 讓父層變成普通方法呼叫，且縮放邏輯可脫離 widget 做單元測試。方案 A（`GlobalKey` 呼叫子層 State）與方案 C（只搬部分欄位）已由使用者否決。
+- **紅線**：controller **必須**由 `MainScreen` 持有——`MainDetailView` 在照片切換時會重建，若 controller 建在其內部，跨照片保留縮放的既有行為會遺失。
+- **動畫觸發**：`MainDetailView` 於 `initState` 註冊 `_onZoomRequested` listener，旗標由該 listener 立即消費並清除，動畫在 build 之外啟動；舊版在 `build()` 內讀旗標並用 post-frame callback 清除（等於 build 期間寫 provider）已移除。連按兩次 `↑` 的行為不變：兩次都以尚未動畫的 `transformCtrl.value` 為基準，第二次覆蓋第一次，不累加。
+- **不變式**：`lastKnownCenter` / `pointerPosition` 是**不通知**的普通欄位；`lastKnownCenter` 寫在 `LayoutBuilder` 的 builder 內，改成會 `notifyListeners()` 的 setter 即為無窮 rebuild。
+- **驗證**：新增 `test/zoom_controller_test.dart`（9 案例，TC-023），以 8 個 mutant 逐一證明鑑別力；`flutter analyze lib test` 0 issues。
+- **對應任務**：`task.md` Task 19；關閉 G-010 / TD-011。
+
 ---
 
 ## Gotchas（踩坑紀錄）
@@ -176,7 +186,7 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **解法**：macOS 原生端需根據 `targetSize` 分流：小圖保留 `CGImageSourceCreateThumbnailAtIndex`，主圖/高解析請求優先使用原圖輸出並保留方向修正。
 - **狀態**：已修復（Task 6）。非 RAW 且 `targetSize > 4000` 的請求改用 `CGImageSourceCreateImageAtIndex` + CoreImage orientation 修正；實機 JPG 視覺覆核待使用者確認。
 
-### G-010｜View 層直接寫入 AppState 欄位（反向資料流，仍存在，2026-08-19 重新核實行號）
+### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
 - **嚴重程度**：中
 - **現況**：`main_detail_view.dart` 有至少 5 處在 widget build/callback 中直接對 `AppState` 的 public 欄位做 setter，破壞單向資料流（原記載 4 處，本輪多發現 1 處）：
   - `main_detail_view.dart:32`：`_animController` listener 每個動畫 tick 寫入 `context.read<AppState>().transformCtrl.value = _zoomAnimation!.value`（本輪新記錄，頻率高於下列 4 處）
@@ -185,8 +195,9 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
   - `main_detail_view.dart:282`：`context.read<AppState>().pointerPosition = event.localPosition`（`MouseRegion.onHover`）
   - `main_detail_view.dart:285`：`context.read<AppState>().pointerPosition = null`（`MouseRegion.onExit`）
 - **根因**：`app_state.dart:113-119` 的 zoom/animation 欄位（`transformCtrl`、`pointerPosition`、`lastKnownCenter`、`targetMatrix`、`shouldAnimateZoom`）屬於純 View 層狀態，不應放在 business provider；`stepZoomIn()`/`stepZoomOut()`/`_zoomBy()`（`app_state.dart:298-334`）目前仍是 `main_screen.dart:99,102` 鍵盤縮放（`↑`/`↓`）的唯一入口。
-- **解法**：Task 19 將 zoom 相關欄位與 `_zoomBy()` 邏輯移至 `_MainDetailViewState`，由 `AnimationController` 本身驅動，不再依賴 provider 旗標；鍵盤縮放改透過 widget 方法觸發。
-- **待辦**：Task 19（Phase 10）。
+- **解法（已實施，方案 B）**：新增 `lib/views/zoom_controller.dart`（`ZoomController extends ChangeNotifier`），持有全部五個欄位與 `stepZoomIn/stepZoomOut/_zoomBy`，並自行建立/釋放 `transformCtrl`。由 `_MainScreenState` 建立與 dispose（**不可**由 `MainDetailView` 持有，否則照片切換時縮放狀態會遺失），以參數注入 `MainDetailView(zoom: _zoom)`。鍵盤 `↑`/`↓` 變成對 controller 的普通方法呼叫，不再經過 provider。
+- **狀態**：✅ 已解決（Task 19）。`AppState` 已無任何 zoom 欄位/方法；`main_detail_view.dart` 僅剩 `openFolder()` 與 `setViewportSize()` 兩處與 zoom 無關的 `AppState` 呼叫。
+
 
 ### G-009｜JDK 25 需要 Gradle 9.1+，且 Flutter Gradle Plugin 暫需 AGP 9 相容模式
 - **嚴重程度**：中
@@ -210,7 +221,7 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 | TD-008 | 支援格式定義分散 | 已關閉 | Task 10 已建立 `SupportedPhotoFormats` registry |
 | TD-009 | AGP 9 new DSL / built-in Kotlin 遷移 | 中 | Flutter 3.35.1 相容模式；待 Flutter toolchain 升級後移除相容旗標 |
 | TD-010 | `PhotoFileActions` copy/move/delete 完全無單元測試 | **高** | Task 15 待辦；無測試保護下資料操作風險極高 |
-| TD-011 | Zoom 狀態（`transformCtrl`、`pointerPosition`）混在 `AppState` | 低 | 應提取為獨立 `ZoomState` Provider；Task 19 待辦 |
+| TD-011 | Zoom 狀態（`transformCtrl`、`pointerPosition`）混在 `AppState` | 已關閉 | Task 19 已提取為 view 層 `ZoomController`（AD-015），`AppState` 無殘留 zoom 欄位 |
 | TD-012 | macOS `AppDelegate.swift` 缺乏深層錯誤處理 | 中 | CIContext/CIFilter/CGImage 未加 try-catch；無大型 RAW 記憶體上限；Task 17 待辦 |
 | TD-013 | `sidebar_view.dart:48` `_itemHeight = 48.0` 硬編碼 | 低 | 主題密度改變時 scroll 位置計算會失準 |
 | TD-014 | `sidebar_view.dart` 重複 iconColor 判斷且色值不一致（2026-08-19 重新核實：回收模式改動後已增至 4 處重複，行號全部位移）| 低 | Line 150（`32,32,32`）vs Line 197、266-268、287-289、322-324（皆 `59,59,59`）— 需提取 `_iconColor()` helper；Task 20 待辦。行號取自本輪讀取當下，另一 session 正對此檔做未提交 flicker-fix，下一輪需重新核對 |

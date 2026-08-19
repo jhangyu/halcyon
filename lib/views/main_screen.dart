@@ -7,6 +7,7 @@ import '../models/photo_item.dart';
 import 'sidebar_view.dart';
 import 'main_detail_view.dart';
 import 'status_line.dart';
+import 'zoom_controller.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -19,9 +20,14 @@ class _MainScreenState extends State<MainScreen> {
   final FocusNode _focusNode = FocusNode();
   double _sidebarWidth = 270.0;
 
+  // Owned here, not by MainDetailView: the detail view is rebuilt on photo
+  // switches and the zoom level must survive those (handover §11).
+  final ZoomController _zoom = ZoomController();
+
   @override
   void dispose() {
     _focusNode.dispose();
+    _zoom.dispose();
     super.dispose();
   }
 
@@ -63,7 +69,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
             ),
-            Expanded(child: const MainDetailView()),
+            Expanded(child: MainDetailView(zoom: _zoom)),
           ],
     );
   }
@@ -96,10 +102,10 @@ class _MainScreenState extends State<MainScreen> {
             }
             return KeyEventResult.handled;
           } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-            state.stepZoomIn();
+            _zoom.stepZoomIn();
             return KeyEventResult.handled;
           } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-            state.stepZoomOut();
+            _zoom.stepZoomOut();
             return KeyEventResult.handled;
           }
         }

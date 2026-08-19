@@ -343,6 +343,22 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-023｜ZoomController — 縮放上下限、歸零與焦點選擇
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-023 |
+| **名稱** | 一般縮放（非歸零分支）確實送出動畫請求、連續放大夾在 5.0x、目標倍率 ≤1.05 歸零回 identity（不留位移殘值）、焦點為 `pointerPosition ?? lastKnownCenter`、幾何/游標欄位寫入不得 notify |
+| **測試類型** | 單元測試（純 `test()`，不建 widget；`ZoomController` 直接建構，證明其不依賴 `AppState`） |
+| **背景** | Task 19 將 zoom 狀態從 `AppState` 下沉至 view 層 `ZoomController`；重構前縮放邏輯零自動化覆蓋（見 `memory.md` G-010） |
+| **預期結果** | 11 個案例全綠；`lastKnownCenter` 寫入時通知數為 0（在 `LayoutBuilder` 內 notify 會無窮 rebuild） |
+| **驗證方式** | `test/zoom_controller_test.dart`（11 個測試案例） |
+| **鑑別力證據** | 9 個 mutant（移除 5.0 夾住、門檻改 0.0／1e9、reset 目標非 identity、焦點忽略 `pointerPosition`／`lastKnownCenter`、移除 notify、`lastKnownCenter` 改為會 notify 的 setter、**非歸零分支不設 `shouldAnimateZoom`**）逐一使對應測試轉紅；原始輸出見 `tmp/verify/mutation_red.txt` 與 `tmp/verify/m6_full_red.txt` |
+| **審查補強** | reviewer 指出原 9 個案例對 mutant M6（非歸零分支漏設 `shouldAnimateZoom`）全綠——ceiling 測試斷言旗標為 false、歸零測試斷言的是**另一分支**設的旗標，一般縮放路徑無人觀察；該 mutant 在 app 中的意義是「一般放大縮小完全不會動畫，只剩 ≤1.05 歸零仍有效」。已補 `ordinary zoom request` 群組兩案例並重跑 M6 驗證轉紅 |
+| **狀態** | ✅ 已通過 |
+
+---
+
 ### TC-018｜StatusLine — 顯示時序與淡出
 
 | 欄位 | 內容 |
