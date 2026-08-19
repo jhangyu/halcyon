@@ -9,7 +9,13 @@ enum ImageRequestPurpose {
   // window-size channel becomes available (AppState-driven, out of this
   // file's ownership), this static default can be replaced with a
   // per-request value without changing the channel argument shape.
-  preview(targetSize: 2800, platformValue: 'preview');
+  preview(targetSize: 2800, platformValue: 'preview'),
+  // Social-media export: long edge capped at 2048px, aspect ratio preserved,
+  // all EXIF carried over with Orientation forced to 1 (pixels are already
+  // rotated). Handled natively by its own branch in AppDelegate.swift, which
+  // deliberately bypasses the JPEG / DNG raw-bytes passthroughs -- those return
+  // the ORIGINAL file bytes, which would defeat the whole point of an export.
+  export(targetSize: 2048, platformValue: 'export');
 
   const ImageRequestPurpose({
     required this.targetSize,

@@ -93,5 +93,26 @@ void main() {
       final args = captured!.arguments as Map;
       expect(args[kAllowRawDecodeSignalArg], false);
     });
+
+    // The native branch in macos/Runner/AppDelegate.swift keys off the literal
+    // string "export" and relies on the 2048 cap arriving in targetSize. A
+    // mismatch here would silently fall through to the preview/thumbnail path
+    // and return wrongly-sized bytes with no error, so pin both values.
+    test('export purpose crosses the channel as "export" with a 2048 cap', () async {
+      MethodCall? captured;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        captured = call;
+        return null;
+      });
+
+      await NativeThumbnailService.getThumbnail(
+        '/x.jpg',
+        purpose: ImageRequestPurpose.export,
+      );
+
+      final args = captured!.arguments as Map;
+      expect(args['purpose'], 'export');
+      expect(args['targetSize'], 2048);
+    });
   });
 }

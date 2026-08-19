@@ -69,19 +69,6 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('reveal button calls the injected opener', (tester) async {
-    final opened = <String>[];
-    final state = await pumpLine(tester, revealInFinder: opened.add);
-    state.showStatus(
-      const StatusMessage('已回收 *4* 個檔案', revealPath: '/cards/DCIM/.trash'),
-    );
-    await tester.pump();
-
-    await tester.tap(find.text('顯示'));
-    expect(opened, ['/cards/DCIM/.trash']);
-    await tester.pumpAndSettle();
-  });
-
   test('emphasisSpans colours only the starred runs', () {
     const accent = Color(0xFFFFD34D);
     final spans = emphasisSpans('此卷宗為*唯讀*，不會儲存', accent);

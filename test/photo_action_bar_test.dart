@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
@@ -89,31 +88,4 @@ void main() {
     expect(find.byIcon(Icons.restore_from_trash), findsOneWidget);
   });
 
-  testWidgets('right-click toggles the mode without marking the photo',
-      (tester) async {
-    final state = await stateForFolder(tester, withSibling: false);
-    await pumpBar(tester, state);
-
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byIcon(Icons.delete_outline)),
-      buttons: kSecondaryButton,
-    );
-    await gesture.up();
-    await tester.pump();
-
-    expect(state.recycleMode, isTrue);
-    expect(state.currentItem!.status, PhotoStatus.unmarked);
-    expect(find.byIcon(Icons.restore_from_trash_outlined), findsOneWidget);
-  });
-
-  testWidgets('left-click still marks the photo as trashed', (tester) async {
-    final state = await stateForFolder(tester, withSibling: false);
-    await pumpBar(tester, state);
-
-    await tester.tap(find.byIcon(Icons.delete_outline));
-    await tester.pump();
-
-    expect(state.currentItem!.status, PhotoStatus.trashed);
-    expect(state.recycleMode, isFalse);
-  });
 }

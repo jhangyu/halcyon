@@ -200,6 +200,92 @@ class AppDelegate: FlutterAppDelegate {
     return .image(rendered)
   }
 
+  // MARK: - Export purpose (Task: thumbnail-starred)
+  //
+  // EXPORT-CORE-BEGIN
+  // Everything between these markers depends only on Foundation/ImageIO/
+  // CoreGraphics -- no Flutter, no AppKit -- so scripts/tmp/run_export_core_tests.sh
+  // (driver: scripts/tmp/export_core/main.swift) can extract this exact text,
+  // compile it standalone and exercise it on real photos. Keep it Flutter-free.
+  //   scripts/tmp/run_export_core_tests.sh 2048 <src> <out.jpg>
+
+  /// JPEG quality for exported thumbnails. 0.85 is the design-spec value
+  /// (docs/superpowers/specs/2026-08-19-thumbnail-starred-design.md).
+  static let exportJpegQuality: Double = 0.85
+
+  /// Thumbnail options for the export purpose.
+  ///
+  /// `FromImageAlways` (NOT `FromImageIfAbsent`) is load-bearing: with IfAbsent
+  /// ImageIO hands back a file's own embedded thumbnail, which on most cameras
+  /// is ~160px, instead of downscaling the full image. `MaxPixelSize` caps the
+  /// long edge and never upscales, so a source smaller than the cap comes back
+  /// at its original size. `WithTransform` bakes the EXIF rotation into pixels,
+  /// which is why the written Orientation tag must then be forced to 1.
+  static func exportThumbnailOptions(targetSize: Int) -> [CFString: Any] {
+    return [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceThumbnailMaxPixelSize: targetSize,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+    ]
+  }
+
+  /// Encodes `image` as JPEG carrying every metadata dictionary found on
+  /// `source` (Exif/GPS/TIFF/IPTC), via CGImageDestination.
+  /// `NSBitmapImageRep.representation(using: .jpeg)` -- what the preview path
+  /// uses -- cannot carry metadata at all, which is why this path differs.
+  ///
+  /// Orientation is rewritten to 1 in BOTH the top-level properties and the
+  /// TIFF sub-dictionary: the pixels handed in are already rotated, and any
+  /// surviving tag would make viewers rotate a second time.
+  static func encodeExportJpeg(image: CGImage, source: CGImageSource) -> Data? {
+    let output = NSMutableData()
+    // "public.jpeg" is UTType.jpeg's identifier spelled out: UniformTypeIdentifiers
+    // is macOS 11+, and this target's deployment floor is lower, so the literal
+    // is the portable spelling rather than a shortcut.
+    guard let destination = CGImageDestinationCreateWithData(
+      output, "public.jpeg" as CFString, 1, nil
+    ) else {
+      return nil
+    }
+
+    var properties = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]) ?? [:]
+    properties[kCGImagePropertyOrientation] = 1
+    properties[kCGImagePropertyPixelWidth] = image.width
+    properties[kCGImagePropertyPixelHeight] = image.height
+    properties[kCGImageDestinationLossyCompressionQuality] = exportJpegQuality
+    if var tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+      tiff[kCGImagePropertyTIFFOrientation] = 1
+      properties[kCGImagePropertyTIFFDictionary] = tiff
+    }
+    // The Exif pixel-dimension tags describe the ORIGINAL frame; leaving them
+    // at the source values makes the file self-contradictory after downscale.
+    if var exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+      exif[kCGImagePropertyExifPixelXDimension] = image.width
+      exif[kCGImagePropertyExifPixelYDimension] = image.height
+      properties[kCGImagePropertyExifDictionary] = exif
+    }
+
+    CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return output as Data
+  }
+
+  /// Full export pipeline for one file: source -> capped, rotated CGImage ->
+  /// JPEG bytes with metadata. Returns nil when the file is unreadable, the
+  /// thumbnail cannot be produced, or encoding fails; the caller turns that
+  /// into the FlutterError the Dart side already degrades on.
+  static func makeExportJpeg(url: URL, targetSize: Int) -> Data? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    guard let image = CGImageSourceCreateThumbnailAtIndex(
+      source, 0, exportThumbnailOptions(targetSize: targetSize) as CFDictionary
+    ) else {
+      return nil
+    }
+    return encodeExportJpeg(image: image, source: source)
+  }
+  // EXPORT-CORE-END
+
   private func getFastThumbnail(path: String, targetSize: Int, purpose: String, allowRawDecodeSignal: Bool, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
     let perfName = (path as NSString).lastPathComponent // PERF-INSTRUMENTATION
@@ -219,6 +305,31 @@ class AppDelegate: FlutterAppDelegate {
                     lowerPath.hasSuffix(".rw2")
         let isPreviewRequest = purpose == "preview"
         let isJpeg = lowerPath.hasSuffix(".jpg") || lowerPath.hasSuffix(".jpeg")
+
+        // Export purpose: its own terminal branch, taken BEFORE both raw-bytes
+        // passthroughs below. Those are gated on isPreviewRequest (verified:
+        // `isPreviewRequest && isJpeg` / `isPreviewRequest && isDng` a few
+        // lines down), so export bypasses them by construction -- which is
+        // required, since a passthrough returns the ORIGINAL full-size file
+        // bytes. Returning here also leaves every byte of the preview and
+        // sidebarThumbnail paths below untouched.
+        if purpose == "export" {
+            let perfExportStart = ProcessInfo.processInfo.systemUptime // PERF-INSTRUMENTATION
+            guard let data = AppDelegate.makeExportJpeg(url: url, targetSize: targetSize) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "LOAD_FAILED", message: "Cannot export image", details: path))
+                }
+                return
+            }
+            // PERF-INSTRUMENTATION
+            AppDelegate.perfLog("export.encode|\(perfName)|bytes=\(data.count)|dur=\(Int((ProcessInfo.processInfo.systemUptime - perfExportStart) * 1_000_000))")
+            DispatchQueue.main.async {
+                // PERF-INSTRUMENTATION
+                AppDelegate.perfLog("result.dispatch|\(perfName)|nativeTotal=\(Int((ProcessInfo.processInfo.systemUptime - perfEnqueue) * 1_000_000))|export")
+                result(FlutterStandardTypedData(bytes: data))
+            }
+            return
+        }
 
         // Fast path: for JPEG preview requests, return the raw file bytes directly,
         // skipping full-resolution decode + JPEG re-encode. Flutter's Image.memory

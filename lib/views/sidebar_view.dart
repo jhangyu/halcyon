@@ -6,6 +6,13 @@ import 'package:file_selector/file_selector.dart';
 import 'batch_delete_feedback.dart';
 import 'settings_dialog.dart';
 
+/// Shared menu-item value for "Thumbnail Starred...", referenced by
+/// itemBuilder, onSelected, AND the widget test so the two ends of the
+/// PopupMenuButton can never drift apart — this codebase has already shipped
+/// a bug where a hardcoded value/onSelected string mismatch silently
+/// disabled a menu button.
+const String kThumbnailStarredMenuValue = 'thumbnailStarred';
+
 class SidebarView extends StatefulWidget {
   const SidebarView({super.key});
 
@@ -308,6 +315,13 @@ class _SidebarViewState extends State<SidebarView> {
           if (dest != null) {
             await state.processStarred(dest, value == 'move');
           }
+        } else if (value == kThumbnailStarredMenuValue) {
+          final String? dest = await getDirectoryPath(
+            confirmButtonText: 'Export Here',
+          );
+          if (dest != null) {
+            await state.exportStarredThumbnails(dest);
+          }
         } else if (value == 'delete') {
           final result = await state.deleteTrashed();
           if (!context.mounted) return;
@@ -341,6 +355,14 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasStarred,
             child: Text(
               'Move Starred...',
+              style: TextStyle(color: actionTextColor),
+            ),
+          ),
+          PopupMenuItem(
+            value: kThumbnailStarredMenuValue,
+            enabled: hasStarred,
+            child: Text(
+              'Thumbnail Starred...',
               style: TextStyle(color: actionTextColor),
             ),
           ),

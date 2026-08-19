@@ -15,6 +15,7 @@ import '../services/native_thumbnail_service.dart';
 import '../services/photo_file_actions.dart';
 import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
+import '../services/thumbnail_export_service.dart';
 
 typedef ThumbnailLoader =
     Future<NativeImageResult> Function(
@@ -57,9 +58,11 @@ class AppState extends ChangeNotifier {
     ImagePreloadController? preloadController,
     ThumbnailLoader? thumbnailLoader,
     DngFullDecoder? dngDecoder,
+    ThumbnailExportService? exportService,
   }) : _scanner = scanner ?? PhotoLibraryScanner(),
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
+       _exportService = exportService ?? ThumbnailExportService(),
        _preloadController =
            preloadController ??
            ImagePreloadController(
@@ -82,6 +85,7 @@ class AppState extends ChangeNotifier {
   final PhotoStatusStore _statusStore;
   final PhotoFileActions _fileActions;
   final ImagePreloadController _preloadController;
+  final ThumbnailExportService _exportService;
 
   Directory? _currentDir;
   List<PhotoItem> _items = [];
@@ -388,6 +392,28 @@ class AppState extends ChangeNotifier {
         targetFallbackIndex: currentIndex,
       );
     }
+  }
+
+  /// Exports every starred item as a <=2048px-long-edge JPEG into
+  /// [destPath], reporting per-item progress on the status line. Does not
+  /// reload the current folder: source files are untouched.
+  Future<void> exportStarredThumbnails(String destPath) async {
+    final dest = Directory(destPath);
+
+    final outcome = await _exportService.exportStarred(
+      _items,
+      dest,
+      onProgress: (done, total) {
+        showStatus(StatusMessage('縮圖中 *$done/$total*…'));
+      },
+    );
+
+    final folderName = p.basename(destPath);
+    var message = '已匯出 *${outcome.exportedCount}* 張縮圖到 *$folderName*';
+    if (outcome.failures.isNotEmpty) {
+      message += '，*${outcome.failures.length}* 張失敗';
+    }
+    showStatus(StatusMessage(message, revealPath: destPath));
   }
 
   Future<BatchDeleteResult> deleteTrashed() async {
