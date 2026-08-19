@@ -119,6 +119,19 @@ class _StatusLineState extends State<StatusLine> {
                   child: const Text('顯示'),
                 ),
               ],
+              if (message.actionLabel != null) ...[
+                const SizedBox(width: 12),
+                TextButton(
+                  onPressed: message.onAction,
+                  style: TextButton.styleFrom(
+                    foregroundColor: accentColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(message.actionLabel!),
+                ),
+              ],
             ],
           ),
         ),

@@ -78,4 +78,26 @@ void main() {
     expect(spans[1].style?.color, accent);
     expect(spans[2].style, isNull);
   });
+
+  testWidgets('TC-056 an action message renders a button that fires once',
+      (tester) async {
+    var taps = 0;
+    final state = AppState();
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: const MaterialApp(home: Scaffold(body: StatusLine())),
+      ),
+    );
+
+    state.showStatus(
+      StatusMessage('已重新命名 *3* 個項目',
+          actionLabel: '還原', onAction: () => taps++),
+    );
+    await tester.pump();
+
+    expect(find.text('還原'), findsOneWidget);
+    await tester.tap(find.text('還原'));
+    expect(taps, 1);
+  });
 }

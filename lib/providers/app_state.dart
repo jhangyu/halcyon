@@ -47,10 +47,19 @@ class BatchDeleteResult {
 /// `*…*` in [text] marks the amber emphasis span. [revealPath], when set,
 /// adds a "顯示" button that opens that path in Finder.
 class StatusMessage {
-  const StatusMessage(this.text, {this.revealPath});
+  const StatusMessage(
+    this.text, {
+    this.revealPath,
+    this.actionLabel,
+    this.onAction,
+  });
 
   final String text;
   final String? revealPath;
+
+  /// Optional trailing button (e.g. "還原" after a rename batch).
+  final String? actionLabel;
+  final VoidCallback? onAction;
 }
 
 class AppState extends ChangeNotifier {
@@ -565,7 +574,13 @@ class AppState extends ChangeNotifier {
         plans,
         dir,
         onProgress: (done, total) {
-          showStatus(StatusMessage('重新命名 *$done/$total*…'));
+          showStatus(
+            StatusMessage(
+              '重新命名 *$done/$total*…',
+              actionLabel: '取消',
+              onAction: cancelRename,
+            ),
+          );
         },
         isCancelled: () => _renameCancelled,
       );
@@ -593,7 +608,9 @@ class AppState extends ChangeNotifier {
           debugPrint('Rename failure: $failure');
         }
       }
-      showStatus(StatusMessage(message));
+      showStatus(
+        StatusMessage(message, actionLabel: '還原', onAction: undoRename),
+      );
     } catch (e) {
       showStatus(StatusMessage('重新命名失敗：$e'));
     } finally {
