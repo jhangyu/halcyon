@@ -1,5 +1,5 @@
 ---
-date: 2026-05-05
+date: 2026-08-19
 title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 ---
 
@@ -62,6 +62,9 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | macOS Day/Night Theme | ✅ | |
 | 設定對話框 | ✅ | |
 | Trash 而非永久刪除 | 待驗證 | Task 12 已新增 MethodChannel 實作與 Dart 測試；待 macOS 實機驗證 |
+| 回收模式（.trash 批次刪除）| ✅ | 同名 sibling 自動分組，`test/photo_file_actions_test.dart` / `test/sidebar_view_test.dart` 覆蓋 |
+| 唯讀資料夾警告 | ✅ | `PhotoStatusStore.isWritable()` 建立/刪除 probe 檔案偵測；`loadFolder()` 推送 status line 警告 |
+| Status line（取代 SnackBar）| ✅ | `lib/views/status_line.dart`；`test/status_line_test.dart` 覆蓋時序與 emphasis 配色 |
 
 ---
 
@@ -273,6 +276,31 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-017｜AppState — 唯讀資料夾載入時推送 status line 警告
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-017 |
+| **名稱** | `loadFolder()` 偵測資料夾不可寫時推送含「唯讀」字樣的警告訊息 |
+| **測試類型** | 單元測試 |
+| **預期結果** | `state.status?.text` 包含「唯讀」 |
+| **驗證方式** | `test/app_state_test.dart`（`warns on the status line when the folder is read-only`） |
+| **狀態** | ✅ 已通過 |
+
+---
+
+### TC-018｜StatusLine — 顯示時序與淡出
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-018 |
+| **名稱** | StatusLine 於 2.5s 保持全不透明、0.5s 淡出、3.0s 時自動移除；重複顯示會重啟計時；emphasis span 隨底色翻轉配色 |
+| **測試類型** | Widget Test |
+| **驗證方式** | `test/status_line_test.dart` |
+| **狀態** | ✅ 已通過 |
+
+---
+
 ### TC-010｜NativeThumbnailService — JPG 主圖尺寸契約
 
 | 欄位 | 內容 |
@@ -308,8 +336,8 @@ flutter test --coverage
 
 | 指標 | 目前 | Phase 5 目標 | Phase 10 目標 |
 |------|------|-------------|--------------|
-| 測試案例總數 | 11 | ≥ 16（含 TC-011~TC-014）| ≥ 18 |
-| TC-001 ~ TC-014 通過率 | 11/11 通過；TC-011~TC-014 待建立 | TC-011~TC-013 通過 | TC-014 通過（G-005 確認後）|
+| 測試案例總數（`flutter test` 實跑）| 84 | ≥ 16（含 TC-011~TC-014，已達成）| ≥ 18（已達成）|
+| TC-001 ~ TC-018 通過率 | 全數 ✅ 已通過，僅 TC-014 仍待建立（Task 16 / G-005 未確認）| TC-011~TC-013 通過 | TC-014 通過（G-005 確認後）|
 | `flutter analyze` | 0 issues | 0 errors, 0 warnings | 0 errors, 0 warnings |
 | 覆蓋率門檻 | — | > 60%（行覆蓋）| > 70% |
 | `PhotoFileActions` 覆蓋 | 0% | copy/move/trash 三條路徑均覆蓋 | 同 Phase 5 |
@@ -358,6 +386,9 @@ flutter test --coverage
 | 2026-05-01 | Android toolchain upgrade | `./gradlew assembleRelease` with JDK 25 | ✅ 通過；Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式 |
 | 2026-05-01 | Build script | `./scripts/build.sh android` with JDK 25 | ✅ 通過，產出 `build/app/outputs/flutter-apk/app-release.apk` |
 | 2026-05-01 | Regression | `flutter test` | ✅ 通過，11 個測試 |
+| 2026-08-19 | 狀態列（status line）與唯讀資料夾警告 | `flutter test` | ✅ 通過，84 個測試（exit code 0） |
+
+**已知限制**：測試檔數量自 2026-05-05 起大幅成長（新增 `photo_action_bar_test.dart`、`decoded_rgba_image_provider_test.dart`、`dng_decoder_smoke_test.dart`、`dng_extractor_swift_test.dart`、`native_thumbnail_service_test.dart`、`main_test.dart` 等，對應 DNG 解碼整合、回收模式、Finder 開啟等未在本檔逐條登錄的功能），本輪僅補登與 status line / 唯讀警告直接相關的 TC-017、TC-018；其餘測試檔尚缺 TC 矩陣條目，屬於本檔待補的既有落差。
 
 ---
 

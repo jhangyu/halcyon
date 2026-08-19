@@ -1,5 +1,5 @@
 ---
-date: 2026-05-05
+date: 2026-08-19
 title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 ---
 
@@ -45,6 +45,7 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 | 8 | 專案結構整理 | ✅ 已完成 | `assets/`、`artifacts/`、`local_data/` 分層 |
 | 9 | Android build toolchain 升級 | ✅ 已完成 | Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21、JDK 25 build |
 | 10 | 技術債清償 | 🔲 待辦 | Auto-advance 修正（Task 16）、AppDelegate 強化（Task 17）、Zoom 狀態下沉（Task 19）、sidebar 重複邏輯（Task 20）|
+| 11 | 影像切換延遲與 DNG 解碼整合 | ✅ 已完成 | Tier-1/tier-2 sliding preload、DNG 全尺寸解碼整合（`flutter_dng_decoder`）、Finder 開啟方式冷啟動、回收模式（`.trash`）批次刪除、唯讀資料夾 status line 警告（詳見 `handover.md` 本輪交接摘要；此段為本次同步時補記，尚未逐 Phase 拆解子任務） |
 
 ---
 

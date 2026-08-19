@@ -1,5 +1,5 @@
 ---
-date: 2026-05-05
+date: 2026-08-19
 title: "Halcyon — 短期交接摘要 (Handover)"
 ---
 
@@ -21,14 +21,17 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 當前任務
 
-**Task 12｜Flutter Trash MethodChannel**（實作完成，待驗證）
+**本輪（2026-08-19）｜唯讀資料夾警告 + StatusLine（commit `123727b`）**
 
-技術債評估（2026-05-04）與架構健康審查（2026-05-04）已完成：
-- Phase 10 技術債清償計畫已制定（Task 15–20）
-- 新識別：G-010（`main_detail_view.dart` 反向寫入 AppState 欄位）、TD-014（`sidebar_view.dart` 重複 iconColor）
-- Task 19 目標從「提取 ZoomState provider」調整為「zoom 狀態下沉至 View 層」（更簡單且正確的修法）
+已落地：
+- `PhotoStatusStore.isWritable(Directory)`：建立再刪除 `.halcyon_write_probe` 探測資料夾可寫性（exFAT `noowners` 掛載下權限位不可靠，唯讀掛載如 SD 卡防寫鎖只能實測）。
+- `AppState.loadFolder()` 偵測到資料夾唯讀時，透過新增的 `StatusMessage` / `showStatus()` / `status` / `statusSeq` 推送一次警告，文字中 `*…*` 標示重點字。
+- 新增 `lib/views/status_line.dart`（`StatusLine` widget）取代 SnackBar：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；反相對比配色，emphasis span 為隨底色翻轉的琥珀色。
+- `lib/views/batch_delete_feedback.dart` 的批次刪除成功訊息改走 status line；失敗仍為阻斷式 `AlertDialog`。
+- 補上先前已被 import 卻未被 commit 的 `lib/services/trash_service.dart`（乾淨 checkout 之前無法建置）。
+- `flutter test`：84 個測試通過（exit code 0），新增/重寫 `test/status_line_test.dart`、`test/batch_delete_feedback_test.dart`、`test/app_state_test.dart`、`test/sidebar_view_test.dart`。
 
-當前執行優先序：Task 12 驗證 → Task 15 → Task 20（Quick Win）→ Task 16 → Task 19。
+**注意（本檔上一版遺留缺口）**：本檔在 2026-05-05 到 2026-08-19 間未持續更新，期間主線已完成回收模式（`.trash` 批次刪除）、DNG 全尺寸解碼整合（`flutter_dng_decoder`）、影像切換延遲多輪優化（tier-1/tier-2 sliding preload）、Finder「開啟方式」冷啟動等功能（詳見 `git log --oneline`），這些內容尚未逐條補回 `task.md` / `plan.md` 的 Phase 矩陣與 Task 清單，屬於既有文件落差，非本輪交付範圍。
 
 ---
 
@@ -51,10 +54,12 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 下一步
 
-1. **Task 12 — Trash MethodChannel 驗證**（Phase 5，緊急）：在具備 Flutter SDK 的 macOS 環境執行 `flutter analyze` / `flutter test` / `flutter build macos`，並用真實照片資料夾確認檔案移入 Trash。
-2. **Task 15 — PhotoFileActions 測試**（Phase 5，高）：Task 12 完成後立即補 `test/photo_file_actions_test.dart`，覆蓋 copy/move/trash 三條路徑的成功與失敗情境（目標 5+ 案例）。
-3. **Task 20 — sidebar iconColor Quick Win**（Phase 10，低，30 分鐘內完成）：提取 `_iconColor()` helper，消除 `sidebar_view.dart` 三處重複並統一色值。
-4. **Task 19 — Zoom 狀態下沉**（Phase 10，中）：將 `app_state.dart:67-73` 的 zoom 欄位還給 `_MainDetailViewState`，消除 `main_detail_view.dart:94/177/181/184` 四處反向 setter。
+**已確認完成、原列於此處的舊項目**：Task 12（Trash MethodChannel，`flutter test` 已通過含 trash 案例）、Task 15（`test/photo_file_actions_test.dart` 已存在於 `git ls-files`）。以下為本次同步時仍待辦或需人工核實的項目：
+
+1. **`task.md` / `plan.md` 回溯同步**（高，文件債）：`task.md` 的 ACTIVE 區塊與 Task 16/17/19/20 狀態自 2026-05-05 起未更新，且回收模式、DNG 解碼整合、影像切換延遲多輪優化等主線工作完全未登錄為 Task；下一輪應派工逐一核對樹上事實後補登，而非直接信任本檔舊記載。
+2. **Task 20 — sidebar iconColor Quick Win**（低）：`sidebar_view.dart` iconColor 重複邏輯是否已在後續回收模式改動中處理，需重新核實現狀再排入。
+3. **Task 19 — Zoom 狀態下沉**（中）：`main_detail_view.dart` 反向寫入 AppState 欄位（G-010）是否仍存在，需重新核實現狀再排入。
+4. **G-005（Auto-advance Toggle off 行為）**：`test/app_state_test.dart` 尚無 toggle-off 不前進的測試案例（見 `unit_test.md` TC-014），仍待與使用者確認預期行為。
 
 ---
 
@@ -69,6 +74,8 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 | AD-005 | AppState 協調層化 | 核心流程可測、降低維護成本 |
 | AD-006 | 專案根目錄分層 | 正式程式碼、本機資料、封存產物分離 |
 | AD-007 | Android JDK 25 toolchain | Gradle 9.1.0 + AGP 9.0.1 相容模式可支援 Temurin JDK 25 |
+| AD-008 | Trash 操作透過 macOS `halcyon/trash` MethodChannel | 避免不可逆刪除 |
+| AD-009 | StatusLine 取代 SnackBar；`isWritable()` 以 create+delete 探測可寫性 | SnackBar 淡出時間不可調；exFAT 權限位不可信 |
 
 ---
 
@@ -88,3 +95,5 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 - 核心狀態管理：`AppState`（Flutter 協調層；掃描、狀態、預載/cache、檔案操作已拆至服務）
 - JSON 狀態檔案：`.halcyon_status.json`（放在照片目錄根目錄）
 - 支援副檔名：`jpg`、`jpeg`、`arw`、`rw2`、`dng`、`heic`、`png`
+- 狀態訊息一律走 `AppState.showStatus()` + `StatusLine`，不再使用 SnackBar
+- `flutter test` 最新一次全套執行結果：84 個測試通過（exit code 0）

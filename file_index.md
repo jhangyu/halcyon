@@ -1,5 +1,5 @@
 ---
-date: 2026-05-05
+date: 2026-08-19
 title: "Halcyon — 專案檔案地圖與目錄對照 (File Index)"
 ---
 
@@ -44,25 +44,44 @@ Halcyon/
 │   │   ├── models/
 │   │   │   ├── photo_item.dart    # PhotoItem + PhotoStatus enum（Flutter 版）
 │   │   │   └── supported_photo_formats.dart  # 支援格式 registry 與載入優先順序
+│   │   ├── perf/
+│   │   │   ├── perf_driver.dart   # 效能埋點驅動（env 變數 gate，debug/release 皆可編譯）
+│   │   │   └── perf_log.dart      # 效能埋點記錄與輸出格式
 │   │   ├── providers/
-│   │   │   └── app_state.dart     # AppState（ChangeNotifier）狀態管理
+│   │   │   └── app_state.dart     # AppState（ChangeNotifier）狀態管理；含 StatusMessage / showStatus() 與唯讀資料夾警告
 │   │   ├── services/
 │   │   │   ├── native_thumbnail_service.dart  # MethodChannel 影像 request contract
 │   │   │   ├── photo_library_scanner.dart     # 資料夾掃描與分組服務
-│   │   │   ├── photo_status_store.dart        # `.halcyon_status.json` 讀寫服務
-│   │   │   ├── image_preload_controller.dart  # 主圖/縮圖 sliding window cache
-│   │   │   ├── photo_file_actions.dart        # copy/move/trash 檔案操作服務
-│   │   │   └── trash_service.dart             # macOS Trash MethodChannel contract
+│   │   │   ├── photo_status_store.dart        # `.halcyon_status.json` 讀寫服務；含 `isWritable()` 資料夾可寫性探測
+│   │   │   ├── image_preload_controller.dart  # 主圖/縮圖 sliding window cache（tier-1/tier-2 decode）
+│   │   │   ├── photo_file_actions.dart        # copy/move/trash 檔案操作服務；回收模式批次刪除
+│   │   │   ├── trash_service.dart             # macOS Trash MethodChannel contract（`.trash` 回收與 sibling 分組移動）
+│   │   │   ├── decoded_rgba_image_provider.dart  # 已解碼 RGBA 緩衝轉 Flutter `ui.Image` provider
+│   │   │   ├── dng_decode_contract.dart       # DngFullDecoder / DecodedRgba 解碼介面契約
+│   │   │   ├── dng_decode_service.dart        # DNG 全尺寸解碼服務（flutter_dng_decoder 整合）
+│   │   │   └── open_with_channel.dart         # Finder「開啟方式」冷啟動 MethodChannel
 │   │   └── views/
 │   │       ├── main_screen.dart       # Scaffold + 鍵盤快捷鍵 + 側邊欄拖曳調整
-│   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載
+│   │       ├── sidebar_view.dart      # 側邊欄列表 + 縮圖預載 + 回收模式狀態圖示
 │   │       ├── main_detail_view.dart  # ZoomableImageView + 浮動操作列
+│   │       ├── photo_action_bar.dart  # 浮動操作列（星號/刪除/回收模式切換按鈕）
+│   │       ├── status_line.dart       # 取代 SnackBar 的自訂狀態列 widget：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；重點字反相對比配色
+│   │       ├── batch_delete_feedback.dart  # 批次刪除回饋：成功走 status line，失敗走阻斷式 AlertDialog
 │   │       └── settings_dialog.dart   # Auto-advance + Overwrite-existing 設定
 │   ├── test/
-│   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose 測試
-│   │   ├── image_preload_controller_test.dart  # sliding window cache 驅逐測試
+│   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose、唯讀資料夾警告測試
+│   │   ├── image_preload_controller_test.dart  # sliding window cache 驅逐與 tier-1/tier-2 raw-decode 測試
 │   │   ├── photo_item_test.dart  # PhotoItem 與格式 registry 測試
 │   │   ├── photo_file_actions_test.dart  # PhotoFileActions trash/copy/move 行為測試
+│   │   ├── photo_action_bar_test.dart    # 浮動操作列按鈕與回收模式切換測試
+│   │   ├── batch_delete_feedback_test.dart  # 批次刪除回饋（status line 成功 / AlertDialog 失敗）測試
+│   │   ├── status_line_test.dart         # StatusLine widget 時序與配色測試
+│   │   ├── sidebar_view_test.dart        # 側邊欄回收模式狀態圖示與選單測試
+│   │   ├── decoded_rgba_image_provider_test.dart  # RGBA provider 測試
+│   │   ├── dng_decoder_smoke_test.dart   # DNG 解碼 smoke test
+│   │   ├── dng_extractor_swift_test.dart # 已交付 DNG extractor 對應 Swift 測試套件
+│   │   ├── native_thumbnail_service_test.dart  # NativeThumbnailService request contract 測試
+│   │   ├── main_test.dart        # main() 啟動流程測試
 │   │   └── widget_test.dart      # 有效 widget smoke test
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）
 │   │   └── Runner/
@@ -136,10 +155,14 @@ Halcyon/
 | `PhotoLibraryScanner` | `lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
 | `PhotoStatusStore` | `lib/services/photo_status_store.dart` | `.halcyon_status.json` 讀寫與 orphan cleanup |
 | `ImagePreloadController` | `lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
-| `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/trash 檔案操作 |
-| `TrashService` | `lib/services/trash_service.dart` | `halcyon/trash` MethodChannel contract，將檔案移入 macOS Trash |
+| `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/trash 檔案操作；回收模式（`.trash`）批次刪除與 sibling 分組移動 |
+| `TrashService` | `lib/services/trash_service.dart` | `halcyon/trash` MethodChannel contract，將檔案移入 macOS Trash 或資料夾內 `.trash` |
 | `NativeThumbnailService` | `lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` MethodChannel request contract |
 | `SupportedPhotoFormats` | `lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
+| `DngDecodeService` / `DngDecodeContract` | `lib/services/dng_decode_service.dart`、`lib/services/dng_decode_contract.dart` | DNG 全尺寸解碼服務與介面契約（`flutter_dng_decoder` 整合） |
+| `DecodedRgbaImageProvider` | `lib/services/decoded_rgba_image_provider.dart` | 已解碼 RGBA 緩衝轉 `ui.Image` provider |
+| `OpenWithChannel` | `lib/services/open_with_channel.dart` | Finder「開啟方式」冷啟動 MethodChannel |
+| `StatusLine` | `lib/views/status_line.dart` | 取代 SnackBar 的自訂狀態列 widget（唯讀資料夾警告、批次刪除成功訊息） |
 
 ## 重要路徑約定
 
@@ -154,3 +177,6 @@ Halcyon/
 | Android build toolchain | Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21（AGP 9 相容模式）|
 | Android JDK | macOS 上 `scripts/build.sh` 優先使用 Temurin JDK 25，fallback 至 Homebrew JDK 21 / 17 |
 | SwiftUI 版本 | 已於 Task 7 退役，不再維護 `Sources/PhotoSelector/` |
+| Status line 時序 | 2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除（取代 SnackBar 250ms 淡出）|
+| 資料夾可寫性探測 | `PhotoStatusStore.isWritable()`：建立再刪除 `.halcyon_write_probe`（exFAT noowners 掛載下權限位不可靠，僅能實測）|
+| 回收模式 | 同名 sibling（`.cr2`/`.nef`/`.orf`…）自動分組，批次刪除移入資料夾內 `.trash`，碰撞時附加後綴 |

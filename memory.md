@@ -1,5 +1,5 @@
 ---
-date: 2026-05-05
+date: 2026-08-19
 title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 ---
 
@@ -73,6 +73,17 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **Flutter**：`lib/services/trash_service.dart` 定義 contract；`PhotoFileActions.deleteTrashed()` 透過可注入 `TrashFile` callback 呼叫，方便單元測試。
 - **macOS**：`macos/Runner/AppDelegate.swift` 註冊 `halcyon/trash` channel 與 `trashFile` method。
 - **驗證狀態**：Dart 測試已新增但尚未執行；2026-05-05 容器 PATH 無 `flutter` / `dart`。
+- **後續**：往後亦承接資料夾內回收模式（`.trash`）批次刪除的底層 contract。
+
+### AD-009｜StatusLine 取代 SnackBar，可寫性以實際 create+delete 探測
+- **日期**：2026-08-19
+- **決策**：新增自訂 `lib/views/status_line.dart`（StatusLine widget）取代 Material SnackBar 作為所有狀態訊息（唯讀資料夾警告、批次刪除成功）的顯示載體；時序固定為 2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除，並使用反相對比配色與翻色的琥珀色 emphasis span（深色主題 `#ECECEE` 底 `#17171A` 字、淺色主題 `#26262A` 底白字，emphasis `#A85D00` / `#FFD34D`）。
+- **依據**：SnackBar 的淡出時間硬編碼 250ms 無法調整，且 Material 3 預設配色與 app 表面對比不足。
+- **決策**：`PhotoStatusStore.isWritable(Directory)` 以建立再刪除 `.halcyon_write_probe` 檔案的方式探測資料夾可寫性，`AppState.loadFolder()` 偵測到唯讀時透過 `showStatus()` 推送一則警告。
+- **依據**：exFAT 以 `noowners` 掛載，Unix 權限位不可信；唯讀掛載（例如記憶卡防寫鎖）只能用實際寫入操作驗證。
+- **Flutter**：`lib/services/photo_status_store.dart:isWritable()`、`lib/providers/app_state.dart`（`StatusMessage`、`showStatus()`、`status`、`statusSeq`）。
+- **驗證**：`flutter test` 84 個測試通過（`test/status_line_test.dart`、`test/app_state_test.dart` 新增案例）。
+- **附帶修復**：`lib/services/trash_service.dart` 先前已被 import 但未被 commit，同一輪一併補上，否則乾淨 checkout 無法建置。
 
 ---
 
