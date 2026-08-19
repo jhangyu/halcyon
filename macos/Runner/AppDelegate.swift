@@ -64,6 +64,19 @@ class AppDelegate: FlutterAppDelegate {
       }
     })
 
+    let exifChannel = FlutterMethodChannel(name: "halcyon/exif",
+                                           binaryMessenger: controller.engine.binaryMessenger)
+
+    exifChannel.setMethodCallHandler({ (call, result) -> Void in
+      guard call.method == "readBatch",
+            let args = call.arguments as? [String: Any],
+            let paths = args["paths"] as? [String] else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      AppDelegate.readExifBatch(paths: paths, result: result)
+    })
+
     let openWithChannel = FlutterMethodChannel(name: "halcyon/open_with",
                                                binaryMessenger: controller.engine.binaryMessenger)
     self.openWithChannel = openWithChannel
@@ -525,6 +538,71 @@ class AppDelegate: FlutterAppDelegate {
     case .invalid, .tooLarge:
       return image
     }
+  }
+
+  // MARK: - EXIF batch reader (halcyon/exif channel, feature: EXIF rename)
+
+  /// Reads EXIF for every path in parallel. Header only — no pixel decode —
+  /// so 10,000 files cost seconds, not minutes. Order is preserved because
+  /// each slot is written by index.
+  static func readExifBatch(paths: [String], result: @escaping FlutterResult) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      var slots = [Any?](repeating: nil, count: paths.count)
+      let lock = NSLock()
+
+      DispatchQueue.concurrentPerform(iterations: paths.count) { index in
+        let entry = AppDelegate.exifDictionary(path: paths[index])
+        lock.lock()
+        slots[index] = entry
+        lock.unlock()
+      }
+
+      let payload: [Any] = slots.map { $0 ?? NSNull() }
+      DispatchQueue.main.async { result(payload) }
+    }
+  }
+
+  static func exifDictionary(path: String) -> [String: Any]? {
+    let url = URL(fileURLWithPath: path)
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any] else {
+      return nil
+    }
+
+    let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+    let aux = properties[kCGImagePropertyExifAuxDictionary] as? [CFString: Any] ?? [:]
+    let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+    let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
+
+    var out: [String: Any] = [:]
+    out["captureDate"] = exif[kCGImagePropertyExifDateTimeOriginal] as? String
+      ?? tiff[kCGImagePropertyTIFFDateTime] as? String
+    out["camera"] = tiff[kCGImagePropertyTIFFModel] as? String
+    out["make"] = tiff[kCGImagePropertyTIFFMake] as? String
+    out["artist"] = tiff[kCGImagePropertyTIFFArtist] as? String
+    // LensModel is the standard tag; LensModel in the Aux dictionary is where
+    // several vendors (and Apple's own RAW pipeline) actually put it.
+    out["lens"] = exif[kCGImagePropertyExifLensModel] as? String
+      ?? aux[kCGImagePropertyExifAuxLensModel] as? String
+    out["aperture"] = exif[kCGImagePropertyExifFNumber] as? Double
+    out["focalLength"] = exif[kCGImagePropertyExifFocalLength] as? Double
+    out["iso"] = (exif[kCGImagePropertyExifISOSpeedRatings] as? [Int])?.first
+    out["direction"] = gps[kCGImagePropertyGPSImgDirection] as? Double
+    out["shutter"] = AppDelegate.shutterString(
+      exif[kCGImagePropertyExifExposureTime] as? Double
+    )
+
+    // Drop nils so the Dart side sees "absent", not "present but null".
+    return out.compactMapValues { $0 }
+  }
+
+  /// 0.004 -> "1/250", 2.0 -> "2s". Slashes are stripped on the Dart side by
+  /// RenameRule.sanitise, so this stays human-readable here.
+  static func shutterString(_ seconds: Double?) -> String? {
+    guard let seconds = seconds, seconds > 0 else { return nil }
+    if seconds >= 1 { return "\(Int(seconds.rounded()))s" }
+    return "1/\(Int((1.0 / seconds).rounded()))"
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
