@@ -165,6 +165,35 @@ void main() {
       },
     );
 
+    test(
+      'toggling a status off does not auto-advance even when auto-advance is on',
+      () async {
+        final dir = await Directory.systemTemp.createTemp('halcyon_toggle_');
+        addTearDown(() => dir.delete(recursive: true));
+        await _touch(dir, 'IMG_0001.jpg');
+        await _touch(dir, 'IMG_0002.jpg');
+
+        final state = _testState();
+        await state.loadFolder(dir);
+        state.setAutoAdvance(true);
+
+        state.markCurrent(PhotoStatus.starred);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(state.items.first.status, PhotoStatus.starred);
+        expect(state.selectedItemID, 'IMG_0002');
+
+        state.previousPhoto();
+        expect(state.selectedItemID, 'IMG_0001');
+
+        // Toggling the same status off must not advance the selection.
+        state.markCurrent(PhotoStatus.starred);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(state.items.first.status, PhotoStatus.unmarked);
+        expect(state.selectedItemID, 'IMG_0001');
+      },
+    );
+
     test('nextPhoto and previousPhoto move selection within bounds', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_nav_');
       addTearDown(() => dir.delete(recursive: true));

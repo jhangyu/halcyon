@@ -15,7 +15,13 @@ class AppDelegate: FlutterAppDelegate {
   private var pendingOpenFile: String?
 
   override func applicationDidFinishLaunching(_ aNotification: Notification) {
-    let controller = mainFlutterWindow?.contentViewController as! FlutterViewController
+    // Never force-cast: a nil/unexpected content view controller must not abort
+    // the process. Without the controller there is no messenger to register
+    // channels on, so we log and leave the app running instead of trapping.
+    guard let controller = mainFlutterWindow?.contentViewController as? FlutterViewController else {
+      NSLog("Halcyon: FlutterViewController unavailable; platform channels not registered")
+      return
+    }
     let thumbnailChannel = FlutterMethodChannel(name: "halcyon/thumbnail",
                                                 binaryMessenger: controller.engine.binaryMessenger)
     let trashChannel = FlutterMethodChannel(name: "halcyon/trash",
@@ -121,6 +127,79 @@ class AppDelegate: FlutterAppDelegate {
     if perfEnabled { print("PERFNATIVE|\(Int(ProcessInfo.processInfo.systemUptime * 1_000_000))|\(s)") }
   }
 
+  // MARK: - Untrusted-input hardening (Task 17)
+  //
+  // Everything below runs on files the user picked off a memory card, so a
+  // truncated/corrupt/mislabelled file is a normal input, not an exceptional
+  // one. The rules here: no force unwraps, no unchecked casts, and every
+  // failure surfaces as a FlutterError the Dart side already knows how to
+  // degrade on (NativeImageFailure in lib/services/native_thumbnail_service.dart).
+
+  /// EXIF Orientation is defined only for 1...8. A corrupt tag can hold any
+  /// 32-bit value, and CoreImage's `oriented(forExifOrientation:)` is undefined
+  /// outside that range, so anything else degrades to 1 (no transform). Mirrors
+  /// `NativeThumbnailService._parseOrientation` on the Dart side, which applies
+  /// the same clamp to the value we send with NO_EMBEDDED_PREVIEW.
+  static func sanitizedExifOrientation(_ raw: Int?) -> Int32 {
+    guard let raw = raw, raw >= 1, raw <= 8 else { return 1 }
+    return Int32(raw)
+  }
+
+  /// Reads IFD0 Orientation from an image source, already sanitized. Uses
+  /// NSNumber rather than `as? Int32`: ImageIO hands back a CFNumber whose
+  /// concrete Swift type is not guaranteed, and a failed bridge would silently
+  /// drop a valid orientation.
+  private static func exifOrientation(from source: CGImageSource) -> Int32 {
+    guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let raw = properties[kCGImagePropertyOrientation] as? NSNumber else {
+      return 1
+    }
+    return sanitizedExifOrientation(raw.intValue)
+  }
+
+  /// Upper bound on the RGBA8 buffer a CIContext is asked to materialise
+  /// (width * height * 4 bytes). 1.5 GB is ~375 megapixels, far above any
+  /// shipping camera, so no genuine RAW is rejected; what it stops is a corrupt
+  /// header that claims an absurd extent, which would otherwise turn into a
+  /// multi-gigabyte allocation and an OOM kill instead of an error result.
+  private static let maxDecodedPixelBytes: Double = 1_500_000_000
+
+  enum RenderOutcome {
+    case image(CGImage)
+    /// Extent was null/infinite/empty/non-finite, or CIContext returned nil.
+    case invalid
+    /// Extent is plausible-looking but larger than we are willing to allocate.
+    case tooLarge
+  }
+
+  /// Renders a CIImage to a CGImage with every precondition checked first.
+  /// `createCGImage(_:from:)` traps or allocates unboundedly on an infinite or
+  /// absurd extent, and CIImage extents are attacker-controlled here (they come
+  /// from the RAW header), so the extent is validated before CoreImage sees it.
+  static func renderCGImage(from ciImage: CIImage) -> RenderOutcome {
+    let extent = ciImage.extent
+    guard !extent.isNull, !extent.isInfinite, !extent.isEmpty,
+          extent.width.isFinite, extent.height.isFinite,
+          extent.width >= 1, extent.height >= 1 else {
+      return .invalid
+    }
+    // Double arithmetic on purpose: converting an out-of-range Double to an
+    // integer type traps, which is the crash this guard exists to prevent.
+    guard Double(extent.width) * Double(extent.height) * 4 <= maxDecodedPixelBytes else {
+      return .tooLarge
+    }
+
+    let context = CIContext(options: [.useSoftwareRenderer: false])
+    let srgbSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    guard let rendered = context.createCGImage(ciImage,
+                                               from: extent,
+                                               format: .RGBA8,
+                                               colorSpace: srgbSpace) else {
+      return .invalid
+    }
+    return .image(rendered)
+  }
+
   private func getFastThumbnail(path: String, targetSize: Int, purpose: String, allowRawDecodeSignal: Bool, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
     let perfName = (path as NSString).lastPathComponent // PERF-INSTRUMENTATION
@@ -183,7 +262,10 @@ class AppDelegate: FlutterAppDelegate {
             // NativeThumbnailService.getThumbnail) send allowRawDecodeSignal=false,
             // which keeps this branch a no-op and preserves the old fall-through.
             if extracted == nil && allowRawDecodeSignal {
-                let orientation = readDngOrientation(url: url)
+                // readDngOrientation returns the raw IFD0 tag value (any UInt32 on a
+                // corrupt file); clamp to 1...8 before it crosses the channel so the
+                // Dart side never has to fall back (see kDefaultExifOrientation).
+                let orientation = AppDelegate.sanitizedExifOrientation(Int(readDngOrientation(url: url)))
                 DispatchQueue.main.async {
                     // PERF-INSTRUMENTATION
                     AppDelegate.perfLog("result.dispatch|\(perfName)|nativeTotal=\(Int((ProcessInfo.processInfo.systemUptime - perfEnqueue) * 1_000_000))|noEmbeddedPreview")
@@ -235,25 +317,31 @@ class AppDelegate: FlutterAppDelegate {
                 }
             }
             
-            // 2. If no suitable embedded thumbnail was found, decode the RAW using CIRAWFilter
+            // 2. If no suitable embedded thumbnail was found, decode the RAW using CIRAWFilter.
+            // A nil filter or nil outputImage (unreadable / not actually a RAW / corrupt)
+            // is not fatal: cgImage stays nil and the ImageIO fallback below gets a turn,
+            // ending in an explicit LOAD_FAILED if that fails too.
             if cgImage == nil && isPreviewRequest {
                 if let filter = CIFilter(imageURL: url, options: nil),
-                   var ciImage = filter.outputImage {
-                    
-                    // Attempt to read orientation and apply it to CIImage
-                    if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                       let orientation = properties[kCGImagePropertyOrientation] as? Int32 {
-                         // Apply EXIF orientation
-                         ciImage = ciImage.oriented(forExifOrientation: orientation)
+                   let rawImage = filter.outputImage {
+                    let orientation = AppDelegate.exifOrientation(from: source)
+                    let ciImage = orientation == 1
+                        ? rawImage
+                        : rawImage.oriented(forExifOrientation: orientation)
+
+                    switch AppDelegate.renderCGImage(from: ciImage) {
+                    case .image(let rendered):
+                        cgImage = rendered
+                    case .tooLarge:
+                        DispatchQueue.main.async {
+                            result(FlutterError(code: "IMAGE_TOO_LARGE",
+                                                message: "RAW decode exceeds the decoded-pixel budget",
+                                                details: path))
+                        }
+                        return
+                    case .invalid:
+                        break // fall through to the ImageIO path below
                     }
-                    
-                    let context = CIContext(options: [.useSoftwareRenderer: false])
-                    let srgbSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-                    
-                    cgImage = context.createCGImage(ciImage, 
-                                                    from: ciImage.extent, 
-                                                    format: .RGBA8, 
-                                                    colorSpace: srgbSpace)
                 }
             }
         }
@@ -313,22 +401,19 @@ class AppDelegate: FlutterAppDelegate {
       return nil
     }
 
-    guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-          let orientation = properties[kCGImagePropertyOrientation] as? Int32,
-          orientation != 1 else {
-      return image
-    }
+    let orientation = AppDelegate.exifOrientation(from: source)
+    guard orientation != 1 else { return image }
 
     let ciImage = CIImage(cgImage: image).oriented(forExifOrientation: orientation)
-    let context = CIContext(options: [.useSoftwareRenderer: false])
-    let srgbSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-
-    return context.createCGImage(
-      ciImage,
-      from: ciImage.extent,
-      format: .RGBA8,
-      colorSpace: srgbSpace
-    )
+    // If the oriented render is impossible (bad extent) or too big to allocate,
+    // hand back the unrotated original rather than nil: a mis-rotated preview
+    // beats no preview, and the caller's only alternative is LOAD_FAILED.
+    switch AppDelegate.renderCGImage(from: ciImage) {
+    case .image(let rendered):
+      return rendered
+    case .invalid, .tooLarge:
+      return image
+    }
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

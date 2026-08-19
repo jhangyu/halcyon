@@ -49,6 +49,15 @@ class _SidebarViewState extends State<SidebarView> {
     super.dispose();
   }
 
+  // Shared light-mode color for icons/selected-row text; dark mode always
+  // uses plain white. Kept separate from the header title's 32,32,32 below —
+  // that one is intentionally a different shade and unification is an
+  // undecided product call, not a bug.
+  Color _iconColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? Colors.white
+      : const Color.fromARGB(255, 59, 59, 59);
+
   void _noteBuiltIndex(int index) {
     // Only used before the list has a scroll position (first frame).
     if (_fallbackFirstIndex == -1 || index < _fallbackFirstIndex) {
@@ -145,6 +154,9 @@ class _SidebarViewState extends State<SidebarView> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
+                      // Intentionally 32,32,32, not the 59,59,59 used
+                      // elsewhere via _iconColor — unifying is an undecided
+                      // product call, left as-is.
                       color: Theme.of(context).brightness == Brightness.dark
                           ? Colors.white
                           : const Color.fromARGB(255, 32, 32, 32),
@@ -192,9 +204,7 @@ class _SidebarViewState extends State<SidebarView> {
                       style: TextStyle(
                         fontSize: 13, // Smaller font size
                         color: isSelected
-                            ? (Theme.of(context).brightness == Brightness.dark
-                                  ? Colors.white
-                                  : const Color.fromARGB(255, 59, 59, 59))
+                            ? _iconColor(context)
                             : Theme.of(context).colorScheme.onSurface,
                         fontWeight: isSelected
                             ? FontWeight.w600
@@ -263,9 +273,7 @@ class _SidebarViewState extends State<SidebarView> {
   }
 
   Widget _buildTopActions(BuildContext context) {
-    final iconColor = Theme.of(context).brightness == Brightness.dark
-        ? Colors.white
-        : const Color.fromARGB(255, 59, 59, 59);
+    final iconColor = _iconColor(context);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -284,9 +292,7 @@ class _SidebarViewState extends State<SidebarView> {
   }
 
   Widget _buildActionMenu(BuildContext context) {
-    final iconColor = Theme.of(context).brightness == Brightness.dark
-        ? Colors.white
-        : const Color.fromARGB(255, 59, 59, 59);
+    final iconColor = _iconColor(context);
 
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_horiz, size: 20, color: iconColor),
@@ -319,9 +325,7 @@ class _SidebarViewState extends State<SidebarView> {
           (i) => i.status == PhotoStatus.trashed,
         );
 
-        final actionTextColor = Theme.of(context).brightness == Brightness.dark
-            ? Colors.white
-            : const Color.fromARGB(255, 59, 59, 59);
+        final actionTextColor = _iconColor(context);
 
         return [
           PopupMenuItem(

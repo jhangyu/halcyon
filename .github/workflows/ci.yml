@@ -1,0 +1,56 @@
+# KNOWN BLOCKERS (as of 2026-08-19, unresolved — read before debugging a run):
+# 1. `flutter pub get` will fail on a fresh checkout: pubspec.yaml has a path
+#    dependency on the sibling repo ../flutter_dng_decoder/dng_processor
+#    (github.com/jhangyu/lucida). Options not yet chosen: git dependency,
+#    submodule, or vendoring.
+# 2. This repo has no git remote configured yet, so this workflow has never
+#    actually run. Only validated locally via yaml.safe_load.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze-test:
+    name: Analyze & Test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test
+
+  build:
+    name: Build macOS (release)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: pod install
+        working-directory: macos
+
+      - name: flutter build macos --release
+        run: flutter build macos --release

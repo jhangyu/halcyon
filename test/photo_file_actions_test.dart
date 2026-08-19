@@ -70,6 +70,251 @@ void main() {
     });
   });
 
+  group('PhotoFileActions.processStarred', () {
+    test(
+      'copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items',
+      () async {
+        final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
+        addTearDown(() => src.delete(recursive: true));
+        final dest = await Directory.systemTemp.createTemp(
+          'halcyon_star_dest_',
+        );
+        addTearDown(() => dest.delete(recursive: true));
+
+        final starred = await _touch(src, 'IMG_0001.jpg');
+        final unstarred = await _touch(src, 'IMG_0002.jpg');
+
+        await PhotoFileActions().processStarred([
+          PhotoItem(
+            id: 'IMG_0001',
+            files: [starred],
+            status: PhotoStatus.starred,
+          ),
+          PhotoItem(
+            id: 'IMG_0002',
+            files: [unstarred],
+            status: PhotoStatus.unmarked,
+          ),
+        ], dest, move: false, overwriteExisting: false);
+
+        expect(await File(p.join(dest.path, 'IMG_0001.jpg')).exists(), isTrue);
+        expect(
+          await File(p.join(dest.path, 'IMG_0002.jpg')).exists(),
+          isFalse,
+        );
+        expect(
+          await starred.exists(),
+          isTrue,
+          reason: 'copy must not remove the source',
+        );
+        expect(await unstarred.exists(), isTrue);
+      },
+    );
+
+    test(
+      'move mode moves starred items to the destination, removes the source, leaves unstarred untouched',
+      () async {
+        final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
+        addTearDown(() => src.delete(recursive: true));
+        final dest = await Directory.systemTemp.createTemp(
+          'halcyon_star_dest_',
+        );
+        addTearDown(() => dest.delete(recursive: true));
+
+        final starred = await _touch(src, 'IMG_0001.jpg');
+        final unstarred = await _touch(src, 'IMG_0002.jpg');
+
+        await PhotoFileActions().processStarred([
+          PhotoItem(
+            id: 'IMG_0001',
+            files: [starred],
+            status: PhotoStatus.starred,
+          ),
+          PhotoItem(
+            id: 'IMG_0002',
+            files: [unstarred],
+            status: PhotoStatus.unmarked,
+          ),
+        ], dest, move: true, overwriteExisting: false);
+
+        expect(await File(p.join(dest.path, 'IMG_0001.jpg')).exists(), isTrue);
+        expect(
+          await starred.exists(),
+          isFalse,
+          reason: 'move must remove the source',
+        );
+        expect(await unstarred.exists(), isTrue);
+      },
+    );
+
+    test('move mode processes every sibling file in a RAW+JPG group', () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_star_sib_');
+      addTearDown(() => src.delete(recursive: true));
+      final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
+      addTearDown(() => dest.delete(recursive: true));
+
+      final jpg = await _touch(src, 'IMG_0001.jpg');
+      final dng = await _touch(src, 'IMG_0001.dng');
+
+      await PhotoFileActions().processStarred([
+        PhotoItem(id: 'IMG_0001', files: [jpg, dng], status: PhotoStatus.starred),
+      ], dest, move: true, overwriteExisting: false);
+
+      expect(await File(p.join(dest.path, 'IMG_0001.jpg')).exists(), isTrue);
+      expect(await File(p.join(dest.path, 'IMG_0001.dng')).exists(), isTrue);
+      expect(await jpg.exists(), isFalse);
+      expect(await dng.exists(), isFalse);
+    });
+
+    test(
+      'overwriteExisting=false skips a starred file whose destination already exists, source is left alone',
+      () async {
+        final src = await Directory.systemTemp.createTemp(
+          'halcyon_star_skip_',
+        );
+        addTearDown(() => src.delete(recursive: true));
+        final dest = await Directory.systemTemp.createTemp(
+          'halcyon_star_dest_',
+        );
+        addTearDown(() => dest.delete(recursive: true));
+
+        await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
+        final source = File(p.join(src.path, 'IMG_0001.jpg'));
+        await source.writeAsString('NEW');
+
+        await PhotoFileActions().processStarred([
+          PhotoItem(
+            id: 'IMG_0001',
+            files: [source],
+            status: PhotoStatus.starred,
+          ),
+        ], dest, move: true, overwriteExisting: false);
+
+        expect(
+          await File(p.join(dest.path, 'IMG_0001.jpg')).readAsString(),
+          'OLD',
+        );
+        expect(
+          await source.exists(),
+          isTrue,
+          reason: 'skipped file must stay at the source, even in move mode',
+        );
+      },
+    );
+
+    test('overwriteExisting=true replaces an existing destination file', () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_star_over_');
+      addTearDown(() => src.delete(recursive: true));
+      final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
+      addTearDown(() => dest.delete(recursive: true));
+
+      await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
+      final source = File(p.join(src.path, 'IMG_0001.jpg'));
+      await source.writeAsString('NEW');
+
+      await PhotoFileActions().processStarred([
+        PhotoItem(id: 'IMG_0001', files: [source], status: PhotoStatus.starred),
+      ], dest, move: false, overwriteExisting: true);
+
+      expect(
+        await File(p.join(dest.path, 'IMG_0001.jpg')).readAsString(),
+        'NEW',
+      );
+      expect(
+        await source.exists(),
+        isTrue,
+        reason: 'copy mode keeps the source even when overwriting',
+      );
+    });
+
+    test(
+      'copy mode discards a preexisting destination AppleDouble sidecar and keeps the source sidecar',
+      () async {
+        final src = await Directory.systemTemp.createTemp(
+          'halcyon_star_sc_copy_',
+        );
+        addTearDown(() => src.delete(recursive: true));
+        final dest = await Directory.systemTemp.createTemp(
+          'halcyon_star_dest_',
+        );
+        addTearDown(() => dest.delete(recursive: true));
+
+        final photo = await _touch(src, 'IMG_0001.jpg');
+        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
+        await _touch(dest, '._IMG_0001.jpg');
+
+        await PhotoFileActions().processStarred([
+          PhotoItem(
+            id: 'IMG_0001',
+            files: [photo],
+            status: PhotoStatus.starred,
+          ),
+        ], dest, move: false, overwriteExisting: true);
+
+        expect(await File(p.join(dest.path, 'IMG_0001.jpg')).exists(), isTrue);
+        expect(
+          await File(p.join(dest.path, '._IMG_0001.jpg')).exists(),
+          isFalse,
+          reason: 'the sidecar is never copied, only cleaned up',
+        );
+        expect(
+          await srcSidecar.exists(),
+          isTrue,
+          reason: 'copy mode must not touch the source sidecar',
+        );
+      },
+    );
+
+    test(
+      'move mode discards the source AppleDouble sidecar instead of moving it',
+      () async {
+        final src = await Directory.systemTemp.createTemp(
+          'halcyon_star_sc_move_',
+        );
+        addTearDown(() => src.delete(recursive: true));
+        final dest = await Directory.systemTemp.createTemp(
+          'halcyon_star_dest_',
+        );
+        addTearDown(() => dest.delete(recursive: true));
+
+        final photo = await _touch(src, 'IMG_0001.jpg');
+        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
+
+        await PhotoFileActions().processStarred([
+          PhotoItem(
+            id: 'IMG_0001',
+            files: [photo],
+            status: PhotoStatus.starred,
+          ),
+        ], dest, move: true, overwriteExisting: false);
+
+        expect(await File(p.join(dest.path, 'IMG_0001.jpg')).exists(), isTrue);
+        expect(
+          await File(p.join(dest.path, '._IMG_0001.jpg')).exists(),
+          isFalse,
+        );
+        expect(
+          await srcSidecar.exists(),
+          isFalse,
+          reason: 'move mode deletes rather than moves the sidecar',
+        );
+      },
+    );
+
+    test('does nothing when the destination folder does not exist', () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_star_nodest_');
+      addTearDown(() => src.delete(recursive: true));
+      final missingDest = Directory(p.join(src.path, 'does_not_exist'));
+      final photo = await _touch(src, 'IMG_0001.jpg');
+
+      await PhotoFileActions().processStarred([
+        PhotoItem(id: 'IMG_0001', files: [photo], status: PhotoStatus.starred),
+      ], missingDest, move: true, overwriteExisting: true);
+
+      expect(await photo.exists(), isTrue);
+    });
+  });
+
   group('PhotoFileActions.recycleTrashed', () {
     test('moves every sibling file and sidecar into .trash', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_');
