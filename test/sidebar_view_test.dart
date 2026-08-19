@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
 import 'package:path/path.dart' as p;
@@ -134,6 +135,65 @@ void main() {
         .toList();
     expect(visibleNames, isNotEmpty);
     expect(requested, containsAll(visibleNames));
+  });
+
+  // Regression: a tall sidebar shows more rows than the prefetch margin. While
+  // scrolling, itemBuilder runs only for the rows that just came into range,
+  // so reporting "what was built this frame" as the visible range shrank it to
+  // the leading edge — and the controller then evicted, and immediately
+  // re-fetched, thumbnails still on screen at the trailing edge. Visible as a
+  // flicker of the last few rows; mechanically visible as a second request for
+  // an id that was already cached.
+  testWidgets('scrolling never re-requests a thumbnail it already fetched', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    late AppState state;
+    final requested = <String>[];
+
+    await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_sidebar_scr_');
+      addTearDown(() => dir.delete(recursive: true));
+      for (var i = 1; i <= 80; i++) {
+        final name = 'IMG_${i.toString().padLeft(4, '0')}.jpg';
+        await File(p.join(dir.path, name)).writeAsBytes([1, 2, 3]);
+      }
+      state = AppState(
+        thumbnailLoader: (path, {required purpose}) async {
+          if (purpose == ImageRequestPurpose.sidebarThumbnail) {
+            requested.add(p.basenameWithoutExtension(path));
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      await state.loadFolder(dir);
+    });
+
+    await pumpSidebar(tester, state);
+    await tester.pump(const Duration(milliseconds: 200));
+    drainListTileWarning(tester);
+    // More rows on screen than the controller's prefetch margin — otherwise
+    // the shrunken range still covered everything and nothing was evicted.
+    expect(find.byType(ListTile), findsAtLeast(thumbnailPrefetchMargin + 1));
+
+    // A nudge, not a jump: only a row or two enters the list this frame.
+    for (var i = 0; i < 4; i++) {
+      await tester.drag(find.byType(ListView), const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    // Settle the last scheduled debounce so no timer outlives the tree.
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 200));
+    drainListTileWarning(tester);
+
+    expect(
+      requested.length,
+      requested.toSet().length,
+      reason: 'a cached thumbnail was evicted and fetched again: $requested',
+    );
   });
 
   testWidgets('trashed status icon follows the mode', (tester) async {

@@ -18,17 +18,22 @@ class _SidebarViewState extends State<SidebarView> {
   static const double _itemHeight = 48.0; // Approx height of ListTile
   String? _lastSelectedId;
 
-  // What the list actually built this frame, accumulated by [_noteBuiltIndex]
-  // and flushed once per frame. This — not the scroll offset — is the source
-  // of truth for "what is on screen": ListView.builder builds exactly the
-  // visible rows (plus cacheExtent), so any rebuild re-derives the range for
-  // free. That's what makes the sidebar self-heal after AppState.loadFolder
-  // resets the thumbnail cache (recycle/delete/copy/move all reload the
-  // folder); the old scroll-listener model only re-requested when the user
-  // happened to scroll, which is why thumbnails stayed blank until then.
-  int _minBuiltIndex = -1;
-  int _maxBuiltIndex = -1;
+  // itemBuilder running is the TRIGGER to re-report what's on screen (it runs
+  // on any rebuild, so every path that resets the thumbnail cache —
+  // recycle/delete/copy/move all reload the folder — self-heals without its
+  // own call site; the old scroll-listener model only re-requested when the
+  // user happened to scroll, so those paths came back blank).
+  //
+  // The trigger is NOT the range: while scrolling, ListView.builder builds
+  // only the rows that just came into range and reuses the rest, so the
+  // indices seen in one frame can be a single leading-edge row. Reporting
+  // that as the visible range made the controller trim its cache around one
+  // row and evict thumbnails still on screen at the far edge, which is what
+  // the flicker was. The range comes from viewport geometry instead — exact,
+  // because itemExtent pins every row to _itemHeight.
   bool _sweepScheduled = false;
+  int _fallbackFirstIndex = -1;
+  int _fallbackLastIndex = -1;
 
   @override
   void initState() {
@@ -45,23 +50,36 @@ class _SidebarViewState extends State<SidebarView> {
   }
 
   void _noteBuiltIndex(int index) {
-    if (_minBuiltIndex == -1 || index < _minBuiltIndex) _minBuiltIndex = index;
-    if (index > _maxBuiltIndex) _maxBuiltIndex = index;
+    // Only used before the list has a scroll position (first frame).
+    if (_fallbackFirstIndex == -1 || index < _fallbackFirstIndex) {
+      _fallbackFirstIndex = index;
+    }
+    if (index > _fallbackLastIndex) _fallbackLastIndex = index;
     if (_sweepScheduled) return;
     _sweepScheduled = true;
     // Requesting during build would notifyListeners mid-build; defer to the
-    // end of the frame, where the range is also complete.
+    // end of the frame, where layout is also settled.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sweepScheduled = false;
-      final first = _minBuiltIndex;
-      final last = _maxBuiltIndex;
-      _minBuiltIndex = -1;
-      _maxBuiltIndex = -1;
-      if (!mounted || first == -1) return;
+      final first = _fallbackFirstIndex;
+      final last = _fallbackLastIndex;
+      _fallbackFirstIndex = -1;
+      _fallbackLastIndex = -1;
+      if (!mounted) return;
       // The controller expands this by its own prefetch margin and fetches
       // the visible rows first; an unchanged range is a no-op there, so
       // reporting every frame costs nothing.
-      context.read<AppState>().preloadThumbnails(first, last);
+      final state = context.read<AppState>();
+      if (!_scrollController.hasClients) {
+        if (first != -1) state.preloadThumbnails(first, last);
+        return;
+      }
+      final offset = _scrollController.offset;
+      final viewportHeight = _scrollController.position.viewportDimension;
+      state.preloadThumbnails(
+        (offset / _itemHeight).floor(),
+        ((offset + viewportHeight) / _itemHeight).ceil(),
+      );
     });
   }
 
@@ -143,59 +161,58 @@ class _SidebarViewState extends State<SidebarView> {
               controller: _scrollController,
               child: ListView.builder(
                 controller: _scrollController,
+                // Makes _itemHeight a fact rather than an approximation: both
+                // the visible-range math above and _ensureSelectedVisible
+                // below compute row positions from it.
+                itemExtent: _itemHeight,
                 itemCount: state.items.length,
                 itemBuilder: (context, index) {
                   _noteBuiltIndex(index);
                   final item = state.items[index];
                   final isSelected = item.id == state.selectedItemID;
 
-                  return SizedBox(
-                    height: _itemHeight,
-                    child: ListTile(
-                      dense: true,
-                      minVerticalPadding: 0,
-                      // Painted by the tile itself rather than a wrapping
-                      // ColoredBox, which would hide the tile's own background
-                      // and ink splashes (framework assertion).
-                      selectedTileColor: const Color.fromRGBO(
-                        128,
-                        128,
-                        128,
-                        0.15,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                      ),
-                      selected: isSelected,
-                      title: Text(
-                        item.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13, // Smaller font size
-                          color: isSelected
-                              ? (Theme.of(context).brightness == Brightness.dark
-                                    ? Colors.white
-                                    : const Color.fromARGB(255, 59, 59, 59))
-                              : Theme.of(context).colorScheme.onSurface,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildStatusIcon(item.status, state.recycleMode),
-                          if (item.status != PhotoStatus.unmarked)
-                            const SizedBox(width: 8),
-                          _buildListThumbnail(state, item.id),
-                        ],
-                      ),
-                      onTap: () {
-                        context.read<AppState>().selectItem(item.id);
-                      },
+                  return ListTile(
+                    dense: true,
+                    minVerticalPadding: 0,
+                    // Painted by the tile itself rather than a wrapping
+                    // ColoredBox, which would hide the tile's own background
+                    // and ink splashes (framework assertion).
+                    selectedTileColor: const Color.fromRGBO(
+                      128,
+                      128,
+                      128,
+                      0.15,
                     ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    selected: isSelected,
+                    title: Text(
+                      item.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13, // Smaller font size
+                        color: isSelected
+                            ? (Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.white
+                                  : const Color.fromARGB(255, 59, 59, 59))
+                            : Theme.of(context).colorScheme.onSurface,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildStatusIcon(item.status, state.recycleMode),
+                        if (item.status != PhotoStatus.unmarked)
+                          const SizedBox(width: 8),
+                        _buildListThumbnail(state, item.id),
+                      ],
+                    ),
+                    onTap: () {
+                      context.read<AppState>().selectItem(item.id);
+                    },
                   );
                 },
               ),
