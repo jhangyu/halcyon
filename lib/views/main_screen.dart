@@ -6,6 +6,7 @@ import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import 'sidebar_view.dart';
 import 'main_detail_view.dart';
+import 'status_line.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -28,9 +29,18 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: _buildKeyboardShortcutHandler(
-        context: context,
-        child: Row(
+      body: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          _buildKeyboardShortcutHandler(context: context, child: _buildBody()),
+          const StatusLine(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    return Row(
           children: [
             SizedBox(width: _sidebarWidth, child: const SidebarView()),
             MouseRegion(
@@ -55,8 +65,6 @@ class _MainScreenState extends State<MainScreen> {
             ),
             Expanded(child: const MainDetailView()),
           ],
-        ),
-      ),
     );
   }
 

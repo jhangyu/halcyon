@@ -38,6 +38,17 @@ class BatchDeleteResult {
   final String? trashDirPath;
 }
 
+/// A transient line shown at the bottom of the window (see `StatusLine`).
+///
+/// `*…*` in [text] marks the amber emphasis span. [revealPath], when set,
+/// adds a "顯示" button that opens that path in Finder.
+class StatusMessage {
+  const StatusMessage(this.text, {this.revealPath});
+
+  final String text;
+  final String? revealPath;
+}
+
 class AppState extends ChangeNotifier {
   AppState({
     PhotoLibraryScanner? scanner,
@@ -86,6 +97,11 @@ class AppState extends ChangeNotifier {
   // a new card always starts from the safe default.
   bool _recycleMode = false;
 
+  // The status line's current message. [_statusSeq] bumps on every show so the
+  // view can restart its timer even when the same text repeats.
+  StatusMessage? _status;
+  int _statusSeq = 0;
+
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     _autoAdvance = _prefs?.getBool('autoAdvance') ?? false;
@@ -109,6 +125,15 @@ class AppState extends ChangeNotifier {
   bool get overwriteExisting => _overwriteExisting;
 
   bool get recycleMode => _recycleMode;
+
+  StatusMessage? get status => _status;
+  int get statusSeq => _statusSeq;
+
+  void showStatus(StatusMessage message) {
+    _status = message;
+    _statusSeq++;
+    notifyListeners();
+  }
 
   void toggleRecycleMode() {
     _recycleMode = !_recycleMode;
@@ -189,6 +214,11 @@ class AppState extends ChangeNotifier {
       // A folder holding same-name sibling groups is a camera card being
       // culled: default to recycling so a mis-click can't take the RAW with it.
       _recycleMode = _items.any((item) => item.files.length > 1);
+      if (!await _statusStore.isWritable(dir)) {
+        showStatus(
+          const StatusMessage('此卷宗為*唯讀*，標記不會被儲存（檢查記憶卡的防寫鎖）'),
+        );
+      }
       String? lastViewedId;
 
       try {

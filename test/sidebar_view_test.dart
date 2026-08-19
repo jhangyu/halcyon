@@ -123,7 +123,9 @@ void main() {
     expect(find.text('Delete Trashed'), findsOneWidget);
   });
 
-  testWidgets('recycling from the menu shows the snackbar', (tester) async {
+  testWidgets('recycling from the menu posts the status line message', (
+    tester,
+  ) async {
     final state = await stateForFolder(tester, withSibling: true);
     state.markCurrent(PhotoStatus.trashed);
     await pumpSidebar(tester, state);
@@ -159,7 +161,7 @@ void main() {
     await tester.pumpAndSettle();
     drainListTileWarning(tester);
 
-    expect(find.textContaining('已回收'), findsOneWidget);
-    expect(find.text('顯示'), findsOneWidget);
+    expect(state.status?.text, contains('已回收'));
+    expect(state.status?.revealPath, endsWith('.trash'));
   });
 }

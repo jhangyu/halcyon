@@ -16,6 +16,21 @@ class PhotoStatusStore {
     return File(p.join(dir.path, '.halcyon_status.json'));
   }
 
+  /// A locked SD card mounts read-only, so every status write throws and the
+  /// marks vanish on reload. Directory permission bits lie here (exFAT mounts
+  /// `noowners`, so the folder still looks like drwx------), so the only
+  /// reliable probe is an actual create.
+  Future<bool> isWritable(Directory dir) async {
+    final probe = File(p.join(dir.path, '.halcyon_write_probe'));
+    try {
+      await probe.create();
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<PhotoStatusSnapshot> applySavedStatuses(
     Directory dir,
     List<PhotoItem> items,

@@ -36,6 +36,28 @@ void main() {
       },
     );
 
+    test('warns on the status line when the folder is read-only', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_ro_');
+      addTearDown(() async {
+        await Process.run('chmod', ['u+w', dir.path]);
+        await dir.delete(recursive: true);
+      });
+      await _touch(dir, 'IMG_0001.jpg');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+      expect(state.status, isNull, reason: 'writable folder stays quiet');
+
+      await Process.run('chmod', ['a-w', dir.path]);
+      await state.loadFolder(dir);
+      expect(state.status?.text, contains('唯讀'));
+      expect(
+        File(p.join(dir.path, '.halcyon_write_probe')).existsSync(),
+        isFalse,
+        reason: 'probe must clean up after itself',
+      );
+    });
+
     test('restores saved statuses and last viewed id from JSON', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_status_');
       addTearDown(() => dir.delete(recursive: true));
