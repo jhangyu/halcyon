@@ -816,6 +816,20 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-057｜NativeThumbnailService — MissingPluginException 退化為 NativeImageFailure
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-057 |
+| **名稱** | halcyon/thumbnail channel 無 native handler（跨平台 P0）時不拋出，退化為 `NativeImageFailure` |
+| **測試類型** | Unit Test |
+| **背景** | Windows/Android/iOS 尚無 `halcyon/thumbnail` 的 native 實作，mock messenger 拋出 `MissingPluginException`（不是 `PlatformException` 的子類，需獨立 catch）。修復前會一路 rethrow 穿過 `image_preload_controller.dart` 的 `_loadPreview`，讓整個 preload pipeline 崩潰、UI 全黑 |
+| **預期結果** | `requestImage` catch `MissingPluginException` 並回傳 `NativeImageFailure(code: 'MISSING_PLUGIN', ...)`，不拋出；`image_preload_controller.dart` 既有的 `NativeImageFailure` → `_failedIds` 錯誤顯示路徑不需改動即可正確處理 |
+| **驗證方式** | `test/native_thumbnail_service_test.dart` |
+| **狀態** | ✅ 已通過（修復前跑過一次紅燈，見 `scripts/tmp/verify/d2-before-fix.txt`；修復後綠燈見 `d2-after-fix.txt`） |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令

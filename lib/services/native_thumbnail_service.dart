@@ -119,6 +119,19 @@ class NativeThumbnailService {
       }
       debugPrint("Failed to get native thumbnail: '${e.message}'.");
       return NativeImageFailure(e.code, e.message);
+    } on MissingPluginException catch (e) {
+      // No native handler registered for `halcyon/thumbnail` at all (e.g.
+      // Windows/Android/iOS, which have no MethodChannel implementation --
+      // see cross-platform-port-inventory.md P0 item 3). MissingPluginException
+      // does NOT extend PlatformException, so it needs its own clause; without
+      // it this throws out of requestImage, through `_loadPreview`'s
+      // `catch (_) { rethrow; }` in image_preload_controller.dart, and crashes
+      // the preload pipeline instead of degrading like TrashService does.
+      debugPrint("Thumbnail service is unavailable: '${e.message}'.");
+      return const NativeImageFailure(
+        'MISSING_PLUGIN',
+        'Thumbnail service is unavailable on this platform',
+      );
     }
   }
 

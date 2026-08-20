@@ -94,6 +94,23 @@ void main() {
       expect(args[kAllowRawDecodeSignalArg], false);
     });
 
+    // Cross-platform P0 (D2): on Windows/Android/iOS the halcyon/thumbnail
+    // channel has no native handler at all, so the mock messenger throws
+    // MissingPluginException rather than PlatformException. Before the fix
+    // this propagated out of requestImage and crashed the preload pipeline
+    // (image_preload_controller.dart _loadPreview rethrow) instead of
+    // degrading like the other channels (see trash_service.dart).
+    test('MissingPluginException degrades to NativeImageFailure instead of throwing', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        throw MissingPluginException('No implementation found for method getThumbnail');
+      });
+
+      final result = await NativeThumbnailService.requestImage('/x.jpg');
+
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'MISSING_PLUGIN');
+    });
+
     // The native branch in macos/Runner/AppDelegate.swift keys off the literal
     // string "export" and relies on the 2048 cap arriving in targetSize. A
     // mismatch here would silently fall through to the preview/thumbnail path
