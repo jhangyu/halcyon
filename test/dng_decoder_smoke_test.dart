@@ -15,9 +15,10 @@ import 'package:halcyon_flutter/services/dng_decode_service.dart';
 ///
 /// ponytail: the dylib-preload workaround below is test-only scaffolding
 /// (dyld cannot resolve a bare leaf name cold under `flutter test`'s cwd;
-/// see round-3b handover §8 fact list). Production resolves the dylib via
-/// the Xcode "Embed DNG Native Dylib" phase + dng_bindings.dart's own
-/// search order — this file must never leak that workaround into lib/.
+/// see round-3b handover §8 fact list). Production resolves the dylib from
+/// `<App>.app/Contents/Frameworks/`, where the `dng_processor_ffi` plugin pod
+/// vendors it, via dng_bindings.dart's own search order — this file must never
+/// leak that workaround into lib/.
 void main() {
   test(
     'decodeDngFull decodes the vivo sample at full resolution',
@@ -53,9 +54,13 @@ void main() {
   );
 }
 
-/// Resolves `<dng_processor pkgRoot>/native/build/libdng_decoder_native.dylib`
-/// via `.dart_tool/package_config.json`, without hardcoding a dev machine
-/// path.
+/// Resolves the vendored dylib via `.dart_tool/package_config.json`, without
+/// hardcoding a dev machine path.
+///
+/// 2026-08-21 (D1): this used to point at `dng_processor`'s CMake build tree
+/// (`native/build/`), which only exists on a machine that has built the native
+/// target. It now points at the copy `dng_processor_ffi` vendors into host app
+/// bundles — the same bytes that actually ship.
 String _resolveDngProcessorDylib() {
   final configFile = File('.dart_tool/package_config.json');
   expect(
@@ -67,9 +72,9 @@ String _resolveDngProcessorDylib() {
   final config = jsonDecode(configFile.readAsStringSync()) as Map;
   final packages = config['packages'] as List;
   final dngPackage = packages.cast<Map>().firstWhere(
-        (p) => p['name'] == 'dng_processor',
+        (p) => p['name'] == 'dng_processor_ffi',
         orElse: () => throw StateError(
-          'dng_processor not found in package_config.json; '
+          'dng_processor_ffi not found in package_config.json; '
           'check pubspec.yaml path dependency.',
         ),
       );
@@ -80,5 +85,5 @@ String _resolveDngProcessorDylib() {
   final pkgRootUri = configDirUri.resolve(rootUri);
   final pkgRoot = Directory.fromUri(pkgRootUri).path;
 
-  return '$pkgRoot/native/build/libdng_decoder_native.dylib';
+  return '$pkgRoot/macos/Libraries/libdng_decoder_native.dylib';
 }

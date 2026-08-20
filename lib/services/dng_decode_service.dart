@@ -1,19 +1,14 @@
-// dng_processor has no barrel export, so importing its `src/` is the only
-// option available — not an oversight to tidy up. This import becomes clean
-// the moment the decoder project ships `lib/dng_processor.dart`; that is
-// request B in docs/logs/2026-08-16/round-3b-decoder-project-interface-requests.md
-// ignore: implementation_imports
-import 'package:dng_processor/src/dng_decoder_service.dart';
+import 'package:dng_processor_ffi/dng_processor_ffi.dart';
 
 import 'dng_decode_contract.dart';
 
-/// Round-3b adapter: wraps `dng_processor`'s [DngDecoderService.decodeOnWorker]
+/// Round-3b adapter: wraps `dng_processor_ffi`'s [DngDecoderService.decodeOnWorker]
 /// to satisfy the frozen [DngFullDecoder] seam.
 ///
 /// Kept production-clean: no dylib-preload workaround, no dev-only path
-/// hacks. In a release .app the dylib is embedded next to the executable
-/// (see the Xcode "Embed DNG Native Dylib" run script phase) and resolved
-/// via `dng_bindings.dart`'s own search order.
+/// hacks. The dylib lands in `<App>.app/Contents/Frameworks/` because
+/// `dng_processor_ffi` is a Flutter FFI plugin whose pod vendors it, and
+/// `dng_bindings.dart`'s own search order finds it there.
 Future<DecodedRgba> decodeDngFull(String path) async {
   final service = DngDecoderService();
   final image = await service.decodeOnWorker(path);

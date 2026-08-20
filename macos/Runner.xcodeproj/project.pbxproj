@@ -70,8 +70,8 @@
 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
 		33CC10ED2044A3C60003C045 /* Halcyon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Halcyon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		33CC10F32044A3C60003C047 /* DngPreviewExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DngPreviewExtractor.swift; sourceTree = "<group>"; };
 		33CC10F22044A3C60003C045 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Runner/Assets.xcassets; sourceTree = "<group>"; };
+		33CC10F32044A3C60003C047 /* DngPreviewExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DngPreviewExtractor.swift; sourceTree = "<group>"; };
 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
 		33CC11122044BFA00003C045 /* MainFlutterWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFlutterWindow.swift; sourceTree = "<group>"; };
@@ -246,8 +246,8 @@
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
-				A1B2C3D4E5F60718293A0001 /* Embed DNG Native Dylib */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
+				095EB3ABA07CD27A55B3EB68 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -336,23 +336,22 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A1B2C3D4E5F60718293A0001 /* Embed DNG Native Dylib */ = {
+		095EB3ABA07CD27A55B3EB68 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
-			name = "Embed DNG Native Dylib";
+			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
-			);
-			outputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nSRC=\"$SRCROOT/../../flutter_dng_decoder/dng_processor/native/build/libdng_decoder_native.dylib\"\nif [ ! -f \"$SRC\" ]; then\n  echo \"error: libdng_decoder_native.dylib not found at $SRC (build the native target in flutter_dng_decoder first)\" >&2\n  exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\ncp -f \"$SRC\" \"$DEST/\"\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$DEST/libdng_decoder_native.dylib\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
 		};
 		3399D490228B24CF009A79C7 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
