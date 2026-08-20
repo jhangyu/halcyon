@@ -1,13 +1,21 @@
 #include "flutter_window.h"
 
+#include <shellapi.h>
+
 #include <optional>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "utils.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
 FlutterWindow::~FlutterWindow() {}
+
+void FlutterWindow::SetLaunchFile(const std::string& utf8_path) {
+  launch_file_ = utf8_path;
+}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
@@ -25,6 +33,25 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  // Halcyon's own channels are registered directly on the engine messenger
+  // rather than as a plugin, mirroring macos/Runner/AppDelegate.swift.
+  channels_ = std::make_unique<halcyon::Channels>(
+      flutter_controller_->engine()->messenger());
+
+  // Deliver the launch file now. Dart has certainly NOT registered its
+  // halcyon/open_with handler yet at this point -- that is fine and is the
+  // documented reason the channel is push-only: Flutter buffers a
+  // platform -> Dart message until a handler appears
+  // (open_with_channel.dart:6-11).
+  if (!launch_file_.empty()) {
+    channels_->PushOpenFile(launch_file_);
+    launch_file_.clear();
+  }
+
+  // Accept files dropped onto the window as a second "open" route.
+  ::DragAcceptFiles(GetHandle(), TRUE);
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,11 +67,47 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Order matters: the channels borrow the engine's messenger, so they must go
+  // first. Reversing these two lines leaves the channel destructors touching a
+  // freed messenger.
+  channels_ = nullptr;
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
 
   Win32Window::OnDestroy();
+}
+
+void FlutterWindow::DeliverOpenFile(const std::string& utf8_path) {
+  if (utf8_path.empty()) {
+    return;
+  }
+  if (channels_) {
+    channels_->PushOpenFile(utf8_path);
+  } else {
+    // A drop before OnCreate finished is not possible (DragAcceptFiles is
+    // enabled there), but if the ordering ever changes, hold the path rather
+    // than drop it silently.
+    launch_file_ = utf8_path;
+  }
+}
+
+void FlutterWindow::HandleDroppedFiles(WPARAM wparam) {
+  const HDROP drop = reinterpret_cast<HDROP>(wparam);
+  if (drop == nullptr) {
+    return;
+  }
+  // Halcyon opens one photo at a time, so only the first path is used; the
+  // rest are discarded deliberately.
+  wchar_t path[MAX_PATH] = {};
+  const UINT copied = ::DragQueryFileW(drop, 0, path, MAX_PATH);
+  if (copied > 0) {
+    DeliverOpenFile(Utf8FromUtf16(path));
+  }
+  // DragFinish must run even when DragQueryFileW found nothing, or the shell
+  // leaks the drop's memory for the life of the process.
+  ::DragFinish(drop);
 }
 
 LRESULT
@@ -65,6 +128,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_DROPFILES:
+      HandleDroppedFiles(wparam);
+      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

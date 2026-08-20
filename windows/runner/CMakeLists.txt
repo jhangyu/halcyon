@@ -8,6 +8,9 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "halcyon_channels.cpp"
+  "halcyon_image.cpp"
+  "halcyon_trash.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -34,6 +37,20 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# Halcyon native bridges:
+#   windowscodecs.lib - WIC decode/scale/encode, and the WIC CLSID/GUID symbols
+#                       (CLSID_WICImagingFactory, GUID_ContainerFormatJpeg,
+#                       GUID_WICPixelFormat24bppBGR).
+#   shell32.lib       - SHCreateItemFromParsingName, DragQueryFileW, DragFinish,
+#                       DragAcceptFiles.
+#   ole32.lib         - CoCreateInstance, CreateStreamOnHGlobal,
+#                       GetHGlobalFromStream, PropVariantClear.
+#   oleaut32.lib      - VariantInit / VariantClear for the JPEG encoder options.
+target_link_libraries(${BINARY_NAME} PRIVATE
+  "windowscodecs.lib"
+  "shell32.lib"
+  "ole32.lib"
+  "oleaut32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "flutter_window.h"
+#include "halcyon_native.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -22,9 +23,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
+  // A shell association ("Open with" / double-clicking a photo) appends the
+  // file path to the command line. Resolve it BEFORE the vector is moved into
+  // the Dart entrypoint arguments.
+  const std::string launch_file =
+      halcyon::FirstExistingFileArgument(command_line_arguments);
+
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  // Must precede Create(): Create() runs OnCreate(), which is where the
+  // channel is built and the pending path is pushed.
+  window.SetLaunchFile(launch_file);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"photo_selector_flutter", origin, size)) {
