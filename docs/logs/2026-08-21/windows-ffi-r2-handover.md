@@ -34,7 +34,7 @@
 | W6a AOT target `x86-64-windows-vulkan-vk_int8-vk_int16-vk_int64-...` | [C] | `w7/cfg_win_aot.log` |
 | W6b `.a` → `${DNG_AOT_LIB_EXT}`（67→0，68 refs；改前副本 `w2/CMakeLists.pre_w6b.txt`） | [C] | lead 親驗 grep 計數 |
 | W7 拆分 kernel 泛化 — CMake + DngRenderGenerator 側 | [C] | `DNG_STAGE4_SPLIT_KERNEL` var；android=ON 不變、macOS=OFF 不變（`w7/cfg_android_stage1.log`） |
-| **W7b 拆分 kernel 的 caller 側（host bridge）** | **[B] 未動工** | 見 §3 P0 |
+| **W7b 拆分 kernel 的 caller 側（host bridge）** | **[C] 2026-08-21 簽收** | 上游 `4d4c314`；證據 `scripts/tmp/verify/w7b/`（pp 等價 IDENTICAL、B-R=132.41 PASS 位元一致、Android configure ON）；`:906` ensureSafeHueSatMap 判為 kernel-variant 已核可；剩餘 P2 交使用者照 runbook |
 | W8 vulkan-1.lib link 分支（VULKAN_SDK hint + override + FATAL_ERROR） | [C] | CMakeLists @ `e007418` |
 | W9 `windows-vulkan` 單階段 preset（Ninja + clang-cl + static CRT） | [C] | CMakePresets.json @ `e007418`；JSON parse 過 |
 | W10/W11/W13 打包 + README | [C] | 上游 `60a5427`；變數名 `dng_processor_ffi_bundled_libraries` PARENT_SCOPE 由 lead 親驗 |
