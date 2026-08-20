@@ -344,6 +344,21 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-030｜DngPreviewExtractor — 純 Dart DNG 內嵌 JPEG 預覽抽取（Windows/無原生橋接降級路徑）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-030 |
+| **名稱** | `lib/services/dng_preview_extractor.dart`（純 Dart 移植 `macos/Runner/DngPreviewExtractor.swift` 的 TIFF/IFD byte parsing）從真實 DNG 樣本抽出最大內嵌全尺寸 JPEG 預覽；截斷/非 DNG/malformed 輸入一律回傳 `null`，不 throw；`ImagePreloadController` 在原生縮圖回 `NativeImageFailure` 且副檔名為 `.dng` 時改走此抽取器 |
+| **測試類型** | 單元測試（真實樣本，`local_data/photo_samples/DNG/`）+ 邊界值測試（合成 malformed bytes） |
+| **背景** | Windows 原生橋接對 DNG 一律回 `RAW_UNSUPPORTED`（`windows/runner/halcyon_image.cpp:392-402`）；本抽取器讓任何缺原生縮圖橋接的平台仍能顯示 DNG 內嵌預覽。契約：`docs/logs/2026-08-21/windows-raw-r1r2-contract.md` §2 AC1-AC5 |
+| **驗證方式** | `test/dng_preview_extractor_test.dart`（24 個案例：13 個真實樣本抽出可解碼 SOI/EOI JPEG、1 個無預覽樣本回傳 null、1 個 EXIF orientation=6 注入驗證、9 個 malformed/truncated/non-DNG 邊界案例） |
+| **鑑別力證據** | 紅→綠：先以永遠回傳 `null`/`1` 的 stub 取代抽取器實作跑該測試檔，14 個案例轉紅（`scripts/tmp/verify/dng_preview_extractor_red.txt`）；還原實作後同批全綠（`scripts/tmp/verify/dng_preview_extractor_green.txt`）。另以獨立編譯的 Swift 參考實作對全部 14 個真實樣本逐一比對抽出 bytes 長度與 orientation，結果完全一致（`scripts/tmp/verify/dng_preview_extractor_dart_vs_swift.txt`） |
+| **效能（AC3b，2026-08-21 使用者增補）** | `scripts/tmp/bench_dng_extract.dart`（Stopwatch）對全部 14 個真實樣本各跑 1 次 cold + 5 次 warm，逐檔逐次數字見 `scripts/tmp/verify/dng_perf_bench_raw.txt`。以「每檔 5 次 warm 的中位數」再取跨檔中位數 = 3.79ms；70 個 warm 樣本點的最大值 = 8.56ms（`IMG_20251112_092839.dng`，25MB、無內嵌預覽仍掃描全檔）；cold-run（本 process 對該檔首次觸碰，非強制清 OS page cache）最大 12.51ms。皆遠低於 55ms 中位數目標與 1s 硬上限，AC3b PASS。現行實作（`File.readAsBytes()` 整檔讀入後純記憶體 IFD walk）已達標，未進行 `RandomAccessFile` byte-range 讀取優化 |
+| **狀態** | ✅ 已通過 |
+
+---
+
 ### TC-023｜ZoomController — 縮放上下限、歸零與焦點選擇
 
 | 欄位 | 內容 |

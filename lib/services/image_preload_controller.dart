@@ -8,6 +8,7 @@ import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'dng_preview_extractor.dart';
 import 'native_thumbnail_service.dart';
 
 typedef ImageBytesLoader =
@@ -648,6 +649,20 @@ class ImagePreloadController {
         _needsRawDecode[id] = exifOrientation;
         return null;
       case NativeImageFailure():
+        // No native thumbnail bridge succeeded for this file (e.g. the
+        // platform has no bridge at all -- MISSING_PLUGIN -- or the native
+        // side genuinely could not read it). For a .dng specifically, try
+        // the pure-Dart embedded-JPEG extractor as a last-resort preview
+        // source before giving up; this is additive and only reachable when
+        // the native path has already failed, so it never fires on a
+        // platform where native extraction succeeded (macOS unaffected).
+        if (path.toLowerCase().endsWith('.dng')) {
+          final dartBytes =
+              await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+            path,
+          );
+          if (dartBytes != null) return dartBytes;
+        }
         return null;
     }
   }
