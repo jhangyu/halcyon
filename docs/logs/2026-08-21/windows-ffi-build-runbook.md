@@ -10,6 +10,29 @@
 > **Prerequisite reading**: `windows-ffi-upgrade-findings.md` (work items
 > W1-W14, backend choice, risk R1-R8).
 
+## One-click path (added 2026-08-21)
+
+Sections 1-6 below are the reference procedure and remain authoritative. They
+are now also scripted, so the normal route is:
+
+1. On the Mac: `./scripts/package_windows.sh` — git-archives the committed
+   source of Halcyon **and** `../flutter_dng_decoder` into one timestamped zip
+   with the required sibling layout, plus `build_windows.ps1` and
+   `README_WINDOWS.md` at the zip root.
+2. Copy the zip to the Windows laptop and extract it.
+3. From an **x64 Native Tools Command Prompt for VS 2022**, in the extracted
+   root: `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
+   (source of the script: `Halcyon/scripts/windows/build_windows.ps1`).
+
+The script transcribes §1 (prereq checks, fail-early), §3+§4 (W12: preset
+configure/build, DLL into `dng_processor_ffi\windows\Libraries\`) and §5 (W14:
+`flutter pub get` + `flutter build windows --release` + the DLL-next-to-exe
+check with §5's diagnostics on failure). It does **not** do the §4 git commit
+(the extracted tree has no `.git`) and does **not** perform §5/§6 verification —
+it prints that protocol for you to run by hand. It also downloads the Halide
+v21 Windows dist named in §1 automatically. Use the manual steps below whenever
+the script stops, or when you want to understand what it is doing.
+
 ## 0. Read this first — nothing below has run on Windows
 
 Every step in this document was written on a macOS host with no Windows
