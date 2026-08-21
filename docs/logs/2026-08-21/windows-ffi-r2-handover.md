@@ -40,6 +40,7 @@
 | W10/W11/W13 打包 + README | [C] | 上游 `60a5427`；變數名 `dng_processor_ffi_bundled_libraries` PARENT_SCOPE 由 lead 親驗 |
 | Runbook（AC-R2-7） | [C] | Halcyon `a866648`：`windows-ffi-build-runbook.md`（明載未曾在 Windows 執行） |
 | macos-metal 回歸 + 真 DNG 解碼 | [C] | build exit 0；`test_cfa_color` 對 `IMG_20251112_092839.dng` → `B-R=132.41 [PASS]` backend=metal（`w2/macos_cfa_color.log`） |
+| AC-R2-6 三連（W7b 後重跑）＋ parking-lot 輪 | [C] 2026-08-21 簽收 | 上游 `e05a9a4`：getOrGrowZeroBuf leak 修復（origin-matched free）、Stage4 診斷字串改 non-split-kernel、vendored dylib 更新（UUID 24D734DC→7FC1A154）；Halcyon `flutter test -j 1` +162 全綠、`flutter build macos` ✓；1141 個巢狀 AGENTS.md 已刪（留根目錄）。證據 `scripts/tmp/verify/parkinglot/` |
 | W12 DLL 產出、W14 端到端 | [W] 未動 | 只能在使用者 Windows 筆電，照 runbook |
 | **全部 Windows 側 compile/link/run** | **[U]** | 本機無 Windows toolchain；clang-cl flag 接受度、Halide COFF `.lib`、dng_sdk qWinOS 首編、vulkan link 全未驗 |
 
