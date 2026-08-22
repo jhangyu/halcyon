@@ -3,14 +3,17 @@
 # package_windows.sh — build the one-zip Windows hand-off pack.
 #
 # Produces a single zip containing the committed source of BOTH repos as
-# siblings, plus the one-click Windows build script:
+# siblings:
 #
 #   <zip root>/
-#     build_windows.ps1
-#     build_windows.py
 #     README_WINDOWS.md
-#     Halcyon/
+#     Halcyon/                    (build script lives at Halcyon/scripts/build_apps.py)
 #     flutter_dng_decoder/
+#
+# The build script is NOT duplicated at the zip root. It used to be, copied
+# from the working tree while everything else came from `git archive HEAD` --
+# so an uncommitted edit produced a zip whose root script differed from the
+# one under Halcyon/. One copy, from the archive, cannot drift.
 #
 # The sibling layout is load-bearing: Halcyon/pubspec.yaml depends on
 # ../flutter_dng_decoder/dng_processor_ffi by relative path.
@@ -99,12 +102,8 @@ command -v zip >/dev/null 2>&1 || fail "zip not found on PATH"
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
-PS1_SRC="$HALCYON_DIR/scripts/windows/build_windows.ps1"
-PY_SRC="$HALCYON_DIR/scripts/windows/build_windows.py"
 README_SRC="$HALCYON_DIR/scripts/windows/README_WINDOWS.md"
-[ -f "$PS1_SRC" ] || fail "missing $PS1_SRC"
 [ -f "$README_SRC" ] || fail "missing $README_SRC"
-[ -f "$PY_SRC" ] || fail "missing $PY_SRC"
 
 # Refuse to run if either HEAD is unreadable (empty repo, corrupt objects,
 # detached nothing) — a half-populated zip is worse than no zip.
@@ -165,9 +164,7 @@ log "Pruning committed scratch paths"
 prune "$STAGE_DIR/Halcyon" "${HALCYON_PRUNE[@]}"
 prune "$STAGE_DIR/flutter_dng_decoder" "${DECODER_PRUNE[@]}"
 
-log "Adding the one-click Windows script"
-cp "$PS1_SRC" "$STAGE_DIR/build_windows.ps1"
-cp "$PY_SRC" "$STAGE_DIR/build_windows.py"
+log "Adding the pack README"
 cp "$README_SRC" "$STAGE_DIR/README_WINDOWS.md"
 {
   printf '\n---\n\n'
@@ -175,7 +172,7 @@ cp "$README_SRC" "$STAGE_DIR/README_WINDOWS.md"
   printf -- '- Halcyon @ %s\n' "$HALCYON_HEAD"
   printf -- '- flutter_dng_decoder @ %s\n' "$DECODER_HEAD"
 } >> "$STAGE_DIR/README_WINDOWS.md"
-step "build_windows.ps1 + build_windows.py + README_WINDOWS.md at zip root"
+step "README_WINDOWS.md at zip root; build script at Halcyon/scripts/build_apps.py"
 
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 ZIP_PATH="$OUT_DIR/halcyon-windows-pack-$TIMESTAMP.zip"
@@ -196,5 +193,6 @@ unzip -Z1 "$ZIP_PATH" | awk -F/ '{ if ($1 == "" ) next; if (NF > 1) print $1"/";
   | sort -u | sed 's/^/      /'
 step "sources:  Halcyon @ ${HALCYON_HEAD:0:12}, flutter_dng_decoder @ ${DECODER_HEAD:0:12}"
 step "next:     copy the zip to the Windows laptop, extract, read README_WINDOWS.md,"
-step "          then run build_windows.py (no Native Tools prompt needed) or"
-step "          build_windows.ps1 from an x64 Native Tools Command Prompt."
+step "          then from Halcyon\\ run: python scripts\\build_apps.py windows"
+step "          (no Native Tools prompt needed; add --check to verify the"
+step "          toolchain without building)"

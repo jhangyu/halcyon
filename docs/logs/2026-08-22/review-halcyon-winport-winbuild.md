@@ -157,10 +157,9 @@ engineering.
    `list(APPEND PLUGIN_BUNDLED_LIBRARIES ${dng_processor_ffi_bundled_libraries})`.
 2. `flutter_dng_decoder main:dng_processor_ffi/windows/CMakeLists.txt:48-51` —
    sets that variable to `${CMAKE_CURRENT_SOURCE_DIR}/Libraries/dng_decoder_native.dll`.
-   (The variable name is **correct** here — the silent-typo failure recorded in
-   the auto-memory `cmake-bundled-libraries-var-silent-typo` is already fixed on
-   that repo's `main`, and the file now carries a 20-line comment explaining why
-   the name must not change.)
+   (The variable name is **correct** here — the previously recorded silent-typo
+   failure in this variable name is already fixed on that repo's `main`, and the
+   file now carries a 20-line comment explaining why the name must not change.)
 3. `windows/CMakeLists.txt:84-88` — `install(FILES "${PLUGIN_BUNDLED_LIBRARIES}" ...)`.
 
 The DLL exists **only on `flutter_dng_decoder`'s `windows-port` branch**:
@@ -194,8 +193,9 @@ If a future dependency ships a `build.dart` code asset and its hook fails or is
 skipped, the directory will exist but be empty, `install` will copy nothing, and
 the build will report success while the app ships without its native library —
 a runtime `DynamicLibrary.open` failure with no build-time signal. That is
-precisely the failure class the auto-memory entry
-`cmake-bundled-libraries-var-silent-typo` records for this exact package.
+precisely the failure class previously recorded for this exact package: a
+misspelled `bundled_libraries` variable that packaged nothing and errored
+nowhere.
 
 Not worth fixing now (no native assets exist), but worth one line in the comment
 so the trade-off is on record rather than rediscovered.

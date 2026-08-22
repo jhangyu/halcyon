@@ -1,16 +1,18 @@
 # Windows port review, unified build script, cross-platform thumbnails — Session Handover
 
 > **建立時間**：2026-08-22 23:15（UTC+8）
-> **交接目的**：讓下一個 session 接續「Windows port 已合併之後的落地與驗證」，終態是 (a) 本輪未提交的改動被審過並提交，(b) Dart-first R1 落地，(c) 使用者在 Windows 機器上完成兩項只有他能做的驗證。
-> **目前判定**：merge 已完成並通過閘門；**四份改動未提交**；下一輪工作待使用者從 parking lot 挑選。
-> **可信版本錨點**：Halcyon `main` @ `a8ae038`；flutter_dng_decoder `main` @ `d36e1bd`。所有未提交結論綁 **working tree at 2026-08-22 23:15**，不綁 HEAD。
+> **交接目的**：讓下一個 session 把 **Windows 縮圖顯示不出來** 這件事真正修好。分析與計畫已完成，**程式碼一行都還沒寫**。
+> **目前判定**：merge 已完成並通過閘門；**原始需求「讓 thumbnails 全平台通用」尚未達成**。
+> **可信版本錨點**：Halcyon `main` @ `a8ae038`；flutter_dng_decoder `main` @ `d36e1bd`。
 
 ## 0. 接手速讀（60 秒）
 
-- **已達成**：兩個 `windows-port` 分支經 6 名 opus reviewer 審查後合併，0 blocker，post-merge 閘門三條全過（analyze 0 issues／test 162 passed／exit 0）。
-- **現況**：工作樹有 4 個 modified 檔與 10 個未追蹤檔，**全部未提交**。其中 `windows/runner/halcyon_image.cpp` 是一段**從未被編譯過**的 Windows C++。
-- **下一個動作**：見 §8 P0 —— 決定這批未提交改動如何切 commit，然後提交。
-- **最大風險／紅線**：`lib/views/rename_dialog.dart` 是使用者其他任務的在途工作，**不屬於本輪、不得提交、不得還原**。
+- **⚠️ 主線需求未完成**：使用者最初要的是「讓 thumbnails 脫離 macOS 後全平台通用」。本輪**只做到分析與計畫**（`thumbnail-dart-first-plan.md` 的 R1–R4），**沒有寫任何實作程式碼**。Windows 上今天仍是：
+  - 沒有內嵌預覽的 DNG → **主畫面顯示不出來**（`halcyon_image.cpp:392` 短路，`DngFullDecoder` 永遠不被呼叫）
+  - **每一個 RAW 檔的側欄縮圖都是空白灰塊，且靜默失敗**（`image_preload_controller.dart:836` 丟掉非 bytes 結果且不留失敗標記）
+- **下一個動作**：實作 R1（約 10 行，在 `native_thumbnail_service.dart` 已存在的 `case NativeImageFailure()` 裡），這一階就能讓主畫面那條路活過來。驗收條件見 plan §2 R1-AC1..AC5。
+- **已達成**：兩個 `windows-port` 分支經 6 名 opus reviewer 審查後合併，0 blocker，閘門三條全過（analyze 0 issues／`test -j 1` 162 passed／exit 0）。`build_apps.py` 取代三支舊建置腳本。Windows 匯出 EXIF 遺失已修（但未編譯）。
+- **最大風險／紅線**：`windows/runner/halcyon_image.cpp` 的 EXIF 修復**從未被編譯過**，而 `windows/CMakeLists.txt:42` 是 `/W4 /WX`，任何警告都是硬失敗。
 
 ## 1. 接手啟動序列
 
@@ -89,13 +91,16 @@ R1 的修法就是在 `case NativeImageFailure()` 這個已存在的分支裡補
 
 ## 8. 待解議題（依賴順序）
 
+**這張表的第一列就是原始需求本身，它還沒被做。** 前面幾輪產出的是分析與計畫，不是修復。
+
 | 優先 | 狀態 | 議題 | 下一動作 | 完成條件 |
 |---|---|---|---|---|
-| **P0** | [D] | 4 個 modified ＋ 10 個 untracked 全部未提交 | 依使用者裁決切 commit。建議三個：①`build_apps.py`＋舊腳本退場＋`package_windows.sh`（**必須同 commit**，見下）②AD-010 修訂 ③EXIF 修復（獨立，標明未編譯） | `git status` 只剩 `rename_dialog.dart` 與非本輪未追蹤檔 |
-| **P0** | [B] | 刪 `build_windows.ps1` 會打斷 `package_windows.sh` 的硬性 `[ -f "$PS1_SRC" ] \|\| fail` | 必須與 `package_windows.sh` 的修改同 commit。**行號要對合併後的樹重新推導**，reviewer 給的是分支上的編號 | `./scripts/package_windows.sh` 仍能跑完 |
-| **P1** | [D] | Windows 上兩項只有使用者能做的驗證 | 見 §11 | — |
-| **P1** | [U] | 測量 M1：`DngPreviewExtractor` 掃一輪 41 格側欄的讀取位元組數 | 在此 macOS 上量。commit 規則：<1s 且 <500MB → R3 照原樣出貨；否則 byte-range 改寫納入 R3 | 有數字 |
-| **P2** | [D] | Dart-first R1（約 10 行，headline 修復） | `native_thumbnail_service.dart` 的 `case NativeImageFailure()` | 見 plan §2 R1-AC1..AC5 |
+| **P0** | [B] | **Windows 上沒有內嵌預覽的 DNG 顯示不出來** —— 這是使用者原始需求，尚未修復 | 實作 R1：在 `native_thumbnail_service.dart` 已存在的 `case NativeImageFailure()` 分支中，對 `.dng` ＋ 內嵌預覽抽取落空的情況自行建構 `NativeImageNeedsRawDecode`，orientation 取自 `DngPreviewExtractor.readOrientationFromFile`（`dng_preview_extractor.dart:41`，目前無任何呼叫點）。約 10 行，全程可在 macOS 上單元測試 | plan §2 R1-AC1..AC5 逐條過 |
+| **P0** | [B] | **Windows 上每個 RAW 檔的側欄縮圖是空白灰塊，且靜默失敗** | R2（側欄解碼上限）→ R3（側欄 DNG fallback）。R2 必須用 `ResizeImagePolicy.fit`，不可用 `Image.memory` 的 `cacheWidth`/`cacheHeight`（見 §9） | plan §2 R2/R3 |
+| **P1** | [U] | 測量 M1：`DngPreviewExtractor` 掃一輪 41 格側欄的讀取位元組數 | 在此 macOS 上量，很便宜。commit 規則：<1s 且 <500MB → R3 照原樣出貨；否則 byte-range 改寫納入 R3 | 有數字。**這是 R3 唯一的閘** |
+| **P1** | [D] | R4：`warmupForSize` ＋ `setPipelineCachePath` 在 composition root 接線 | 這兩個 API 存在、適用於 Windows 的 Vulkan 建置，`lib/` 與 `test/` 呼叫點皆為 **0**。R2 交接文件為此編列了一整輪上游工作，但 Dart 側就是 `main.dart` 一行 | 有呼叫點且冷啟數字有改善 |
+| **P2** | [D] | Windows 冷啟首次解碼實際毫秒數 vs 1 秒天花板 | 只有使用者的 Windows 機器量得到。無法用「先解小張」緩解，該 API 不存在（PL-10） | 有數字 |
+| **P2** | [U] | EXIF 修復從未編譯（`/W4 /WX`，任何警告即硬失敗） | 照 `windows-export-exif-verification.md` 的 C1–C7 在 Windows 上驗 | C1–C7 全過 |
 | **P3** | [D] | Parking lot 11 項 | 見契約 §Parking lot | — |
 
 ## 9. 嘗試、裁決與禁止重踩
@@ -117,7 +122,7 @@ R1 的修法就是在 `case NativeImageFailure()` 這個已存在的分支裡補
 - **`build_apps.py` 的 native CMake 路徑從未執行過**。所有 Windows-only 分支（vcvars 自舉、registry 刷新、vulkaninfo、symlink 前置檢查、DLL 打包）都是推理加單元探針。**第一次在真 Windows 上跑要當首次接觸，不是回歸測試。**
 - **Halide 的 sha256 是首次信任（TOFU），不是真 pin**。擋得住未來的 asset 替換，擋不住 2026-08-22 之前就已發生的替換。上游無 checksum／簽章檔（已查證）。升級方式見 PL-8。
 - **EXIF 修復從未編譯**。`windows/CMakeLists.txt:42` 用 `/W4 /WX`，任何警告都是硬失敗。最糟的失敗模式是**匯出圖被轉兩次**，驗證協定的 C2+C3 專為抓它而寫。
-- **本輪沒有任何證據能證明 Windows exe 出的顏色是對的**。那完全建立在使用者自己與 macOS 的比對上。
+- **顏色正確性已由使用者驗證完畢**（2026-08-22，在 Windows 機器上與 macOS 逐項比對）。這是已結案事項，不是待驗項，也不要在後續文件裡重新開啟。
 - **1 秒天花板未量測，不是達標**。且無法用「先解小張」緩解 —— 那個 API 不存在（PL-10）。
 - **需使用者決策**：P0 的 commit 切法、P1 的 Windows 驗證、P2 的 R1 是否開工、以及 parking lot 取捨。
 

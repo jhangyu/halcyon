@@ -56,7 +56,7 @@ Halcyon/
 ├── test/                          # Flutter 單元測試與 widget smoke test
 ├── macos/Runner/                  # macOS 原生整合（MethodChannel）
 ├── android/                       # Android Runner + Gradle / AGP / Kotlin 設定
-├── scripts/build.sh               # 統一 build 入口
+├── scripts/build_apps.py          # 統一 build 入口（native + Flutter，全平台）
 ├── assets/icons/                  # 專案層級圖示來源
 ├── docs/logs/                     # Unified Task Logs
 ├── build/                         # Flutter build outputs（git ignored）
@@ -90,21 +90,26 @@ flutter run -d chrome
 
 ```bash
 # 預設建置 macOS release app
-./scripts/build.sh
+python3 scripts/build_apps.py
 
 # 指定平台
-./scripts/build.sh android
-./scripts/build.sh web
-./scripts/build.sh windows
-./scripts/build.sh linux
-./scripts/build.sh all
+python3 scripts/build_apps.py android
+python3 scripts/build_apps.py web
+python3 scripts/build_apps.py windows
+python3 scripts/build_apps.py linux
+python3 scripts/build_apps.py all
 
 # 指定 build mode
-./scripts/build.sh macos --debug
-./scripts/build.sh android-aab --release
+python3 scripts/build_apps.py macos --debug
+python3 scripts/build_apps.py android-aab --release
+
+# 只檢查工具鏈，不建置任何東西
+python3 scripts/build_apps.py --check
 ```
 
-`windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標，並略過不可支援的桌面平台。
+`windows` 與 `linux` 需在對應作業系統上建置；`all` 會建置目前主機可支援的目標並略過不可支援者，但明確指定單一不支援的 target 會直接失敗而非靜默跳過。
+這支腳本同時負責 native（`dng_processor`）建置：`--native auto`（預設）只在 Flutter 建置要用的預編庫不存在時才建 native。放置未通過 runbook S4 色彩閘的原生庫會在 Phase 0 被拒絕；`--no-colour-gate` 是明示的逃生口，且該次執行 exit 2 而非 0。
+macOS 只建 arm64（`--macos-arch` 可覆寫），因為 vendored 的 `libdng_decoder_native.dylib` 只有 arm64 切片。
 Android build 在 macOS 上會優先使用 Temurin JDK 25，找不到時退回 Homebrew `openjdk@21` / `openjdk@17`。
 目前 Android toolchain 為 Gradle 9.1.0 + Android Gradle Plugin 9.0.1 + Kotlin 2.3.21 相容模式；因 Flutter 3.35.1 的 Gradle plugin 尚未相容 AGP 9 new DSL，所以保留 `android.newDsl=false` / `android.builtInKotlin=false`。
 

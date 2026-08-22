@@ -88,21 +88,20 @@ Ordered by cost of *not* doing them.
 | 9 | `dng_processor_ffi/windows/Libraries/PROVENANCE.md` | The DLL has no PDB, build-ID or VERSIONINFO, so toolchain and source commit are unrecoverable. Hygiene, not correctness: a future rebuild has no baseline to diff against. |
 | 10 | Delete `dng_processor_ffi/windows/Libraries/.gitkeep` | Its own text says to delete it once the DLL is committed. |
 
-## Two things only the user can do, on the Windows machine
+## Settled by the user — do not reopen
 
-1. **Confirm the committed DLL is the one that was tested.** The user confirmed *a* DLL decodes correctly, but nothing proves the committed blob is that same file rather than an earlier link left in a staging directory — and the binary carries no build-ID to settle it.
-   ```powershell
-   Get-FileHash -Algorithm SHA256 <the DLL that was tested>
-   # expect A82B5F83F0A7F098D529B5C6B161523DE81089E9619381EF36BDC5069D205C2E
-   ```
-2. **Measure the cold first-decode latency for a preview-less DNG**, against the project's hard 1-second ceiling. Both architects named this the top unknown. It cannot be mitigated by decoding smaller first, because no such API exists (PL-10). Measure it before and after wiring up `warmupForSize` / `setPipelineCachePath` (PL-9).
+- **The DLL decodes correctly and its colour matches macOS.** Verified by the user on the Windows machine, 2026-08-22. Closed.
+
+## The one thing left that only the user can do, on the Windows machine
+
+**Measure the cold first-decode latency for a preview-less DNG**, against the project's hard 1-second ceiling. Both architects named this the top unknown. It cannot be mitigated by decoding smaller first, because no such API exists (PL-10). Measure it before and after wiring up `warmupForSize` / `setPipelineCachePath` (PL-9).
 
 ## Limitations that must not be softened in the merge commit
 
 - **`build_apps.py`'s native CMake path has never been executed.** Every Windows-only branch — vcvars bootstrap, registry refresh, vulkaninfo, symlink pre-check, DLL bundling — is reasoned and unit-probed, never run on Windows. First run on a real Windows machine should be treated as first contact, not a regression test.
 - **The Halide sha256 values are trust-on-first-use, not an independent pin.** They catch a future asset substitution, not one that predates 2026-08-22. Upstream ships no checksum or signature asset. See PL-8 for how a human upgrades this.
 - **The `ios` target in `build_apps.py` is new and unexercised.**
-- **Nothing in these reviews implies the Windows exe renders correct colour.** That rests entirely on the user's own comparison against macOS.
+- **Colour correctness is SETTLED**, verified by the user on the Windows machine against macOS on 2026-08-22. Closed, not outstanding. Do not reopen it in later documents.
 
 ## Suggested merge commit framing for the decoder
 

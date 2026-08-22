@@ -34,7 +34,9 @@ Halcyon/
 ├── unit_test.md                   # 測試策略與品質門檻
 ├── README.md                      # 專案整體說明文件
 ├── scripts/
-│   └── build.sh                   # 統一 Flutter build 入口
+│   ├── build_apps.py              # 統一 build 入口（native + Flutter，六平台）
+│   ├── package_windows.sh         # 打包 Windows 交付 zip
+│   └── windows/README_WINDOWS.md  # 該 zip 的收件說明
 │
 ├── (project root)                 # Flutter 主線版本（主要開發分支）
 │   ├── pubspec.yaml               # Flutter 依賴管理
@@ -192,7 +194,7 @@ Halcyon/
 | 側邊欄寬度範圍 | 180px – 600px（預設 270px）|
 | Flutter macOS Runner | `macos/Runner/` |
 | Android build toolchain | Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21（AGP 9 相容模式）|
-| Android JDK | macOS 上 `scripts/build.sh` 優先使用 Temurin JDK 25，fallback 至 Homebrew JDK 21 / 17 |
+| Android JDK | macOS 上 `scripts/build_apps.py` 優先使用 Temurin JDK 25，fallback 至 Homebrew JDK 21 / 17 |
 | SwiftUI 版本 | 已於 Task 7 退役，不再維護 `Sources/PhotoSelector/` |
 | Status line 時序 | 2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除（取代 SnackBar 250ms 淡出）|
 | 資料夾可寫性探測 | `PhotoStatusStore.isWritable()`：建立再刪除 `.halcyon_write_probe`（exFAT noowners 掛載下權限位不可靠，僅能實測）|

@@ -288,7 +288,7 @@ flutter build macos
 
 - **未驗證**：Windows 全部原生程式碼（未編譯）；Android debug APK 是否真的 build 過（契約 AC4 狀態未確認）；`flutter test -j 1` 在最終樹上的結果。
 - **已知限制**：Android RAW 為 arm64 device only（上游只有 arm64 `.so`），x86_64 模擬器上必失敗——已知限制而非缺陷。
-- **已知限制**：RAW 預覽解碼忽略 `targetSize`，永遠全解析度（`AppDelegate.swift:449` 傳 `options: nil`），約 10x 記憶體；此取捨使用者尚未裁決（見 auto-memory `cirawfilter-ignores-targetsize`）。
+- **已知限制**：RAW 預覽解碼忽略 `targetSize`，永遠全解析度（`AppDelegate.swift:449` 傳 `options: nil`），約 10x 記憶體；此取捨使用者尚未裁決。
 - **本檔的邊界**：本檔作者（arch-direction-opus）read-only，未執行任何 build 或測試；§7/§8 中所有「已跑過」的陳述都轉引自各交付的證據檔路徑，未由本作者親自重跑。
 - **已納入**：team `halcyon-port-research` 的 Task#1／#2 產出（`docs/logs/2026-08-21/native-layer-findings.md`、`flutter-side-findings.md`）已於本檔 §8/§9/§11 完成調和。兩份findings 與另一 session 的三份 premise audit 範圍部分重疊，但各自都補到對方沒有的東西（native-findings 補到 D1 已把絕對路徑整段移除、Android 零原生 channel；flutter-findings 補到 7 個儲存消費點與觸控嚴重度重估），**不是純重工**。
 - **已知的證據衝突（已裁決）**：`dng_bindings.dart` 的 iOS 分支行號、以及桌面專屬互動的檔案數（4 vs 3），兩處分歧皆源於「稽核期間檔案被改」與「計數單位不同」，非任一方錯誤。裁決結果寫在 §9 對應列。

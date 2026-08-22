@@ -101,7 +101,7 @@ Halide v21.0.0 這份 Windows 官方發行包只有 `Halide-shared-targets.cmake
 
 | 結果 | 改動／產物 | 驗證 | 版本錨點 |
 |---|---|---|---|
-| [C] 完整工具鏈就緒（VS Build Tools 2026 18.9.1 + VCTools workload + clang-cl、CMake 4.4.2、Ninja 1.13.2、Vulkan SDK 1.4.350、Flutter 3.41.9、NASM 3.2.0） | 系統層級安裝，非本 repo 檔案 | `python build_windows.py` 的 Phase 0 全部 `[ok]`（見 auto-memory `project-halcyon-windows-build-env.md`） | working tree at 2026-08-22 |
+| [C] 完整工具鏈就緒（VS Build Tools 2026 18.9.1 + VCTools workload + clang-cl、CMake 4.4.2、Ninja 1.13.2、Vulkan SDK 1.4.350、Flutter 3.41.9、NASM 3.2.0） | 系統層級安裝，非本 repo 檔案 | `python build_windows.py` 的 Phase 0 全部 `[ok]` | working tree at 2026-08-22 |
 | [C] Python 版建置腳本，取代 PowerShell 版（Expand-Archive 長路徑 bug + `$LASTEXITCODE` 不可靠） | `build_windows.py`（新檔，~420 行） | 已跑過 5 輪，Phase 0/0b/Phase1-configure 穩定通過 | working tree |
 | [C] Halide v21.0.0 手動補齊（原腳本用 `Expand-Archive` 對這份 zip 的長檔名會炸；改用 Python `zipfile` 篩選解壓＋官方發行包把 `Halide.lib` 放在 `lib\Release\` 而非腳本預期的 `lib\Halide.lib`，已鏡射一份） | `native/third_party/halide/`（含 `lib/Halide.lib`、`lib/Release/Halide.lib`、`bin/Release/Halide.dll`、`VERSION`） | `Test-Path` 等效檢查通過，Phase 0b `[ok] already present` | working tree |
 | [C] libjpeg-turbo CPack 樣板檔缺失（`.gitignore` 排除了 `native/third_party/libjpeg-turbo/{release,win}/`，但其 `CMakeLists.txt:2072` 的 `include(cmakescripts/BuildPackages.cmake)` 沒有頂層專案 guard，無條件需要這些檔案） | 7 個空白 stub `.in` 檔（見「範圍」段落列表） | CMake configure 不再報這 7 個 `configure_file` 錯誤 | working tree |
@@ -155,7 +155,6 @@ python build_windows.py
 - 必讀：`flutter_dng_decoder\dng_processor\native\CMakeLists.txt:360-427` — Halide find_package + generator 定義區塊（P0 之後 P1 也要改這附近或 `build_windows.py`）
 - Artifact：本文件「附件 A」— P1 完整失敗指令原文（原始 log 為 Claude Code session 暫存檔，session 結束後會被清除，故完整轉錄於此）
 - 相關決策／文件：`Halcyon\docs\logs\2026-08-21\windows-ffi-build-runbook.md` — 本次工作對應的權威 runbook；`Halcyon\docs\logs\2026-08-21\windows-ffi-build-runbook.md` 的「四個最可能的 first-contact 問題」清單中**沒有涵蓋** P0/P1，屬於這次新發現、runbook 尚未記錄的問題，建議下一個 session 修完後回頭補進 runbook
-- 相關記憶：auto-memory `project-halcyon-windows-build-env.md`（這台機器工具鏈安裝細節）
 
 ---
 

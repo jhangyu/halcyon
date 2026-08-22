@@ -1,8 +1,8 @@
 # Halcyon Windows RAW decode pack
 
-This zip contains the committed source of both repos plus a one-click build
-script. It is produced by `Halcyon/scripts/package_windows.sh` on the macOS
-host; the authoritative procedure it automates is
+This zip contains the committed source of both repos. It is produced by
+`Halcyon/scripts/package_windows.sh` on the macOS host; the authoritative
+procedure it automates is
 `Halcyon/docs/logs/2026-08-21/windows-ffi-build-runbook.md` (also inside this
 zip), which stays the reference for anything the script cannot do.
 
@@ -10,21 +10,26 @@ zip), which stays the reference for anything the script cannot do.
 
 ```
 <extracted root>\
-  build_windows.ps1        one-click build (W12 native DLL + W14 Flutter app)
   README_WINDOWS.md        this file
   Halcyon\                 Flutter app (committed source only)
+    scripts\build_apps.py  the build script — run this
   flutter_dng_decoder\     native package (committed source only)
 ```
 
 The two folders MUST stay siblings: `Halcyon/pubspec.yaml` depends on
 `../flutter_dng_decoder/dng_processor_ffi` by relative path.
 
+There is deliberately no copy of the build script at the zip root. A root copy
+and the one under `Halcyon\scripts\` could drift apart, and only one of them
+would be the version under version control.
+
 ## Not in this zip (on purpose)
 
 - `.git` history, build trees, `local_data/`, scratch folders.
-- The Halide v21 binary distribution (~500 MB, not in git). `build_windows.ps1`
+- The Halide v21 binary distribution (~500 MB, not in git). `build_apps.py`
   downloads it automatically into
-  `flutter_dng_decoder\dng_processor\native\third_party\halide\`.
+  `flutter_dng_decoder\dng_processor\native\third_party\halide\` and checks it
+  against a recorded sha256.
 - **Photo samples.** Verification (runbook S4/S5/S6) needs real DNG files from
   `local_data/photo_samples/DNG/`. Copy them to the Windows machine yourself.
 
@@ -32,34 +37,45 @@ The two folders MUST stay siblings: `Halcyon/pubspec.yaml` depends on
 
 | Requirement | Check |
 |---|---|
-| Visual Studio 2022 with "Desktop development with C++" | run everything from an **x64 Native Tools Command Prompt for VS 2022** |
+| Python 3 | `python --version` — the script itself is Python, stdlib only |
+| Visual Studio 2022 with "Desktop development with C++" | `build_apps.py` finds it via vswhere and injects vcvars64 itself — **no Native Tools prompt needed** |
 | **clang-cl** ("C++ Clang tools for Windows" VS component, or standalone LLVM) | `clang-cl --version` — mandatory, `cl.exe` is not sufficient |
 | LunarG Vulkan SDK | `echo %VULKAN_SDK%` non-empty |
 | Vulkan 1.1+ GPU + driver | `vulkaninfo` (runtime requirement — decode fails without it) |
 | CMake 3.14+ | `cmake --version` |
 | Ninja | `ninja --version` (ships with the VS C++ workload) |
 | Flutter | `flutter --version` |
-| NASM | optional; without it libjpeg-turbo builds with `WITH_SIMD=OFF` |
+| Windows Developer Mode | required by Flutter for symlink support |
+| NASM | optional; without it libjpeg-turbo builds with `WITH_SIMD=OFF`, which is a performance difference whose output-parity with the SIMD path is unverified |
 
 Internet access is required on first run (Halide distribution + zlib fetched by
 CMake).
 
+`python build_apps.py windows --check` runs every check above and exits non-zero
+naming the first missing one, without building anything.
+
 ## Run it
 
-From an **x64 Native Tools Command Prompt for VS 2022**, in the extracted root:
+From any ordinary command prompt, in `Halcyon\`:
 
 ```bat
-powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
+python scripts\build_apps.py windows
 ```
 
-Useful switches:
+Useful flags:
 
 ```bat
-:: also run the native blue-sky colour gate (runbook S4)
-powershell -ExecutionPolicy Bypass -File .\build_windows.ps1 -CfaSampleDng D:\samples\sky.dng
+:: prerequisites only, build nothing
+python scripts\build_apps.py windows --check
+
+:: run the native blue-sky colour gate (runbook S4)
+python scripts\build_apps.py windows --cfa-sample-dng D:\samples\sky.dng
 
 :: native DLL only, skip the Flutter app build
-powershell -ExecutionPolicy Bypass -File .\build_windows.ps1 -SkipFlutterBuild
+python scripts\build_apps.py windows --skip-flutter-build
+
+:: force a clean reconfigure (needed after any CMake target rename)
+python scripts\build_apps.py windows --clean
 ```
 
 What it does:
@@ -72,15 +88,22 @@ What it does:
    `build-windows\dng_decoder_native.dll` into
    `flutter_dng_decoder\dng_processor_ffi\windows\Libraries\`.
 3. **Phase 2 (W14)** — `flutter pub get` + `flutter build windows --release` in
-   `Halcyon\`, then verifies the DLL landed next to the runner exe in
+   `Halcyon\`, then verifies the DLL landed next to `halcyon.exe` in
    `build\windows\x64\runner\Release\`. If it did not, it prints the runbook's
    diagnostics instead of hand-copying the DLL (that would hide a real
    packaging bug).
 4. **Phase 3** — prints the manual verification protocol (decode correctness and
    the first-decode 1-second gate). The script does not drive the UI.
 
-The script is idempotent: re-running after fixing an error is safe, and it stops
-at the first failure naming the phase.
+**The colour gate is not optional by default.** Phase 0 refuses a native build
+with no `--cfa-sample-dng`, because placing a library that has never passed the
+runbook S4 colour gate while reporting success is how an unvalidated binary
+gets shipped. `--no-colour-gate` is the explicit opt-out; a run that uses it
+exits 2, never 0.
+
+Re-running after fixing an error is safe, with one exception the script now
+detects and names for you: renaming a CMake target requires deleting the build
+tree, which `--clean` does.
 
 ## After a successful build
 

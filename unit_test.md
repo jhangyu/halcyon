@@ -886,10 +886,12 @@ flutter test --coverage
 
 ## 腳本登錄
 
-- `scripts/build.sh`：統一 Flutter build 入口；預設建置 macOS release app，支援 `macos`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。
-  - **範例指令**：`./scripts/build.sh`、`./scripts/build.sh android`、`./scripts/build.sh web`、`./scripts/build.sh android-aab --release`
-  - **必要輸入**：可選 target；可選 `--debug` / `--profile` / `--release`；可選環境變數 `BUILD_MODE`
-  - **契約檢查摘要**：檢查 Flutter CLI 是否存在、target 是否為支援值、host OS 是否支援對應 desktop target；Android build 會套用 JDK 25 / 21 / 17 fallback。
+- `scripts/build_apps.py`：統一 build 入口（native `dng_processor` + Flutter）；取代已刪除的 `build.sh` / `build_windows.ps1` / `build_windows.py`。預設建置 macOS release app，支援 `macos`、`ios`、`android`、`android-apk`、`android-aab`、`web`、`windows`、`linux`、`all`。
+  - **範例指令**：`python3 scripts/build_apps.py`、`python3 scripts/build_apps.py android`、`python3 scripts/build_apps.py --check`、`python3 scripts/build_apps.py android-aab --release`
+  - **必要輸入**：可選 target；可選 `--debug` / `--profile` / `--release`；可選環境變數 `BUILD_MODE`；`--native auto|always|never`、`--macos-arch`、`--clean`、`--cfa-sample-dng`、`--no-colour-gate`
+  - **契約檢查摘要**：檢查 Flutter CLI、target 是否支援、host OS 是否支援該 desktop target（明確指定不支援的 target 會失敗而非略過）；Android 套用 JDK 25 / 21 / 17 fallback；Windows 自行以 vswhere 定位 VS 並注入 vcvars64。`--check` 只跑檢查不建置，缺任一必要工具即 exit 非 0。
+  - **失敗語意**：未通過 runbook S4 色彩閘就放置原生庫，會在 Phase 0 被拒絕；`--no-colour-gate` 是明示逃生口且該次執行 exit 2。失敗的執行印 `ABORTED`，不印 `DONE`。
+  - **已知限制**：native CMake 路徑（Phase 0b/1）從未實際執行過；所有 Windows-only 分支為推理與單元探針，未在 Windows 上跑過。Halide 的 sha256 為首次信任（TOFU），非獨立驗證的 pin。
   - **主要輸出**：根目錄 `build/`；Android APK 為 `build/app/outputs/flutter-apk/app-release.apk`，Web 為 `build/web/`，macOS 為 `build/macos/Build/Products/<Mode>/halcyon_flutter.app`
   - **成功判定**：腳本 exit code = 0，且輸出路徑存在。
   - **相容性影響**：Android 目前使用 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，以支援 Temurin JDK 25。
@@ -937,4 +939,4 @@ flutter test --coverage
 | `setState()` / `notifyListeners()` 未觸發 | 非同步時序問題 | 使用 `await tester.pumpAndSettle()` |
 | Widget test 找不到 Finder | 測試 ID 變了 | 確認 widget key 或 text label |
 | macOS native build 失敗 | Runner Swift / MethodChannel 編譯問題 | 執行 `flutter build macos` 並查看 `macos/Runner/AppDelegate.swift` |
-| Android build 在 Gradle Kotlin DSL 階段失敗並顯示 `25.0.2` | 舊版 Gradle/Kotlin toolchain 不支援 JDK 25 | 使用 `scripts/build.sh`；目前已升級到 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，macOS 上優先套用 Temurin JDK 25 |
+| Android build 在 Gradle Kotlin DSL 階段失敗並顯示 `25.0.2` | 舊版 Gradle/Kotlin toolchain 不支援 JDK 25 | 使用 `scripts/build_apps.py`；目前已升級到 Gradle 9.1.0 + AGP 9.0.1 + Kotlin 2.3.21 相容模式，macOS 上優先套用 Temurin JDK 25 |
