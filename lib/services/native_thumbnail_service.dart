@@ -49,9 +49,12 @@ class NativeImageBytes extends NativeImageResult {
 /// caller must run a real RAW decode (see `DngFullDecoder` in
 /// `dng_decode_contract.dart`). This is NOT a failure.
 ///
-/// [exifOrientation] is the IFD0 Orientation tag value read natively, in the
-/// range 1..8; it is [kDefaultExifOrientation] when the tag is absent or
-/// unparseable. The decoder does not apply EXIF orientation, so Halcyon must.
+/// [exifOrientation] is the IFD0 Orientation tag value, in the range 1..8; it
+/// is [kDefaultExifOrientation] when the tag is absent or unparseable. It may
+/// be read natively (macOS, via the [kNoEmbeddedPreviewCode] channel error) or
+/// in Dart (via `DngPreviewExtractor.readOrientationFromFile`, on platforms
+/// whose native bridge does not emit that code). The decoder does not apply
+/// EXIF orientation, so Halcyon must.
 class NativeImageNeedsRawDecode extends NativeImageResult {
   const NativeImageNeedsRawDecode({required this.exifOrientation});
 
@@ -74,7 +77,12 @@ const int kDefaultExifOrientation = 1;
 
 /// Native error code signalling [NativeImageNeedsRawDecode]. Emitted by
 /// `macos/Runner/AppDelegate.swift` only for `purpose == "preview"` on a
-/// `.dng` whose embedded-JPEG extraction returned nil.
+/// `.dng` whose embedded-JPEG extraction returned nil. It is NOT the only
+/// source of [NativeImageNeedsRawDecode]: `windows/runner/halcyon_image.cpp`
+/// deliberately returns `RAW_UNSUPPORTED` instead, and the Dart pipeline
+/// synthesises the variant itself in that case (see AD-010's 2026-08-22
+/// amendment). Do not reintroduce an assumption that this code is the only
+/// way the raw-decode path can be entered.
 const String kNoEmbeddedPreviewCode = 'NO_EMBEDDED_PREVIEW';
 
 /// Channel argument name for opting OUT of the [kNoEmbeddedPreviewCode]

@@ -18,6 +18,14 @@
 #include <ocidl.h>
 #include <oleauto.h>
 #include <wincodec.h>
+// wincodecsdk.h, not wincodec.h, is where the metadata WRITE surface lives:
+// IWICMetadataBlockReader / IWICMetadataBlockWriter / IWICMetadataQueryWriter.
+// (IWICMetadataQueryReader, used by ReadExifOrientation below, is the one
+// metadata interface that wincodec.h does declare.) It needs no extra .lib:
+// the interfaces are reached through IID_PPV_ARGS / __uuidof, so no IID_*
+// symbol is referenced and windowscodecs.lib -- already linked in
+// windows/runner/CMakeLists.txt:51 -- remains sufficient.
+#include <wincodecsdk.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -168,8 +176,119 @@ WICBitmapTransformOptions TransformForOrientation(unsigned int orientation) {
   }
 }
 
+// Rewrites a metadata tag that is ALREADY present, and never creates one.
+// GetMetadataByName is used purely as an existence probe: a source whose Exif
+// sub-IFD does not exist must not gain a synthetic one holding nothing but the
+// two pixel-dimension tags. IWICMetadataQueryWriter derives from
+// IWICMetadataQueryReader, so the probe and the write go through one object.
+void OverwriteExistingUint(IWICMetadataQueryWriter* writer,
+                           const wchar_t* query,
+                           UINT new_value) {
+  PROPVARIANT probe;
+  ::PropVariantInit(&probe);
+  const bool present = SUCCEEDED(writer->GetMetadataByName(query, &probe)) &&
+                       probe.vt != VT_EMPTY;
+  ::PropVariantClear(&probe);
+  if (!present) {
+    return;
+  }
+  PROPVARIANT value;
+  ::PropVariantInit(&value);
+  // EXIF permits SHORT or LONG for tags 40962/40963; VT_UI4 asks WIC for LONG,
+  // which is in-spec for either source encoding.
+  value.vt = VT_UI4;
+  value.ulVal = new_value;
+  (void)writer->SetMetadataByName(query, &value);
+  ::PropVariantClear(&value);
+}
+
+// Copies the source frame's metadata blocks (EXIF / GPS / IPTC / XMP) onto the
+// encoder frame, then forces Orientation to 1. This is the Windows counterpart
+// of AppDelegate.swift:250-278, and exists ONLY for the `export` purpose --
+// see the |metadata_source| gate in EncodeJpeg.
+//
+// EVERY step is deliberately non-fatal, in the same spirit as the ImageQuality
+// write below: a source with no metadata at all, or a codec that refuses
+// IWICMetadataBlockWriter, must still yield a valid JPEG. An export that began
+// FAILING because metadata could not be copied would be a worse defect than
+// the metadata loss this fixes.
+//
+// Orientation is WRITTEN AS 1, never carried over. The pixels handed to the
+// encoder have already been rotated by DecodeAndReencode's flip-rotator, so a
+// surviving source Orientation would make every viewer rotate a second time.
+// macOS writes 1 into two places -- the top-level property and the TIFF
+// sub-dictionary (AppDelegate.swift:266,271) -- but those are two ImageIO
+// VIEWS of one underlying tag, EXIF IFD0 tag 274. WIC exposes no such
+// duplication: in a JPEG container there is exactly one App1/IFD0 274, and it
+// is the query written below (the write form of ReadExifOrientation's first
+// query; the `/ifd/...` alternative there is the TIFF-container spelling and
+// cannot apply, since this encoder is always GUID_ContainerFormatJpeg).
+//
+// The one real duplicate on Windows is XMP `tiff:Orientation`, which Adobe
+// tooling may prefer over EXIF. It is REMOVED rather than rewritten, because
+// removing it makes viewers fall back to the EXIF 1 we just wrote, whereas
+// writing it would mean guessing XMP's value encoding. RemoveMetadataByName
+// returning "not found" is the normal case and is ignored.
+//
+// ponytail: block-level copy is all this does -- there is no per-tag scrub, so
+// anything the source carried (GPS coordinates, serial numbers, maker notes)
+// is carried over verbatim, exactly as macOS does. If privacy-stripping is
+// ever wanted, it belongs here as an explicit RemoveMetadataByName list, not
+// as a switch to hand-rolled EXIF serialisation.
+void CopySourceMetadata(IWICBitmapFrameDecode* source_frame,
+                        IWICBitmapFrameEncode* encoder_frame,
+                        UINT encoded_width,
+                        UINT encoded_height) {
+  ComPtr<IWICMetadataBlockReader> block_reader;
+  if (FAILED(source_frame->QueryInterface(IID_PPV_ARGS(&block_reader)))) {
+    return;
+  }
+  ComPtr<IWICMetadataBlockWriter> block_writer;
+  if (FAILED(encoder_frame->QueryInterface(IID_PPV_ARGS(&block_writer)))) {
+    return;
+  }
+  // Must happen after IWICBitmapFrameEncode::Initialize and before Commit;
+  // this is the ordering of the documented "re-encode a JPEG with metadata"
+  // sequence (Initialize -> InitializeFromBlockReader -> WriteSource ->
+  // Commit), which the call site preserves.
+  if (FAILED(block_writer->InitializeFromBlockReader(block_reader.Get()))) {
+    return;
+  }
+
+  ComPtr<IWICMetadataQueryWriter> writer;
+  if (FAILED(encoder_frame->GetMetadataQueryWriter(&writer)) || !writer) {
+    // The blocks copied above still land in the output; only the Orientation
+    // override is lost. That combination WOULD double-rotate, so it is called
+    // out in the verification protocol
+    // (docs/logs/2026-08-22/windows-export-exif-verification.md) as the
+    // signature to look for if exported images come out sideways.
+    return;
+  }
+
+  PROPVARIANT orientation;
+  ::PropVariantInit(&orientation);
+  orientation.vt = VT_UI2;  // EXIF SHORT, matching ReadExifOrientation's read.
+  orientation.uiVal = 1;
+  (void)writer->SetMetadataByName(L"/app1/ifd/{ushort=274}", &orientation);
+  ::PropVariantClear(&orientation);
+
+  (void)writer->RemoveMetadataByName(L"/xmp/tiff:Orientation");
+
+  // The Exif pixel-dimension tags describe the ORIGINAL frame; leaving them at
+  // the source values makes the file self-contradictory after a downscale.
+  // Same reasoning as AppDelegate.swift:272-276.
+  OverwriteExistingUint(writer.Get(), L"/app1/ifd/exif/{ushort=40962}",
+                        encoded_width);
+  OverwriteExistingUint(writer.Get(), L"/app1/ifd/exif/{ushort=40963}",
+                        encoded_height);
+}
+
+// |metadata_source| is the decoder frame whose metadata should be copied into
+// the output, or nullptr to write no metadata at all (the pre-existing
+// behaviour, still used by every non-export purpose).
 HRESULT EncodeJpeg(IWICImagingFactory* factory,
                    IWICBitmapSource* source,
+                   IWICBitmapFrameDecode* metadata_source,
                    std::vector<uint8_t>* out) {
   ComPtr<IStream> stream;
   HRESULT hr = ::CreateStreamOnHGlobal(nullptr, TRUE, &stream);
@@ -228,6 +347,15 @@ HRESULT EncodeJpeg(IWICImagingFactory* factory,
   if (FAILED(hr)) {
     return hr;
   }
+
+  // Export parity with macOS: carry the source's EXIF across, Orientation
+  // forced to 1. nullptr for every other purpose, so the preview and
+  // sidebarThumbnail paths reach Commit having touched no metadata interface
+  // at all -- byte-for-byte the previous behaviour.
+  if (metadata_source != nullptr) {
+    CopySourceMetadata(metadata_source, frame.Get(), width, height);
+  }
+
   hr = frame->WriteSource(source, nullptr);
   if (FAILED(hr)) {
     return hr;
@@ -271,7 +399,10 @@ HRESULT EncodeJpeg(IWICImagingFactory* factory,
   return S_OK;
 }
 
-ImageResult DecodeAndReencode(const std::wstring& path, int target_size) {
+// |copy_metadata| is true only for the `export` purpose; see RequestImage.
+ImageResult DecodeAndReencode(const std::wstring& path,
+                              int target_size,
+                              bool copy_metadata) {
   ComPtr<IWICImagingFactory> factory;
   HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                   CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
@@ -330,11 +461,15 @@ ImageResult DecodeAndReencode(const std::wstring& path, int target_size) {
     source = scaler;
   }
 
-  // The re-encoded JPEG carries no EXIF block, so it has no Orientation tag
-  // for Flutter to honour. The rotation must therefore be baked into the
-  // pixels here -- this is the counterpart of macOS's
-  // kCGImageSourceCreateThumbnailWithTransform (AppDelegate.swift:432,482)
-  // and of the export path forcing Orientation=1.
+  // The rotation is baked into the PIXELS here, for both metadata modes, and
+  // this must stay that way:
+  //   - !copy_metadata: the re-encoded JPEG carries no EXIF block at all, so
+  //     there is no Orientation tag left for Flutter to honour.
+  //   - copy_metadata (export): the EXIF block survives, but CopySourceMetadata
+  //     overwrites its Orientation with 1 precisely because the pixels are
+  //     already rotated.
+  // This is the counterpart of macOS's kCGImageSourceCreateThumbnailWithTransform
+  // (AppDelegate.swift:432,482) and of the export path forcing Orientation=1.
   const unsigned int orientation = ReadExifOrientation(frame.Get());
   if (orientation != 1) {
     ComPtr<IWICBitmapFlipRotator> rotator;
@@ -360,7 +495,9 @@ ImageResult DecodeAndReencode(const std::wstring& path, int target_size) {
   }
 
   ImageResult result;
-  if (FAILED(EncodeJpeg(factory.Get(), converter.Get(), &result.bytes))) {
+  if (FAILED(EncodeJpeg(factory.Get(), converter.Get(),
+                        copy_metadata ? frame.Get() : nullptr,
+                        &result.bytes))) {
     return Fail("CONVERT_FAILED", "Cannot encode JPEG");
   }
   result.ok = true;
@@ -417,8 +554,19 @@ ImageResult RequestImage(const std::string& utf8_path,
     return result;
   }
 
+  // The EXIF carry-over is gated HERE, on the purpose string, and nowhere
+  // else. `sidebarThumbnail` and `preview` reach DecodeAndReencode with
+  // copy_metadata == false, which makes EncodeJpeg's |metadata_source| null,
+  // which makes CopySourceMetadata unreachable for them -- their output is
+  // byte-for-byte what it was before the export fix.
+  // ImageRequestPurpose.export.platformValue is the literal "export"
+  // (native_thumbnail_service.dart:18); a purpose string this runner does not
+  // recognise (or an omitted one, defaulted to "preview" by
+  // halcyon_channels.cpp:87-88) therefore degrades to the no-metadata path.
+  const bool is_export = purpose == "export";
   return DecodeAndReencode(path,
-                           target_size > 0 ? target_size : kDefaultTargetSize);
+                           target_size > 0 ? target_size : kDefaultTargetSize,
+                           is_export);
 }
 
 }  // namespace halcyon

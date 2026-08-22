@@ -89,6 +89,7 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **日期**：2026-08-16
 - **決策**：無內嵌可用全尺寸 JPEG 預覽的 DNG 檔案，改由 `dng_processor` package 提供真正的原生 RAW 解碼，取代降級顯示縮圖。以 `DngFullDecoder` / `DecodedRgba`（`lib/services/dng_decode_contract.dart`）作為整合縫（integration seam），讓管線可用 fake decoder 單元測試，不必載入原生 dylib。
 - **依據**：`dng_processor` 目前無 barrel export，只能 import 其 `src/`（`lib/services/dng_decode_service.dart:1` `// ignore: implementation_imports`），待該套件補上 `lib/dng_processor.dart` 後再清理。
+- **修訂（2026-08-22，Dart-first 採用後）**：`NativeImageNeedsRawDecode` 不再只由原生端發出。原設計中該 variant 唯一來源是 `AppDelegate.swift` 的 `NO_EMBEDDED_PREVIEW` channel error；Windows 原生端刻意回 `RAW_UNSUPPORTED`（`windows/runner/halcyon_image.cpp:392-403`），因此該訊號在 Windows 永遠不會出現，`DngFullDecoder` 成為死碼。改由 Dart 端在「原生失敗 ＋ `.dng` ＋ 內嵌預覽抽取落空」時自行建構此 variant，orientation 來自 `DngPreviewExtractor.readOrientationFromFile`（`dng_preview_extractor.dart:41`）。**三個 variant 的凍結不變**（AD-011 的 tier-1/tier-2 契約亦不變）；改變的只是「誰建構這個 variant」。此 variant 的語意自此讀作「拿不到便宜的 bytes，且這是解碼器處理得了的 RAW」，與訊號的來源平台無關。
 - **Flutter**：`dng_decode_contract.dart`、`dng_decode_service.dart`、`decoded_rgba_image_provider.dart`。
 - **驗證**：`test/dng_decoder_smoke_test.dart`、`test/dng_extractor_swift_test.dart`、`test/decoded_rgba_image_provider_test.dart` 通過（2026-08-19 重跑）。
 - **對應任務**：`task.md` Task 22。
