@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(photo_selector_flutter LANGUAGES CXX)
+project(halcyon LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "photo_selector_flutter")
+set(BINARY_NAME "halcyon")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -89,6 +89,11 @@ endif()
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
+# The flutter tool only creates this directory when some package actually ships
+# native assets; this project has none, so on a clean build it never exists and
+# the install() below fails with "file INSTALL cannot find". Create it so the
+# rule always has an (empty) source. Harmless when the tool does populate it.
+file(MAKE_DIRECTORY "${NATIVE_ASSETS_DIR}")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
    COMPONENT Runtime)
