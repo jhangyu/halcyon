@@ -27,7 +27,20 @@ enum SourceCost {
 }
 
 /// What one attempt to produce a payload actually observed.
-typedef SourceOutcome = ({SourcePayload? payload, SourceCost? observedCost});
+///
+/// [deferred] separates the two ways a payload can come back null, which the
+/// caller MUST NOT confuse: `deferred: true` means "measured as expensive and
+/// intentionally not done yet, come back from the +/-1 pass" (a bounded
+/// spinner), while `deferred: false` with a null payload means every source
+/// including the legacy fallback failed and the item is a PERMANENT MISS. Fold
+/// those together and a decoder failure becomes a spinner that never resolves
+/// -- the single stranding risk design §3.4 names.
+typedef SourceOutcome = ({
+  SourcePayload? payload,
+  SourceCost? observedCost,
+  bool deferred,
+  int? exifOrientation,
+});
 
 /// The seam through which the native (or faked) preview bridge is called.
 /// Written structurally rather than importing `ImagePreloadController`'s
@@ -85,17 +98,32 @@ class PhotoSource {
     final result = await loader(path, purpose: ImageRequestPurpose.preview);
     switch (result) {
       case NativeImageBytes(:final bytes):
-        return (payload: EncodedPayload(bytes), observedCost: SourceCost.cheap);
+        return (
+          payload: EncodedPayload(bytes),
+          observedCost: SourceCost.cheap,
+          deferred: false,
+          exifOrientation: null,
+        );
 
       case NativeImageNeedsRawDecode(:final exifOrientation):
-        if (!allowExpensive) {
-          return (payload: null, observedCost: SourceCost.expensive);
-        }
         final decoder = dngDecoder;
         if (decoder == null) {
+          // No FFI work exists to defer. Preserve the frozen "slow but
+          // working" behaviour immediately: legacy CIRAWFilter bytes, not a
+          // spinner waiting for a decoder the app does not have.
           return (
             payload: await _legacyBytes(path),
             observedCost: SourceCost.expensive,
+            deferred: false,
+            exifOrientation: null,
+          );
+        }
+        if (!allowExpensive) {
+          return (
+            payload: null,
+            observedCost: SourceCost.expensive,
+            deferred: true,
+            exifOrientation: exifOrientation,
           );
         }
         try {
@@ -105,7 +133,12 @@ class PhotoSource {
             exifOrientation: exifOrientation,
             longEdge: longEdge,
           );
-          return (payload: pixels, observedCost: SourceCost.expensive);
+          return (
+            payload: pixels,
+            observedCost: SourceCost.expensive,
+            deferred: false,
+            exifOrientation: null,
+          );
         } catch (_) {
           // Step 3b. A throwing decoder must degrade to the old slow path,
           // never to a blank screen (frozen design §2, oracle-protected at
@@ -113,6 +146,8 @@ class PhotoSource {
           return (
             payload: await _legacyBytes(path),
             observedCost: SourceCost.expensive,
+            deferred: false,
+            exifOrientation: null,
           );
         }
 
@@ -124,7 +159,50 @@ class PhotoSource {
         return (
           payload: recovered == null ? null : EncodedPayload(recovered),
           observedCost: recovered == null ? null : SourceCost.cheap,
+          deferred: false,
+          exifOrientation: null,
         );
+    }
+  }
+
+  /// Runs the expensive half after an earlier immediate pass already received
+  /// `NativeImageNeedsRawDecode` and carried [exifOrientation] forward. This
+  /// is the I6-preserving path: the debounced pass must not re-ask the native
+  /// bridge for the same answer just to get the orientation back.
+  Future<SourceOutcome> loadExpensive(
+    String path, {
+    required int longEdge,
+    required int exifOrientation,
+  }) async {
+    final decoder = dngDecoder;
+    if (decoder == null) {
+      return (
+        payload: await _legacyBytes(path),
+        observedCost: SourceCost.expensive,
+        deferred: false,
+        exifOrientation: null,
+      );
+    }
+    try {
+      final decoded = await decoder(path);
+      final pixels = await decodedRgbaToPixelPayload(
+        decoded,
+        exifOrientation: exifOrientation,
+        longEdge: longEdge,
+      );
+      return (
+        payload: pixels,
+        observedCost: SourceCost.expensive,
+        deferred: false,
+        exifOrientation: null,
+      );
+    } catch (_) {
+      return (
+        payload: await _legacyBytes(path),
+        observedCost: SourceCost.expensive,
+        deferred: false,
+        exifOrientation: null,
+      );
     }
   }
 

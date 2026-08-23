@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
@@ -198,38 +197,45 @@ void main() {
     );
 
     for (final orientation in _expected.keys) {
-      test('TC-069 orientation $orientation survives the window downscale', () async {
-        // Oriented long edge is 6 for every case (4x6 <-> 6x4), so longEdge 3
-        // is a clean 0.5x for all eight.
-        final payload = await decodedRgbaToPixelPayload(
-          blockySource(),
-          exifOrientation: orientation,
-          longEdge: 3,
-        );
-        final expected = _expected[orientation]!;
-        expect(payload.width, expected.first.length);
-        expect(payload.height, expected.length);
-        expect(
-          gridOf(payload),
-          expected,
-          reason: 'downscaling and orienting in one pass must land the same '
-              'pixels as orienting alone; a wrong composition keeps the shape '
-              'and moves the content',
-        );
-        expect(payload.byteCost, payload.width * payload.height * 4);
-      });
+      test(
+        'TC-069 orientation $orientation survives the window downscale',
+        () async {
+          // Oriented long edge is 6 for every case (4x6 <-> 6x4), so longEdge 3
+          // is a clean 0.5x for all eight.
+          final payload = await decodedRgbaToPixelPayload(
+            blockySource(),
+            exifOrientation: orientation,
+            longEdge: 3,
+          );
+          final expected = _expected[orientation]!;
+          expect(payload.width, expected.first.length);
+          expect(payload.height, expected.length);
+          expect(
+            gridOf(payload),
+            expected,
+            reason:
+                'downscaling and orienting in one pass must land the same '
+                'pixels as orienting alone; a wrong composition keeps the shape '
+                'and moves the content',
+          );
+          expect(payload.byteCost, payload.width * payload.height * 4);
+        },
+      );
     }
 
-    test('TC-070 a frame already smaller than the window is NOT upscaled', () async {
-      final payload = await decodedRgbaToPixelPayload(
-        blockySource(),
-        exifOrientation: 1,
-        longEdge: 4000,
-      );
-      expect(payload.width, 4);
-      expect(payload.height, 6);
-      expect(gridOf(payload)[0], [a, a, b, b]);
-    });
+    test(
+      'TC-070 a frame already smaller than the window is NOT upscaled',
+      () async {
+        final payload = await decodedRgbaToPixelPayload(
+          blockySource(),
+          exifOrientation: 1,
+          longEdge: 4000,
+        );
+        expect(payload.width, 4);
+        expect(payload.height, 6);
+        expect(gridOf(payload)[0], [a, a, b, b]);
+      },
+    );
 
     // The reason step 3 exists: what is RETAINED must be the window-sized
     // buffer, not the full-resolution frame the decoder handed over.
@@ -244,123 +250,11 @@ void main() {
       expect(
         payload.byteCost,
         lessThan(decoded.rgba.lengthInBytes),
-        reason: 'retaining the full-resolution frame is what M3 exists to '
+        reason:
+            'retaining the full-resolution frame is what M3 exists to '
             'stop; at real sizes that is 50MB per item',
       );
       expect(payload.byteCost, 2 * 3 * 4);
-    });
-  });
-
-  group('DecodedRgbaImageProvider (AC B2)', () {
-    testWidgets('resolves a frame through Image(image:)', (tester) async {
-      late ui.Image master;
-      // runAsync: the decode is a real engine future (see the FakeAsync note
-      // above).
-      await tester.runAsync(() async {
-        master = await decodedRgbaToImage(_source(), exifOrientation: 6);
-      });
-      addTearDown(master.dispose);
-
-      final provider = DecodedRgbaImageProvider(master);
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Image(image: provider, gaplessPlayback: true),
-        ),
-      );
-      await tester.pump();
-
-      // The criterion is that a frame ACTUALLY RESOLVED, not merely that the
-      // widget built: resolve the same provider and require the
-      // ImageStreamListener to fire with a non-null ImageInfo.
-      ImageInfo? delivered;
-      var listenerFired = false;
-      final stream = provider.resolve(ImageConfiguration.empty);
-      late ImageStreamListener listener;
-      listener = ImageStreamListener((info, synchronousCall) {
-        listenerFired = true;
-        delivered = info;
-        stream.removeListener(listener);
-      });
-      stream.addListener(listener);
-      await tester.pump();
-
-      expect(listenerFired, isTrue, reason: 'ImageStreamListener never fired');
-      expect(delivered, isNotNull);
-      expect(delivered!.image.width, 3);
-      expect(delivered!.image.height, 2);
-      delivered!.dispose();
-
-      final rendered = tester.widget<RawImage>(find.byType(RawImage));
-      expect(rendered.image, isNotNull, reason: 'no frame reached the tree');
-      // Orientation 6 turns the 2x3 source into 3x2; asserting the rendered
-      // size proves the oriented image (not the raw one) is what reached
-      // the widget tree.
-      expect(rendered.image!.width, 3);
-      expect(rendered.image!.height, 2);
-    });
-
-    testWidgets('ImageCache eviction does not dispose the master image', (
-      tester,
-    ) async {
-      late ui.Image master;
-      await tester.runAsync(() async {
-        master = await decodedRgbaToImage(_source(), exifOrientation: 1);
-      });
-      addTearDown(master.dispose);
-
-      final provider = DecodedRgbaImageProvider(master);
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Image(image: provider),
-        ),
-      );
-      await tester.pump();
-      expect(PaintingBinding.instance.imageCache.containsKey(provider), isTrue);
-
-      // Tear the widget down and flush the cache: this is exactly what LRU
-      // pressure does at ~50MB/image against the 500MB cap.
-      await tester.pumpWidget(const SizedBox.shrink());
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
-      await tester.pump();
-
-      expect(
-        master.debugDisposed,
-        isFalse,
-        reason:
-            'the cache disposed the master handle; the provider must hand out '
-            'clones so only the clone dies with the cache entry',
-      );
-      // Still usable afterwards -- the real symptom of getting this wrong is
-      // a "disposed image" crash on the NEXT resolve, not at eviction time.
-      final second = DecodedRgbaImageProvider(master);
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Image(image: second),
-        ),
-      );
-      await tester.pump();
-      expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
-    });
-
-    test('key identity follows the ui.Image identity', () async {
-      final one = await decodedRgbaToImage(_source(), exifOrientation: 1);
-      final two = await decodedRgbaToImage(_source(), exifOrientation: 1);
-      addTearDown(one.dispose);
-      addTearDown(two.dispose);
-
-      expect(
-        DecodedRgbaImageProvider(one) == DecodedRgbaImageProvider(one),
-        isTrue,
-      );
-      expect(
-        DecodedRgbaImageProvider(one) == DecodedRgbaImageProvider(two),
-        isFalse,
-        reason: 'a re-decode must be a NEW cache key, not a silent alias',
-      );
     });
   });
 }

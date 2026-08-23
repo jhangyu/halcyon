@@ -8,7 +8,7 @@ import 'photo_payload.dart';
 
 /// An [ImageProvider] backed by retained RGBA8 pixels.
 ///
-/// 1-for-1 replacement for the deleted `DecodedRgbaImageProvider`, and the
+/// 1-for-1 replacement for the deleted decoded-image provider, and the
 /// difference between them is the whole point of M3: that class wrapped a
 /// ~50MB `ui.Image` OWNED BY THE PRELOAD CONTROLLER, so every [ImageInfo] it
 /// handed out had to be a `clone()` and the controller had to evict before

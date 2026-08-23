@@ -1,15 +1,18 @@
 import 'dart:async';
-import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
-import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'native_thumbnail_service.dart';
+import 'photo_payload.dart';
+import 'photo_payload_cache.dart';
 import 'photo_source.dart';
+import 'prefetch_scheduler.dart';
+import 'raw_pixels_image.dart';
 
 typedef ImageBytesLoader =
     Future<NativeImageResult> Function(
@@ -49,74 +52,83 @@ const Duration tierTwoNavigationDebounce = Duration(milliseconds: 250);
 /// the visible range. See [ImagePreloadController.preloadThumbnails].
 const int thumbnailPrefetchMargin = 20;
 
+/// Long edge requested from [PhotoSource] before the view has reported its
+/// real viewport size. Matches the native preview cap, so the first pass asks
+/// for the same thing the native bridge would have produced anyway.
+const int kDefaultPreviewLongEdge = 2800;
+
+/// Orchestrates prefetch. It coordinates four collaborators and holds no
+/// file-type knowledge of its own:
+///
+///   [PrefetchScheduler]  when, and on which rung  (the only cost-aware layer)
+///   [PhotoPayloadCache]  what is kept             (type-blind, byteCost only)
+///   [PhotoSource]        how bytes/pixels are produced (the only type-aware layer)
+///   tier providers       how a payload becomes a decoded frame
+///
+/// Nothing here disposes an image. Every retained payload is a plain
+/// `Uint8List`, so eviction is dropping a reference and a late arrival can
+/// only cost bytes -- never a use-after-dispose. That is why the ~50MB
+/// ownership contract, the in-flight set, the self-disposing late decode and
+/// the 25-line warning about the debounce's second job are all gone (design §4,
+/// invariants I5 and I7).
 class ImagePreloadController {
   ImagePreloadController({
     required ImageBytesLoader imageLoader,
     DngFullDecoder? dngDecoder,
-  }) : _imageLoader = imageLoader,
-       _dngDecoder = dngDecoder;
+  }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder);
 
-  final ImageBytesLoader _imageLoader;
+  final PhotoSource _source;
+  final PhotoPayloadCache _cache = PhotoPayloadCache();
+  final PrefetchScheduler _scheduler = PrefetchScheduler();
 
-  // Null when no RAW decoder is available. Every use is guarded by the
-  // mandatory no-regression fallback: no decoder (or a throwing one) means
-  // the item is re-requested through NativeThumbnailService.getThumbnail,
-  // which forces allowRawDecodeSignal: false and therefore reproduces the
-  // pre-round-3b CIRAWFilter path byte-for-byte. Degraded, never blank.
-  final DngFullDecoder? _dngDecoder;
-
-  final Map<String, Uint8List> _imageCache = {};
   final Map<String, Uint8List> _thumbCache = {};
   final Set<String> _loadingKeys = {};
-  // Callbacks from callers who selected an item while its preview load was
-  // already in-flight (started by a previous preload pass). Flushed once the
-  // in-flight load completes so the UI never strands on a permanent spinner.
+  // Callbacks from callers who selected an item while its load was already in
+  // flight (started by a previous preload pass). Flushed once the in-flight
+  // load completes so the UI never strands on a permanent spinner.
   final Map<String, List<VoidCallback>> _pendingPreviewNotifies = {};
+
+  // The current -3..+5 retention window. Async source completions re-check
+  // this before writing, so a late arrival cannot resurrect an item the user
+  // has already navigated away from.
+  Set<String> _retentionIds = {};
 
   // Tier-1 (window-resolution) decode precache bookkeeping.
   int? _tierOneWidth;
   int? _tierOneHeight;
   final Map<String, Object> _tierOneKeys = {};
 
-  // Tier-2 (full size) decode precache bookkeeping. Own window (+/-1), own
-  // key namespace (MemoryImage keys, distinct from tier-1's ResizeImageKey)
-  // and own eviction so the two tiers coexist without either clobbering the
-  // other's ImageCache entry for the same item id.
+  // Tier-2 (full size) decode precache bookkeeping. Own window (+/-1), own key
+  // namespace (distinct from tier-1's ResizeImageKey) and own eviction, so the
+  // two tiers coexist without either clobbering the other's ImageCache entry
+  // for the same item id.
   //
-  // _tierTwoKeys/_tierTwoBytes/_tierTwoReadyIds are id-keyed, but the
-  // ImageCache entry they describe is keyed by BYTES OBJECT IDENTITY
-  // (MemoryImage.== compares bytes by identity). When an item leaves the
-  // bytes window (-3..+5) and later returns, _imageCache[id] holds a NEW
-  // Uint8List, so a stale id-keyed "ready" flag would silently point at an
-  // ImageCache entry for bytes that are no longer current -- readiness
-  // must be re-derived at read time against the CURRENT bytes, not trusted
-  // from bookkeeping alone (round-2 review BLOCKER 1).
+  // These maps are id-keyed, but the ImageCache entry they describe is keyed by
+  // PAYLOAD OBJECT IDENTITY. When an item leaves the retention window and later
+  // returns, it gets a NEW payload, so a stale id-keyed "ready" flag would
+  // point at an ImageCache entry for a payload that is no longer current --
+  // readiness must be re-derived at read time against the CURRENT payload
+  // (round-2 review BLOCKER 1).
   Timer? _tierTwoDebounceTimer;
+  // The ids the MOST RECENT tier-2 sweep was for. A source started by that
+  // sweep finishes asynchronously, and by then the window may have moved; this
+  // is what its completion re-checks itself against.
+  Set<String> _tierTwoWindowIds = {};
   final Map<String, Object> _tierTwoKeys = {};
-  final Map<String, Uint8List> _tierTwoBytes = {};
+  final Map<String, SourcePayload> _tierTwoSources = {};
   final Set<String> _tierTwoReadyIds = {};
 
-  // Raw-decode (round-3b) bookkeeping, for DNGs with no embedded full-size
-  // JPEG. These items never get bytes at all -- `_imageCache` stays empty for
-  // them -- so a single full-resolution `ui.Image` serves BOTH tiers.
-  //
-  // Memory is the binding constraint, not correctness: one decoded image is
-  // 4080x3056 RGBA8 ~= 49.9MB. Decoding is therefore deliberately confined to
-  // the tier-2 (+/-1) window, NOT the bytes window (-3..+5): the latter would
-  // hold nine of them, ~450MB, against a 500MB ImageCache cap. Creation and
-  // eviction both happen inside _decodeTierTwoWindow's single sweep, so the
-  // resident set cannot exceed three even when navigation cancels the
-  // debounce repeatedly (a cancelled pass creates nothing).
-  final Map<String, int> _needsRawDecode = {}; // id -> EXIF orientation 1..8
-  final Map<String, DecodedRgbaImageProvider> _decodedProviders = {};
-  final Set<String> _rawDecodesInFlight = {};
+  // Items no source could produce anything for (corrupt/truncated/unsupported,
+  // or a RAW decode failure whose legacy fallback also failed). Without this
+  // the view cannot tell "not loaded yet" from "will never load" and spins
+  // forever; it also stops every pass re-asking for an answer that cannot
+  // change. Cleared only by [reset] (i.e. a folder reload).
+  final Set<String> _permanentMisses = {};
 
-  // Items the native side could not read at all (corrupt/truncated file,
-  // unsupported format). Without this the view has no way to tell "not loaded
-  // yet" from "will never load" and shows a spinner forever; it also stops the
-  // preload pass re-asking the native side on every navigation for an answer
-  // that cannot change. Cleared only by [reset] (i.e. a folder reload).
-  final Set<String> _failedIds = {};
+  // Expensive items discovered by the immediate pass. Carries the orientation
+  // across the debounce so the +/-1 pass can run the decoder without re-asking
+  // the native bridge for an answer already memoized by cost (I6).
+  final Map<String, int> _deferredOrientations = {};
 
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
@@ -128,95 +140,101 @@ class ImagePreloadController {
   // channel round-trips or write thumbnails for a list that is gone.
   int _thumbBatchGeneration = 0;
 
-  Uint8List? imageBytesFor(String? id) => id == null ? null : _imageCache[id];
+  int get _longEdge {
+    final width = _tierOneWidth;
+    final height = _tierOneHeight;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return kDefaultPreviewLongEdge;
+    }
+    return math.max(width, height);
+  }
+
+  /// The retained payload for [id], whatever kind it is. The view's single
+  /// "is there something to paint" question (design §3.5).
+  SourcePayload? payloadFor(String? id) => _cache.peek(id);
+
+  /// Encoded bytes for [id], or null when the item is not byte-backed (a RAW
+  /// item retains pixels instead) or nothing is retained.
+  Uint8List? imageBytesFor(String? id) {
+    final payload = _cache.peek(id);
+    return payload is EncodedPayload ? payload.bytes : null;
+  }
+
+  /// The provider for a pixel-backed item, or null if [id] is not one.
+  ///
+  /// Replaces the old decoded-provider accessor 1-for-1. The provider no
+  /// longer has to be owned and handed out by this class: its key is the
+  /// retained buffer's identity, so building a new one at the display site lands on exactly the
+  /// same ImageCache entry (invariant I1).
+  RawPixelsImage? pixelsProviderFor(String? id) {
+    final payload = _cache.peek(id);
+    return payload is PixelPayload ? RawPixelsImage(payload) : null;
+  }
 
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
-  /// True when [id]'s image could not be read and never will be in this
-  /// session. The view shows an error instead of a spinner.
-  bool hasFailed(String? id) => id != null && _failedIds.contains(id);
-
-  /// The full-resolution, orientation-corrected provider for a DNG that had
-  /// no embedded preview and was decoded natively, or null if [id] is not
-  /// such an item (or its decode has not landed yet).
-  ///
-  /// The controller owns the provider object, so the display path gets the
-  /// SAME object identity the controller evicts with -- the same rule as
-  /// [tierOneProviderFor]/[fullSizeProviderFor], and the reason
-  /// [DecodedRgbaImageProvider]'s equality is identity on its `ui.Image`.
-  ///
-  /// [isFullSizeReady] also reports true for such an item, via its own early
-  /// return; the bytes path's three-way conjunction is untouched.
-  DecodedRgbaImageProvider? decodedProviderFor(String? id) =>
-      id == null ? null : _decodedProviders[id];
-
-  /// Test/diagnostic access to the master handle whose lifetime this
-  /// controller owns.
+  /// Total retained payload cost. The successor to the old "is that ~50MB
+  /// handle disposed?" question: what bounds memory now is the sum over the
+  /// retention window, not a hand-managed lifetime.
   @visibleForTesting
-  ui.Image? decodedImageFor(String id) => _decodedProviders[id]?.image;
+  int get retainedByteCost => _cache.totalByteCost;
+
+  /// The ids currently retained, in least-recently-used order.
+  @visibleForTesting
+  Iterable<String> get retainedIds => _cache.ids;
+
+  /// True when [id] could not be produced by any source and never will be in
+  /// this session. The view shows an error instead of a spinner.
+  bool hasFailed(String? id) => id != null && _permanentMisses.contains(id);
 
   /// Whether the full-size (tier-2) decode for [id] has COMPLETED and the
   /// resulting ImageCache entry is still resident **for the item's current
-  /// bytes**. This is a conjunction of two independent facts, both
-  /// required (round-2 review BLOCKER 1 and BLOCKER 3 each came from
-  /// having only one of them):
+  /// payload**. A conjunction of two independent facts, both required
+  /// (round-2 review BLOCKER 1 and BLOCKER 3 each came from having only one):
   ///   1. `_tierTwoReadyIds.contains(id)` -- the decode listener's onImage
   ///      callback fired, i.e. the decode actually finished. Without this,
   ///      `ImageCache.containsKey` returns true for a PENDING entry too
   ///      (SDK image_cache.dart: `_pendingImages[key] != null ||
   ///      _cache[key] != null`), and `MemoryImage.obtainKey` resolves
-  ///      synchronously right after `resolve()` inserts the pending entry
-  ///      -- so a containsKey-only check flips true the instant a ~124ms
-  ///      full-frame decode STARTS, not when it lands, which is worse than
-  ///      not having tier-2 at all (BLOCKER 3).
-  ///   2. `identical(decodedFor, currentBytes)` + `containsKey(key)` -- the
-  ///      finished entry is still the one for the CURRENT bytes and is
-  ///      still actually resident, not stale bookkeeping for bytes that
-  ///      were since replaced/evicted (BLOCKER 1).
-  /// Both checks are plain bookkeeping lookups, never a resolve. The
-  /// display side uses this to switch providers seamlessly
-  /// (gaplessPlayback) once it's true.
+  ///      synchronously right after `resolve()` inserts the pending entry --
+  ///      so a containsKey-only check flips true the instant a ~124ms
+  ///      full-frame decode STARTS, not when it lands (BLOCKER 3).
+  ///   2. `identical(decodedFor, current)` + `containsKey(key)` -- the finished
+  ///      entry is still the one for the CURRENT payload and is still resident,
+  ///      not stale bookkeeping for a payload since replaced (BLOCKER 1).
   ///
-  /// The raw-decode path gets its OWN early return rather than being folded
-  /// into the conjunction below. A decoded item has no bytes at all, so every
-  /// term of that conjunction is vacuously false for it; merging the two
-  /// would mean loosening terms that exist specifically to keep BLOCKER 1 and
-  /// BLOCKER 3 dead. The bytes path below is unchanged.
+  /// Both kinds of payload go through this same conjunction. The pixel kind
+  /// used to get its own early return, which meant loosening exactly the terms
+  /// that keep those two blockers dead; it no longer needs one, because a
+  /// pixel payload is now an ordinary cache citizen with an ordinary provider
+  /// (design §4, invariant I3).
   bool isFullSizeReady(String id) {
-    // A decoded ui.Image IS the full-size image, and its presence in
-    // _decodedProviders already means the decode COMPLETED (the entry is only
-    // written after the future resolves) -- so this is not the
-    // "pending decode looks ready" mistake of BLOCKER 3.
-    if (_decodedProviders.containsKey(id)) return true;
     if (!_tierTwoReadyIds.contains(id)) return false;
     final key = _tierTwoKeys[id];
     if (key == null) return false;
-    final decodedFor = _tierTwoBytes[id];
-    final currentBytes = _imageCache[id];
-    if (decodedFor == null || !identical(decodedFor, currentBytes)) {
-      return false;
-    }
+    final decodedFor = _tierTwoSources[id];
+    final current = _cache.peek(id);
+    if (decodedFor == null || !identical(decodedFor, current)) return false;
     return PaintingBinding.instance.imageCache.containsKey(key);
   }
 
   void reset() {
-    _imageCache.clear();
+    _cache.clear();
     _thumbCache.clear();
     _loadingKeys.clear();
     _pendingPreviewNotifies.clear();
+    _retentionIds = {};
     _tierOneKeys.clear();
     _tierTwoDebounceTimer?.cancel();
     for (final key in _tierTwoKeys.values) {
       PaintingBinding.instance.imageCache.evict(key);
     }
     _tierTwoKeys.clear();
-    _tierTwoBytes.clear();
+    _tierTwoSources.clear();
     _tierTwoReadyIds.clear();
-    for (final id in _decodedProviders.keys.toList()) {
-      _evictTierTwoEntry(id);
-    }
-    _needsRawDecode.clear();
-    _failedIds.clear();
+    _scheduler.reset();
+    _permanentMisses.clear();
+    _deferredOrientations.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
@@ -224,10 +242,10 @@ class ImagePreloadController {
   }
 
   /// Called by the view whenever the viewport's decode target size is known
-  /// (window logical size x devicePixelRatio). Used only for the tier-1
-  /// precache; the display path computes and passes the same size directly
-  /// to [tierOneProviderFor] itself, so there is a single source of truth
-  /// per frame and no risk of the two diverging.
+  /// (window logical size x devicePixelRatio). Used for the tier-1 precache and
+  /// as the long edge asked of [PhotoSource]; the display path computes and
+  /// passes the same size directly to [tierOneProviderFor] itself, so there is
+  /// a single source of truth per frame and no risk of the two diverging.
   void updateTargetSize(int width, int height) {
     _tierOneWidth = width;
     _tierOneHeight = height;
@@ -236,18 +254,21 @@ class ImagePreloadController {
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
     _tierTwoDebounceTimer?.cancel();
-    // ~50MB per handle: leaking these on teardown is the whole reason this
-    // path needs explicit ownership at all.
-    for (final id in _decodedProviders.keys.toList()) {
-      _evictTierTwoEntry(id);
+    for (final key in _tierOneKeys.values) {
+      PaintingBinding.instance.imageCache.evict(key);
     }
-    // Decodes still RUNNING at teardown are structurally invisible to the
-    // loop above -- they are not in _decodedProviders yet, and they will land
-    // after this controller is gone, with nothing left to evict them.
-    // Clearing the set makes the guard at the top of _runRawDecode fire, so
-    // each late arrival disposes its own image instead of leaking it
-    // permanently.
-    _rawDecodesInFlight.clear();
+    for (final key in _tierTwoKeys.values) {
+      PaintingBinding.instance.imageCache.evict(key);
+    }
+    _tierOneKeys.clear();
+    _tierTwoKeys.clear();
+    _tierTwoSources.clear();
+    _tierTwoReadyIds.clear();
+    _retentionIds = {};
+    _cache.clear();
+    // Nothing else to do: no image is owned here. A source still in flight at
+    // teardown resolves into a payload nobody reads and is collected -- it
+    // cannot leak a ~50MB handle, because there is no handle.
   }
 
   Future<void> preloadImages({
@@ -260,63 +281,55 @@ class ImagePreloadController {
     final currentIndex = items.indexWhere((item) => item.id == selectedItemId);
     if (currentIndex == -1) return;
 
-    final startIdx = (currentIndex - 3).clamp(0, items.length - 1);
-    final endIdx = (currentIndex + 5).clamp(0, items.length - 1);
-    final neededIds = <String>{};
-
-    for (var i = startIdx; i <= endIdx; i++) {
-      neededIds.add(items[i].id);
-    }
-
-    // Any id dropped here will get a NEW Uint8List object if it's loaded
-    // again later (see _loadPreview below) — the tier-2 entry decoded for
-    // its OLD bytes is now orphaned (wrong cache key for the item going
-    // forward) and must be evicted, not left to linger under a stale id
-    // -> key mapping (round-2 review BLOCKER 1).
-    final droppedIds = <String>[];
-    _imageCache.removeWhere((id, _) {
-      final drop = !neededIds.contains(id);
-      if (drop) droppedIds.add(id);
-      return drop;
-    });
-    for (final id in droppedIds) {
+    // ONE window, ONE eviction rule, identical for every payload kind (user
+    // decision D4). Anything dropped here would get a NEW payload if it is
+    // loaded again later, so the tier-2 entry decoded for its OLD payload is
+    // orphaned and must be evicted rather than left under a stale id -> key
+    // mapping (round-2 review BLOCKER 1).
+    final neededIds = retentionWindowIds(
+      items,
+      currentIndex,
+      (item) => item.id,
+    );
+    _retentionIds = neededIds;
+    for (final id in _cache.retainOnly(neededIds)) {
       _evictTierTwoEntry(id);
-    }
-    // Raw-decode items are never in _imageCache, so the removeWhere above
-    // cannot see them; sweep their bookkeeping against the same window. The
-    // decoded ui.Images themselves are evicted on the tighter +/-1 window
-    // inside _decodeTierTwoWindow, but dispose here too so an item that
-    // leaves the bytes window without another tier-2 pass ever running
-    // cannot hold 50MB indefinitely.
-    for (final id in _needsRawDecode.keys.toList()) {
-      if (!neededIds.contains(id)) _needsRawDecode.remove(id);
-    }
-    for (final id in _decodedProviders.keys.toList()) {
-      if (!neededIds.contains(id)) _evictTierTwoEntry(id);
     }
     _selectedIdForPerf = selectedItemId; // PERF-INSTRUMENTATION
 
     // PERF-INSTRUMENTATION
     final tPrio = PerfLog.us;
     final wasInFlight = _loadingKeys.contains(selectedItemId);
-    final wasCached = _imageCache.containsKey(selectedItemId);
+    final wasCached = _cache.contains(selectedItemId);
     PerfLog.log(
       'preload.priority.begin|$selectedItemId'
       '|cached=$wasCached|inFlight=$wasInFlight',
     );
-    await _loadPreview(
-      items.firstWhere((item) => item.id == selectedItemId),
+    await _ensurePayload(
+      items[currentIndex],
+      distance: 0,
       notifyLoaded: notifyLoaded,
     );
     // PERF-INSTRUMENTATION
     PerfLog.log(
       'preload.priority.end|$selectedItemId|dur=${PerfLog.us - tPrio}'
-      '|nowCached=${_imageCache.containsKey(selectedItemId)}',
+      '|nowCached=${_cache.contains(selectedItemId)}',
     );
 
+    final startIdx = (currentIndex - kRetentionBefore).clamp(
+      0,
+      items.length - 1,
+    );
+    final endIdx = (currentIndex + kRetentionAfter).clamp(0, items.length - 1);
     final pendingLoads = <Future<void>>[];
     for (var i = startIdx; i <= endIdx; i++) {
-      pendingLoads.add(_loadPreview(items[i], notifyLoaded: null));
+      pendingLoads.add(
+        _ensurePayload(
+          items[i],
+          distance: (i - currentIndex).abs(),
+          notifyLoaded: null,
+        ),
+      );
     }
     await Future.wait(pendingLoads);
     PerfLog.log('preload.window.end|$selectedItemId'); // PERF-INSTRUMENTATION
@@ -328,10 +341,15 @@ class ImagePreloadController {
   String? _selectedIdForPerf; // PERF-INSTRUMENTATION
 
   // Tier-2 debounce: every navigation event cancels and reschedules this
-  // timer, so only the FINAL position after a burst of navigation ever
-  // starts a full-size decode (AC3a/AC3b) — items only passed through
-  // during continuous navigation are simply never queued, because their
-  // scheduling attempt gets cancelled before it fires.
+  // timer, so only the FINAL position after a burst of navigation ever starts
+  // a full-size decode or an expensive source -- items merely passed through
+  // are never queued, because their scheduling attempt is cancelled before it
+  // fires.
+  //
+  // Unlike before M3, this timer carries NO image-lifetime responsibility. It
+  // is a pure performance device now: shortening or removing it can cost
+  // decodes, but it can no longer dispose something out from under the display,
+  // because nothing is disposed at all (design §4, invariant I7).
   void _scheduleTierTwoDecode(
     List<PhotoItem> items,
     int currentIndex,
@@ -343,328 +361,90 @@ class ImagePreloadController {
     });
   }
 
-  // Tier-2 precache: decode current +/-1 at full size, once navigation has
-  // paused. Both tiers coexist: this only evicts its own (+/-1) window's
-  // entries, never touches _tierOneKeys or the underlying bytes cache.
+  // Tier-2 precache: decode current +/-1 at full size once navigation has
+  // paused, and start the expensive sources that the immediate pass deferred.
+  // Both tiers coexist: this only evicts its own (+/-1) window's ImageCache
+  // entries and never touches _tierOneKeys or the payload cache -- payload
+  // retention is the -3..+5 rule and belongs to preloadImages alone.
   void _decodeTierTwoWindow(
     List<PhotoItem> items,
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    final tierStart = (currentIndex - 1).clamp(0, items.length - 1);
-    final tierEnd = (currentIndex + 1).clamp(0, items.length - 1);
-    final neededIds = <String>{};
+    final tierStart = (currentIndex - kExpensiveStartupRadius).clamp(
+      0,
+      items.length - 1,
+    );
+    final tierEnd = (currentIndex + kExpensiveStartupRadius).clamp(
+      0,
+      items.length - 1,
+    );
+    final neededIds = <String>{
+      for (var i = tierStart; i <= tierEnd; i++) items[i].id,
+    };
+    _tierTwoWindowIds = neededIds;
 
     for (var i = tierStart; i <= tierEnd; i++) {
       final item = items[i];
-      // Raw-decode items have no bytes by construction; their single
-      // full-resolution ui.Image is produced here and serves both tiers.
-      final orientation = _needsRawDecode[item.id];
-      if (orientation != null) {
-        neededIds.add(item.id);
-        _startRawDecode(item, orientation, notifyLoaded);
+      final payload = _cache.peek(item.id);
+      if (payload == null) {
+        // Either not fetched yet, or measured expensive and deferred by the
+        // immediate pass. This is the ONLY place an expensive source runs, and
+        // it is reached only after 250ms of navigation quiet -- verbatim
+        // today's RAW startup behaviour.
+        //
+        // Its tier-2 decode has to be chained onto the load rather than left
+        // for "the next pass": if the user stops navigating here, there IS no
+        // next pass, and readiness would never flip -- the payload would be
+        // retained and the view would keep showing a spinner. The window
+        // re-check is what keeps a late arrival from decoding for a position
+        // the user has already left.
+        unawaited(
+          _ensurePayload(
+            item,
+            distance: (i - currentIndex).abs(),
+            notifyLoaded: notifyLoaded,
+            allowExpensive: true,
+          ).then((_) {
+            final landed = _cache.peek(item.id);
+            if (landed == null || !_tierTwoWindowIds.contains(item.id)) return;
+            _decodeFullSizeIntoImageCache(item.id, landed, notifyLoaded);
+          }),
+        );
         continue;
       }
-      final bytes = _imageCache[item.id];
-      if (bytes == null) continue; // not loaded yet; retried on next pass
-      neededIds.add(item.id);
-      // Only skip if the id's ready flag was set for THESE bytes -- if the
-      // item's bytes were replaced (e.g. it briefly left the -3..+5 window
-      // and got reloaded) since the last decode, this is stale and must be
-      // redone against the current object, not the one the old key points
-      // at (round-2 review BLOCKER 1).
+      // Only skip if the ready flag was set for THIS payload -- if the item's
+      // payload was replaced since the last decode (e.g. it briefly left the
+      // retention window), the flag is stale and the decode must be redone
+      // against the current object (round-2 review BLOCKER 1).
       final alreadyDecoded =
           _tierTwoReadyIds.contains(item.id) &&
-          identical(_tierTwoBytes[item.id], bytes);
+          identical(_tierTwoSources[item.id], payload);
       if (alreadyDecoded) continue;
-      _decodeFullSizeIntoImageCache(item.id, bytes, notifyLoaded);
+      _decodeFullSizeIntoImageCache(item.id, payload, notifyLoaded);
     }
 
-    // Union of all THREE populations, because tier-2 state for an item can
-    // live in any of them and in only one at a time:
-    //   _tierTwoKeys        byte-backed entries
-    //   _decodedProviders   raw decodes that have LANDED
-    //   _rawDecodesInFlight raw decodes still RUNNING
-    // The third was missing and caused a real leak: an id whose decode was
-    // still running when its item left the window was in no swept collection,
-    // so _evictTierTwoEntry never cleared its in-flight flag, so the guard at
-    // the top of _runRawDecode did not fire and the finished ~50MB image was
-    // written into _decodedProviders for an item nothing tracks any more.
-    //
-    // A NOTE ON `_needsRawDecode` -- DO NOT read this as "clearing it on
-    // success is safe". It is not safe; it is currently non-fatal, and only
-    // by a timing coincidence. Both halves of that were established by
-    // mutation, not by reading the code (tmp/verify/r3b/leak_fix.txt):
-    //
-    // 1. COST, TODAY, REAL: clearing `_needsRawDecode[id]` once a decode
-    //    succeeds makes `_loadPreview` re-ask the native side for that item on
-    //    EVERY subsequent navigation, for an answer that cannot change -- the
-    //    exact regression its early return exists to prevent. Guarded by the
-    //    test "a raw item is requested from the native loader exactly ONCE".
-    //
-    // 2. IT DOES NOT DISPOSE ANYTHING TODAY -- BUT ONLY BECAUSE OF ORDERING.
-    //    An in-window raw item reaches `neededIds` via `_needsRawDecode`, so
-    //    it looks as though clearing it would make this sweep evict the image
-    //    that just landed. It does not, because `_requestPreviewBytes`
-    //    repopulates the entry during `preloadImages`, and that pass finishes
-    //    BEFORE this sweep runs -- the sweep is on the `tierTwoNavigationDebounce`
-    //    timer scheduled at the end of that same pass. Repopulation wins a
-    //    race. That is a coincidence of timing, NOT a structural guarantee.
-    //
-    // 3. THEREFORE: anyone changing `tierTwoNavigationDebounce` -- shortening
-    //    it below the preload round-trip, removing it, or making this sweep
-    //    synchronous -- MUST re-check this ordering. Flip it and the eviction
-    //    described in (2) starts happening for real: the freshly decoded image
-    //    is disposed out from under the display. Round 3c owns that debounce,
-    //    and nothing about a perf change to it advertises that it touches
-    //    image lifetime. This paragraph is the only warning there is.
-    final staleIds = <String>{
-      ..._tierTwoKeys.keys,
-      ..._decodedProviders.keys,
-      ..._rawDecodesInFlight,
-    }.where((id) => !neededIds.contains(id)).toList();
+    final staleIds = _tierTwoKeys.keys
+        .where((id) => !neededIds.contains(id))
+        .toList();
     for (final id in staleIds) {
       _evictTierTwoEntry(id);
     }
   }
 
-  // Starts (at most one) raw decode for [item]. Idempotent: a decode already
-  // resident or in flight is left alone, so re-entering the tier-2 window
-  // never decodes the same photo twice.
-  void _startRawDecode(
-    PhotoItem item,
-    int orientation,
-    VoidCallback notifyLoaded,
-  ) {
-    final id = item.id;
-    if (_decodedProviders.containsKey(id) || _rawDecodesInFlight.contains(id)) {
-      return;
-    }
-    final decoder = _dngDecoder;
-    final file = item.bestFileToLoad;
-    if (decoder == null || file == null) return;
-    _rawDecodesInFlight.add(id);
-    unawaited(
-      _runRawDecode(item, file.path, orientation, decoder, notifyLoaded),
-    );
-  }
-
-  Future<void> _runRawDecode(
-    PhotoItem item,
-    String path,
-    int orientation,
-    DngFullDecoder decoder,
-    VoidCallback notifyLoaded,
-  ) async {
-    final id = item.id;
-    final tDecode = PerfLog.us; // PERF-INSTRUMENTATION
-    try {
-      final decoded = await decoder(path);
-      final image = await decodedRgbaToImage(
-        decoded,
-        exifOrientation: orientation,
-      );
-      // The item may have left the window while the ~50MB decode was in
-      // flight; _evictTierTwoEntry clears the in-flight marker precisely so
-      // this late arrival disposes itself instead of resurrecting an entry
-      // nothing will ever evict.
-      if (!_rawDecodesInFlight.contains(id)) {
-        image.dispose();
-        return;
-      }
-      _decodedProviders[id] = DecodedRgbaImageProvider(image);
-      // PERF-INSTRUMENTATION
-      PerfLog.log(
-        'rawDecode.ready|$id|${image.width}x${image.height}'
-        '|orient=$orientation|dur=${PerfLog.us - tDecode}',
-      );
-      notifyLoaded();
-    } catch (error) {
-      // PERF-INSTRUMENTATION
-      PerfLog.log('rawDecode.fail|$id|dur=${PerfLog.us - tDecode}|$error');
-      // Mandatory no-regression fallback (design §2): a throwing decoder must
-      // degrade to the pre-round-3b CIRAWFilter path, never to a blank
-      // screen. _needsRawDecode is cleared first so the next preload pass
-      // treats this as an ordinary bytes item.
-      _needsRawDecode.remove(id);
-      await _fallbackToLegacyBytes(id, path, notifyLoaded);
-    } finally {
-      _rawDecodesInFlight.remove(id);
-    }
-  }
-
-  // Re-requests [path] with allowRawDecodeSignal forced to false (that is
-  // what NativeThumbnailService.getThumbnail always sends), which reproduces
-  // the pre-round-3b native behaviour byte-for-byte: CIRAWFilter, 2800px cap,
-  // slow -- but a picture. Used when there is no decoder and when one throws.
-  Future<void> _fallbackToLegacyBytes(
-    String id,
-    String path,
-    VoidCallback? notifyLoaded,
-  ) async {
-    final bytes = await NativeThumbnailService.getThumbnail(
-      path,
-      purpose: ImageRequestPurpose.preview,
-    );
-    if (bytes == null) {
-      // Last resort exhausted: the RAW decode threw AND CIRAWFilter can't read
-      // it either. Same "unreadable" verdict as the bytes path.
-      _failedIds.add(id);
-      notifyLoaded?.call();
-      return;
-    }
-    _imageCache[id] = bytes;
-    notifyLoaded?.call();
-  }
-
-  void _decodeFullSizeIntoImageCache(
-    String id,
-    Uint8List bytes,
-    VoidCallback notifyLoaded,
-  ) {
-    final provider = fullSizeProviderFor(bytes);
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener((image, synchronousCall) {
-      stream.removeListener(listener);
-      _tierTwoReadyIds.add(id);
-      notifyLoaded();
-    }, onError: (error, stackTrace) => stream.removeListener(listener));
-    stream.addListener(listener);
-    provider.obtainKey(const ImageConfiguration()).then((key) {
-      _tierTwoKeys[id] = key;
-      _tierTwoBytes[id] = bytes;
-    });
-  }
-
-  // Removes id's tier-2 bookkeeping and evicts its ImageCache entry (if
-  // any). Never touches _tierOneKeys or _imageCache -- tier-1 and the bytes
-  // cache have their own, separate lifecycles.
-  //
-  // Tier-2 for an item is EITHER a byte-backed MemoryImage entry OR a
-  // raw-decoded ui.Image, never both, so both live here: one eviction path
-  // means a new call site cannot free one kind and leak the other.
-  void _evictTierTwoEntry(String id) {
-    final key = _tierTwoKeys.remove(id);
-    _tierTwoBytes.remove(id);
-    _tierTwoReadyIds.remove(id);
-    if (key != null) {
-      PaintingBinding.instance.imageCache.evict(key);
-    }
-
-    // Clearing the in-flight marker makes a decode that lands AFTER this
-    // eviction dispose its own ~50MB result instead of resurrecting the entry
-    // (see the guard at the top of _runRawDecode).
-    //
-    // This only helps if this method is actually CALLED for an in-flight id.
-    // It originally was not: every caller iterated _imageCache's dropped ids
-    // (raw items are never in _imageCache), _decodedProviders (empty while
-    // the decode is still running) or _tierTwoKeys (byte-backed only) -- so
-    // the in-flight case fell through every sweep and leaked. The stale union
-    // in _decodeTierTwoWindow now includes _rawDecodesInFlight, and dispose()
-    // clears the set outright, which are the two call paths that make this
-    // line reachable for an in-flight id.
-    _rawDecodesInFlight.remove(id);
-    final provider = _decodedProviders.remove(id);
-    if (provider == null) return;
-    // Evict BEFORE disposing the master: the cache holds a clone, and
-    // dropping that handle first keeps the pixels alive for anything still
-    // painting this frame.
-    PaintingBinding.instance.imageCache.evict(provider);
-    provider.image.dispose();
-  }
-
-  // Tier-1 precache: decode current +/-2 at window resolution ahead of
-  // display, using the SAME provider factory the view uses. Requires
-  // [updateTargetSize] to have been called at least once (from a previous
-  // layout pass); no-ops otherwise, degrading to on-demand full decode at
-  // display time (functionally correct, just slower for that frame).
-  void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
-    final width = _tierOneWidth;
-    final height = _tierOneHeight;
-    if (width == null || height == null) return;
-
-    final tierStart = (currentIndex - 2).clamp(0, items.length - 1);
-    final tierEnd = (currentIndex + 2).clamp(0, items.length - 1);
-    final neededIds = <String>{};
-
-    for (var i = tierStart; i <= tierEnd; i++) {
-      final item = items[i];
-      final bytes = _imageCache[item.id];
-      if (bytes == null) continue; // not loaded yet; retried on next pass
-      neededIds.add(item.id);
-      _decodeIntoImageCache(
-        item.id,
-        tierOneProviderFor(bytes, width: width, height: height),
-      );
-    }
-
-    final staleIds = _tierOneKeys.keys
-        .where((id) => !neededIds.contains(id))
-        .toList();
-    for (final id in staleIds) {
-      final key = _tierOneKeys.remove(id);
-      if (key != null) {
-        PaintingBinding.instance.imageCache.evict(key);
-      }
-    }
-  }
-
-  void _decodeIntoImageCache(String id, ImageProvider provider) {
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (image, synchronousCall) => stream.removeListener(listener),
-      onError: (error, stackTrace) => stream.removeListener(listener),
-    );
-    stream.addListener(listener);
-    provider
-        .obtainKey(const ImageConfiguration())
-        .then((key) => _tierOneKeys[id] = key);
-  }
-
-  // Returns preview bytes, or null when there are none to cache -- which now
-  // has two causes: a genuine failure (as before), or "this DNG needs a real
-  // RAW decode", in which case the orientation is recorded and tier-2 picks
-  // it up. Both look identical to the caller on purpose: neither puts bytes
-  // in _imageCache.
-  Future<Uint8List?> _requestPreviewBytes(String id, String path) async {
-    final result = await _imageLoader(
-      path,
-      purpose: ImageRequestPurpose.preview,
-    );
-    switch (result) {
-      case NativeImageBytes(:final bytes):
-        return bytes;
-      case NativeImageNeedsRawDecode(:final exifOrientation):
-        if (_dngDecoder == null) {
-          // Mandatory no-regression fallback (design §2), the no-decoder
-          // half: ask again with allowRawDecodeSignal false and use the old
-          // CIRAWFilter bytes rather than showing nothing.
-          return NativeThumbnailService.getThumbnail(
-            path,
-            purpose: ImageRequestPurpose.preview,
-          );
-        }
-        _needsRawDecode[id] = exifOrientation;
-        return null;
-      case NativeImageFailure():
-        // No native thumbnail bridge succeeded for this file (e.g. the
-        // platform has no bridge at all -- MISSING_PLUGIN -- or the native
-        // side genuinely could not read it). PhotoSource owns the one
-        // remaining file-type-aware decision: whether there is a last-resort
-        // Dart-side preview source to try before giving up (see
-        // photo_source.dart).
-        return PhotoSource.fallbackAfterNativeFailure(path);
-    }
-  }
-
-  Future<void> _loadPreview(
+  /// Produces and retains [item]'s payload if it is not retained already.
+  ///
+  /// [distance] is how many items away from the selection this is; it decides
+  /// which rung applies. [allowExpensive] is false on the immediate pass and
+  /// true only from the debounced +/-1 sweep.
+  Future<void> _ensurePayload(
     PhotoItem item, {
+    required int distance,
     required VoidCallback? notifyLoaded,
+    bool allowExpensive = false,
   }) async {
     final id = item.id;
-    if (_imageCache.containsKey(id)) {
+    if (_cache.contains(id)) {
       // PERF-INSTRUMENTATION
       PerfLog.log(
         'loadPreview.skip|$id|cached=true|inFlight=false'
@@ -673,23 +453,17 @@ class ImagePreloadController {
       return;
     }
 
-    // Already known to need a real RAW decode: tier-2 owns it from here, and
-    // re-asking the native side on every preload pass would be a channel
-    // round-trip per navigation for an answer that cannot change.
-    if (_needsRawDecode.containsKey(id)) return;
-
-    // Same reasoning for a file the native side already refused to read.
-    if (_failedIds.contains(id)) {
+    // An answer that cannot change: do not re-ask any source for it.
+    if (_permanentMisses.contains(id)) {
       notifyLoaded?.call();
       return;
     }
 
     if (_loadingKeys.contains(id)) {
-      // Someone else's load for this item is already in flight (e.g. it was
-      // queued by a previous preload pass, or the caller selected an item
-      // that is mid-window-load). Register to be notified when it lands
-      // instead of dropping the callback, which used to strand the spinner
-      // forever.
+      // Someone else's load for this item is already in flight (queued by a
+      // previous pass, or the caller selected an item that is mid-window-load).
+      // Register to be notified when it lands instead of dropping the callback,
+      // which used to strand the spinner forever.
       if (notifyLoaded != null) {
         _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
       }
@@ -704,27 +478,76 @@ class ImagePreloadController {
     final file = item.bestFileToLoad;
     if (file == null) return;
 
+    // Rung gate. An item already MEASURED expensive and outside +/-1 is not
+    // touched at all -- no decode, and no bridge round trip either. This is
+    // where the exactly-once guarantee lives now (invariant I6): the memo, not
+    // a per-item map that only existed for the RAW kind.
+    var cost = _scheduler.costOf(id);
+    if (cost == null && !_scheduler.allowsExpensiveWork(distance: distance)) {
+      // Content probe, and ONLY here. It is deliberately not run for the
+      // selected item or its immediate neighbours: those are about to ask the
+      // bridge anyway, so probing them first would add a file open to the
+      // hot path for an answer the bridge is already fetching -- and the JPEG
+      // hot path is required to cost zero Dart CPU (design §5). Out at
+      // distance >= 2 the probe can SAVE the round trip entirely, which is
+      // the only place it changes what happens.
+      cost = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    }
+    if (cost == SourceCost.expensive &&
+        !(allowExpensive &&
+            _scheduler.allowsExpensiveWork(distance: distance))) {
+      // Already measured expensive, and this pass is not allowed to do
+      // expensive work: asking the bridge again would be a channel round trip
+      // for an answer that cannot change (invariant I6).
+      return;
+    }
+
     _loadingKeys.add(id);
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
     try {
-      final bytes = await _requestPreviewBytes(id, file.path);
+      final canDoExpensive =
+          allowExpensive && _scheduler.allowsExpensiveWork(distance: distance);
+      final deferredOrientation = _deferredOrientations[id];
+      final outcome = canDoExpensive && deferredOrientation != null
+          ? await _source.loadExpensive(
+              file.path,
+              longEdge: _longEdge,
+              exifOrientation: deferredOrientation,
+            )
+          : await _source.load(
+              file.path,
+              longEdge: _longEdge,
+              allowExpensive: canDoExpensive,
+            );
+      _scheduler.observe(id, outcome.observedCost);
+      if (outcome.exifOrientation != null) {
+        _deferredOrientations[id] = outcome.exifOrientation!;
+      }
+      final payload = outcome.payload;
       // PERF-INSTRUMENTATION
       PerfLog.log(
-        'channel.preview|$id|bytes=${bytes?.length ?? -1}'
+        'channel.preview|$id|bytes=${payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedIdForPerf}',
       );
-      if (bytes != null) {
-        _imageCache[id] = bytes;
-      } else if (!_needsRawDecode.containsKey(id)) {
-        // No bytes and not a raw-decode item: the file is unreadable. Mark it
-        // so the view can say so instead of spinning forever. Notifying here
-        // is what actually gets the spinner replaced.
-        _failedIds.add(id);
+
+      if (payload != null) {
+        _deferredOrientations.remove(id);
+        if (!_retentionIds.contains(id)) return;
+        _cache.put(id, payload);
+      } else if (!outcome.deferred) {
+        // Every source failed, including the legacy fallback. Mark it so the
+        // view can say "unreadable" instead of spinning forever, and so no
+        // later pass asks again. This is the load-bearing edge of design §3.4:
+        // the ONLY new stranding risk in M3 is a failure that nobody records.
+        _deferredOrientations.remove(id);
+        _permanentMisses.add(id);
       }
-      // A raw-decode item is the only case with nothing to report yet:
-      // tier-2 owns it and will notify when the decode lands.
-      final resolved = bytes != null || _failedIds.contains(id);
+      // A deferred item is the one case with nothing to report yet: the
+      // debounced +/-1 pass owns it and will notify when its payload lands.
+      // That spinner is bounded by tierTwoNavigationDebounce, which is today's
+      // measured behaviour for a preview-less DNG (invariant T1).
+      final resolved = payload != null || _permanentMisses.contains(id);
       final pending = _pendingPreviewNotifies.remove(id);
       if (resolved) {
         notifyLoaded?.call();
@@ -733,13 +556,13 @@ class ImagePreloadController {
         }
       }
     } catch (_) {
-      // The loader threw (e.g. a PlatformException the native side didn't
+      // A source threw (e.g. a PlatformException the native side did not
       // convert to null, or a MissingPluginException on an unimplemented
-      // platform handler). Flush anyone who selected this item while the
-      // load was in flight so they don't strand on a permanent spinner and
-      // the pending-notify map doesn't grow unbounded -- same rationale as
-      // the success path (R3), just reached via the exception path
-      // (round-2 review S1). Preserve existing error propagation.
+      // platform handler). Flush anyone who selected this item while the load
+      // was in flight so they do not strand on a permanent spinner and the
+      // pending-notify map does not grow unbounded -- same rationale as the
+      // success path, reached via the exception path (round-2 review S1).
+      // Preserve existing error propagation.
       final pending = _pendingPreviewNotifies.remove(id);
       if (pending != null) {
         for (final cb in pending) {
@@ -750,6 +573,119 @@ class ImagePreloadController {
     } finally {
       _loadingKeys.remove(id);
     }
+  }
+
+  void _decodeFullSizeIntoImageCache(
+    String id,
+    SourcePayload payload,
+    VoidCallback notifyLoaded,
+  ) {
+    final provider = _fullSizeProviderForPayload(payload);
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener((image, synchronousCall) {
+      stream.removeListener(listener);
+      _tierTwoReadyIds.add(id);
+      notifyLoaded();
+    }, onError: (error, stackTrace) => stream.removeListener(listener));
+    stream.addListener(listener);
+    provider.obtainKey(const ImageConfiguration()).then((key) {
+      _tierTwoKeys[id] = key;
+      _tierTwoSources[id] = payload;
+    });
+  }
+
+  // Removes id's tier-2 bookkeeping and evicts its ImageCache entry (if any).
+  // Never touches _tierOneKeys or the payload cache -- tier-1 and retention
+  // have their own, separate lifecycles.
+  //
+  // Note what is NOT here any more: no dispose, no in-flight marker to clear,
+  // no evict-before-dispose ordering. Evicting an ImageCache entry can no
+  // longer destroy anything the pipeline still needs, because what the
+  // pipeline keeps is the payload, and the payload is bytes.
+  void _evictTierTwoEntry(String id) {
+    final key = _tierTwoKeys.remove(id);
+    _tierTwoSources.remove(id);
+    _tierTwoReadyIds.remove(id);
+    if (key != null) {
+      PaintingBinding.instance.imageCache.evict(key);
+    }
+  }
+
+  // Tier-1 precache: decode current +/-2 at window resolution ahead of display,
+  // using the SAME provider factory the view uses. Requires [updateTargetSize]
+  // to have been called at least once (from a previous layout pass); no-ops
+  // otherwise, degrading to on-demand full decode at display time
+  // (functionally correct, just slower for that frame).
+  void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
+    final width = _tierOneWidth;
+    final height = _tierOneHeight;
+    if (width == null || height == null) return;
+
+    final tierStart = (currentIndex - 2).clamp(0, items.length - 1);
+    final tierEnd = (currentIndex + 2).clamp(0, items.length - 1);
+    final neededIds = <String>{};
+
+    for (var i = tierStart; i <= tierEnd; i++) {
+      final item = items[i];
+      final payload = _cache.peek(item.id);
+      if (payload == null) continue; // not loaded yet; retried on next pass
+      neededIds.add(item.id);
+      _decodeIntoImageCache(
+        item.id,
+        _tierOneProviderForPayload(payload, width: width, height: height),
+      );
+    }
+
+    final staleIds = _tierOneKeys.keys
+        .where((id) => !neededIds.contains(id))
+        .toList();
+    for (final id in staleIds) {
+      final key = _tierOneKeys.remove(id);
+      if (key != null) {
+        PaintingBinding.instance.imageCache.evict(key);
+      }
+    }
+  }
+
+  // The two places a payload becomes a provider. Pixels are ALREADY at window
+  // resolution and orientation-corrected -- resizing them again would be a
+  // second resample of an image that is already the right size -- so both
+  // tiers use the same provider for that kind, which also means they share one
+  // ImageCache entry instead of decoding the same pixels twice.
+  ImageProvider _tierOneProviderForPayload(
+    SourcePayload payload, {
+    required int width,
+    required int height,
+  }) {
+    return switch (payload) {
+      EncodedPayload(:final bytes) => tierOneProviderFor(
+        bytes,
+        width: width,
+        height: height,
+      ),
+      PixelPayload() => RawPixelsImage(payload),
+    };
+  }
+
+  ImageProvider _fullSizeProviderForPayload(SourcePayload payload) {
+    return switch (payload) {
+      EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
+      PixelPayload() => RawPixelsImage(payload),
+    };
+  }
+
+  void _decodeIntoImageCache(String id, ImageProvider provider) {
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, synchronousCall) => stream.removeListener(listener),
+      onError: (error, stackTrace) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+    provider
+        .obtainKey(const ImageConfiguration())
+        .then((key) => _tierOneKeys[id] = key);
   }
 
   /// Loads sidebar thumbnails for the VISIBLE range [startIdx]..[endIdx],
@@ -816,10 +752,10 @@ class ImagePreloadController {
           if (file == null) continue;
 
           _loadingKeys.add(loadingKey);
-          // Native only ever emits NO_EMBEDDED_PREVIEW for purpose ==
+          // Native only ever emits the raw-decode signal for purpose ==
           // preview, so for thumbnails anything that is not bytes is simply
           // "no thumbnail", exactly as null was before.
-          final result = await _imageLoader(
+          final result = await _source.loader(
             file.path,
             purpose: ImageRequestPurpose.sidebarThumbnail,
           );

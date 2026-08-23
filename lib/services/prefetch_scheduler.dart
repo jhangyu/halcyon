@@ -22,7 +22,7 @@ const int kExpensiveStartupRadius = 1;
 /// | `expensive` | +/-1                              | yes |
 ///
 /// This is not the old type branch under a new name. The old rule picked the
-/// rung from the `.dng` extension and was wrong 13 times in 14; measuring the
+/// rung from the file extension and was wrong 13 times in 14; measuring the
 /// content moves those 13 onto the cheap rung and shrinks `expensive` from
 /// "every DNG" to "files with no usable embedded JPEG at all".
 ///
@@ -34,8 +34,8 @@ class PrefetchScheduler {
   /// [reset] (i.e. a folder reload), so a file is asked about once per folder
   /// rather than once per navigation.
   ///
-  /// This is the successor to `_needsRawDecode`'s exactly-once guarantee
-  /// (invariant I6), and it is strictly stronger: the old map only existed for
+  /// This is the successor to the old per-item raw-decode map's exactly-once
+  /// guarantee (invariant I6), and it is strictly stronger: the old map only existed for
   /// items the native side flagged, so a permanently failing THUMBNAIL was
   /// re-asked on every sweep forever (invariant I8's defect). One memo now
   /// covers raw items, non-raw failures and thumbnails alike.

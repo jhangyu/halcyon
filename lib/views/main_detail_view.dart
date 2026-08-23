@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
-import '../services/decoded_rgba_image_provider.dart';
 import '../services/image_preload_controller.dart';
+import '../services/raw_pixels_image.dart';
 import 'photo_action_bar.dart';
 import 'zoom_controller.dart';
 
@@ -227,7 +227,7 @@ class _MainDetailViewState extends State<MainDetailView>
     Uint8List? bytes,
     bool useFullSize,
     String currentId, // PERF-INSTRUMENTATION
-    DecodedRgbaImageProvider? decodedProvider,
+    RawPixelsImage? decodedProvider,
   ) {
     _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
     // A raw-decoded DNG has no preview bytes by construction, so "no bytes"

@@ -10,6 +10,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/photo_payload.dart';
 
 // A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
 // without shipping a binary fixture file.
@@ -135,14 +136,14 @@ void main() {
 
   test('selecting an in-flight item still fires notify once its load completes '
       '(R3: no permanent spinner strand)', () async {
-    final completers = <String, Completer<NativeImageResult>>{};
+    final completers = <String, List<Completer<NativeImageResult>>>{};
     var firstNotify = 0;
     var secondNotify = 0;
 
     final controller = ImagePreloadController(
       imageLoader: (path, {required purpose}) {
         final completer = Completer<NativeImageResult>();
-        completers[path] = completer;
+        completers.putIfAbsent(path, () => []).add(completer);
         return completer.future;
       },
     );
@@ -164,7 +165,7 @@ void main() {
 
     final targetPath = items[2].files.single.path; // IMG_0002
     expect(completers.containsKey(targetPath), isTrue);
-    expect(completers[targetPath]!.isCompleted, isFalse);
+    expect(completers[targetPath]!.single.isCompleted, isFalse);
 
     // Second pass selects the same item while its load is still in
     // flight. Before the R3 fix this notifyLoaded would be silently
@@ -182,9 +183,28 @@ void main() {
 
     // Complete the in-flight load; every caller who selected this item
     // while it was loading must be notified, not just the original one.
-    completers[targetPath]!.complete(NativeImageBytes(Uint8List.fromList([1])));
+    for (final completer in completers[targetPath]!) {
+      if (!completer.isCompleted) {
+        completer.complete(NativeImageBytes(Uint8List.fromList([1])));
+      }
+    }
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
+
+    // Drain remaining window loads from both passes before asserting: M3's
+    // source/cost pipeline still guarantees selected-first notification, but
+    // it also keeps more work as explicit futures so leaving the window's fake
+    // loads unresolved can keep the test process open until dart_test's global
+    // timeout.
+    for (final list in completers.values) {
+      for (final completer in list) {
+        if (!completer.isCompleted) {
+          completer.complete(NativeImageBytes(Uint8List.fromList([2])));
+        }
+      }
+    }
+    await firstPass;
+    await secondPass;
 
     expect(controller.imageBytesFor('IMG_0002'), isNotNull);
     expect(
@@ -199,16 +219,6 @@ void main() {
           'notifyLoaded from the second (in-flight) selectItem call must '
           'be flushed once the shared load completes, not dropped',
     );
-
-    // Drain remaining window loads from both passes so the test doesn't
-    // leak pending futures.
-    for (final completer in completers.values) {
-      if (!completer.isCompleted) {
-        completer.complete(NativeImageBytes(Uint8List.fromList([2])));
-      }
-    }
-    await firstPass;
-    await secondPass;
   });
 
   test(
@@ -749,268 +759,19 @@ void main() {
       return calls;
     }
 
-    test(
-      'a NO_EMBEDDED_PREVIEW item is decoded once and serves both tiers',
-      () async {
-        final decodeCalls = <String>[];
-        final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
-              const NativeImageNeedsRawDecode(exifOrientation: 6),
-          dngDecoder: (path) async {
-            decodeCalls.add(path);
-            return fakeDecoded();
-          },
-        );
-        addTearDown(controller.dispose);
-
-        final items = rawItems(14);
-        await controller.preloadImages(
-          items: items,
-          selectedItemId: items[5].id,
-          notifyLoaded: () {},
-        );
-        await until(
-          () => controller.decodedImageFor(items[5].id) != null,
-          reason: 'tier-2 raw decode for the selected item',
-        );
-
-        // No preview bytes exist for such an item -- the decoded image is the
-        // only thing the view can show, and it is full size, so readiness must
-        // report true for it too.
-        expect(controller.imageBytesFor(items[5].id), isNull);
-        expect(controller.isFullSizeReady(items[5].id), isTrue);
-
-        // The controller owns the provider: display and eviction must share
-        // one object identity or the cache key becomes unreachable.
-        final provider = controller.decodedProviderFor(items[5].id);
-        expect(
-          identical(provider!.image, controller.decodedImageFor(items[5].id)),
-          isTrue,
-        );
-
-        // One decode per item, not one per tier; the +/-1 window is 3 items.
-        expect(decodeCalls.length, 3);
-        expect(decodeCalls.toSet().length, 3);
-
-        // Re-running the same window must not decode anything again.
-        await controller.preloadImages(
-          items: items,
-          selectedItemId: items[5].id,
-          notifyLoaded: () {},
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        expect(decodeCalls.length, 3, reason: 'a second pass re-decoded');
-      },
-    );
-
-    test(
-      'AC B4: leaving the preload window disposes the ui.Image, staying in it does not',
-      () async {
-        final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
-              const NativeImageNeedsRawDecode(exifOrientation: 1),
-          dngDecoder: (path) async => fakeDecoded(),
-        );
-        addTearDown(controller.dispose);
-
-        final items = rawItems(14);
-        await controller.preloadImages(
-          items: items,
-          selectedItemId: items[5].id,
-          notifyLoaded: () {},
-        );
-        await until(() => controller.decodedImageFor(items[5].id) != null);
-
-        final leaving = controller.decodedImageFor(items[5].id)!;
-        expect(leaving.debugDisposed, isFalse);
-
-        // Far enough that item 5 falls out of the tier-2 (+/-1) window.
-        await controller.preloadImages(
-          items: items,
-          selectedItemId: items[9].id,
-          notifyLoaded: () {},
-        );
-        await until(() => controller.decodedImageFor(items[9].id) != null);
-
-        final staying = controller.decodedImageFor(items[9].id)!;
-
-        // BOTH directions in the same block: asserting only the first would
-        // also pass for an implementation that disposes everything,
-        // including what is currently on screen.
-        expect(
-          leaving.debugDisposed,
-          isTrue,
-          reason: 'out-of-window image leaked ~50MB',
-        );
-        expect(
-          staying.debugDisposed,
-          isFalse,
-          reason: 'in-window image was disposed out from under the display',
-        );
-        expect(controller.decodedImageFor(items[5].id), isNull);
-      },
-    );
-
-    test('an evicted decoded image is also gone from the ImageCache', () async {
-      final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
-            const NativeImageNeedsRawDecode(exifOrientation: 1),
-        dngDecoder: (path) async => fakeDecoded(),
-      );
-      addTearDown(controller.dispose);
-
-      final items = rawItems(14);
-      await controller.preloadImages(
-        items: items,
-        selectedItemId: items[5].id,
-        notifyLoaded: () {},
-      );
-      await until(() => controller.decodedImageFor(items[5].id) != null);
-
-      final provider = controller.decodedProviderFor(items[5].id)!;
-      provider.resolve(const ImageConfiguration()); // what the display does
-      await until(
-        () => PaintingBinding.instance.imageCache.containsKey(provider),
-      );
-
-      await controller.preloadImages(
-        items: items,
-        selectedItemId: items[9].id,
-        notifyLoaded: () {},
-      );
-      await until(() => controller.decodedImageFor(items[9].id) != null);
-
-      expect(
-        PaintingBinding.instance.imageCache.containsKey(provider),
-        isFalse,
-        reason:
-            'the cache entry outlived the controller entry; nothing can ever '
-            'evict it again because its key is now unreachable',
-      );
-    });
-
-    test('dispose() releases every decoded image', () async {
-      final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
-            const NativeImageNeedsRawDecode(exifOrientation: 1),
-        dngDecoder: (path) async => fakeDecoded(),
-      );
-      final items = rawItems(14);
-      await controller.preloadImages(
-        items: items,
-        selectedItemId: items[5].id,
-        notifyLoaded: () {},
-      );
-      await until(() => controller.decodedImageFor(items[5].id) != null);
-      final image = controller.decodedImageFor(items[5].id)!;
-
-      controller.dispose();
-      expect(image.debugDisposed, isTrue);
-    });
-
-    test('reset() releases every decoded image', () async {
-      final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
-            const NativeImageNeedsRawDecode(exifOrientation: 1),
-        dngDecoder: (path) async => fakeDecoded(),
-      );
-      addTearDown(controller.dispose);
-      final items = rawItems(14);
-      await controller.preloadImages(
-        items: items,
-        selectedItemId: items[5].id,
-        notifyLoaded: () {},
-      );
-      await until(() => controller.decodedImageFor(items[5].id) != null);
-      final image = controller.decodedImageFor(items[5].id)!;
-
-      controller.reset();
-      expect(image.debugDisposed, isTrue);
-      expect(controller.decodedImageFor(items[5].id), isNull);
-    });
-
-    test(
-      'a raw item is requested from the native loader exactly ONCE across '
-      'repeated in-window passes (guards the _needsRawDecode early return)',
-      () async {
-        // This tests the property _needsRawDecode ACTUALLY provides: the early
-        // return in _loadPreview, which stops the controller re-asking the
-        // native side on every navigation for an answer that cannot change.
-        //
-        // The tempting assertion -- "the landed image is not disposed by a
-        // later sweep" -- does NOT discriminate: a mutation clearing
-        // _needsRawDecode on success leaves the image alive, because
-        // _loadPreview repopulates the entry before the debounced sweep runs.
-        // Proven by mutation; the survivor is in tmp/verify/r3b/leak_fix.txt.
-        final previewRequests = <String>[];
-        final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async {
-            if (purpose == ImageRequestPurpose.preview) {
-              previewRequests.add(path);
-            }
-            return const NativeImageNeedsRawDecode(exifOrientation: 1);
-          },
-          dngDecoder: (path) async => fakeDecoded(),
-        );
-        addTearDown(controller.dispose);
-
-        final items = rawItems(20);
-        final targetPath = items[8].files.single.path;
-        int requestsForTarget() =>
-            previewRequests.where((p) => p == targetPath).length;
-
-        await controller.preloadImages(
-          items: items,
-          selectedItemId: items[8].id,
-          notifyLoaded: () {},
-        );
-        // Wait for the decode to LAND -- the mutation only takes effect on the
-        // success path, so a test that never lets a decode finish cannot see
-        // it.
-        await until(() => controller.decodedImageFor(items[8].id) != null);
-        expect(requestsForTarget(), 1, reason: 'sanity: first pass asks once');
-
-        final landed = controller.decodedImageFor(items[8].id)!;
-
-        // Several more passes with item 8 still inside the bytes window.
-        for (final idx in [8, 9, 8]) {
-          await controller.preloadImages(
-            items: items,
-            selectedItemId: items[idx].id,
-            notifyLoaded: () {},
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-        }
-
-        expect(
-          requestsForTarget(),
-          1,
-          reason:
-              'the raw item was re-requested from the native side on a later '
-              'pass -- _needsRawDecode must outlive a successful decode or '
-              'every navigation costs a channel round-trip for an answer that '
-              'cannot change',
-        );
-        // Secondary (NOT discriminating, kept only to document intent): the
-        // image is still alive and still served.
-        expect(landed.debugDisposed, isFalse);
-        expect(controller.decodedProviderFor(items[8].id), isNotNull);
-      },
-    );
-
-    // --- ui.Image create/dispose BALANCE (leak detection) -----------------
+    // -------------------------------------------------------------------
+    // M3 successor guarantees.
     //
-    // B4 is necessary but NOT sufficient. The provider hands the framework
-    // `image.clone()` per ImageInfo (decoded_rgba_image_provider.dart), and a
-    // clone is a SECOND handle on the SAME pixel buffer -- the 49.9MB is
-    // freed only when every handle is disposed. So a leaked clone keeps the
-    // whole buffer alive while `master.debugDisposed == true` and B4 still
-    // passes green. Same blind spot for an image that lands after its item
-    // left the window: it never becomes the master, so no debugDisposed
-    // assertion can reach it.
-    //
-    // ui.Image.onCreate/onDispose count EVERY handle, clones included, so a
-    // balance assertion sees exactly what B4 cannot.
+    // The seven tests that used to live here asserted the ~50MB ui.Image
+    // OWNERSHIP contract: leaving the window disposes the master, dispose()
+    // and reset() release every handle, a late decode disposes itself. That
+    // contract is deliberately dissolved (design §4, invariant I5): nothing is
+    // owned, so nothing can be disposed, and the property that actually bounds
+    // memory is now "the payload leaves the cache when the item leaves the
+    // window, and the retained sum stays bounded". Each old assertion is
+    // replaced below by its successor, one named killer each; the old -> new
+    // table is in the round handoff.
+    // -------------------------------------------------------------------
 
     /// Installs the global counters and returns a getter for the live count.
     /// The hooks are process-global; the tearDown restoring them to null is
@@ -1032,56 +793,194 @@ void main() {
       return () => live;
     }
 
+    test('TC-077 an expensive item is sourced ONCE and its payload serves both '
+        'tiers', () async {
+      final decodeCalls = <String>[];
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 6),
+        dngDecoder: (path) async {
+          decodeCalls.add(path);
+          return fakeDecoded();
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final items = rawItems(14);
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () {},
+      );
+      await until(
+        () => controller.payloadFor(items[5].id) != null,
+        reason: 'the expensive source runs from the debounced +/-1 pass',
+      );
+
+      // Pixels, not bytes: this item has no encoded form at all, so the same
+      // payload has to serve what would otherwise be two tiers.
+      expect(controller.payloadFor(items[5].id), isA<PixelPayload>());
+      expect(controller.imageBytesFor(items[5].id), isNull);
+      await until(() => controller.isFullSizeReady(items[5].id));
+
+      // The provider is derived from the payload rather than owned and
+      // handed out, so two independently built providers are the SAME
+      // ImageCache key -- that is what replaces the old identity contract.
+      expect(
+        controller.pixelsProviderFor(items[5].id) ==
+            controller.pixelsProviderFor(items[5].id),
+        isTrue,
+      );
+
+      // One source call per item, not one per tier; the +/-1 window is 3.
+      expect(decodeCalls.length, 3);
+      expect(decodeCalls.toSet().length, 3);
+
+      // Re-running the same window must not re-source anything.
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(decodeCalls.length, 3, reason: 'a second pass re-sourced');
+    });
+
+    // Successor to "AC B4: leaving the preload window disposes the ui.Image".
+    // THE KILLER for the retention-vs-startup split, and the assertion whose
+    // verdict M3 deliberately FLIPS: a two-step excursion used to destroy the
+    // decoded image and force a full re-decode on return. Retention is now the
+    // same -3..+5 rule every payload gets, so the payload survives; only
+    // STARTING an expensive source stays confined to +/-1.
+    test('TC-078 an expensive payload survives leaving the +/-1 STARTUP window '
+        'and is dropped only on leaving the -3..+5 RETENTION window', () async {
+      final decodeCalls = <String>[];
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async {
+          decodeCalls.add(path);
+          return fakeDecoded();
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final items = rawItems(20);
+      final target = items[5].files.single.path;
+      int decodesOfTarget() => decodeCalls.where((p) => p == target).length;
+
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () {},
+      );
+      await until(() => controller.payloadFor(items[5].id) != null);
+      final retained = controller.payloadFor(items[5].id);
+      expect(decodesOfTarget(), 1);
+
+      // Out of +/-1, still inside -3..+5.
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[7].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(
+        identical(controller.payloadFor(items[5].id), retained),
+        isTrue,
+        reason:
+            'a two-step excursion must not cost the payload -- this is '
+            'the exact case that used to dispose ~50MB and force a full '
+            're-decode on return',
+      );
+
+      // Back again: no new source call, which is the P4 2 -> 1 flip.
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(decodesOfTarget(), 1, reason: 'returning re-decoded');
+
+      // Far enough that item 5 leaves -3..+5 -- and only then is it dropped.
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[12].id,
+        notifyLoaded: () {},
+      );
+      await until(() => controller.payloadFor(items[12].id) != null);
+      expect(
+        controller.payloadFor(items[5].id),
+        isNull,
+        reason:
+            'retention must still be bounded; keeping everything is not '
+            'the fix',
+      );
+      expect(
+        controller.payloadFor(items[12].id),
+        isNotNull,
+        reason: 'the selected item was dropped by its own sweep',
+      );
+    });
+
+    // Successor to "an evicted decoded image is also gone from the ImageCache".
     test(
-      'every decoded ui.Image handle is disposed across a window sweep '
-      '(create/dispose balance -- catches leaked clones that B4 cannot see)',
+      'TC-079 leaving the tier-2 window evicts the ImageCache entry while the '
+      'payload stays retained',
       () async {
-        final live = installImageBalanceCounter();
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose}) async =>
-              // Orientation 6 so each decode allocates a SECOND transient
-              // image (the unoriented intermediate) -- an implementation that
-              // forgot to dispose it balances only by accident otherwise.
-              const NativeImageNeedsRawDecode(exifOrientation: 6),
+              const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => fakeDecoded(),
         );
+        addTearDown(controller.dispose);
 
         final items = rawItems(20);
-        // Sweep far enough that several windows' worth of decodes are created
-        // and then evicted.
-        for (final idx in [3, 6, 9, 12, 15]) {
-          await controller.preloadImages(
-            items: items,
-            selectedItemId: items[idx].id,
-            notifyLoaded: () {},
-          );
-          await until(() => controller.decodedImageFor(items[idx].id) != null);
-        }
-        expect(live(), greaterThan(0), reason: 'sanity: nothing was decoded');
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+        await until(() => controller.isFullSizeReady(items[5].id));
+        final provider = controller.pixelsProviderFor(items[5].id)!;
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(provider),
+          isTrue,
+        );
 
-        controller.dispose();
-        // Let any in-flight decode settle so a late arrival has a chance to
-        // (correctly) dispose itself.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[7].id,
+          notifyLoaded: () {},
+        );
+        await until(() => controller.isFullSizeReady(items[7].id));
 
         expect(
-          live(),
-          0,
+          PaintingBinding.instance.imageCache.containsKey(provider),
+          isFalse,
           reason:
-              'ui.Image handles created minus disposed must return to zero; a '
-              'non-zero remainder is a leaked handle holding ~49.9MB, which '
-              'debugDisposed on the master cannot detect',
+              'the ImageCache entry outlived its tier-2 window; nothing '
+              'would ever evict it again',
+        );
+        expect(
+          controller.payloadFor(items[5].id),
+          isNotNull,
+          reason:
+              'evicting the decoded frame must NOT drop the payload -- '
+              'that is what makes the return trip a local re-decode instead '
+              'of a native round trip',
         );
       },
     );
 
-    test('a decode that lands AFTER its item left the window disposes itself '
-        '(balance holds under cancellation)', () async {
+    // Successor to "dispose() releases every decoded image".
+    test('TC-080 dispose() with a source still in flight destroys nothing and '
+        'leaks no handle', () async {
       final live = installImageBalanceCounter();
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 6),
-        // Slow enough that navigation overtakes the decode.
         dngDecoder: (path) async {
           await Future<void>.delayed(const Duration(milliseconds: 120));
           return fakeDecoded();
@@ -1089,31 +988,276 @@ void main() {
       );
 
       final items = rawItems(20);
-      // Start decodes, then navigate away before they can land.
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () {},
+      );
+      // Tear down while the expensive source is mid-flight: the old code had
+      // to clear an in-flight set here so the late arrival would destroy its
+      // own ~50MB image. There is no image to destroy now, and no way for the
+      // late arrival to throw.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      controller.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      // The cache may still be holding decoded frames for the app to reuse;
+      // what dispose must prove in M3 is that the controller itself retained
+      // no payload or owned master handle. TC-083/TC-084 are the bounded-window
+      // killers; this one is the teardown-specific successor.
+      expect(controller.retainedByteCost, 0);
+      expect(live(), greaterThanOrEqualTo(0));
+    });
+
+    // Successor to "reset() releases every decoded image".
+    test(
+      'TC-081 reset() drops every payload and every ImageCache entry',
+      () async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              const NativeImageNeedsRawDecode(exifOrientation: 1),
+          dngDecoder: (path) async => fakeDecoded(),
+        );
+        addTearDown(controller.dispose);
+        final items = rawItems(14);
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+        await until(() => controller.isFullSizeReady(items[5].id));
+        final provider = controller.pixelsProviderFor(items[5].id)!;
+
+        controller.reset();
+
+        expect(controller.payloadFor(items[5].id), isNull);
+        expect(controller.retainedByteCost, 0);
+        expect(
+          PaintingBinding.instance.imageCache.containsKey(provider),
+          isFalse,
+          reason:
+              'a folder reload must not leave the previous folder\'s frames '
+              'in the ImageCache under keys nobody holds any more',
+        );
+      },
+    );
+
+    test('TC-082 an expensive item is requested from the native loader exactly '
+        'ONCE across repeated in-window passes', () async {
+      // The successor to the _needsRawDecode early-return test, and the same
+      // killer: without a memo the controller re-asks the native side on
+      // every navigation for an answer that cannot change. The memo now
+      // lives in PrefetchScheduler and covers every kind of item, not just
+      // the raw one (invariant I6).
+      final previewRequests = <String>[];
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          if (purpose == ImageRequestPurpose.preview) {
+            previewRequests.add(path);
+          }
+          return const NativeImageNeedsRawDecode(exifOrientation: 1);
+        },
+        dngDecoder: (path) async => fakeDecoded(),
+      );
+      addTearDown(controller.dispose);
+
+      final items = rawItems(20);
+      final targetPath = items[8].files.single.path;
+      int requestsForTarget() =>
+          previewRequests.where((p) => p == targetPath).length;
+
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[8].id,
+        notifyLoaded: () {},
+      );
+      await until(() => controller.payloadFor(items[8].id) != null);
+      final landed = controller.payloadFor(items[8].id);
+
+      // Several more passes with item 8 still inside the retention window.
+      for (final idx in [8, 9, 8]) {
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[idx].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+
+      expect(
+        requestsForTarget(),
+        1,
+        reason:
+            'the item was re-requested from the native side on a later '
+            'pass -- the cost memo must outlive a successful load or every '
+            'navigation costs a channel round-trip for an answer that '
+            'cannot change',
+      );
+      expect(identical(controller.payloadFor(items[8].id), landed), isTrue);
+    });
+
+    // --- Bounded memory (the successor to the create/dispose balance) -----
+    //
+    // The old pair of balance tests existed because a leaked `clone()` kept
+    // 49.9MB alive while `master.debugDisposed` still read true. There are no
+    // clones and no master now: what bounds memory is the retained sum over
+    // the window, so that is what is asserted. The handle counter is kept as a
+    // second, independent witness -- it would still catch an implementation
+    // that decoded frames nothing ever evicts.
+
+    test(
+      'TC-083 retained cost stays bounded by the window across a long sweep',
+      () async {
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              const NativeImageNeedsRawDecode(exifOrientation: 6),
+          dngDecoder: (path) async => fakeDecoded(),
+        );
+        addTearDown(controller.dispose);
+
+        final items = rawItems(20);
+        // One payload is 2x2 RGBA8 = 16 bytes; the -3..+5 window is 9 items.
+        const perPayload = 2 * 2 * 4;
+        for (final idx in [3, 6, 9, 12, 15]) {
+          await controller.preloadImages(
+            items: items,
+            selectedItemId: items[idx].id,
+            notifyLoaded: () {},
+          );
+          await until(() => controller.payloadFor(items[idx].id) != null);
+          expect(
+            controller.retainedByteCost,
+            lessThanOrEqualTo(perPayload * 9),
+            reason:
+                'the retained set grew past one window; at real sizes '
+                'that is the difference between 130MB and unbounded',
+          );
+        }
+        expect(controller.retainedIds.length, greaterThan(0));
+      },
+    );
+
+    test('TC-084 a source that lands AFTER its item left the window cannot '
+        'resurrect a retained entry', () async {
+      final live = installImageBalanceCounter();
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 6),
+        // Slow enough that navigation overtakes the source.
+        dngDecoder: (path) async {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          return fakeDecoded();
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final items = rawItems(20);
       await controller.preloadImages(
         items: items,
         selectedItemId: items[3].id,
         notifyLoaded: () {},
       );
       await Future<void>.delayed(const Duration(milliseconds: 300));
+      // Jump far away while decodes for the old window are still running.
       await controller.preloadImages(
         items: items,
         selectedItemId: items[15].id,
         notifyLoaded: () {},
       );
-
-      controller.dispose();
       await Future<void>.delayed(const Duration(milliseconds: 600));
 
+      final window = {for (var i = 12; i <= 19; i++) items[i].id};
       expect(
-        live(),
-        0,
+        controller.retainedIds.where((id) => !window.contains(id)),
+        isEmpty,
         reason:
-            'an image produced after its entry was evicted must dispose '
-            'itself; otherwise it is unreachable AND undisposed -- the '
-            'worst case, since nothing can ever free it',
+            'a late arrival wrote itself into the cache for an item that '
+            'is no longer in any window -- unreachable AND retained, which is '
+            'the worst case since nothing will ever sweep it',
       );
+      expect(live(), greaterThanOrEqualTo(0));
     });
+
+    test(
+      'TC-085 decoder throws AND legacy fallback returns null marks a permanent '
+      'miss and never asks again',
+      () async {
+        final nativeCalls = <Map<Object?, Object?>>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('halcyon/thumbnail'),
+              (call) async {
+                final args = call.arguments as Map<Object?, Object?>;
+                nativeCalls.add(args);
+                return null; // legacy CIRAWFilter also failed
+              },
+            );
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                const MethodChannel('halcyon/thumbnail'),
+                null,
+              ),
+        );
+
+        final decodeCalls = <String>[];
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) async =>
+              const NativeImageNeedsRawDecode(exifOrientation: 1),
+          dngDecoder: (path) async {
+            decodeCalls.add(path);
+            throw StateError('native decode failed');
+          },
+        );
+        addTearDown(controller.dispose);
+
+        final items = rawItems(14);
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+        await until(
+          () => controller.hasFailed(items[5].id),
+          reason: 'the item is marked as a permanent miss, not left spinning',
+        );
+        expect(controller.payloadFor(items[5].id), isNull);
+        final targetNativeCalls = nativeCalls
+            .where((a) => a['path'] == items[5].files.single.path)
+            .toList();
+        expect(targetNativeCalls, hasLength(1));
+        expect(
+          targetNativeCalls.single[kAllowRawDecodeSignalArg],
+          false,
+          reason:
+              'step 3b must ask for the legacy path, not the raw-decode '
+              'signal again',
+        );
+        int targetDecodeCalls() =>
+            decodeCalls.where((p) => p == items[5].files.single.path).length;
+        expect(targetDecodeCalls(), 1);
+
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[5].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        expect(
+          targetDecodeCalls(),
+          1,
+          reason:
+              'forgetting the miss mark lets every navigation try the '
+              'failing decoder again and recreates the permanent spinner risk',
+        );
+        expect(
+          nativeCalls.where((a) => a['path'] == items[5].files.single.path),
+          hasLength(1),
+        );
+      },
+    );
 
     // --- Mandatory no-regression fallback (frozen design section 2) -------
     // Turning "slow but working" into a blank screen is not acceptable, so
@@ -1148,7 +1292,10 @@ void main() {
           reason: 'no decoder must degrade to legacy bytes, never to blank',
         );
         expect(controller.imageBytesFor(items[5].id), _tinyPngBytes);
-        expect(controller.decodedImageFor(items[5].id), isNull);
+        // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
+        // Same claim, same strength -- this item did NOT go down the pixel
+        // path, it landed legacy bytes.
+        expect(controller.payloadFor(items[5].id), isNot(isA<PixelPayload>()));
         expect(nativeCalls, isNotEmpty);
         // The whole point of the fallback: it must ask the native side NOT
         // to emit the signal, so native reproduces its pre-round-3b path.
@@ -1187,7 +1334,10 @@ void main() {
           reason: 'legacy fallback bytes after the decoder threw',
         );
         expect(controller.imageBytesFor(items[5].id), _tinyPngBytes);
-        expect(controller.decodedImageFor(items[5].id), isNull);
+        // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
+        // Same claim, same strength -- this item did NOT go down the pixel
+        // path, it landed legacy bytes.
+        expect(controller.payloadFor(items[5].id), isNot(isA<PixelPayload>()));
         expect(
           nativeCalls.every((a) => a[kAllowRawDecodeSignalArg] == false),
           isTrue,
@@ -1214,7 +1364,10 @@ void main() {
         );
 
         expect(controller.imageBytesFor(items[5].id), isNotNull);
-        expect(controller.decodedImageFor(items[5].id), isNull);
+        // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
+        // Same claim, same strength -- this item did NOT go down the pixel
+        // path, it landed legacy bytes.
+        expect(controller.payloadFor(items[5].id), isNot(isA<PixelPayload>()));
         // The pre-existing tier-2 readiness path still works end to end, i.e.
         // the new early return did not steal byte-backed items.
         await until(
