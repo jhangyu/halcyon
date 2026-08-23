@@ -300,6 +300,84 @@ void main() {
     },
   );
 
+  testWidgets(
+    'M6-PL7 the SECOND generation guard (after the window await, :406) must '
+    'discard a stale resume too, not only the priority-load guard (:381)',
+    (tester) async {
+      await tester.runAsync(() async {
+        // Guard 1 (:381, right after the priority load) only fires when a
+        // stale pass is superseded before its window loads even start. This
+        // test parks pass A one step later -- inside the WINDOW await
+        // (Future.wait(pendingLoads), :398) -- so guard 1 sees no
+        // supersession yet and pass A only becomes stale WHILE waiting on the
+        // window. That is the only way execution reaches guard 2 with a
+        // generation mismatch already in hand.
+        final gate = Completer<NativeImageResult>();
+        final items = List.generate(14, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        // Pass A (selected index 0) retains -3..+5 -> window 0..5. Index 2
+        // is inside that window. Pass B (selected index 10) retains 7..13.
+        // Index 2 is outside pass B's window, so gating it stalls ONLY pass
+        // A's window loop while pass B runs to completion untouched.
+        final gatedPath = items[2].files.single.path;
+
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) {
+            if (path == gatedPath) return gate.future;
+            return Future<NativeImageResult>.value(
+              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+            );
+          },
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(10, 10);
+
+        // Pass A's priority load (item 0) is NOT gated, so it clears guard 1
+        // and enters the window loop, where it parks on item 2's gate.
+        final stalePass = controller.preloadImages(
+          items: items,
+          selectedItemId: items[0].id,
+          notifyLoaded: () {},
+        );
+        // Give pass A's priority load and the start of its window loop a
+        // chance to run before pass B supersedes it.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        // Pass B is the current generation. None of its window items (7..13)
+        // are gated, so it runs to completion and schedules tier-2 for
+        // index 10.
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[10].id,
+          notifyLoaded: () {},
+        );
+
+        // Release pass A. It resumes past Future.wait with a generation that
+        // no longer matches -- guard 2 (:406) is what must stop it here;
+        // guard 1 already ran and saw no mismatch.
+        gate.complete(NativeImageBytes(Uint8List.fromList(_tinyPngBytes)));
+        await stalePass;
+
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+
+        expect(
+          controller.isFullSizeReady(items[10].id),
+          isTrue,
+          reason:
+              "current window's tier-2 schedule must survive the stale "
+              'resume',
+        );
+        expect(
+          controller.isFullSizeReady(items[0].id),
+          isFalse,
+          reason: 'the abandoned window must get no tier-2 decode',
+        );
+      });
+    },
+  );
+
   test(
     'M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred '
     'null payload -- the signal the caller turns into a permanent miss',
