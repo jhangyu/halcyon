@@ -13,6 +13,7 @@
 - **task #7（parking-lot 五項）全部完成並簽收**，5 個 commit，tip `99d1c36`，全套 **245 執行／0 skip／`TEST_RC=0`**。
 - **task #6（M6）未動一行，零 commit，經使用者裁定停泊（Opt-3）**。原因不是做不完，是**契約的前提被證明是錯的**。
 - **本輪最重要的產出是那份否定結果**：M6 的 delete list 建立在一個從未發生的 M3 計畫之上。詳見 §3——下一輪的 M6 re-contract 應從該節開始，不要從設計權威 §7 重新開始。
+- **附帶取得一個本輪最有價值的數字**：`DngPreviewExtractor.swift` 若照原計畫刪除，便宜 DNG 預覽會慢 **94–183 倍**且解析度從 6000x4000 掉到 2800px——實測，非推理，見 §3.4。原計畫把這個檔案當成不可達的死碼。
 - 三個凍結閘門 sha256 **不變**，AD-018／AD-019 未動，D4 grep 維持 0。
 - **未合併回 `main`**——合併由指揮官執行，合併後在 `main` 上重跑全套仍是獨立閘門。
 
@@ -118,17 +119,48 @@ lead 曾主張：刪掉 macOS 的 NO_EMBEDDED_PREVIEW 發射會讓無預覽 DNG 
 
 > **教訓**：兩個人各自先喊了同一個錯誤警報，又各自靠讀碼推翻它。能收斂是因為兩邊都把「我上次說錯了」往上報，而不是安靜地讓對的結論蓋掉錯的過程。**否定結果先驗儀器、也先驗自己。**
 
-### 3.4 若未來要刪 `DngPreviewExtractor.swift`，先解這題
+### 3.4 `DngPreviewExtractor.swift` 不能刪——已用實測數字回答，不再是懸而未決的問題
 
-`macos/Runner/AppDelegate.swift:373` 仍呼叫 `extractFullSizeEmbeddedJpeg(url:)`，這是 **macOS 便宜 DNG 的內嵌預覽直通路徑**，服務 13 個便宜正典樣本的每一次 DNG 預覽請求。它**不是**任務書假設的不可達檔案。
-Dart 有孿生實作（`lib/services/dng_preview_extractor.dart`），但生產上**只能經由 `PhotoSource.fallbackAfterNativeFailure`（`photo_source.dart:317`）到達，而該路徑以 native 已經失敗為前提**，其 doc comment（`:309-313`）自己寫著「macOS unaffected」。
-因此刪掉 Swift 檔會迫使刪掉那個分支，便宜 DNG 改走 CGImageSource 解碼＋重編碼——**JPEG 級熱路徑上的真實效能退步，且 agent 無法自行量測**（UI／記憶體量測歸使用者）。實作者依指示**停下回報而非即興發揮**，正確。
+本輪原本只把這列為「動手前要先查清楚」的風險。實作者查了，**答案是不能刪，而且有數字**。
 
-### 3.5 已停泊工作的去向
+`macos/Runner/AppDelegate.swift:373` 呼叫 `extractFullSizeEmbeddedJpeg(url:)`，這是 **macOS 便宜 DNG 的內嵌預覽直通路徑**，服務 13 個便宜正典樣本的每一次 DNG 預覽請求。**它不是任務書假設的不可達檔案。**
+刪掉該檔後，便宜 DNG 的預覽只剩一條路：`AppDelegate.swift:417` `CGImageSourceCreateWithURL` → `:410-437` isRaw 分支（`CGImageSourceCreateThumbnailAtIndex`，`FromImageIfAbsent:false`，maxPixelSize 2800）→ `:484-486` `NSBitmapImageRep` 以 q0.8 重編碼 JPEG。
+**Dart 孿生救不了**：`photo_source.dart:317` `fallbackAfterNativeFailure` 以 `NativeImageFailure` 為前提，而此處 native 會**成功**，所以它永遠不會執行。
 
-實作者準備好的 macOS 半邊（發射移除、已無呼叫者的 `readDngOrientation` 刪除、AD-010／AD-011 修訂）**已全部還原，零 commit**。還原前先存 patch（`tmp/verify/*-m6-parked-macos-half.patch`），未捕捉就刪掉的工作無法稽核。
+**實測（headless Swift benchmark，無 UI、無 RSS；預測與判讀規則寫在數字存在之前、同檔在上；`COMPILE_RC=0`／`RUN_RC=0`；三個便宜 `2026-*` 正典樣本，best-of-3）**
+artifact：`tmp/verify/20260823T173937Z-risk1-cheap-dng-bench.txt`；原始碼：`scripts/tmp/bench_dng_passthrough.swift`（對**出貨版** extractor 編譯）
 
-**實作者拒絕在 `memory.md` 寫「3 variants → 2」**，理由是那不是樹上的事實，寫下去就是假紀錄。**lead 明確支持這個拒絕**——memory.md 的假紀錄比任何一個 session 活得久。
+| 樣本 | A：現行直通 | B：刪除後僅存路徑 |
+|---|---|---|
+| `2026-02-15-20-57-15.dng` | 0.7 ms／800,935 B／6000x4000 | 112.3 ms／373,130 B／2800x1867 |
+| `2026-02-15-21-53-33.dng` | 1.2 ms／1,780,370 B／6000x4000 | 129.7 ms／769,699 B／2800x1867 |
+| `2026-08-07-17-52-54.dng` | 1.2 ms／2,030,586 B／6000x4000 | 219.3 ms／484,759 B／1867x2800 |
+
+**每張預覽慢 94–183 倍，且解析度從完整 6000x4000 內嵌 JPEG 掉到 2800px q0.8 重編碼**——發生在使用者親手走的那 13 個便宜樣本上，發生在契約自己稱為效能地板的路徑上。實作者**預註冊**的判讀規則（>2 倍，或尺寸縮小 ⇒ 不得夾在 cleanup commit 裡出貨）兩條同時觸發。
+
+> **這是使用者決策，不是清理。** 未來 re-contract 的選項：(a) 正式豁免該刪除（保留 Swift 檔）；(b) 先把 DNG 的擷取搬到 Dart，讓孿生真的服務便宜路徑——這是 `photo_source.dart` seam 的真實設計改動；(c) 接受退步（僅使用者可決定，實作者與 lead 均不建議）。
+>
+> **方法論值得照抄**：這是本輪唯一一個「agent 可以合法量測」的效能問題——純 headless、不碰 UI、不掃 RSS，因此不違反使用者對量測的所有權裁定。想量效能又受該裁定限制時，先問「能不能把它化約成一個 headless 命令基準」。
+
+### 3.5 已停泊工作的去向（實際經過，非我原本下的令）
+
+**最終狀態：工作樹零修改，M6 零 commit，tip `d07a388`（本交接文件）直接疊在 `99d1c36` 之上，pl-impl 的五個 commit 完好。**
+
+經過需要照實記錄，因為它是本輪第二次分散式狀態事故：
+- lead 的撤回令依據一份**過時的 `git status` 快照**，只點名三個檔案（`AppDelegate.swift`、`DngPreviewExtractor.swift`、`memory.md`）。實際上樹上有**五個**修改檔——Option B 的 Dart 半邊（`lib/services/native_thumbnail_service.dart`、`test/native_thumbnail_service_test.dart`）也在其中。
+- **實作者沒有把破壞性命令擴及未被點名的檔案**，而是照令還原三個、回報清單不符、等待授權後才還原另外兩個。**這是正確處置**：擅自擴大還原範圍與擅自不還原，都是把單方判斷加在破壞性操作上。
+- 兩份 patch 皆在還原前存檔：`tmp/verify/20260823T174141Z-m6-parked-macos-half.patch`（319 行，實際涵蓋全部五檔——實作者擴大了**捕捉**範圍而非還原範圍）與 `tmp/verify/20260823T174359Z-m6-parked-dart-half.patch`（186 行）。
+
+> **後者的開頭有 13 行 `#` 註解警語**，載明這是**已撤回方案**的產物：在 Opt-3 之下發射**回來了**、variant **確實會被產生**，patch 內所有相反的宣稱在寫下當時即為假。同時分離出「無論樹如何都成立」的部分——`package:` URI 只解析到 `lib/` 之內，故 12 個凍結構造點迫使該符號必須留在 `lib/`。`git apply` 會略過前導註解，patch 仍可套用。
+>
+> **為什麼特地留這份 patch**：其中 `NativeImageNeedsRawDecode` 的 deprecation 註解是本輪品質最高的產物——它對零脈絡讀者解釋了「這段看似死碼為何不能刪」，點名 12 個凍結構造點與 `package:` 機制，正面攔截「順手清掉死碼」的反射。**未來 M6 re-contract 應從 patch 復原它並近乎逐字重用，不要重寫。** 但復原時必須先改掉那幾句關於樹的現況宣稱。
+
+### 3.6 實作者拒絕寫入假紀錄（兩次）
+
+- **`memory.md`**：拒絕寫「3 variants → 2」，理由是那不是樹上的事實。
+- **同一個陷阱換了地點**：Option B 的 deprecation 註解裡確實寫了「發射已消失、只產生兩個 variant」。在 Option B 成立時那是真的；Opt-3 一撤回就變假。**lead 要求把警語寫進 patch 頂端**，正是因為源碼註解和 memory.md 一樣會被未來 session 當成現況描述來讀。
+
+**通則**：紀錄「計畫」與紀錄「現況」必須在文字上可區分。一份描述已撤回計畫的產物，若沒有自述它是計畫，下一個讀者就會把它讀成現況。
 
 ---
 
@@ -195,7 +227,7 @@ Dart 有孿生實作（`lib/services/dng_preview_extractor.dart`），但生產�
 |---|---|---|
 | PL-6 | 暫時性縮圖失敗被記成「永久到重載為止」——相對 `b3b0ddd` 是行為損失。**使用者已裁定不做（出帳）** | 終態可達 |
 | P-2b | `scripts/build_apps.py` 未接 `HALCYON_BUILD_COMMIT` define（見 §5.1） | 終態可達，但**使用者自量的 provenance 保護在預設路徑上仍是空的**——建議優先 |
-| M6 | 整項停泊，待與 M5 一起重新立約（使用者指示：同一子系統，一次決策） | **終態不可達**——M6 是契約終態的一半。這不是緩議項，是**沒有排程的阻斷**，必須重新排程 |
+| M6 | 整項停泊，待與 M5 一起重新立約（使用者指示：同一子系統，一次決策）。**重新立約前必先處置 §3.4 的 94–183 倍退步**——它是 M6 原始 delete list 的一部分 | **終態不可達**——M6 是契約終態的一半。這不是緩議項，是**沒有排程的阻斷**，必須重新排程 |
 | P-1／P-3／P-4 | 使用者已裁定不做（出帳） | 見設計權威 |
 | [U-2]/[U-4]/[U-6]/[U-7] | 設計權威 §9 未決事項，本輪未觸及 | 見該表 |
 
@@ -209,4 +241,7 @@ Dart 有孿生實作（`lib/services/dng_preview_extractor.dart`），但生產�
 2. **合併後在 `main` 上重跑全套是獨立閘門。** 本輪 tip `99d1c36` 的 245／0-skip 不能替代它。
 3. **task #7 的五個 commit 彼此獨立**，若合併時需要拆分或部分回退，`5361077`（唯一的生產程式碼改動）與其餘四個（測試／文件／perf log）可分開處理。
 4. **本輪最有價值的動作是拒絕動手。** 實作者收到任務後先做 read-only audit、確認前提為假、零改動回報 BLOCKED；被原封不動重派一次後**仍然拒絕**執行。若他當時「照做」，交付出來的會是一個編譯不過（或靠 `part` 檔漏洞繞過字面驗收）的 commit，而且 memory.md 裡會多一條假紀錄。**驗收條件寫得再機械，也擋不住前提本身是錯的——收件時要審的是前提，不只是 diff。**
-5. **凡「刪除死碼」型任務，動手前先證明它真的死了**：grep 生產呼叫點、grep 測試構造點、grep 其他平台 runner。本輪三項假設（variant 是死碼、Swift extractor 不可達、Dart 孿生已接管）**全部為假**，而三項都是任務書當成既成事實陳述的。
+5. **本輪發生兩次「指令與狀態在途交錯」事故，兩次都靠回報而非默默行動而收斂。**
+   (a) 使用者裁定 Option B 後又改判 Opt-3，而 lead 的 Option B 派工已經發出；(b) lead 的撤回令依據過時的 `git status`，漏點名兩個檔案。
+   **可轉移的做法**：①破壞性操作的目標清單要在**動手當下**重新讀取，不可用記憶或稍早的快照；②收到「範圍不符」的回報時，正確反應是補授權，不是要對方自行判斷擴大範圍；③下了指令不等於對方收到——收到回報時先確認對方是**基於哪一版指令**行動。這與 round 1 的 n=36 事件同類，已是第二次，應視為常態而非意外。
+6. **凡「刪除死碼」型任務，動手前先證明它真的死了**：grep 生產呼叫點、grep 測試構造點、grep 其他平台 runner。本輪三項假設（variant 是死碼、Swift extractor 不可達、Dart 孿生已接管）**全部為假**，而三項都是任務書當成既成事實陳述的。
