@@ -158,16 +158,24 @@ void main() {
           : decoded.height;
       final cap = (32 * dpr).round();
 
-      // AC2: kills "no decode cap" — an uncapped decode reproduces the
-      // fixture's full 400px edge, far above cap + 1.
+      // AC2: kills "no decode cap" (an uncapped decode reproduces the
+      // fixture's full 400px edge, far above cap) AND kills "cap term
+      // ungated" (e.g. hardcoding `cap = 32`, dropping the `* dpr` factor
+      // entirely). Both mutations still satisfy a mere `<= cap + 1` upper
+      // bound at dpr 3.0 (32 <= 97), so the assertion must pin the EXACT
+      // fitted size instead of only bounding it from above: for a 400x200
+      // source fit within a `cap x cap` box preserving aspect ratio, the
+      // longest edge (width, since 400 > 200) must equal `cap` exactly
+      // (mod +/-1 for integer rounding in the fit computation).
       expect(
         longestEdge,
-        lessThanOrEqualTo(cap + 1),
+        inInclusiveRange(cap - 1, cap + 1),
         reason:
-            'decoded longest edge must be capped at 32*devicePixelRatio '
-            '($cap); got ${decoded.width}x${decoded.height}, meaning the '
-            'sidebar decoded the source at (near) full resolution instead '
-            'of capping the decode itself.',
+            'decoded longest edge must equal 32*devicePixelRatio ($cap) '
+            'exactly (the fitted size for this 400x200 fixture), not merely '
+            'be bounded by it; got ${decoded.width}x${decoded.height}. A '
+            'mismatch means either the decode is uncapped or the '
+            '"* devicePixelRatio" term of the cap computation was dropped.',
       );
 
       // AC3: kills "exact-policy distortion" — width+height passed to

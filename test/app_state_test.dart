@@ -375,7 +375,7 @@ void main() {
         exifReader: (paths) async => [
           for (final path in paths)
             ExifMetadata(
-              captureDate: path.contains('A')
+              captureDate: p.basename(path).startsWith('A')
                   ? DateTime(2026, 4, 7, 9, 3, 5)
                   : DateTime(2026, 4, 7, 10, 0, 0),
             ),

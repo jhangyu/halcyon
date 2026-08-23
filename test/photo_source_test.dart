@@ -110,6 +110,22 @@ void main() {
     'a non-.dng file that fails the native preview channel does not '
     'attempt embedded-JPEG recovery (extension gate holds through the seam)',
     () async {
+      // Killer assertion: a MUTANT that deletes/bypasses the `.dng`
+      // extension gate in photo_source.dart would happily try to recover
+      // an embedded JPEG from these bytes -- and would SUCCEED, because
+      // this fixture is a real DNG file's raw bytes (which do contain an
+      // embedded JPEG preview), just saved under a `.jpg` extension. A
+      // fixture pointing at a nonexistent path can't discriminate that:
+      // it fails identically whether the gate holds or not.
+      final srcPath = '${sampleDir.path}/$withPreviewSample';
+      final dngBytes = await File(srcPath).readAsBytes();
+      final tmpDir = await Directory.systemTemp.createTemp(
+        'halcyon_photo_source_gate_',
+      );
+      addTearDown(() => tmpDir.delete(recursive: true));
+      final fakeJpgFile = File('${tmpDir.path}/not-a-dng.jpg');
+      await fakeJpgFile.writeAsBytes(dngBytes);
+
       final controller = ImagePreloadController(
         imageLoader: (requestedPath, {required purpose}) async {
           return const NativeImageFailure(
@@ -120,9 +136,7 @@ void main() {
       );
       addTearDown(controller.dispose);
 
-      final items = [
-        PhotoItem(id: 'jpg-1', files: [File('/tmp/not-real.jpg')]),
-      ];
+      final items = [PhotoItem(id: 'jpg-1', files: [fakeJpgFile])];
 
       await controller.preloadImages(
         items: items,
