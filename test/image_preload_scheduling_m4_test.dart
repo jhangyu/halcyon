@@ -95,6 +95,60 @@ void main() {
     },
   );
 
+  test(
+    'M4-AC1b a failed sidebar thumbnail must not poison the PREVIEW state of a '
+    'file whose own name happens to be "thumb_" + another file\'s name',
+    () async {
+      // PhotoItem.id is basenameWithoutExtension (supported_photo_formats.dart:44,
+      // used as the grouping key in photo_library_scanner.dart:23), so ids are
+      // user-controlled filenames. Any in-band key prefix therefore has a
+      // reachable collision: here the sidebar's key for `IMG_01` is exactly the
+      // preview's key for the file literally named `thumb_IMG_01.jpg`. The two
+      // questions must live in two containers, not one container with two key
+      // shapes.
+      final victim = PhotoItem(
+        id: 'thumb_IMG_01',
+        files: [File('/tmp/thumb_IMG_01.jpg')],
+      );
+      final failing = PhotoItem(id: 'IMG_01', files: [File('/tmp/IMG_01.jpg')]);
+      final items = [failing, victim];
+
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          if (purpose == ImageRequestPurpose.sidebarThumbnail &&
+              path == failing.files.single.path) {
+            return const NativeImageFailure('UNREADABLE', 'corrupt file');
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      addTearDown(controller.dispose);
+
+      await controller.preloadThumbnails(
+        items: items,
+        startIdx: 0,
+        endIdx: 1,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      // The failure really happened -- without this the assertion below could
+      // pass because nothing was ever recorded.
+      expect(controller.thumbnailBytesFor(failing.id), isNull);
+      expect(controller.thumbnailBytesFor(victim.id), isNotNull);
+
+      expect(
+        controller.hasFailed(victim.id),
+        isFalse,
+        reason:
+            'a sidebar thumbnail failure for a DIFFERENT file marked this one '
+            'as a permanent preview miss -- the main view will call it '
+            'unreadable until the folder is reloaded, and it never failed at '
+            'anything',
+      );
+    },
+  );
+
   testWidgets(
     'M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the '
     'window it started with (invariant I4)',

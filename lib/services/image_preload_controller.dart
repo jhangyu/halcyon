@@ -126,15 +126,27 @@ class ImagePreloadController {
   // forever; it also stops every pass re-asking for an answer that cannot
   // change. Cleared only by [reset] (i.e. a folder reload).
   //
-  // ONE set, shared by the preview path and the sidebar (design authority
-  // §2.2: those were two policies that never talked, so a permanently failing
-  // thumbnail was re-requested on every sweep, forever -- invariant I8). The
-  // sidebar's entries are keyed by its own `thumb_<id>` namespace, the same
-  // one [_loadingKeys] already uses, because the two requests are different
-  // questions asked of different native branches: a preview that cannot be
-  // produced must not make [hasFailed] -- and therefore the view's
-  // "unreadable" state -- depend on a thumbnail request, or vice versa.
   final Set<String> _permanentMisses = {};
+
+  // The SIDEBAR's permanent misses (design authority §2.2: the sidebar had no
+  // negative cache at all, so a thumbnail that can never be produced was
+  // re-requested on every sweep, forever -- invariant I8).
+  //
+  // Deliberately a SECOND CONTAINER rather than a second key shape inside
+  // [_permanentMisses]. What I8 shares is the POLICY -- asked once, remembered
+  // until the folder reloads -- not the container. Keying the sidebar's
+  // entries as `thumb_<id>` inside the preview set is unsound: [PhotoItem.id]
+  // is `basenameWithoutExtension` (supported_photo_formats.dart:44, used as
+  // the grouping key at photo_library_scanner.dart:23), so ids are
+  // user-controlled filenames, and a folder holding both `IMG_01.jpg` and
+  // `thumb_IMG_01.jpg` makes one string mean two things -- the sidebar's
+  // failure for the first is read back as a PREVIEW miss for the second,
+  // which the view then calls unreadable although it never failed at
+  // anything. No prefix or escape rescues that, because the id space is
+  // unrestricted; two questions need two containers.
+  //
+  // Both sets are cleared by [reset]: THAT part is the shared policy.
+  final Set<String> _thumbPermanentMisses = {};
 
   // id -> EXIF orientation, written by the content probe (and, only for files
   // the probe could not measure, by the bridge's rung-2 answer).
@@ -261,6 +273,7 @@ class ImagePreloadController {
     _tierTwoReadyIds.clear();
     _scheduler.reset();
     _permanentMisses.clear();
+    _thumbPermanentMisses.clear();
     _exifOrientations.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
@@ -882,13 +895,15 @@ class ImagePreloadController {
           final item = items[index];
           final id = item.id;
           final loadingKey = 'thumb_$id';
-          // An in-memory Set lookup and nothing more -- the sidebar's share of
-          // the permanent-miss set costs the hot path one hash probe per row
-          // and saves a channel round trip per sweep for every file that can
-          // never produce a thumbnail.
+          // An in-memory Set lookup and nothing more -- the sidebar's negative
+          // cache costs the hot path one hash probe per row and saves a
+          // channel round trip per sweep for every file that can never produce
+          // a thumbnail. Keyed by the bare id, in the sidebar's OWN set: see
+          // [_thumbPermanentMisses] for why it cannot live in the preview set
+          // under a prefix.
           if (_thumbCache.containsKey(id) ||
               _loadingKeys.contains(loadingKey) ||
-              _permanentMisses.contains(loadingKey)) {
+              _thumbPermanentMisses.contains(id)) {
             continue;
           }
 
@@ -913,7 +928,7 @@ class ImagePreloadController {
             // preview, so anything that is not bytes here means no source
             // produced a thumbnail -- an answer that cannot change until the
             // folder is reloaded (which is what clears the set).
-            _permanentMisses.add(loadingKey);
+            _thumbPermanentMisses.add(id);
           }
         }
       },

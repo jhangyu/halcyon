@@ -859,6 +859,20 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-104｜ImagePreloadController — 側欄縮圖失敗不得污染同名前綴檔案的 preview 狀態
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-104 |
+| **名稱** | M4-AC1b a failed sidebar thumbnail must not poison the PREVIEW state of a file whose own name happens to be "thumb_" + another file's name |
+| **測試類型** | Unit Test |
+| **背景** | `PhotoItem.id` 是 `basenameWithoutExtension`（`supported_photo_formats.dart:44`，於 `photo_library_scanner.dart:23` 當分組鍵），也就是**使用者可控的檔名**。TC-100 的第一版把側欄的 miss 以 `thumb_<id>` 前綴寫進 preview 的 `_permanentMisses`；同一資料夾若同時有 `IMG_01.jpg` 與 `thumb_IMG_01.jpg`，一個字串就有兩種意義。id 空間無限制，任何前綴／跳脫都救不了，只能分成兩個容器 |
+| **預期結果** | `IMG_01` 的縮圖永久失敗後，`hasFailed('thumb_IMG_01')` 仍為 false；且 `thumb_IMG_01` 的縮圖仍正常載入（反空洞斷言） |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（分容器修復前紅燈 `tmp/verify/20260824-impl-collision-red.txt`，RC=1；修復後綠燈 `tmp/verify/20260824-impl-collision-green.txt`，RC=0） |
+
+---
+
 ### TC-101｜ImagePreloadController — preview 路徑 generation guard（不變式 I4）
 
 | 欄位 | 內容 |
