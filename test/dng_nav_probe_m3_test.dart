@@ -79,6 +79,13 @@ void main() {
       height: 600,
     ).obtainKey(const ImageConfiguration());
     expect(PaintingBinding.instance.imageCache.containsKey(key), isTrue);
+    expect(
+      PaintingBinding.instance.imageCache.currentSize,
+      5,
+      reason:
+          'P1 frozen cheap arrival count: exactly the current +/-2 tier-1 '
+          'window is decoded before the tier-2 debounce',
+    );
 
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -146,6 +153,50 @@ void main() {
       height: 600,
     ).obtainKey(const ImageConfiguration());
     expect(PaintingBinding.instance.imageCache.containsKey(key5), isTrue);
+  });
+
+  test('P3 translated: one-step expensive round trip decodes once and retains '
+      'the PixelPayload', () async {
+    final decodeCalls = <String>[];
+    final controller = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+      dngDecoder: (path) async {
+        decodeCalls.add(path);
+        return fakeDecoded();
+      },
+    );
+    addTearDown(controller.dispose);
+    final items = rawItems(20);
+    final target = items[8].files.single.path;
+    int targetDecodes() => decodeCalls.where((path) => path == target).length;
+
+    await controller.preloadImages(
+      items: items,
+      selectedItemId: items[8].id,
+      notifyLoaded: () {},
+    );
+    await until(() => controller.payloadFor(items[8].id) is PixelPayload);
+    final first = controller.payloadFor(items[8].id);
+    expect(targetDecodes(), 1);
+
+    for (final idx in [9, 8]) {
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[idx].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+    expect(
+      controller.payloadFor(items[8].id),
+      isA<PixelPayload>(),
+      reason:
+          'frozen debugDisposed=false translation: the retained payload '
+          'must still exist after the one-step round trip',
+    );
+    expect(identical(controller.payloadFor(items[8].id), first), isTrue);
+    expect(targetDecodes(), 1);
   });
 
   test('P4 translated: two-step expensive excursion decodes once and retains '
