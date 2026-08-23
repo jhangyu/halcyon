@@ -158,7 +158,28 @@ value — `${PIPESTATUS[0]}` did not expand in its shell — yet its report clai
 The exit code above comes from a separate lead re-run that captured it properly. If a future round
 uses the same `tee` + `PIPESTATUS` pattern, verify the value actually landed in the file.
 
-**AC8 (RSS < 350 MB): FAILED — and the failure is a PRE-EXISTING CONDITION, not an M3 defect.**
+### AC8 AMENDED BY THE USER — M3 PASSES
+
+**Amendment (user, 2026-08-23, the only authority that can change a frozen AC):** the ABSOLUTE
+350 MiB ceiling is REPLACED by a RELATIVE criterion — *"peak RSS not worse than the pre-M3 baseline
+under the identical method."*
+Applied: M3 **900.0 MiB** vs pre-M3 baseline **994.9 MiB** => **AC8 PASSES.**
+
+The absolute-value problem is **DEFERRED, NOT DISMISSED**: the application really does peak near
+1 GiB, that is unattributed, and the composed cap arithmetic below really is inconsistent with any
+350 MiB-class target. A future round inherits that, and inherits it with numbers attached.
+
+Note what made the amendment possible at all: the pre-M3 baseline. Without a measured denominator the
+only available moves would have been to loosen an absolute number arbitrarily or to blame M3 for a
+condition it did not cause. The evidence below is retained in full because the amended criterion is
+*defined* in terms of it.
+
+Also ruled by the user: **sequential RAW decode is KEPT**, with the measured 2.3x throughput
+reduction accepted as a known cost.
+
+---
+
+**AC8 AS ORIGINALLY FROZEN (RSS < 350 MB): FAILED — and the failure is a PRE-EXISTING CONDITION, not an M3 defect.**
 
 *Unit convention, declared once and used throughout this section: MiB (bytes / 1048576). Raw byte
 counts are pinned so a later restatement cannot lose the convention. "900 MiB" and "943.7 decimal MB"
