@@ -1,3 +1,10 @@
+// DEPRECATED for agent use (2026-08-24 user directive, see
+// docs/logs/2026-08-24/m4-m6-convergence-contract.md AC4): UI-driven performance
+// measurement (switch latency, RSS) is run by the USER personally. Agents and
+// automation must NOT invoke this harness; agent-side benchmarks are limited to
+// pure headless decode commands. The harness stays functional for the user's
+// own measurement runs.
+//
 // PERMANENT PERF HARNESS (contract: docs/logs/2026-08-16/round-3-implementation-plan.md §3).
 //
 // Drives the REAL app stack (real MethodChannel -> real AppDelegate.swift,

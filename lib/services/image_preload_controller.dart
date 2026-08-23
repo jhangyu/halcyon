@@ -125,7 +125,28 @@ class ImagePreloadController {
   // the view cannot tell "not loaded yet" from "will never load" and spins
   // forever; it also stops every pass re-asking for an answer that cannot
   // change. Cleared only by [reset] (i.e. a folder reload).
+  //
   final Set<String> _permanentMisses = {};
+
+  // The SIDEBAR's permanent misses (design authority §2.2: the sidebar had no
+  // negative cache at all, so a thumbnail that can never be produced was
+  // re-requested on every sweep, forever -- invariant I8).
+  //
+  // Deliberately a SECOND CONTAINER rather than a second key shape inside
+  // [_permanentMisses]. What I8 shares is the POLICY -- asked once, remembered
+  // until the folder reloads -- not the container. Keying the sidebar's
+  // entries as `thumb_<id>` inside the preview set is unsound: [PhotoItem.id]
+  // is `basenameWithoutExtension` (supported_photo_formats.dart:44, used as
+  // the grouping key at photo_library_scanner.dart:23), so ids are
+  // user-controlled filenames, and a folder holding both `IMG_01.jpg` and
+  // `thumb_IMG_01.jpg` makes one string mean two things -- the sidebar's
+  // failure for the first is read back as a PREVIEW miss for the second,
+  // which the view then calls unreadable although it never failed at
+  // anything. No prefix or escape rescues that, because the id space is
+  // unrestricted; two questions need two containers.
+  //
+  // Both sets are cleared by [reset]: THAT part is the shared policy.
+  final Set<String> _thumbPermanentMisses = {};
 
   // id -> EXIF orientation, written by the content probe (and, only for files
   // the probe could not measure, by the bridge's rung-2 answer).
@@ -147,6 +168,16 @@ class ImagePreloadController {
   // reload that cleared _thumbCache underneath it) cannot keep spending
   // channel round-trips or write thumbnails for a list that is gone.
   int _thumbBatchGeneration = 0;
+
+  // The PREVIEW path's own generation, bumped by every [preloadImages] call
+  // and by [reset]. It is deliberately separate from _thumbBatchGeneration,
+  // which counts sidebar batches: a running preview pass awaits its priority
+  // load and then its whole window, and by the time it resumes the user may
+  // have navigated on or reloaded the folder -- at which point everything it
+  // was about to do (the tier-1 precache, and above all rescheduling the
+  // tier-2 debounce timer) belongs to a window that no longer exists.
+  // Re-checked after every await, per invariant I4.
+  int _previewGeneration = 0;
 
   int get _longEdge {
     final width = _tierOneWidth;
@@ -242,11 +273,13 @@ class ImagePreloadController {
     _tierTwoReadyIds.clear();
     _scheduler.reset();
     _permanentMisses.clear();
+    _thumbPermanentMisses.clear();
     _exifOrientations.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
     _thumbBatchGeneration++;
+    _previewGeneration++;
   }
 
   /// Called by the view whenever the viewport's decode target size is known
@@ -297,6 +330,11 @@ class ImagePreloadController {
     // ever accidentally correct.
     items = List<PhotoItem>.of(items);
 
+    // This call's generation. Every later navigation event -- and every folder
+    // reload, via [reset] -- supersedes it, so the two awaits below re-check
+    // this before acting on a window that may already be history.
+    final generation = ++_previewGeneration;
+
     final currentIndex = items.indexWhere((item) => item.id == selectedItemId);
     if (currentIndex == -1) return;
 
@@ -335,6 +373,13 @@ class ImagePreloadController {
       '|nowCached=${_cache.contains(selectedItemId)}',
     );
 
+    // Stale resume: a newer selection (or a folder reload) already owns the
+    // scheduling state. The payload this pass produced is kept -- it is either
+    // in the new retention window or was refused by the window check inside
+    // _ensurePayload -- but nothing from here on may touch state that now
+    // belongs to a different generation.
+    if (generation != _previewGeneration) return;
+
     final startIdx = (currentIndex - kRetentionBefore).clamp(
       0,
       items.length - 1,
@@ -352,6 +397,13 @@ class ImagePreloadController {
     }
     await Future.wait(pendingLoads);
     PerfLog.log('preload.window.end|$selectedItemId'); // PERF-INSTRUMENTATION
+
+    // Same check, after the window's awaits. This is the load-bearing one:
+    // _scheduleTierTwoDecode CANCELS the debounce timer before rescheduling,
+    // so a stale resume here does not merely add work for an abandoned
+    // window -- it takes the full-size decode away from the item the user is
+    // actually looking at.
+    if (generation != _previewGeneration) return;
 
     _precacheTierOneWindow(items, currentIndex);
     _scheduleTierTwoDecode(items, currentIndex, notifyLoaded);
@@ -843,8 +895,15 @@ class ImagePreloadController {
           final item = items[index];
           final id = item.id;
           final loadingKey = 'thumb_$id';
+          // An in-memory Set lookup and nothing more -- the sidebar's negative
+          // cache costs the hot path one hash probe per row and saves a
+          // channel round trip per sweep for every file that can never produce
+          // a thumbnail. Keyed by the bare id, in the sidebar's OWN set: see
+          // [_thumbPermanentMisses] for why it cannot live in the preview set
+          // under a prefix.
           if (_thumbCache.containsKey(id) ||
-              _loadingKeys.contains(loadingKey)) {
+              _loadingKeys.contains(loadingKey) ||
+              _thumbPermanentMisses.contains(id)) {
             continue;
           }
 
@@ -864,6 +923,12 @@ class ImagePreloadController {
           if (result is NativeImageBytes) {
             _thumbCache[id] = result.bytes;
             notifyLoaded();
+          } else {
+            // Native only ever emits the raw-decode signal for purpose ==
+            // preview, so anything that is not bytes here means no source
+            // produced a thumbnail -- an answer that cannot change until the
+            // folder is reloaded (which is what clears the set).
+            _thumbPermanentMisses.add(id);
           }
         }
       },
