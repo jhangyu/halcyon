@@ -223,3 +223,65 @@ Every claim below was checked by the lead in the tree or the artifact:
 Three times this round the implementer corrected its lead's framing with evidence (the AC2-vs-AC5
 distinction, the eviction sweep, the `git diff -U0` hunk count). §4b's claim holds: the instruction
 transfers even when the context does not.
+
+## 13. AC8 measured — criterion MET, but read the caveat before quoting the number
+
+| | value |
+|---|---|
+| **kernel max RSS (authoritative)** | **996,392,960 B = 950.2 MiB** |
+| sampler peak | 938,624 KB = 916.6 MiB |
+| pre-M3 baseline — THE GATE | 1,043,218,432 B = 994.9 MiB |
+| M3 round-1 | 943,685,632 B = 900.0 MiB |
+
+**−44.7 MiB versus the gate → the user's amended relative criterion is MET.** +50.3 MiB versus
+round-1, so the pre-registered "flat is suspicious" rule did NOT fire. Run once, not re-paced:
+`reason_for_stop=paced_pass_complete` at 16 s (a complete sweep, not a deadline cut), 88 samples,
+single-process guard passed, `ac8_rss.sh` byte-unchanged (`d9919dc5…`), `HARNESS_REAL_EXIT=0`.
+Lead verified the artifact: prediction at lines 16–32 genuinely precedes the result at line 61.
+
+**This BEAT the pre-registered prediction of ~1150 MiB / a MISS, by ~200 MiB.** Recorded as beating
+the prediction, not claimed as expected — which is the only reason the pass is worth anything.
+
+### Why the prediction was wrong, and why the number must NOT be generalised
+The ~626 MiB projection applied CHEAP-corpus arithmetic (91.55 MiB full-size `EncodedPayload` **plus**
+a separate tier-1 entry = two entries per item). But the AC8 harness sweeps `HALCYON_PERF_N=4` over
+indices 0–4, which are the `2024-07-*` **EXPENSIVE, no-preview** files: `PixelPayload`, already
+window-sized at ~22.4 MiB, and **ONE shared entry across both tiers**. The expensive term was ~4× too
+large.
+
+This independently corroborates §9 from the measurement side: on a no-preview RAW folder, expensive
+items beyond ±1 never acquire a payload, so widening tier-1 to nine slots adds almost nothing — which
+is exactly why the rise is +50 MiB rather than +257 MiB. **The AC8 workload is precisely the corpus
+where the nine-slot guarantee does not materialise.**
+
+> **Do not read 950.2 MiB as "round 2 costs ~50 MiB".** The cheap / preview-bearing corpus — the one
+> the 768 MiB cap was actually sized against, and the one where the guarantee DOES materialise — is
+> **UNMEASURED**. It is the expensive case for memory. The ~532 MiB residual remains unattributed in
+> this number as in every previous one.
+
+## 14. `stat` on a macOS `.framework` reads the SYMLINK — use `stat -L`
+
+Post-build, `App.framework/App` still reported `21:39:34` and looked stale, contradicting a build log
+showing `✓ Built … (25.2MB)` with exit 0. `App` is a symlink to `Versions/Current/App`; `stat` reports
+the LINK's own mtime, which a rebuild does not touch. `stat -L` gives the truth: the real AOT binary
+`Versions/A/App` is **23:04:43**, postdating `f9869db` (22:58:14). Lead reproduced both readings.
+
+Untrapped, this would have produced a SECOND false blocker claiming the build silently failed — the
+mirror image of the first stale-binary finding, and equally confident. **Standing rule: mtime checks
+on anything inside a macOS `.framework` must use `stat -L` or target `Versions/A/` directly; every
+top-level entry there is a symlink.** This is the documented "`stat` reads the symlink itself" trap,
+walked into by someone who had read that lesson — which is the usual way these land.
+
+## 15. Standing pre-flight for any measured run
+
+**Before measuring, prove the binary contains the code under test — by an OBSERVED BUILD EVENT, not a
+timestamp.** Capture HEAD and `git status --porcelain` before invoking; require the build log to show
+a real compile with a real `$?`; require products to have changed DURING the observed run (`stat -L`).
+A newer mtime alone is consistent with a no-op incremental, a partial failure that still touched
+files, or a restamped cache.
+
+Retracted during this round: "grep the new constants out of the built binary" — the lead proposed it,
+then withdrew it. The AOT snapshot carries no comments and the values (`234881024` = 0x0E000000,
+`805306368` = 0x30000000) are round enough that a hit in a multi-megabyte binary proves nothing.
+**A check that cannot fail is not evidence.** An in-app version stamp would close this properly and is
+a suggestion for a later round.
