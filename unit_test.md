@@ -845,6 +845,61 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 
 ---
 
+### TC-100｜ImagePreloadController — 永久失敗的側欄縮圖三次 sweep 只請求一次
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-100 |
+| **名稱** | M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE across three preloadThumbnails sweeps |
+| **測試類型** | Unit Test |
+| **背景** | 設計權威 §2.2：「這檔能不能讀」原本是兩套互不相通的政策——preview 有 `_permanentMisses`，側欄只測 `containsKey`，所以永久失敗的檔案每次 sweep 都重問（不變式 I8） |
+| **預期結果** | 三次 range 不同的 sweep 之後，failing path 的 loader 呼叫次數 == 1；可載入的縮圖仍然落地（反空洞斷言） |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（改動前紅燈 `tmp/verify/ac_red_baseline.txt`，RC=1；改動後綠燈 `tmp/verify/ac_green_m4file.txt`，RC=0） |
+
+---
+
+### TC-101｜ImagePreloadController — preview 路徑 generation guard（不變式 I4）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-101 |
+| **名稱** | M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the window it started with |
+| **測試類型** | Unit Test（`testWidgets` + `tester.runAsync`，需真實 timer 與真實引擎解碼） |
+| **背景** | `preloadImages` 過去沒有 generation guard。`_scheduleTierTwoDecode` 會先 cancel debounce timer 再重排，所以過期的 pass 恢復時不只是多做白工，而是把全尺寸解碼從使用者當下正在看的項目手上搶走 |
+| **預期結果** | 舊 pass 恢復後，新 generation 的 tier-2 仍然完成（`isFullSizeReady(items[9])` 為 true），且被放棄的視窗沒有任何解碼 |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（改動前紅燈 `tmp/verify/ac_red_baseline.txt`，RC=1；改動後綠燈 `tmp/verify/ac_green_m4file.txt`，RC=0） |
+
+---
+
+### TC-102｜PhotoSource — 步驟 3b 失敗回報 non-deferred 空 payload
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-102 |
+| **名稱** | M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred null payload |
+| **測試類型** | Unit Test |
+| **背景** | 設計權威 §3.4 不變式 T1。`photo_source.dart:160-170`（`load()` 自己的 3b catch）在此之前沒有專屬測試；樹上既有的 TC-085 走的是 `loadExpensive` 的 catch（`:217`） |
+| **預期結果** | decoder 丟例外且 legacy CIRAWFilter 也回 null 時，`payload == null` 且 `deferred == false`——`deferred: true` 會讓呼叫端等一個已經跑完的 ±1 pass，spinner 永不解除 |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（既有行為即正確，紅燈以變異取得：把該處改成 `deferred: true`，見 `tmp/verify/ac3_mutantA.txt`，RC=1；變異已還原） |
+
+---
+
+### TC-103｜ImagePreloadController — 步驟 3b 失敗寫入 permanent-miss 並解除 spinner
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-103 |
+| **名稱** | M4-AC3 the step-3b failure path marks a permanent miss and RELEASES the view from its spinner |
+| **測試類型** | Unit Test |
+| **預期結果** | `hasFailed(id)` 轉為 true、`payloadFor(id)` 為 null，且 `notifyLoaded` 至少被呼叫一次（只記 miss 不通知，畫面仍會停在 spinner 直到別的事件重繪） |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（既有行為即正確，紅燈以變異取得：移除 `_permanentMisses.add(id)`，見 `tmp/verify/ac3_mutantB.txt`，RC=1；變異已還原） |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令
