@@ -77,7 +77,57 @@ void main() {
   // loads launch in parallel rather than being serialised behind the selected
   // item. The selected call is completed first so the test observes the later
   // eight-window fan-out, not merely the deliberate priority phase.
-  test('TC-087 cheap full retention-window source loads overlap', () async {
+  test('TC-088 cheap and expensive payloads retain identically at -3 and '
+      'evict identically at -4', () async {
+    Future<ImagePreloadController> make(bool expensive) async {
+      return ImagePreloadController(
+        imageLoader: (path, {required purpose}) async => expensive
+            ? const NativeImageNeedsRawDecode(exifOrientation: 1)
+            : NativeImageBytes(Uint8List.fromList([137, 80, 78, 71])),
+        dngDecoder: expensive ? (path) async => decoded() : null,
+      );
+    }
+
+    final photos = items(20);
+    for (final expensive in [false, true]) {
+      final controller = await make(expensive);
+      addTearDown(controller.dispose);
+      await controller.preloadImages(
+        items: photos,
+        selectedItemId: photos[2].id,
+        notifyLoaded: () {},
+      );
+      await until(
+        () => controller.payloadFor(photos[2].id) != null,
+        reason: '${expensive ? 'expensive' : 'cheap'} source landed',
+      );
+      final payload = controller.payloadFor(photos[2].id);
+
+      await controller.preloadImages(
+        items: photos,
+        selectedItemId: photos[5].id,
+        notifyLoaded: () {},
+      );
+      expect(
+        identical(controller.payloadFor(photos[2].id), payload),
+        isTrue,
+        reason: '${expensive ? 'expensive' : 'cheap'} survives exactly at -3',
+      );
+
+      await controller.preloadImages(
+        items: photos,
+        selectedItemId: photos[6].id,
+        notifyLoaded: () {},
+      );
+      expect(
+        controller.payloadFor(photos[2].id),
+        isNull,
+        reason: '${expensive ? 'expensive' : 'cheap'} evicts immediately at -4',
+      );
+    }
+  });
+
+  test('TC-089 cheap full retention-window source loads overlap', () async {
     var concurrent = 0;
     var maxConcurrent = 0;
     final first = Completer<NativeImageResult>();

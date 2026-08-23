@@ -245,7 +245,37 @@ void main() {
       height: 600,
     ).obtainKey(const ImageConfiguration());
     expect(PaintingBinding.instance.imageCache.containsKey(key5), isTrue);
-  });
+
+    // Separate real-DNG witness: the cheap result must come from TIFF content,
+    // not from the JPEG control above. A preview-bearing DNG still receives
+    // immediate work throughout the same sub-debounce navigation burst.
+    expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
+    var realCheapCalls = 0;
+    final realCheap = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async {
+        realCheapCalls++;
+        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+      },
+    );
+    addTearDown(realCheap.dispose);
+    realCheap.updateTargetSize(800, 600);
+    final realCheapItems = realListWith(previewDng, 5);
+    for (final idx in [5, 6, 7, 8, 9, 8, 7, 6, 5]) {
+      await realCheap.preloadImages(
+        items: realCheapItems,
+        selectedItemId: realCheapItems[idx].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
+    expect(
+      realCheapCalls,
+      greaterThan(0),
+      reason:
+          'P2 cheap-DNG witness: real preview-bearing TIFF content must '
+          'schedule immediate loader work during the burst',
+    );
+  }, skip: hasSamples ? null : 'no local samples');
 
   test('P3 translated: one-step expensive round trip decodes once and retains '
       'the PixelPayload', () async {
