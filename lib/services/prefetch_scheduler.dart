@@ -11,6 +11,26 @@ export 'photo_source.dart' show ProbeResult, SourceCost;
 /// (user decision D2).
 const int kExpensiveStartupRadius = 1;
 
+/// How far from the selected item a FULL-SIZE (tier-2) decode is precached.
+///
+/// **This is deliberately NOT [kExpensiveStartupRadius], and merging the two
+/// back into one constant is a silent regression.** Until round 2 a single
+/// constant served both meanings, which made "widen the full-size window to
+/// +/-2" look like a one-character change. It is not: widening the shared
+/// constant would also widen expensive-RAW startup eligibility, putting FIVE
+/// items on the sequential RAW rung instead of three -- about 42 s of cold
+/// settle instead of 25 s on a no-preview folder, at the measured 8.5 s per
+/// expensive settle -- while appearing to implement exactly what was asked.
+///
+/// The split is required to satisfy two standing rules at once: `+/-1` governs
+/// expensive RAW STARTUP eligibility only (never a retention boundary), and
+/// sequential RAW decode is unchanged. `test/image_preload_window_test.dart`
+/// TC-098 fails if they are ever merged.
+///
+/// Retention is a third, wider thing again (`-3..+5`): this radius decides only
+/// which slots are decoded at FULL size, not which are kept.
+const int kTierTwoRadius = 2;
+
 /// Decides WHEN, and in what order, sources are started. The only layer that
 /// knows about cost (design §3.3).
 ///

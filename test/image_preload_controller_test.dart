@@ -488,13 +488,20 @@ void main() {
           isTrue,
         );
 
-        // Navigate one step to index 6. New tier-2 window is {5,6,7}: index
-        // 4 falls OUT of it. New tier-1 window is {4,5,6,7,8}: index 4
-        // STAYS in it. This is the coexistence case -- tier-2 eviction for
-        // index 4 must not touch its still-current tier-1 entry.
+        // Navigate to index 7. New tier-2 window is +/-2 = {5,6,7,8,9}: index
+        // 4 falls OUT of it. New tier-1 window is the whole -3..+5 = {4..12}:
+        // index 4 STAYS in it, exactly on the -3 boundary. This is the
+        // coexistence case -- tier-2 eviction for index 4 must not touch its
+        // still-current tier-1 entry.
+        //
+        // The step is two items rather than one because round 2 widened tier-2
+        // from +/-1 to +/-2; a single step no longer takes index 4 out of the
+        // tier-2 window, which would make this test vacuous rather than false.
+        // The ASSERTIONS are unchanged -- only the navigation distance needed
+        // to cross the boundary moved.
         await controller.preloadImages(
           items: items,
-          selectedItemId: items[6].id,
+          selectedItemId: items[7].id,
           notifyLoaded: () {},
         );
         await Future<void>.delayed(const Duration(milliseconds: 350));
@@ -502,13 +509,13 @@ void main() {
         expect(
           PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
           isFalse,
-          reason: 'index 4 left the tier-2 (+/-1) window and must be evicted',
+          reason: 'index 4 left the tier-2 (+/-2) window and must be evicted',
         );
         expect(
           PaintingBinding.instance.imageCache.containsKey(tierOneKeyAt4),
           isTrue,
           reason:
-              'index 4 is still inside the tier-1 (+/-2) window; evicting '
+              'index 4 is still inside the tier-1 (-3..+5) window; evicting '
               'its tier-2 entry must not have evicted tier-1 too',
         );
       });
@@ -949,12 +956,16 @@ void main() {
           isTrue,
         );
 
+        // Three steps, not two: round 2 widened tier-2 to +/-2, so index 5 is
+        // still INSIDE the window at index 7. Index 8 puts it at distance 3 --
+        // out of tier-2, but still on the -3 retention boundary, which is
+        // precisely the state this test is about (frame evicted, payload kept).
         await controller.preloadImages(
           items: items,
-          selectedItemId: items[7].id,
+          selectedItemId: items[8].id,
           notifyLoaded: () {},
         );
-        await until(() => controller.isFullSizeReady(items[7].id));
+        await until(() => controller.isFullSizeReady(items[8].id));
 
         expect(
           PaintingBinding.instance.imageCache.containsKey(provider),

@@ -380,21 +380,28 @@ class ImagePreloadController {
     });
   }
 
-  // Tier-2 precache: decode current +/-1 at full size once navigation has
-  // paused, and start the expensive sources that the immediate pass deferred.
-  // Both tiers coexist: this only evicts its own (+/-1) window's ImageCache
-  // entries and never touches _tierOneKeys or the payload cache -- payload
-  // retention is the -3..+5 rule and belongs to preloadImages alone.
+  // Tier-2 precache: decode current +/-kTierTwoRadius at full size once
+  // navigation has paused, and start the expensive sources that the immediate
+  // pass deferred. Both tiers coexist: this only evicts its own window's
+  // ImageCache entries and never touches _tierOneKeys or the payload cache --
+  // payload retention is the -3..+5 rule and belongs to preloadImages alone.
+  //
+  // The span here is kTierTwoRadius (2), NOT kExpensiveStartupRadius (1). They
+  // were one constant before round 2, and separating them is what lets the
+  // full-size window widen WITHOUT widening how far an expensive RAW source may
+  // be started -- the loop below still asks the scheduler that question per
+  // item, so a no-preview RAW at distance 2 is enqueued, refused, and left
+  // without a payload rather than added to the sequential decode queue.
   void _decodeTierTwoWindow(
     List<PhotoItem> items,
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    final tierStart = (currentIndex - kExpensiveStartupRadius).clamp(
+    final tierStart = (currentIndex - kTierTwoRadius).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kExpensiveStartupRadius).clamp(
+    final tierEnd = (currentIndex + kTierTwoRadius).clamp(
       0,
       items.length - 1,
     );
@@ -688,18 +695,35 @@ class ImagePreloadController {
     }
   }
 
-  // Tier-1 precache: decode current +/-2 at window resolution ahead of display,
-  // using the SAME provider factory the view uses. Requires [updateTargetSize]
-  // to have been called at least once (from a previous layout pass); no-ops
-  // otherwise, degrading to on-demand full decode at display time
-  // (functionally correct, just slower for that frame).
+  // Tier-1 precache: decode the WHOLE -3..+5 retention window at window
+  // resolution ahead of display, using the SAME provider factory the view uses.
+  // Requires [updateTargetSize] to have been called at least once (from a
+  // previous layout pass); no-ops otherwise, degrading to on-demand full decode
+  // at display time (functionally correct, just slower for that frame).
+  //
+  // The span is DERIVED from the retention constants rather than written out
+  // again, so a retained slot and a screen-resolution entry cannot drift apart:
+  // before round 2 this was a hardcoded +/-2 while retention was -3..+5, which
+  // left the four outer slots holding a payload and no ImageCache entry at all,
+  // so stepping onto one re-decoded despite the payload being right there.
+  //
+  // This is a CONSUMER of payloads, never a producer -- it skips a slot with no
+  // payload instead of fetching one. That is what keeps the widened span from
+  // smuggling an expensive RAW decode outside the +/-1 startup radius (the
+  // scheduler, not this loop, decides what may be started).
   void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
     if (width == null || height == null) return;
 
-    final tierStart = (currentIndex - 2).clamp(0, items.length - 1);
-    final tierEnd = (currentIndex + 2).clamp(0, items.length - 1);
+    final tierStart = (currentIndex - kRetentionBefore).clamp(
+      0,
+      items.length - 1,
+    );
+    final tierEnd = (currentIndex + kRetentionAfter).clamp(
+      0,
+      items.length - 1,
+    );
     final neededIds = <String>{};
 
     for (var i = tierStart; i <= tierEnd; i++) {

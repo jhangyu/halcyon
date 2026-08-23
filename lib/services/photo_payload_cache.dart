@@ -11,12 +11,24 @@ const int kRetentionAfter = 5;
 
 /// Ceiling on the total resident payload cost.
 ///
-/// ponytail: one global number, not a per-kind budget. A full -3..+5 window of
-/// window-resolution pixel payloads is ~132MB, so this leaves roughly 2x
-/// headroom while staying well under Flutter's 500MB ImageCache cap and the
-/// 350MB peak-RSS target. Make it configurable per-cache (the constructor
-/// argument) before making it adaptive.
-const int kPayloadByteBudget = 256 * 1024 * 1024;
+/// ponytail: one global number, not a per-kind budget. Make it configurable
+/// per-cache (the constructor argument) before making it adaptive.
+///
+/// 224 MiB = 234,881,024 B. Sized against the EXPENSIVE (no-preview RAW)
+/// corpus, which is the opposite corpus from the one that sizes
+/// `imageCacheMaxBytes`: a RAW payload retains window-resolution RGBA (22.4 MiB
+/// measured per item, so a full -3..+5 window is 201.59 MiB), while a
+/// preview-bearing payload retains compressed JPEG bytes (~2.6 MiB, 23.22 MiB
+/// for the window). 224 MiB carries ~11% headroom over the 201.59 MiB row.
+///
+/// Below ~202 MiB an in-window RAW payload is dropped and re-entering that slot
+/// costs a full sequential RAW decode (~8.5 s measured) instead of a cache hit
+/// -- which is the one cost this retention design exists to avoid. Unused
+/// budget is not free either: it is headroom the LRU will fill before evicting
+/// anything, which is why this sits just above the row it must hold rather than
+/// at a round larger number. Derivation:
+/// docs/logs/2026-08-23/cache-sizing-estimate.md §A.5/§A.6.
+const int kPayloadByteBudget = 224 * 1024 * 1024;
 
 /// The one place the pipeline decides WHAT TO KEEP.
 ///
