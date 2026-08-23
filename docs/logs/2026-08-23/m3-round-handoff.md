@@ -143,13 +143,40 @@ TC-092 — this closes the discarded WIP's hole where orientation reads bypassed
 The single-walk killer TC-090 counts real `File.open()` via an `IOOverrides` zone and asserts
 exactly ONE per probe; it already caught a 2-open first cut, so the instrument is proven, not assumed.
 
-**PENDING:** the hash-bound full battery at `3ffa4c4` (pre-registered expectation: 232 executed, 0
-failures) and AC1/AC2/AC10/AC12 signoff that depends on it.
-**AC8 (RSS < 350 MB):** samples confirmed by the user, so it is RUNNABLE and sequenced LAST under the
-C5 protocol, real macOS. Read the number in context: 13 of 26 samples are 9-13 MB expensive files
-(one is 24 MB), so a 9-slot window can be almost entirely expensive items on the newly SEQUENTIAL
-rung. The contract's authors wrote AC8 against a corpus where expensive was 1-in-14. The 350 MB
-ceiling is unchanged; the workload behind it is materially harsher.
+**BATTERY: PASSED**, hash-bound to `3ffa4c4` on the stable 26-file sample set.
+- `flutter test -j 1`: `00:40 +232: All tests passed!`, zero `[E]` lines, `REAL_EXIT=0`.
+- Count pre-registered at 232 executed / 0 failures BEFORE the run; observed exactly 232 / 0.
+- `flutter analyze`: `No issues found!`.
+- AC1/AC2/AC10/AC12 signoff rests on this run. Task #3 signed off and closed by the lead on it.
+
+Documentation-only commits after the battery, which cannot move the count (zero test declarations):
+`865ed73` (this handoff), `254b657` (M0 oracle sample-count note). Battery HEAD `3ffa4c4`;
+post-battery HEAD `254b657`.
+
+**Exit-code caveat worth carrying:** the runner's own artifacts ended with a literal `EXIT=` and NO
+value — `${PIPESTATUS[0]}` did not expand in its shell — yet its report claimed `EXIT= value: 0`.
+The exit code above comes from a separate lead re-run that captured it properly. If a future round
+uses the same `tee` + `PIPESTATUS` pattern, verify the value actually landed in the file.
+
+**AC8 (RSS < 350 MB):** samples confirmed by the user, RUNNABLE, sequenced LAST, in progress at the
+time of writing. Method agreed BEFORE any number existed: macOS release build; real files with NO
+copies (sorted by name the first twelve entries are the Xiaomi no-preview files, so selecting index 3
+makes the -3..+5 window exactly indices 0..8 — nine genuinely preview-less DNGs); `/usr/bin/time -l`
+kernel max RSS as the authoritative figure, 100 ms `ps` sampler as cross-check, both reported;
+400 ms between navigation steps, deliberately ABOVE the 250 ms debounce, because a faster burst
+cancels it and would measure LESS work. Pre-registered expectation, written down before the run:
+~23.5 MB per payload x 9 ~= 212 MB before engine baseline and tier-2 cache, so it should land NEAR
+350 MB and a fail would not be surprising.
+Lead-added requirements: record window size and backing scale factor (payload size is
+window-resolution x DPR, so a number without the geometry is neither reproducible nor comparable);
+prove exactly one Halcyon process exists and that the sampler follows the PID `time -l` wrapped;
+verify in-app that 26 items loaded with selection at index 3 — a window that silently held fewer or
+cheaper items would be low FOR THE WRONG REASON, and low-for-the-wrong-reason PASSES, which makes it
+more dangerous than a fail.
+Read the number in context: 13 of 26 samples are 9-13 MB expensive files (one is 24 MB), so a 9-slot
+window can be almost entirely expensive items on the newly SEQUENTIAL rung. The contract's authors
+wrote AC8 against a corpus where expensive was 1-in-14. The 350 MB ceiling is unchanged; the
+workload behind it is materially harsher.
 
 **The battery at `b0ab0f8` is VOID as acceptance evidence** — it ran while the sample directory
 changed underneath it.
