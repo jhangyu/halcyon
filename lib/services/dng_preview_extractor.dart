@@ -508,7 +508,10 @@ class _MemorySource implements _ByteSource {
   @override
   Uint8List? read(int offset, int count) {
     if (offset < 0 || count < 0 || offset + count > _data.length) return null;
-    return Uint8List.sublistView(_data, offset, offset + count);
+    // Independent copy, not a view: the returned bytes must not stay pinned
+    // to (or mutate alongside) the caller's source buffer. See
+    // test/dng_preview_extractor_f3_test.dart (F3).
+    return _data.sublist(offset, offset + count);
   }
 }
 
