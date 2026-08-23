@@ -52,9 +52,12 @@ class NativeImageBytes extends NativeImageResult {
 /// [exifOrientation] is the IFD0 Orientation tag value, in the range 1..8; it
 /// is [kDefaultExifOrientation] when the tag is absent or unparseable. It may
 /// be read natively (macOS, via the [kNoEmbeddedPreviewCode] channel error) or
-/// in Dart (via `DngPreviewExtractor.readOrientationFromFile`, on platforms
-/// whose native bridge does not emit that code). The decoder does not apply
-/// EXIF orientation, so Halcyon must.
+/// in Dart (via `DngPreviewExtractor.readOrientation`, a bounded byte-range
+/// IFD0 walk that works on exactly this case -- a DNG with no embedded
+/// preview -- on platforms whose native bridge does not emit that code; it
+/// returns null when the orientation could not be determined, which is why
+/// this field falls back to [kDefaultExifOrientation] rather than trusting a
+/// bare 1). The decoder does not apply EXIF orientation, so Halcyon must.
 class NativeImageNeedsRawDecode extends NativeImageResult {
   const NativeImageNeedsRawDecode({required this.exifOrientation});
 
