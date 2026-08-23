@@ -183,3 +183,31 @@ on ≥9 user-supplied real no-preview DNG samples and is sequenced last.
 4. Keep `test/dng_nav_probe_m3_test.dart` and
    `test/image_preload_controller_m3_amend3_test.dart` byte-identical; satisfy them by keeping a
    `probe()` projection over the single walk.
+
+## 7. Orchestrator ruling on the probe API (2026-08-23, post-audit)
+
+The §3.5 question was escalated and ruled. **The lead's default is APPROVED**: the user's ruling
+constrains the number of IFD **walks** (one walk yields both the cost rung and EXIF orientation), not
+the number of identifiers. Editing the hash-frozen blobs to collapse to a single identifier would
+invalidate the §4 byte-identity gate, which is strictly worse.
+
+Two constraints are BINDING and become acceptance gates:
+
+1. **`probe()` is a pure delegation.** It calls the canonical entry point and projects the cost
+   field. It must contain no walk logic, no branch, and no file open of its own — so a caller that
+   needs both values is structurally incapable of triggering a second walk.
+2. **No production caller of the projection.** `image_preload_controller.dart`,
+   `prefetch_scheduler.dart` and `photo_source.dart`'s own internals call ONLY the canonical entry
+   point. Mechanical gate added to the acceptance battery: grep of `probe(` call sites in `lib/`
+   shows ZERO production callers of the projection. (`prefetch_scheduler.dart:71` is the one call
+   site that must move.) The projection exists solely to keep
+   `test/dng_nav_probe_m3_test.dart:147,:180` compiling against frozen bytes.
+
+**Note for M5/M6 leads: do NOT "clean up" the `probe()` projection.** It is not redundancy; it is
+what keeps the frozen historical-RED test blob byte-identical. Removing it requires user
+authorization to edit those blobs, which retires the §4 gate.
+
+The orchestrator also confirmed the §3.2–§3.4 rework conflicts as consistent with the user's
+clarifications (probe-first for EVERY item including the selected item and ±1; orientation from the
+probe rather than the bridge; sequential expensive decodes), and acknowledged AC8 as blocked on
+user-supplied samples, sequenced last.
