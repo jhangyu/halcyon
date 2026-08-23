@@ -40,6 +40,15 @@ title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 | P2 | `SidebarView` | 縮圖預載觸發邏輯 |
 | P3 | `MainDetailView` | 動畫、放大縮小（Task 19 完成後 zoom 邏輯移至 View 層）|
 
+### Artifact provenance（round-1 parking-lot PL-9）
+
+Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪份 `lib/` 之上**，不能只憑檔名或報告文字裡的宣稱：
+
+- **已提交狀態**：artifact 內記一行 HEAD hash（例如 `git rev-parse HEAD` 的輸出，跑在 test 之前或緊接在同一次呼叫內取得），而不是事後憑記憶回填。
+- **未提交的工作狀態**（改動尚未 commit，這在共用 worktree 是常態）：commit hash 綁不住它——改用**內容標記**：一段本輪新引入、且該次執行確實走過的可 grep 字串（例如新測試的完整名稱、或暫時性變異標記如 `MUTATION-MARKER-*`），並在報告中註明「以內容標記而非 hash 綁定」。
+- 目的：讓下一輪或審查者能在不重跑的情況下，僅憑 artifact 本身判斷它證明的是哪一份程式碼的行為——這正是 2026-08-23 M3 教訓（見 `~/.claude/rules/lessons-learned.md`）要求的「先證明 binary／測試跑的是受測碼」在文件產物上的對應規則。
+- 本輪示例：`tmp/verify/pl1-red.txt`／`pl7-mutation-red.txt` 均以此規則自證。
+
 ---
 
 ## Feature Matrix（功能矩陣）
