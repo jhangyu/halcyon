@@ -88,6 +88,21 @@ byte-unmodified, and appending to that file risks it. `docs/logs/2026-08-23/*.md
    the pair breaks one silently.
 8. **MiB throughout, raw bytes pinned.** Round 1 lost time to MB-vs-MiB drift.
 
+## 4b. On the member rotation itself
+
+**A fresh implementer's early claims need MORE verification, not less.** The outgoing implementer's
+value came substantially from accumulated context — it caught the sample-set inversion, the tier-2
+payload-kind branch that inverted which files are expensive, a two-open probe error, and a +/-1 span
+error, several of which corrected the LEAD's own framing. None of that transfers. A new member is
+not less careful; it is less loaded, and the errors it will make are the ones this document's trap
+list exists to pre-empt. Front-load the traps explicitly, and audit its first few reports against
+actual tool output before relaying any of them upward.
+
+The corollary, and the reason §5's last bullet matters more than any individual finding:
+accumulated context does not survive a rotation, but the INSTRUCTION does. "Verify the term in the
+code, never infer it, and report what you find even when it contradicts whoever asked" reproduces
+the same class of catch with a member who has none of the history.
+
 ## 5. Process that worked — worth keeping
 
 - **Pre-register interpretation rules BEFORE any number exists**, on disk, above the result in the
