@@ -285,3 +285,22 @@ then withdrew it. The AOT snapshot carries no comments and the values (`23488102
 `805306368` = 0x30000000) are round enough that a hit in a multi-megabyte binary proves nothing.
 **A check that cannot fail is not evidence.** An in-app version stamp would close this properly and is
 a suggestion for a later round.
+
+## 16. The next measurement needs the version stamp MORE than this one did
+
+The unmeasured cheap / preview-bearing corpus (§13) is the run that would tell us what round 2 really
+costs. Before commissioning it, note a failure mode that does NOT exist on the expensive corpus:
+
+Round 2's stale-binary risk was survivable because the pre-registered **"flat is suspicious"** rule
+acts as a backstop — on the expensive corpus, a binary missing the changes produces a result FLAT
+against round-1, which the rule catches. **On the cheap corpus that backstop inverts.** There, each
+item holds TWO ImageCache entries and the nine-slot guarantee actually materialises, so a stale
+binary produces a **LOW** number — which reads as good news, not as an anomaly. Nothing in the
+pre-registration would fire.
+
+Therefore: **do not run the cheap-corpus measurement until the in-app version stamp exists** (emit the
+build commit and the two constants into the perf log at startup, §15). On that workload, provenance
+must be a fact the artifact states about itself, not an inference the operator reconstructs — because
+the operator's own instinct will be to accept a low number.
+
+Credit: raised by m3-impl-2-opus at stand-down, unprompted, about a run it was not going to perform.
