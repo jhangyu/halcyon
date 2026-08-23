@@ -10,28 +10,30 @@ The −3..+5 window holds a screen-resolution entry for every slot and a full-si
 sized by the user's constants (224 MiB payload / 768 MiB ImageCache), with sequential RAW decode,
 the 250 ms debounce and every JPEG behaviour bit-for-bit unmoved.
 
-## BLOCKER — must be resolved BEFORE this contract is frozen
+## Resolved before freeze: the shared-radius constant
 
 `kExpensiveStartupRadius = 1` (`prefetch_scheduler.dart:12`) is ONE constant serving TWO meanings:
-- the tier-2 full-size decode window (`image_preload_controller.dart:393,397`), which the user wants
-  widened to ±2; and
+- the tier-2 full-size decode window (`image_preload_controller.dart:393,397`), which the spec widens
+  to ±2; and
 - expensive-RAW startup eligibility (`prefetch_scheduler.dart:99` `allowsExpensiveWork`, `:108`
-  `allowsStartup`), which the user's frozen clarification pins at ±1: *"±1: expensive RAW STARTUP
-  eligibility only, never a retention boundary."*
+  `allowsStartup`).
 
-Widening the constant widens BOTH. That would put five items on the sequential RAW rung instead of
-three — at ~8.5 s measured per expensive settle, a cold no-preview folder would take ~42 s to settle
-instead of ~25 s. That is a user-visible latency change nobody has asked for.
+Widening the single constant moves BOTH, putting five items on the sequential RAW rung instead of
+three — ~42 s cold settle instead of ~25 s on a no-preview folder, at the measured 8.5 s per
+expensive settle.
 
-Two options; the user or orchestrator must pick before freeze:
-- **(A) SPLIT the constant** — new `kTierTwoRadius = 2` for the full-size decode window, leave
-  `kExpensiveStartupRadius = 1` for RAW startup eligibility. Preserves the frozen ±1 clarification.
-  **Lead's recommendation.**
-- **(B) WIDEN both to 2** — simpler diff, but amends the frozen "±1 startup eligibility" clarification
-  a second time and adds ~17 s to cold-folder settle on a no-preview corpus.
+**DECISION: SPLIT THE CONSTANT.** New `kTierTwoRadius = 2` governs the full-size decode window;
+`kExpensiveStartupRadius` stays `1` and continues to gate RAW startup eligibility only.
 
-Everything below assumes (A). If (B) is chosen, AC6 and the out-of-scope line on sequential decode
-change accordingly.
+This is DERIVED from two standing user statements rather than chosen by preference, so it needs no
+further ruling:
+1. the frozen clarification — *"±1: expensive RAW STARTUP eligibility only, never a retention
+   boundary"*; and
+2. the round-2 ruling — *"sequential RAW decode unchanged."*
+Both can be simultaneously satisfied ONLY by splitting. Widening the shared constant would satisfy
+the tier-2 requirement while silently violating (1) and (2) — while appearing to implement exactly
+what was asked. Recorded as the lead's derivation; the orchestrator or user may override at freeze,
+in which case AC6 and the sequential-decode out-of-scope line change with it.
 
 ## In scope
 1. `main.dart:12` `imageCacheMaxBytes` → 768 MiB; `photo_payload_cache.dart:19` `kPayloadByteBudget`
