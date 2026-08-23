@@ -13,6 +13,23 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/painting.dart';
+
+import '../services/photo_payload_cache.dart' show kPayloadByteBudget;
+
+// Build-commit stamp (round-1 parking-lot P-2). Injected via
+// `--dart-define=HALCYON_BUILD_COMMIT=$(git rev-parse HEAD)` at build time;
+// defaults to 'unknown' for a plain `flutter run` or a build that did not
+// pass the define -- this is a --dart-define, not a generated file, because
+// it needs zero changes to scripts/build_apps.py to be usable by hand and
+// degrades safely (an honest 'unknown', never a stale value) when the
+// builder does not wire it in. Wiring scripts/build_apps.py to pass this
+// automatically is a follow-up outside this file's ownership.
+const String kHalcyonBuildCommit = String.fromEnvironment(
+  'HALCYON_BUILD_COMMIT',
+  defaultValue: 'unknown',
+);
+
 class PerfLog {
   static final Stopwatch _sw = Stopwatch()..start();
   static final List<String> _buf = <String>[];
@@ -38,6 +55,19 @@ class PerfLog {
       flushSync();
     });
     log('perf.init|$outPath');
+    // Version stamp (round-1 parking-lot P-2): with UI switch-latency
+    // measurement now user-run rather than agent-run, "which code is this
+    // binary" stopped being something an agent's build-event log could
+    // guarantee and became something the USER has to remember -- and on the
+    // cheap (preview-bearing) sample corpus, a stale binary reads as a
+    // FASTER number, which looks like good news and trips no sanity check
+    // (see docs/logs/2026-08-24/round-1-m4-handoff.md §7 PL-5 note). This
+    // line makes the binary self-report its own provenance instead.
+    log(
+      'build.stamp|commit=$kHalcyonBuildCommit'
+      '|imageCacheMaxBytes=${PaintingBinding.instance.imageCache.maximumSizeBytes}'
+      '|kPayloadByteBudget=$kPayloadByteBudget',
+    );
   }
 
   static void log(String s) {
