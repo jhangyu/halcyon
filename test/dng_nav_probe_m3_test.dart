@@ -16,6 +16,7 @@ import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:halcyon_flutter/services/photo_payload.dart';
+import 'package:halcyon_flutter/services/photo_source.dart';
 
 final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
@@ -39,6 +40,24 @@ void main() {
     rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
     width: 2,
     height: 2,
+  );
+
+  final dngDir = Directory('local_data/photo_samples/DNG');
+  final hasSamples = dngDir.existsSync();
+
+  File sampleNamed(String name) => File('${dngDir.path}/$name');
+
+  // The M0/M3 sample inventory proves this pair is the intended content
+  // witness: same extension, one preview-bearing and one no-preview.
+  final previewDng = sampleNamed('2026-02-15-19-37-38.dng');
+  final noPreviewDng = sampleNamed('IMG_20251112_092839.dng');
+
+  List<PhotoItem> realListWith(File target, int targetIndex) => List.generate(
+    14,
+    (index) => PhotoItem(
+      id: 'REAL_${index.toString().padLeft(4, '0')}',
+      files: [index == targetIndex ? target : previewDng],
+    ),
   );
 
   Future<void> until(bool Function() condition, {String? reason}) async {
@@ -105,6 +124,79 @@ void main() {
     expect(expensive.payloadFor(expensiveItems[5].id), isNull);
     expect(PaintingBinding.instance.imageCache.currentSize, 0);
   });
+
+  // Each assertion names its POSITION, so location-dependent bridge-first
+  // scheduling cannot hide behind a single outer-window witness. The real
+  // no-preview DNG must have been content-classified expensive BEFORE loader
+  // acquisition; therefore before the frozen debounce expires its loader calls
+  // are zero at every retained position.
+  for (final spec in <({String name, int selected, int target})>[
+    (name: 'selected distance 0', selected: 5, target: 5),
+    (name: 'plus-one distance 1', selected: 5, target: 6),
+    (name: 'outer retention distance 3', selected: 5, target: 8),
+  ]) {
+    test('TC-088 probe-first expensive item: ${spec.name} has ZERO loader '
+        'calls before debounce', () async {
+      expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
+      expect(
+        noPreviewDng.existsSync(),
+        isTrue,
+        reason: 'no-preview sample missing',
+      );
+      expect(
+        await PhotoSource.probe(noPreviewDng.path, longEdge: 2800),
+        SourceCost.expensive,
+        reason: 'sanity: this must be the real no-preview content witness',
+      );
+      final targetCalls = <String>[];
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          targetCalls.add(path);
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      addTearDown(controller.dispose);
+      controller.updateTargetSize(800, 600);
+      final photos = realListWith(noPreviewDng, spec.target);
+      await controller.preloadImages(
+        items: photos,
+        selectedItemId: photos[spec.selected].id,
+        notifyLoaded: () {},
+      );
+      expect(
+        targetCalls.where((path) => path == noPreviewDng.path),
+        isEmpty,
+        reason:
+            'the real probe must classify this no-preview DNG before any '
+            'loader work, regardless of ${spec.name}',
+      );
+    }, skip: hasSamples ? null : 'no local samples');
+  }
+
+  test('TC-089 real preview-bearing DNG content probe cheap leads to immediate '
+      'loader work', () async {
+    expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
+    expect(
+      await PhotoSource.probe(previewDng.path, longEdge: 2800),
+      SourceCost.cheap,
+    );
+    var loaderCalls = 0;
+    final controller = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async {
+        loaderCalls++;
+        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+      },
+    );
+    addTearDown(controller.dispose);
+    controller.updateTargetSize(800, 600);
+    final photos = realListWith(previewDng, 5);
+    await controller.preloadImages(
+      items: photos,
+      selectedItemId: photos[5].id,
+      notifyLoaded: () {},
+    );
+    expect(loaderCalls, greaterThan(0));
+  }, skip: hasSamples ? null : 'no local samples');
 
   test('P2 translated: navigation bursts start ZERO expensive decodes, while '
       'cheap DNGs/JPEGs prefetch during the same burst', () async {
