@@ -854,11 +854,11 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-100｜ImagePreloadController — 永久失敗的側欄縮圖三次 sweep 只請求一次
+### TC-105｜ImagePreloadController — 永久失敗的側欄縮圖三次 sweep 只請求一次
 
 | 欄位 | 內容 |
 |------|------|
-| **測試 ID** | TC-100 |
+| **測試 ID** | TC-105 |
 | **名稱** | M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE across three preloadThumbnails sweeps |
 | **測試類型** | Unit Test |
 | **背景** | 設計權威 §2.2：「這檔能不能讀」原本是兩套互不相通的政策——preview 有 `_permanentMisses`，側欄只測 `containsKey`，所以永久失敗的檔案每次 sweep 都重問（不變式 I8） |
@@ -875,18 +875,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試 ID** | TC-104 |
 | **名稱** | M4-AC1b a failed sidebar thumbnail must not poison the PREVIEW state of a file whose own name happens to be "thumb_" + another file's name |
 | **測試類型** | Unit Test |
-| **背景** | `PhotoItem.id` 是 `basenameWithoutExtension`（`supported_photo_formats.dart:44`，於 `photo_library_scanner.dart:23` 當分組鍵），也就是**使用者可控的檔名**。TC-100 的第一版把側欄的 miss 以 `thumb_<id>` 前綴寫進 preview 的 `_permanentMisses`；同一資料夾若同時有 `IMG_01.jpg` 與 `thumb_IMG_01.jpg`，一個字串就有兩種意義。id 空間無限制，任何前綴／跳脫都救不了，只能分成兩個容器 |
+| **背景** | `PhotoItem.id` 是 `basenameWithoutExtension`（`supported_photo_formats.dart:44`，於 `photo_library_scanner.dart:23` 當分組鍵），也就是**使用者可控的檔名**。TC-105 的第一版把側欄的 miss 以 `thumb_<id>` 前綴寫進 preview 的 `_permanentMisses`；同一資料夾若同時有 `IMG_01.jpg` 與 `thumb_IMG_01.jpg`，一個字串就有兩種意義。id 空間無限制，任何前綴／跳脫都救不了，只能分成兩個容器 |
 | **預期結果** | `IMG_01` 的縮圖永久失敗後，`hasFailed('thumb_IMG_01')` 仍為 false；且 `thumb_IMG_01` 的縮圖仍正常載入（反空洞斷言） |
 | **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
 | **狀態** | ✅ 已通過（分容器修復前紅燈 `tmp/verify/20260824-impl-collision-red.txt`，RC=1；修復後綠燈 `tmp/verify/20260824-impl-collision-green.txt`，RC=0） |
 
 ---
 
-### TC-101｜ImagePreloadController — preview 路徑 generation guard（不變式 I4）
+### TC-106｜ImagePreloadController — preview 路徑 generation guard（不變式 I4）
 
 | 欄位 | 內容 |
 |------|------|
-| **測試 ID** | TC-101 |
+| **測試 ID** | TC-106 |
 | **名稱** | M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the window it started with |
 | **測試類型** | Unit Test（`testWidgets` + `tester.runAsync`，需真實 timer 與真實引擎解碼） |
 | **背景** | `preloadImages` 過去沒有 generation guard。`_scheduleTierTwoDecode` 會先 cancel debounce timer 再重排，所以過期的 pass 恢復時不只是多做白工，而是把全尺寸解碼從使用者當下正在看的項目手上搶走 |
@@ -896,11 +896,11 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-102｜PhotoSource — 步驟 3b 失敗回報 non-deferred 空 payload
+### TC-107｜PhotoSource — 步驟 3b 失敗回報 non-deferred 空 payload
 
 | 欄位 | 內容 |
 |------|------|
-| **測試 ID** | TC-102 |
+| **測試 ID** | TC-107 |
 | **名稱** | M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred null payload |
 | **測試類型** | Unit Test |
 | **背景** | 設計權威 §3.4 不變式 T1。`photo_source.dart:160-170`（`load()` 自己的 3b catch）在此之前沒有專屬測試；樹上既有的 TC-085 走的是 `loadExpensive` 的 catch（`:217`） |
@@ -910,16 +910,44 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-103｜ImagePreloadController — 步驟 3b 失敗寫入 permanent-miss 並解除 spinner
+### TC-108｜ImagePreloadController — 步驟 3b 失敗寫入 permanent-miss 並解除 spinner
 
 | 欄位 | 內容 |
 |------|------|
-| **測試 ID** | TC-103 |
+| **測試 ID** | TC-108 |
 | **名稱** | M4-AC3 the step-3b failure path marks a permanent miss and RELEASES the view from its spinner |
 | **測試類型** | Unit Test |
 | **預期結果** | `hasFailed(id)` 轉為 true、`payloadFor(id)` 為 null，且 `notifyLoaded` 至少被呼叫一次（只記 miss 不通知，畫面仍會停在 spinner 直到別的事件重繪） |
 | **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
 | **狀態** | ✅ 已通過（既有行為即正確，紅燈以變異取得：移除 `_permanentMisses.add(id)`，見 `tmp/verify/ac3_mutantB.txt`，RC=1；變異已還原） |
+
+---
+
+### TC-109｜ImagePreloadController — 側欄縮圖 loader 拋例外不得中斷整趟 sweep（PL-1/PL-2/PL-10）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-109 |
+| **名稱** | M6-PL1 a throwing sidebar thumbnail loader must not abort the sweep, must release the in-flight key, and must record a permanent miss like a non-bytes result |
+| **測試類型** | Unit Test |
+| **背景** | Round-1 parking-lot PL-1/PL-2/PL-10：`preloadThumbnails` 的逐項迴圈原本沒有 `try`/`catch`，`_loadingKeys` 的移除也不在 `finally` 裡。loader **拋例外**（而非回傳 `NativeImageFailure`）時，例外會直接讓 `for` 迴圈中斷，該趟 sweep 其餘尚未請求的項目全部被靜默跳過，且拋出者的 `thumb_<id>` in-flight 鍵永久洩漏，之後每趟 sweep 都把它誤判為「仍在載入中」而永不重問也永不解除 |
+| **預期結果** | (1) loader 對第一項拋例外後，同趟 sweep 後續項目仍被請求並成功落地；(2) 拋例外的鍵在 `finally` 中被釋放；(3) 拋例外的項目被視同非 bytes 結果寫入 `_thumbPermanentMisses`，往後三趟不同 range 的 sweep 中，該路徑的 loader 呼叫次數恰好為 1 |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（修復前紅燈 `tmp/verify/pl1-red.txt`，RC=1，唯一失敗即新測試；修復後綠燈 `tmp/verify/pl-a-b-final-green.txt`，RC=0，同檔全 7 個測試皆過） |
+
+---
+
+### TC-110｜ImagePreloadController — preview 路徑第二道 generation guard（window await 之後，:406）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-110 |
+| **名稱** | M6-PL7 the SECOND generation guard (after the window await, :406) must discard a stale resume too, not only the priority-load guard (:381) |
+| **測試類型** | Unit Test（`testWidgets` + `tester.runAsync`，需真實 timer 與真實引擎解碼） |
+| **背景** | Round-1 parking-lot PL-7：TC-106（AC2）交付的測試只讓 stale pass 卡在**優先載入**（`:365` 的 await），因此只驗證了第一道 guard（`:381`）。程式碼註解稱第二道 guard（`:406`，window await 之後）才是「load-bearing」的那道——它會取消並改排 tier-2 debounce timer——但 round-1 從未交付能實際走到那條路徑的測試（reviewer 探針 `scripts/tmp/m4-round1-verify/reviewer_guard2_probe_test.dart` 只證明 guard 本身正確，不是交付測試） |
+| **預期結果** | 把 stale pass 卡在 **window 迴圈**（`Future.wait(pendingLoads)`，而非優先載入）以確保第一道 guard 未觸發、真正到達第二道 guard；釋放後 stale pass 不得改排新一代的 tier-2 schedule：目前世代（index 10）的 `isFullSizeReady` 為 true，被放棄的世代（index 0）為 false |
+| **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
+| **狀態** | ✅ 已通過（既有行為即正確，故此測試預期立即綠燈：`tmp/verify/pl7-green.txt`，RC=0；靈敏度以區域變異驗證——暫時移除第二道 guard 得紅燈 `tmp/verify/pl7-mutation-red.txt`，RC=1，變異已還原並以 `grep -c MUTATION-MARKER-PL7-TEMP` == 0 確認） |
 
 ---
 
