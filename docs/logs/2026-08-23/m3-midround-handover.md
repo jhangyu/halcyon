@@ -312,3 +312,21 @@ Tree state at freeze: branch m3-cache at dd296ba (fast-forward of the PL merge),
    mutation is required or authorized. T-C is a new retention guarantee; a mutation-kill is permitted
    only in an isolated copied test/implementation lane, followed by restoration with hash. It must never
    be a production behavior change.
+
+## Amendment 3 recovery checkpoint — current lane frozen before historical-test lane
+
+Current `m3-cache` HEAD: `be9e05ec16a5db1fe7c8cba49a54ebbc2c2567d9`.
+The only uncommitted production WIP is `lib/services/image_preload_controller.dart` (+44/-24).
+It is STOP/PRESERVE-only until a hash-bound historical RED exists.
+
+Scratch evidence (may vanish; hashes are durable here):
+- `tmp/verify/amend3-current-controller-wip.patch` SHA-256
+  `eeffcba243e8694743d143c953b496bd1e51ae500dd49a06dfb4143a23ea96a0`
+- `tmp/verify/amend3-current-preserve-status.txt` SHA-256
+  `de94c46e6816672a56194694adf067ae0dc10825119b3d855956ea0b441a26b9`
+
+Historical RED protocol approved: a separate worktree at genuine predecessor `0e6407e` authors test-only
+Amendment-3 coverage, commits explicit test paths, and captures failures bound to historical HEAD + test
+commit + test blob hashes. Failures must be substantive probe-first/uniform-retention/P1-P4/sequential-RAW
+assertions, not compile/setup failures. Only after that report is accepted may identical test blobs enter this
+current repair lane. Any third sequencing breach stops M3 round 1 for user direction.
