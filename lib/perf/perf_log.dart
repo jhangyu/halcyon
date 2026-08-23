@@ -1,3 +1,8 @@
+// NOTE (2026-08-24 user directive): UI-driven measurement runs that consume this
+// instrumentation (via PerfDriver) are USER-run only — agents must not launch them.
+// See lib/perf/perf_driver.dart deprecation header and
+// docs/logs/2026-08-24/m4-m6-convergence-contract.md AC4.
+//
 // PERMANENT PERF INSTRUMENTATION (contract: docs/logs/2026-08-16/round-3-implementation-plan.md §3).
 // Gated on the HALCYON_PERF_DIR environment variable: unset (the normal shipping
 // case) means `enabled` stays false and log() returns before any timing, buffering,
