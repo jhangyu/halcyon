@@ -142,3 +142,84 @@ the same class of catch with a member who has none of the history.
 - `flutter test` progress lines are only reliable under `-j 1`.
 - Declared-test-count greps undercount: loop- and group-generated tests declare once and execute
   many times. Round 1's full suite executed **232**. Pre-register the EXECUTED expectation.
+
+---
+
+# Round 2 execution record (m3-lead-2-opus)
+
+## 8. AC5 is AMENDED, not retired — the frozen-blob gate re-anchors
+
+`test/dng_nav_probe_m3_test.dart` asserted `imageCache.currentSize == 5` at `:101`, against a 14-item
+all-cheap corpus selected at index 5, sampled 50 ms in (before the 250 ms tier-2 debounce, so the
+count is tier-1 only). That `5` **was the old ±2 tier-1 span itself**, not a description of it.
+Round 2 widens tier-1 to the full −3..+5 retention window = indices 2..10 = **9** slots. AC2 and AC5
+were therefore mutually unsatisfiable: the blob was byte-untouched AND red.
+
+Ruled at orchestrator level and reported to the user: **narrow edit authorized.** Derivation — the
+user's round-2 ruling (constants and code together, tier-1 widened to the full window) is the newer
+and higher authority, and the frozen `5` encodes the requirement that ruling replaces. Same category
+as round 1's `test/photo_source_test.dart:104-122`: a requirement change flowing down into a test
+that encoded the old requirement, NOT a test bent to fit an implementation. The alternative — drop
+the widening — guts the round the user ordered, which the contract's internal consistency cannot force.
+
+| | sha256 |
+|---|---|
+| OLD (round 1 gate) | `be3a595d6cc49c48d9f4bd29e91ecf5827261c50ae6b5d1c18e911e8b47d2341` |
+| **NEW (binding from `d87d1d5`)** | `59b1f3c7112b01784cd868ffd2fbd5bab9f25c30ec46eb8a26d542cee33b8e2c` |
+
+Diff: **1 file, +8/-3**, one contiguous region `@@ -100,10 +100,15 @@` — the literal `5` → `9` plus
+its reason string. Verified by the lead with `git show d87d1d5`, not taken on report. Committed alone
+as `d87d1d5`; implementation is separate at `f9869db`.
+
+**The other two gates are UNTOUCHED and STILL BINDING** (re-verified after all edits):
+`scripts/tmp/dng_nav_probe_test.dart` `05565d33…`, `test/image_preload_controller_m3_amend3_test.dart`
+`fcdd564e…`. The latter being green is the standing evidence that sequential RAW decode and the 250 ms
+debounce are unmoved.
+
+Witnessed transition: RED `tmp/verify/20260823T145208Z-frozen-blobs.txt` (`Expected: <5> Actual: <9>`
+at `:101:5`, prediction written above the result, `REAL_EXIT=1`) → GREEN
+`tmp/verify/20260823T145732Z-GREEN-frozen-blobs.txt` (`+11: All tests passed!`, `REAL_EXIT=0`).
+
+## 9. Open item: the nine-slot tier-1 guarantee does NOT materialise on no-preview RAW folders
+
+By design of the (A) split, not by defect. `_precacheTierOneWindow` consumes payloads and never
+produces them (`:707-708` peeks, skips on null). The only payload-creation path for an item measured
+`SourceCost.expensive` is gated by `allowsExpensiveWork(distance:)` = `distance <= kExpensiveStartupRadius`
+= 1. So on a folder of no-preview RAWs, slots at distance 2..5 hold neither a tier-1 nor a tier-2 entry.
+Cheap (preview-bearing) items are unaffected — `preloadImages` loads the whole −3..+5 window at
+`:344-352` and awaits it before tier-1 precache at `:356`.
+
+Closing this needs EITHER raising `kExpensiveStartupRadius` (forbidden — it is exactly the ~42 s vs
+~25 s cold-settle violation the split exists to prevent) OR a new payload-creation path for RAW
+outside ±1 (out of scope; contradicts "sequential RAW decode unchanged"). **Both are user decisions
+for a later round.** Reported upward; not this round's work.
+
+## 10. The eviction sweep needed no edit — correcting §in-scope item 2
+
+The contract says the out-of-span sweep at `:716-724` is "updated to respect the new span". Mechanically
+it already does: it evicts by `!neededIds.contains(id)`, and `neededIds` is built from the span being
+widened. Asserted by test (TC-096) rather than assumed. The implementer caught this against the lead's
+own framing.
+
+## 11. Exit-code instrumentation: THREE distinct false-green variants, all live
+
+1. Round 1 — `EXIT=` read from an artifact whose value was empty because `${PIPESTATUS[0]}` did not expand.
+2. Round 2 — that same non-expansion recurred in this shell; caught by the implementer on its own first attempt, bad artifact retained alongside the good one.
+3. Round 2 — **the background-task harness notification reported "completed (exit code 0)" for a run whose real `flutter test` exit code was 1.** That is the WRAPPER's code. Visible only because `REAL_EXIT=$?` was written into the artifact.
+
+**Standing rule: exit codes are read from the artifact's own captured `$?`. Never from a harness
+notification, never from `${PIPESTATUS[0]}`.** Variant 3 sits directly on the acceptance path and the
+notification is more convenient to read than the artifact, which is precisely why it will be read.
+
+## 12. Round-2 verification log (lead-performed, not taken on report)
+
+Every claim below was checked by the lead in the tree or the artifact:
+- Frozen shas before and after the authorized edit; blob diff via `git show`, full context not `-U0`.
+- RED and GREEN artifacts read end to end: pre-registration genuinely precedes the result in-file; HEAD hash present; exit codes carry real values.
+- Full suite `tmp/verify/20260823T145359Z-fullsuite.txt`: `EXPECT executed = 238` at line 3, `+237 -1` at line 342, `REAL_EXIT=1` at line 346 — 237+1=238, matched with no reconciliation, single failure being the predicted collision.
+- Spans in code: `:719,723` now `kRetentionBefore`/`kRetentionAfter`; `kTierTwoRadius = 2` at `prefetch_scheduler.dart:32`, consumed at `:400,:404`.
+- One evidence-path citation error caught (`…145153Z…` did not exist; real file `…145208Z…`). **A report whose evidence paths do not resolve is not verifiable evidence** — check paths against `ls` before signoff.
+
+Three times this round the implementer corrected its lead's framing with evidence (the AC2-vs-AC5
+distinction, the eviction sweep, the `git diff -U0` hunk count). §4b's claim holds: the instruction
+transfers even when the context does not.
