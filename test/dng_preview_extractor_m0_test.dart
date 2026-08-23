@@ -99,9 +99,9 @@ void main() {
 
       expect(
         dngFiles.length,
-        14,
+        26,
         reason:
-            'expected exactly 14 .dng files in ${sampleDir.path}; a sample '
+            'expected exactly 26 .dng files in ${sampleDir.path}; a sample '
             'vanishing/appearing must fail loudly',
       );
 
