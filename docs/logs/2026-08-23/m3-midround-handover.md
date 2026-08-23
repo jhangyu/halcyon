@@ -297,3 +297,18 @@ Tree state at freeze: branch m3-cache at dd296ba (fast-forward of the PL merge),
 - Deviation 2 APPROVED: AC14, probe <= 300 KB made mechanical via the existing onDiskRead callback.
 - Sequencing: steps 1-4 additive; step 5 (irreversible) only after the LEAD's mid-point audit; RSS last,
   pending user-provided samples.
+
+## Amendment 3 — USER CORRECTION (2026-08-23, authoritative over A-§2 and contrary prior framing)
+
+1. **Uniform retention/cache for every file.** JPG, preview-bearing DNG, and no-preview DNG all use the
+   SAME `-3..+5` payload-retention policy. Sidebar follows the same no-type-split policy (user states
+   `20+20+20` thumbnails). Cache reads `byteCost` only. This is D4/§3.3 and is non-negotiable.
+2. **Content probe FIRST for EVERY image.** The probe decides ONLY execution scheduling: embedded/base
+   JPEG => parallel decode/preload; no embedded JPEG => sequential RAW decode. It MUST NOT decide a
+   narrower retention window. Location-dependent "hot-window bridge first" classification is rejected;
+   it was erroneous framing, not a user decision.
+3. **Do NOT mutate production debounce.** T-B is behavior preservation and is proved by the existing
+   hash-bound pre-M3 P2 baseline plus a fresh post-M3 execution comparison. No artificial debounce
+   mutation is required or authorized. T-C is a new retention guarantee; a mutation-kill is permitted
+   only in an isolated copied test/implementation lane, followed by restoration with hash. It must never
+   be a production behavior change.
