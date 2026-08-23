@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import 'dng_decode_contract.dart';
+import 'photo_payload.dart';
 
 /// Turns a [DecodedRgba] (RGBA8 straight from the native DNG decoder) into a
 /// display-ready [ui.Image], applying EXIF orientation.
@@ -74,15 +75,83 @@ Future<ui.Image> _imageFromPixels(DecodedRgba decoded) {
   return completer.future;
 }
 
-Future<ui.Image> _applyTransform(ui.Image src, _ExifTransform t) async {
+/// Reduces a freshly decoded RAW frame to window-resolution RGBA pixels,
+/// applying EXIF [exifOrientation] and the downscale to [longEdge] in the SAME
+/// GPU pass, and disposes every intermediate.
+///
+/// This is `PhotoSource` step 3, and it is what makes RAW items affordable to
+/// retain (design §3.1/§3.2). The decoder hands back a full-resolution frame --
+/// 4080x3056 RGBA8 is ~50MB, and the FFI call that produced it cost 61-406ms --
+/// which is far too expensive to keep nine of. What survives this function is
+/// the window-resolution buffer only (at 2800px long edge, ~14MB), from which
+/// the displayed image rebuilds in a memcpy plus a GPU upload.
+///
+/// Nothing is left owned by the caller: both `ui.Image` intermediates are
+/// disposed here and the result is a plain [Uint8List].
+Future<PixelPayload> decodedRgbaToPixelPayload(
+  DecodedRgba decoded, {
+  required int exifOrientation,
+  required int longEdge,
+}) async {
+  final raw = await _imageFromPixels(decoded);
+  ui.Image? scaled;
+  try {
+    final transform = _ExifTransform.forOrientation(exifOrientation);
+    final swap = transform.quarterTurnsCw.isOdd;
+    final orientedLongEdge = swap
+        ? math.max(raw.height, raw.width)
+        : math.max(raw.width, raw.height);
+    // Never upscale: a preview smaller than the window stays its own size, so
+    // a small embedded frame does not get inflated into a bigger buffer than
+    // the pixels justify.
+    final scale = longEdge <= 0 || orientedLongEdge <= longEdge
+        ? 1.0
+        : longEdge / orientedLongEdge;
+
+    final source = transform.isIdentity && scale == 1.0
+        ? raw
+        : (scaled = await _applyTransform(raw, transform, scale));
+
+    // ponytail: rawRgba is PREMULTIPLIED where the decoder's input was
+    // straight RGBA. The two agree exactly for opaque pixels, which is every
+    // pixel a RAW decode produces. Revisit only if a decoder starts emitting
+    // alpha.
+    final data = await source.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) {
+      throw StateError('could not read back the scaled RAW frame');
+    }
+    return PixelPayload(
+      rgba: data.buffer.asUint8List(),
+      width: source.width,
+      height: source.height,
+    );
+  } finally {
+    scaled?.dispose();
+    raw.dispose();
+  }
+}
+
+Future<ui.Image> _applyTransform(
+  ui.Image src,
+  _ExifTransform t, [
+  double scale = 1.0,
+]) async {
   final swap = t.quarterTurnsCw.isOdd;
-  final outWidth = swap ? src.height : src.width;
-  final outHeight = swap ? src.width : src.height;
+  final orientedWidth = swap ? src.height : src.width;
+  final orientedHeight = swap ? src.width : src.height;
+  final outWidth = math.max(1, (orientedWidth * scale).round());
+  final outHeight = math.max(1, (orientedHeight * scale).round());
 
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
+  // Applied first so the orientation maths below can stay in source-pixel
+  // units: one pass, one resample.
+  if (scale != 1.0) canvas.scale(scale);
   if (t.mirrored) {
-    canvas.translate(outWidth.toDouble(), 0);
+    // Source-pixel units, because canvas.scale above already established
+    // them -- using the scaled output width here would mirror about the wrong
+    // axis and silently crop.
+    canvas.translate(orientedWidth.toDouble(), 0);
     canvas.scale(-1, 1);
   }
   switch (t.quarterTurnsCw) {
@@ -100,7 +169,12 @@ Future<ui.Image> _applyTransform(ui.Image src, _ExifTransform t) async {
     src,
     Offset.zero,
     Paint()
-      ..filterQuality = FilterQuality.none
+      // Pure rotation/mirroring is an exact multiple of 90 degrees, so
+      // filtering it can only blur. A DOWNSCALE is the opposite case: nearest
+      // neighbour at 0.3x drops most of the pixels and aliases badly.
+      ..filterQuality = scale == 1.0
+          ? FilterQuality.none
+          : FilterQuality.medium
       ..isAntiAlias = false,
   );
   final picture = recorder.endRecording();
@@ -135,66 +209,4 @@ class _ExifTransform {
       _ => const _ExifTransform(0, false), // 1, and anything unrecognised
     };
   }
-}
-
-/// An [ImageProvider] backed by an already-decoded [ui.Image].
-///
-/// Exists because the tier-2 full-size path for decoder-sourced DNGs has
-/// pixels, not encoded bytes, so [MemoryImage] cannot be used — while the
-/// display side ([main_detail_view.dart]) needs a genuine [ImageProvider]:
-/// it calls `provider.resolve(...)` directly for perf instrumentation and
-/// relies on `Image(gaplessPlayback: true)` for the seamless tier-1 -> tier-2
-/// swap, both of which are [ImageStream] mechanics.
-///
-/// **Ownership contract (the reason this class exists rather than a bare
-/// `OneFrameImageStreamCompleter`)**: [image] stays owned by whoever created
-/// it (the preload controller). Every [ImageInfo] this provider hands to the
-/// framework carries a `clone()` instead, because [ImageCache] disposes the
-/// [ImageInfo] it evicts. Without the clone, an eviction would dispose the
-/// controller's master handle out from under it and the next resolve would
-/// paint a disposed image; with it, eviction only drops one handle and the
-/// underlying pixels survive until the controller disposes the master too.
-@immutable
-class DecodedRgbaImageProvider extends ImageProvider<DecodedRgbaImageProvider> {
-  const DecodedRgbaImageProvider(this.image, {this.scale = 1.0});
-
-  /// The master handle. Not disposed by this provider.
-  final ui.Image image;
-  final double scale;
-
-  @override
-  Future<DecodedRgbaImageProvider> obtainKey(ImageConfiguration configuration) {
-    return SynchronousFuture<DecodedRgbaImageProvider>(this);
-  }
-
-  @override
-  ImageStreamCompleter loadImage(
-    DecodedRgbaImageProvider key,
-    ImageDecoderCallback decode,
-  ) {
-    return OneFrameImageStreamCompleter(
-      SynchronousFuture<ImageInfo>(
-        ImageInfo(image: key.image.clone(), scale: key.scale),
-      ),
-    );
-  }
-
-  // Identity on the ui.Image, not value equality: two providers are the same
-  // ImageCache entry exactly when they wrap the same decoded image. A new
-  // decode for the same photo produces a new ui.Image and therefore a new
-  // key, which is what makes stale entries evictable by identity.
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is DecodedRgbaImageProvider &&
-        identical(other.image, image) &&
-        other.scale == scale;
-  }
-
-  @override
-  int get hashCode => Object.hash(identityHashCode(image), scale);
-
-  @override
-  String toString() =>
-      'DecodedRgbaImageProvider(${image.width}x${image.height}, scale: $scale)';
 }

@@ -192,6 +192,90 @@ class DngPreviewExtractor {
     return vals.first;
   }
 
+  /// Everything ONE bounded content probe can learn about [path]: the largest
+  /// embedded-JPEG candidate's long edge, and IFD0's EXIF orientation.
+  ///
+  /// Both come out of the SAME walk on purpose. They are the two facts M3's
+  /// scheduler needs before it may touch a file -- which rung the item is on,
+  /// and (for an expensive one) how to orient the RAW pixels once the debounce
+  /// elapses -- and they live within bytes of each other in IFD0. Asking for
+  /// them separately would open the file twice, walk the header and IFD0
+  /// twice, and double the probe's read budget for an answer already in hand
+  /// (user ruling; invariant I6: the debounced pass must reach the decoder
+  /// with ZERO extra native-loader calls).
+  ///
+  /// No strip is ever read -- header, IFD0 and the SubIFD table only.
+  ///
+  /// `jpegBitstream` is true when the file simply IS a JPEG (SOI magic). That
+  /// question is answered here, off the same open, rather than by the caller
+  /// peeking at the first two bytes through a file handle of its own: the
+  /// probe is specified as ONE open per file, and a caller-side magic check
+  /// silently made it two. Such a file has no IFDs to walk, so it returns
+  /// immediately with `largestLongEdge` 0 and a null orientation -- a JPEG's
+  /// orientation travels inside the bitstream its decoder already reads, and
+  /// parsing for it here would cost the app's hottest path a walk for nothing.
+  ///
+  /// Returns `null` when the file is not a parseable TIFF/DNG at all (which is
+  /// NOT the same as "parsed fine, has no candidates" -> `largestLongEdge` 0),
+  /// so the caller can tell "measured" from "could not measure".
+  /// `orientation` is null when IFD0 parsed but its 0x0112 value did not, and
+  /// 1 when the tag is genuinely absent -- the same three-way contract
+  /// [readOrientation] states. [onDiskRead] fires once per physical read with
+  /// its byte count, which is how the <=300KB budget is asserted rather than
+  /// assumed. Never throws.
+  static Future<({bool jpegBitstream, int largestLongEdge, int? orientation})?>
+  probeContent(String path, {void Function(int byteCount)? onDiskRead}) async {
+    RandomAccessFile? raf;
+    try {
+      final file = File(path);
+      raf = await file.open();
+      final length = await raf.length();
+      if (length < 8) return null;
+
+      // Deliberately a raw 2-byte read rather than the paged source below: a
+      // JPEG must cost two bytes and stop, and _FileSource's first page read
+      // would report 8KB for the same answer.
+      final head = await raf.read(2);
+      onDiskRead?.call(head.length);
+      if (head.length >= 2 && head[0] == 0xFF && head[1] == 0xD8) {
+        return (jpegBitstream: true, largestLongEdge: 0, orientation: null);
+      }
+
+      // Positional reads from here on (_readDirect uses setPositionSync), so
+      // the two bytes already consumed above do not shift what follows.
+      final source = _FileSource(raf, length, onDiskRead);
+      final reader = _readerFor(source);
+      if (reader == null) return null;
+      final ifd0 = _readIFD0(reader);
+      if (ifd0 == null) return null;
+      // Free at this point: IFD0 is already parsed and in memory. This is the
+      // whole reason the two questions share one walk.
+      final orientation = _orientationOf(reader, ifd0);
+      // longEdge: 0 keeps every structurally valid candidate (the 0.90*cropMax
+      // full-size floor is a selection rule, not a validity rule), so the
+      // answer describes the FILE rather than one request's taste.
+      final candidates = _gatherCandidates(reader, source, ifd0, 0);
+      if (candidates == null) return null;
+      var best = 0;
+      for (final c in candidates) {
+        if (c.maxDim > best) best = c.maxDim;
+      }
+      return (
+        jpegBitstream: false,
+        largestLongEdge: best,
+        orientation: orientation,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        await raf?.close();
+      } catch (_) {
+        // Closing a handle we already failed on is not actionable.
+      }
+    }
+  }
+
   /// Walks IFD0 + SubIFDs once, selects a candidate per [longEdge] and reads
   /// the selected strip. Returns `null` when nothing qualifies.
   static DngEmbeddedJpeg? _walk(_ByteSource source, int? longEdge) {
@@ -205,6 +289,41 @@ class DngPreviewExtractor {
     // unreadable tag folds to 1 exactly as it did before AC12h.
     final orientation = _orientationOf(reader, ifd0) ?? 1;
 
+    final candidates = _gatherCandidates(reader, source, ifd0, longEdge);
+    if (candidates == null) return null;
+
+    final best = _select(candidates, longEdge);
+    if (best == null) return null;
+
+    final jpegBytes = source.read(best.offset, best.byteCount);
+    if (jpegBytes == null || jpegBytes.length != best.byteCount) return null;
+
+    var bytes = jpegBytes;
+    if (orientation != 1) {
+      final oriented = _injectExifOrientation(jpegBytes, orientation);
+      if (oriented != null) bytes = oriented;
+    }
+    return DngEmbeddedJpeg(
+      bytes: bytes,
+      width: best.width,
+      height: best.height,
+      orientation: orientation,
+    );
+  }
+
+  /// Collects every structurally valid embedded-JPEG candidate in IFD0 and its
+  /// SubIFDs. No strip is read here -- this is the part [_walk] and
+  /// [probeContent] share, so the probe and the extraction can
+  /// never disagree about what is in a file.
+  ///
+  /// Returns `null` when the full-size request cannot be judged at all
+  /// (`longEdge == null` and no usable DefaultCropSize).
+  static List<_Candidate>? _gatherCandidates(
+    _TIFFReader reader,
+    _ByteSource source,
+    Map<int, _IFDEntry> ifd0,
+    int? longEdge,
+  ) {
     (int, int)? cropSize(Map<int, _IFDEntry> entries) {
       final entry = entries[0xC620];
       if (entry == null) return null;
@@ -308,23 +427,7 @@ class DngPreviewExtractor {
       );
     }
 
-    final best = _select(candidates, longEdge);
-    if (best == null) return null;
-
-    final jpegBytes = source.read(best.offset, best.byteCount);
-    if (jpegBytes == null || jpegBytes.length != best.byteCount) return null;
-
-    var bytes = jpegBytes;
-    if (orientation != 1) {
-      final oriented = _injectExifOrientation(jpegBytes, orientation);
-      if (oriented != null) bytes = oriented;
-    }
-    return DngEmbeddedJpeg(
-      bytes: bytes,
-      width: best.width,
-      height: best.height,
-      orientation: orientation,
-    );
+    return candidates;
   }
 
   /// Candidate selection. `longEdge == null` keeps today's rule (largest area

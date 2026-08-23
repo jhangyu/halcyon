@@ -9,7 +9,20 @@ import 'views/main_screen.dart';
 // Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
 // precaching needs headroom for several images at once.
-const int imageCacheMaxBytes = 500 << 20;
+//
+// 768 MiB = 805,306,368 B. Sized against the CHEAP (preview-bearing) corpus,
+// NOT the expensive one: a preview-bearing item decodes its tier-2 entry at
+// FULL native size (24MP -> 91.55 MiB here) and holds a SECOND, separate
+// tier-1 entry, while a no-preview RAW is already window-sized and shares ONE
+// entry across both tiers. The dear entries therefore come from the cheap rung.
+// Requirement is 626.22 MiB (5 full-size + their coexisting tier-1 entries + 4
+// outer tier-1 + sidebar); 640 MiB would leave only 2.2% headroom and evict the
+// very entry the no-re-decode guarantee just promised. Derivation:
+// docs/logs/2026-08-23/cache-sizing-estimate.md §A.4/§A.6.
+//
+// This is NOT interchangeable with kPayloadByteBudget: the two are sized
+// against different corpora and neither can sanity-check the other.
+const int imageCacheMaxBytes = 768 << 20;
 
 void configureImageCache() {
   PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheMaxBytes;

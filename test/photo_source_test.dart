@@ -101,6 +101,25 @@ void main() {
         notifyLoaded: () {},
       );
 
+      // The OBSERVATION POINT moved, not the behaviour under test. Under the
+      // user's probe-first ruling (Amendment 3 clause 2) the content probe
+      // measures this no-preview .dng as expensive BEFORE any loader call, so
+      // the immediate pass defers it -- frozen TC-088 requires exactly zero
+      // loader calls for it at distance 0. The fall-through to hasFailed now
+      // happens on the debounced pass instead of inline, so the assertions
+      // below have to be read after that pass, not the instant preloadImages
+      // returns. Both assertions and this test's intent are unchanged.
+      //
+      // A plain test() harness, so these are real timers -- awaiting a real
+      // engine future under FakeAsync would hang forever.
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!controller.hasFailed('dng-2')) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('timed out waiting for the debounced pass to mark dng-2');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
       expect(controller.imageBytesFor('dng-2'), isNull);
       expect(controller.hasFailed('dng-2'), isTrue);
     },

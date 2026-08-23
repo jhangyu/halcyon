@@ -14,7 +14,21 @@ import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
 ///
 /// NOTE on AC4: an earlier contract draft said "15 files"; that was a
 /// drafting error (raw `ls | wc -l` including a stray `file_sort.sh`). The
-/// contract has since been amended to "14 `.dng` files" — see AC4 below.
+/// contract said "14 `.dng` files" until the user supplied the [U-3]/AC8
+/// samples, and the canonical set is now 26 `.dng` files — see AC4 below.
+///
+/// Of those 26, thirteen carry a usable embedded JPEG preview (the `2026-*`
+/// files, whose previews are Lightroom-generated) and thirteen do not (the
+/// twelve `2024-07-*` files plus `IMG_20251112_092839.dng`). The preview-less
+/// dozen are Xiaomi phone DNGs whose IFD0 is a JPEG-compressed Color Filter
+/// Array — a Bayer mosaic, not a displayable image — so there is genuinely
+/// nothing to show for them without a full RAW decode.
+///
+/// Two traps for whoever reads this next. "12 new files" and "13 expensive"
+/// are DIFFERENT sets: `IMG_20251112_092839.dng` is an old sample that
+/// measures expensive, and it is what makes the counts differ. And do not
+/// identify the new files by mtime — several of the newest carry 2024
+/// timestamps.
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');
 
@@ -99,9 +113,9 @@ void main() {
 
       expect(
         dngFiles.length,
-        14,
+        26,
         reason:
-            'expected exactly 14 .dng files in ${sampleDir.path}; a sample '
+            'expected exactly 26 .dng files in ${sampleDir.path}; a sample '
             'vanishing/appearing must fail loudly',
       );
 

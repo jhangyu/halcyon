@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
-import '../services/decoded_rgba_image_provider.dart';
 import '../services/dng_decode_contract.dart';
 import '../services/exif_metadata_service.dart';
 import '../services/image_preload_controller.dart';
@@ -16,6 +15,7 @@ import '../services/native_thumbnail_service.dart';
 import '../services/photo_file_actions.dart';
 import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
+import '../services/raw_pixels_image.dart';
 import '../services/rename_rule.dart';
 import '../services/rename_service.dart';
 import '../services/thumbnail_export_service.dart';
@@ -177,13 +177,14 @@ class AppState extends ChangeNotifier {
   Uint8List? get currentImageBytes =>
       _preloadController.imageBytesFor(_selectedItemID);
 
-  /// Non-null when the current item is a DNG with no embedded preview whose
-  /// native RAW decode has landed. Such items have NO preview bytes at all
-  /// ([currentImageBytes] stays null for them), so this single
-  /// full-resolution provider serves what would otherwise be tier-1 and
-  /// tier-2, and the view must check it before it decides to show a spinner.
-  DecodedRgbaImageProvider? get currentDecodedProvider =>
-      _preloadController.decodedProviderFor(_selectedItemID);
+  /// Non-null when the current item is one whose source produced PIXELS rather
+  /// than an encoded bitstream -- a file with no usable embedded JPEG, decoded
+  /// natively and reduced to window resolution. Such items have no preview
+  /// bytes at all ([currentImageBytes] stays null for them), so this provider
+  /// is what the view paints, and it must be checked before deciding to show a
+  /// spinner.
+  RawPixelsImage? get currentDecodedProvider =>
+      _preloadController.pixelsProviderFor(_selectedItemID);
 
   /// True when the current item's file could not be read at all (corrupt or
   /// unsupported). The view shows an error instead of a spinner.
