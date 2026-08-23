@@ -1,0 +1,264 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/photo_source.dart';
+
+// M4 (scheduling unification). Three acceptance conditions of the frozen
+// convergence contract `docs/logs/2026-08-24/m4-m6-convergence-contract.md`:
+//
+//   AC1  the sidebar shares the preview path's permanent-miss set, so a
+//        thumbnail that can never load is requested ONCE, not once per sweep
+//        (design authority §2.2 "2 sets of policies that never talk",
+//        invariant I8).
+//   AC2  the preview path has a generation guard: a stale `preloadImages`
+//        resume must not write into the generation that replaced it
+//        (invariant I4).
+//   AC3  the step-3b fallback failure path records a permanent miss, which is
+//        what keeps invariant T1 (no spinner-forever) true.
+
+// A minimal valid 1x1 transparent PNG -- a real bitstream the engine can
+// decode, without shipping a binary fixture.
+final _tinyPngBytes = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
+  'AAYAAjCB0C8AAAAASUVORK5CYII=',
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE '
+    'across three preloadThumbnails sweeps',
+    () async {
+      final thumbRequests = <String>[];
+      final items = List.generate(5, (i) {
+        final id = 'IMG_${i.toString().padLeft(2, '0')}';
+        return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+      });
+      final failingPath = items[0].files.single.path;
+
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          if (purpose != ImageRequestPurpose.sidebarThumbnail) {
+            return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          }
+          thumbRequests.add(path);
+          if (path == failingPath) {
+            // Unreadable/corrupt: an answer that cannot change.
+            return const NativeImageFailure('UNREADABLE', 'corrupt file');
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      addTearDown(controller.dispose);
+
+      // Each sweep must report a DIFFERENT visible range, or preloadThumbnails
+      // early-returns on the unchanged-range check and the test would prove
+      // nothing. The 100ms debounce plus the fake loads need to drain between
+      // sweeps, hence the wait.
+      Future<void> sweep(int start, int end) async {
+        await controller.preloadThumbnails(
+          items: items,
+          startIdx: start,
+          endIdx: end,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+
+      await sweep(0, 1);
+      await sweep(0, 2);
+      await sweep(0, 1);
+
+      expect(
+        thumbRequests.where((p) => p == failingPath).length,
+        1,
+        reason:
+            'the sidebar re-asked for an answer that cannot change: without '
+            'the shared permanent-miss set every sweep costs another channel '
+            'round trip, forever',
+      );
+      // Anti-vacuity: a mutant that simply stopped fetching thumbnails would
+      // also satisfy the assertion above.
+      expect(
+        controller.thumbnailBytesFor(items[1].id),
+        isNotNull,
+        reason: 'loadable thumbnails must still land',
+      );
+      expect(controller.thumbnailBytesFor(items[0].id), isNull);
+    },
+  );
+
+  testWidgets(
+    'M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the '
+    'window it started with (invariant I4)',
+    (tester) async {
+      await tester.runAsync(() async {
+        final gate = Completer<NativeImageResult>();
+        final items = List.generate(14, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        final gatedPath = items[0].files.single.path;
+
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) {
+            if (path == gatedPath) return gate.future;
+            return Future<NativeImageResult>.value(
+              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+            );
+          },
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(10, 10);
+
+        // Pass A parks inside its priority load: the user navigated away
+        // before its bytes arrived.
+        final stalePass = controller.preloadImages(
+          items: items,
+          selectedItemId: items[0].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        // Pass B is the CURRENT generation and completes normally, scheduling
+        // tier-2 for its own window (index 9).
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[9].id,
+          notifyLoaded: () {},
+        );
+
+        // Now pass A resumes. Without a generation guard it walks on to
+        // _precacheTierOneWindow / _scheduleTierTwoDecode for index 0, which
+        // CANCELS the current generation's debounce timer and replaces it with
+        // a schedule for a window the user has already left.
+        gate.complete(NativeImageBytes(Uint8List.fromList(_tinyPngBytes)));
+        await stalePass;
+
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+
+        expect(
+          controller.isFullSizeReady(items[9].id),
+          isTrue,
+          reason:
+              'the stale resume cancelled and replaced the current '
+              "generation's tier-2 schedule -- the item the user is actually "
+              'looking at never got its full-size decode',
+        );
+        expect(
+          controller.isFullSizeReady(items[0].id),
+          isFalse,
+          reason: 'nothing may be decoded for the abandoned window',
+        );
+      });
+    },
+  );
+
+  test(
+    'M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred '
+    'null payload -- the signal the caller turns into a permanent miss',
+    () async {
+      // The legacy CIRAWFilter re-request fails too: nothing can produce this
+      // file.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('halcyon/thumbnail'),
+            (call) async => null,
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('halcyon/thumbnail'),
+              null,
+            ),
+      );
+
+      final source = PhotoSource(
+        loader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async => throw StateError('native decode failed'),
+      );
+
+      final outcome = await source.load(
+        '/tmp/IMG_0000.dng',
+        longEdge: 2800,
+        allowExpensive: true,
+      );
+
+      expect(outcome.payload, isNull);
+      expect(
+        outcome.deferred,
+        isFalse,
+        reason:
+            'deferred:true here means "come back from the +/-1 pass", but '
+            'this WAS that pass -- the caller would wait forever instead of '
+            'recording a permanent miss (invariant T1)',
+      );
+    },
+  );
+
+  test(
+    'M4-AC3 the step-3b failure path marks a permanent miss and RELEASES the '
+    'view from its spinner (invariant T1)',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('halcyon/thumbnail'),
+            (call) async => null, // legacy CIRAWFilter failed too
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('halcyon/thumbnail'),
+              null,
+            ),
+      );
+
+      var notifies = 0;
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async => throw StateError('native decode failed'),
+      );
+      addTearDown(controller.dispose);
+
+      final items = List.generate(14, (i) {
+        final id = 'IMG_${i.toString().padLeft(4, '0')}';
+        return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
+      });
+
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[5].id,
+        notifyLoaded: () => notifies++,
+      );
+
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!controller.hasFailed(items[5].id)) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail(
+            'step 3b failed and nobody recorded a miss: the view can never '
+            'tell "not loaded yet" from "will never load" and spins forever',
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(controller.payloadFor(items[5].id), isNull);
+      expect(
+        notifies,
+        greaterThanOrEqualTo(1),
+        reason:
+            'recording the miss without notifying leaves the spinner on '
+            'screen until some unrelated event rebuilds the view',
+      );
+    },
+  );
+}
