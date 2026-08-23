@@ -235,6 +235,37 @@ void main() {
     expect(identical(controller.payloadFor(items[8].id), first), isTrue);
     expect(decodesOfTarget(), 1);
 
+    final cheapCalls = <String>[];
+    final cheapController = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async {
+        cheapCalls.add(path);
+        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+      },
+    );
+    addTearDown(cheapController.dispose);
+    cheapController.updateTargetSize(800, 600);
+    final cheapItems = rawItems(20);
+    final cheapTarget = cheapItems[8].files.single.path;
+    await cheapController.preloadImages(
+      items: cheapItems,
+      selectedItemId: cheapItems[8].id,
+      notifyLoaded: () {},
+    );
+    final cheapFirst = cheapController.payloadFor(cheapItems[8].id);
+    for (final idx in [9, 10, 9, 8]) {
+      await cheapController.preloadImages(
+        items: cheapItems,
+        selectedItemId: cheapItems[idx].id,
+        notifyLoaded: () {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+    expect(cheapCalls.where((path) => path == cheapTarget), hasLength(1));
+    expect(
+      identical(cheapController.payloadFor(cheapItems[8].id), cheapFirst),
+      isTrue,
+    );
+
     final jpgController = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
