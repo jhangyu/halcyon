@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'decoded_rgba_image_provider.dart';
@@ -41,6 +40,25 @@ typedef SourceOutcome = ({
   bool deferred,
   int? exifOrientation,
 });
+
+/// What ONE bounded content probe learned about a file.
+///
+/// The two fields are deliberately produced by a SINGLE IFD walk (user
+/// ruling): [cost] decides the rung, and [orientation] is what the expensive
+/// rung will need after the debounce elapses. A separate orientation probe
+/// would re-open the file and re-walk the header and IFD0 for a value the cost
+/// walk already had in its hand, and -- worse -- tempts the debounced pass into
+/// a second native-loader round trip just to get it (invariant I6).
+///
+/// [cost] is null for "could not measure" (missing/unreadable/not a TIFF or
+/// JPEG at all), which is deliberately distinct from [SourceCost.expensive]:
+/// the caller resolves the undetermined case from the first bridge answer
+/// rather than guessing a rung (frozen contract A-§2 rung 2).
+///
+/// [exifOrientation] is null whenever the probe could not establish one -- an
+/// unmeasurable file, or a JPEG (whose orientation rides inside the bitstream
+/// the decoder already reads, and which must not cost the hot path a walk).
+typedef ProbeResult = ({SourceCost? cost, int? exifOrientation});
 
 /// The seam through which the native (or faked) preview bridge is called.
 /// Written structurally rather than importing `ImagePreloadController`'s
@@ -222,59 +240,71 @@ class PhotoSource {
     return bytes == null ? null : EncodedPayload(bytes);
   }
 
-  /// Measures [path]'s cost from its CONTENT, reading at most a few tens of KB
-  /// and never a JPEG strip.
+  /// Measures [path] from its CONTENT in ONE bounded walk, reading at most a
+  /// few tens of KB and never a JPEG strip.
   ///
-  /// Returns null when the content cannot be measured (missing file,
-  /// unreadable, not a TIFF/JPEG at all) -- deliberately distinct from
-  /// [SourceCost.expensive], because the caller resolves the undetermined case
-  /// from the first bridge answer instead of guessing (frozen contract A-§2).
+  /// This is THE probe seam: the single call that answers both of the pipeline's
+  /// pre-load questions (see [ProbeResult]). There is deliberately no second
+  /// entry point for orientation -- one walk, both answers, so an expensive
+  /// item can reach the decoder after the debounce without any further loader
+  /// or channel call (invariant I6).
   ///
-  /// This replaces the `.dng` extension test that decided the rung before M3
-  /// and was wrong 13 times in 14. It also gets non-DNG raw formats for free:
-  /// the walker only checks the TIFF magic, never the extension.
-  static Future<SourceCost?> probe(
+  /// The cost half replaces the `.dng` extension test that decided the rung
+  /// before M3 and was wrong 13 times in 14. It also gets non-DNG raw formats
+  /// for free: the walker only checks the TIFF magic, never the extension.
+  static Future<ProbeResult> probeSource(
     String path, {
     required int longEdge,
     void Function(int byteCount)? onDiskRead,
   }) async {
-    // Step 1: the file IS a bitstream. Two bytes and out -- this is the JPEG
-    // hot path and it must stay free (design §5).
-    final head = await _readHead(path, onDiskRead: onDiskRead);
-    if (head == null) return null;
-    if (head.length >= 2 && head[0] == 0xFF && head[1] == 0xD8) {
-      return SourceCost.cheap;
-    }
-
-    // Step 2: walk the IFDs for the biggest embedded JPEG, without reading it.
-    final largest = await DngPreviewExtractor.largestCandidateLongEdge(
+    // ONE open, ONE walk, both answers. Steps 1 and 2 of §3.1 both happen
+    // inside this single call: the JPEG magic check (two bytes and out, so the
+    // hot path stays free -- design §5) and, for a TIFF/DNG, the IFD walk that
+    // finds the biggest embedded JPEG without reading it AND picks up IFD0's
+    // orientation on the way past.
+    //
+    // The magic check deliberately does NOT live here any more. Peeking at the
+    // first two bytes through a handle of this layer's own turned a one-open
+    // probe into a two-open one, which is what test TC-090 counts.
+    //
+    // Every read goes through [onDiskRead], so the AC14 budget covers the
+    // combined probe rather than only its cost half.
+    final content = await DngPreviewExtractor.probeContent(
       path,
       onDiskRead: onDiskRead,
     );
-    if (largest == null) return null;
-    return largest >= longEdge ? SourceCost.cheap : SourceCost.expensive;
+    if (content == null) return (cost: null, exifOrientation: null);
+    if (content.jpegBitstream) {
+      return (cost: SourceCost.cheap, exifOrientation: null);
+    }
+    return (
+      cost: content.largestLongEdge >= longEdge
+          ? SourceCost.cheap
+          : SourceCost.expensive,
+      exifOrientation: content.orientation,
+    );
   }
 
-  static Future<Uint8List?> _readHead(
+  /// The cost half of [probeSource], and nothing else.
+  ///
+  // ponytail: this exists ONLY for the hash-frozen test blob
+  // test/dng_nav_probe_m3_test.dart:147/:180 (sha256 be3a595d...), which
+  // compares `PhotoSource.probe(...)` directly against a `SourceCost` and may
+  // not be edited. Deleting it in M5/M6 breaks that byte-identity gate.
+  ///
+  /// It is a PURE DELEGATION on purpose: no walk logic, no branch, no file
+  /// open of its own. That is what keeps the user's one-walk ruling structural
+  /// rather than conventional -- there is no second implementation here that
+  /// could drift from [probeSource] or be composed with it into two walks.
+  /// Production code must call [probeSource]; this projection has no callers
+  /// in `lib/`.
+  static Future<SourceCost?> probe(
     String path, {
+    required int longEdge,
     void Function(int byteCount)? onDiskRead,
-  }) async {
-    RandomAccessFile? raf;
-    try {
-      raf = await File(path).open();
-      final head = await raf.read(2);
-      onDiskRead?.call(head.length);
-      return head;
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
-  }
+  }) async =>
+      (await probeSource(path, longEdge: longEdge, onDiskRead: onDiskRead))
+          .cost;
 
   /// Last-resort preview recovery after the native preview channel has already
   /// failed entirely (`NativeImageFailure`). Only a `.dng` gets a second try,

@@ -192,34 +192,65 @@ class DngPreviewExtractor {
     return vals.first;
   }
 
-  /// Reports the largest embedded-JPEG candidate's long edge for [path]
-  /// WITHOUT reading any strip -- header, IFD0 and the SubIFD table only.
+  /// Everything ONE bounded content probe can learn about [path]: the largest
+  /// embedded-JPEG candidate's long edge, and IFD0's EXIF orientation.
   ///
-  /// This is M3's cost probe (design §3.3): it answers "is there already a
-  /// JPEG in here big enough for the display window, or does this file need a
-  /// real RAW decode?" for a few kilobytes of byte-range reads, replacing the
-  /// `.dng` extension guess that was wrong 13 times in 14.
+  /// Both come out of the SAME walk on purpose. They are the two facts M3's
+  /// scheduler needs before it may touch a file -- which rung the item is on,
+  /// and (for an expensive one) how to orient the RAW pixels once the debounce
+  /// elapses -- and they live within bytes of each other in IFD0. Asking for
+  /// them separately would open the file twice, walk the header and IFD0
+  /// twice, and double the probe's read budget for an answer already in hand
+  /// (user ruling; invariant I6: the debounced pass must reach the decoder
+  /// with ZERO extra native-loader calls).
+  ///
+  /// No strip is ever read -- header, IFD0 and the SubIFD table only.
+  ///
+  /// `jpegBitstream` is true when the file simply IS a JPEG (SOI magic). That
+  /// question is answered here, off the same open, rather than by the caller
+  /// peeking at the first two bytes through a file handle of its own: the
+  /// probe is specified as ONE open per file, and a caller-side magic check
+  /// silently made it two. Such a file has no IFDs to walk, so it returns
+  /// immediately with `largestLongEdge` 0 and a null orientation -- a JPEG's
+  /// orientation travels inside the bitstream its decoder already reads, and
+  /// parsing for it here would cost the app's hottest path a walk for nothing.
   ///
   /// Returns `null` when the file is not a parseable TIFF/DNG at all (which is
-  /// NOT the same as "parsed fine, has no candidates" -> 0), so the caller can
-  /// tell "measured" from "could not measure". [onDiskRead] fires once per
-  /// physical read with its byte count, which is how the <=300KB budget is
-  /// asserted rather than assumed. Never throws.
-  static Future<int?> largestCandidateLongEdge(
-    String path, {
-    void Function(int byteCount)? onDiskRead,
-  }) async {
+  /// NOT the same as "parsed fine, has no candidates" -> `largestLongEdge` 0),
+  /// so the caller can tell "measured" from "could not measure".
+  /// `orientation` is null when IFD0 parsed but its 0x0112 value did not, and
+  /// 1 when the tag is genuinely absent -- the same three-way contract
+  /// [readOrientation] states. [onDiskRead] fires once per physical read with
+  /// its byte count, which is how the <=300KB budget is asserted rather than
+  /// assumed. Never throws.
+  static Future<({bool jpegBitstream, int largestLongEdge, int? orientation})?>
+  probeContent(String path, {void Function(int byteCount)? onDiskRead}) async {
     RandomAccessFile? raf;
     try {
       final file = File(path);
       raf = await file.open();
       final length = await raf.length();
       if (length < 8) return null;
+
+      // Deliberately a raw 2-byte read rather than the paged source below: a
+      // JPEG must cost two bytes and stop, and _FileSource's first page read
+      // would report 8KB for the same answer.
+      final head = await raf.read(2);
+      onDiskRead?.call(head.length);
+      if (head.length >= 2 && head[0] == 0xFF && head[1] == 0xD8) {
+        return (jpegBitstream: true, largestLongEdge: 0, orientation: null);
+      }
+
+      // Positional reads from here on (_readDirect uses setPositionSync), so
+      // the two bytes already consumed above do not shift what follows.
       final source = _FileSource(raf, length, onDiskRead);
       final reader = _readerFor(source);
       if (reader == null) return null;
       final ifd0 = _readIFD0(reader);
       if (ifd0 == null) return null;
+      // Free at this point: IFD0 is already parsed and in memory. This is the
+      // whole reason the two questions share one walk.
+      final orientation = _orientationOf(reader, ifd0);
       // longEdge: 0 keeps every structurally valid candidate (the 0.90*cropMax
       // full-size floor is a selection rule, not a validity rule), so the
       // answer describes the FILE rather than one request's taste.
@@ -229,7 +260,11 @@ class DngPreviewExtractor {
       for (final c in candidates) {
         if (c.maxDim > best) best = c.maxDim;
       }
-      return best;
+      return (
+        jpegBitstream: false,
+        largestLongEdge: best,
+        orientation: orientation,
+      );
     } catch (_) {
       return null;
     } finally {
@@ -278,7 +313,7 @@ class DngPreviewExtractor {
 
   /// Collects every structurally valid embedded-JPEG candidate in IFD0 and its
   /// SubIFDs. No strip is read here -- this is the part [_walk] and
-  /// [largestCandidateLongEdge] share, so the probe and the extraction can
+  /// [probeContent] share, so the probe and the extraction can
   /// never disagree about what is in a file.
   ///
   /// Returns `null` when the full-size request cannot be judged at all

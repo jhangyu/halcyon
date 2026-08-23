@@ -115,6 +115,8 @@ class ImagePreloadController {
   // is what its completion re-checks itself against.
   Set<String> _tierTwoWindowIds = {};
   final Map<String, Object> _tierTwoKeys = {};
+  // Serialises the debounced +/-1 loads. See [_enqueueTierTwoLoad].
+  Future<void> _tierTwoQueue = Future<void>.value();
   final Map<String, SourcePayload> _tierTwoSources = {};
   final Set<String> _tierTwoReadyIds = {};
 
@@ -125,10 +127,16 @@ class ImagePreloadController {
   // change. Cleared only by [reset] (i.e. a folder reload).
   final Set<String> _permanentMisses = {};
 
-  // Expensive items discovered by the immediate pass. Carries the orientation
-  // across the debounce so the +/-1 pass can run the decoder without re-asking
-  // the native bridge for an answer already memoized by cost (I6).
-  final Map<String, int> _deferredOrientations = {};
+  // id -> EXIF orientation, written by the content probe (and, only for files
+  // the probe could not measure, by the bridge's rung-2 answer).
+  //
+  // This is what lets the debounced +/-1 pass hand `loadExpensive` an
+  // orientation without a single further bridge or loader call: the same walk
+  // that decided the rung already read IFD0 (invariant I6). Like the cost memo
+  // it lives for the whole folder -- an item evicted from the retention window
+  // and navigated back to must not have to buy its orientation twice -- so it
+  // is cleared only by [reset].
+  final Map<String, int> _exifOrientations = {};
 
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
@@ -234,7 +242,7 @@ class ImagePreloadController {
     _tierTwoReadyIds.clear();
     _scheduler.reset();
     _permanentMisses.clear();
-    _deferredOrientations.clear();
+    _exifOrientations.clear();
     _lastPreloadStart = -1;
     _lastPreloadEnd = -1;
     _thumbnailDebounceTimer?.cancel();
@@ -277,6 +285,17 @@ class ImagePreloadController {
     required VoidCallback notifyLoaded,
   }) async {
     if (items.isEmpty) return;
+
+    // Snapshot. `items` belongs to the CALLER (AppState hands us its live
+    // photo list), this method awaits several times, and a folder reload
+    // clears that list in between -- after which `items.length - 1` is -1 and
+    // the window clamp below throws ArgumentError from inside an async gap.
+    //
+    // The probe-first change made this reachable on the ordinary path by
+    // adding an await before the clamp, but the aliasing was always the bug:
+    // indices computed from a list that another object may mutate are only
+    // ever accidentally correct.
+    items = List<PhotoItem>.of(items);
 
     final currentIndex = items.indexWhere((item) => item.id == selectedItemId);
     if (currentIndex == -1) return;
@@ -399,17 +418,10 @@ class ImagePreloadController {
         // retained and the view would keep showing a spinner. The window
         // re-check is what keeps a late arrival from decoding for a position
         // the user has already left.
-        unawaited(
-          _ensurePayload(
-            item,
-            distance: (i - currentIndex).abs(),
-            notifyLoaded: notifyLoaded,
-            allowExpensive: true,
-          ).then((_) {
-            final landed = _cache.peek(item.id);
-            if (landed == null || !_tierTwoWindowIds.contains(item.id)) return;
-            _decodeFullSizeIntoImageCache(item.id, landed, notifyLoaded);
-          }),
+        _enqueueTierTwoLoad(
+          item,
+          distance: (i - currentIndex).abs(),
+          notifyLoaded: notifyLoaded,
         );
         continue;
       }
@@ -430,6 +442,55 @@ class ImagePreloadController {
     for (final id in staleIds) {
       _evictTierTwoEntry(id);
     }
+  }
+
+  /// Runs the debounced +/-1 loads ONE AT A TIME.
+  ///
+  /// All three +/-1 items become eligible at the same instant when the frozen
+  /// 250ms debounce fires. Starting them concurrently -- which is what an
+  /// `unawaited(...)` per loop iteration did -- puts up to three native RAW
+  /// decodes in flight at once, and a RAW decode saturates cores rather than
+  /// waiting on IO, so three in parallel is slower per image AND makes the
+  /// selected item (the one the user is actually looking at) contend with its
+  /// two neighbours.
+  ///
+  /// NOTE, deliberately not a no-op refactor: serialising these changes
+  /// LATENCY. The neighbours now land after the selected item instead of
+  /// alongside it, so the +1 item's worst case is roughly the sum of the queue
+  /// ahead of it rather than the max. That is the intended trade (user
+  /// clarification: "no embedded JPEG -> sequential RAW decode"), and it is a
+  /// stated behaviour change for the acceptance battery, not an equivalence.
+  ///
+  /// The debounce itself is untouched (Amendment 3 clause 3).
+  void _enqueueTierTwoLoad(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback notifyLoaded,
+  }) {
+    _tierTwoQueue = _tierTwoQueue.then((_) async {
+      // Re-checked HERE, not only at enqueue time: by the time this item's turn
+      // comes the user may have navigated away, and decoding for a position
+      // nobody is looking at is exactly what the queue exists to prevent.
+      if (!_tierTwoWindowIds.contains(item.id)) return;
+      await _ensurePayload(
+        item,
+        distance: distance,
+        notifyLoaded: notifyLoaded,
+        allowExpensive: true,
+      );
+      // The tier-2 decode is chained onto the load rather than left for "the
+      // next pass": if the user stops navigating here there IS no next pass,
+      // and readiness would never flip -- the payload would be retained and
+      // the view would keep showing a spinner.
+      final landed = _cache.peek(item.id);
+      if (landed == null || !_tierTwoWindowIds.contains(item.id)) return;
+      _decodeFullSizeIntoImageCache(item.id, landed, notifyLoaded);
+    }).catchError((Object _) {
+      // One item's failure must not wedge the queue for the rest of the
+      // session. _ensurePayload already records real failures as permanent
+      // misses; this only keeps the chain runnable.
+    });
+    unawaited(_tierTwoQueue);
   }
 
   /// Produces and retains [item]'s payload if it is not retained already.
@@ -478,20 +539,31 @@ class ImagePreloadController {
     final file = item.bestFileToLoad;
     if (file == null) return;
 
-    // Rung gate. An item already MEASURED expensive and outside +/-1 is not
-    // touched at all -- no decode, and no bridge round trip either. This is
-    // where the exactly-once guarantee lives now (invariant I6): the memo, not
-    // a per-item map that only existed for the RAW kind.
-    var cost = _scheduler.costOf(id);
-    if (cost == null && !_scheduler.allowsExpensiveWork(distance: distance)) {
-      // Content probe, and ONLY here. It is deliberately not run for the
-      // selected item or its immediate neighbours: those are about to ask the
-      // bridge anyway, so probing them first would add a file open to the
-      // hot path for an answer the bridge is already fetching -- and the JPEG
-      // hot path is required to cost zero Dart CPU (design §5). Out at
-      // distance >= 2 the probe can SAVE the round trip entirely, which is
-      // the only place it changes what happens.
-      cost = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    // CONTENT PROBE FIRST, for every item at every distance (user Amendment 3
+    // clause 2). The probe is what decides the rung, so anything it does not
+    // see gets scheduled on the bridge's say-so instead -- and the bridge is
+    // reached by making the very call the rung exists to avoid.
+    //
+    // An earlier revision skipped the probe for the selected item and its
+    // immediate neighbours, on the grounds that they were about to ask the
+    // bridge anyway and the JPEG hot path must cost no Dart CPU. That is the
+    // location-dependent classification the user rejected verbatim, and it was
+    // the mechanical cause of a no-preview DNG at distance 0 or 1 burning a
+    // bridge round trip before its rung was known. The price of the correction
+    // is one bounded open (2 bytes for a JPEG, design §5's hot path intact).
+    //
+    // The rung gate below is unchanged: an item MEASURED expensive and outside
+    // +/-1 is not touched at all -- no decode, no bridge round trip. That is
+    // where the exactly-once guarantee lives (invariant I6).
+    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    final cost = probed.cost;
+    // First writer wins, and after the change above the probe is the first
+    // writer whenever it was conclusive. The bridge's orientation (below)
+    // survives only as the A-§2 rung-2 fallback, for files the probe could not
+    // measure at all.
+    final probedOrientation = probed.exifOrientation;
+    if (probedOrientation != null) {
+      _exifOrientations.putIfAbsent(id, () => probedOrientation);
     }
     if (cost == SourceCost.expensive &&
         !(allowExpensive &&
@@ -507,12 +579,12 @@ class ImagePreloadController {
     try {
       final canDoExpensive =
           allowExpensive && _scheduler.allowsExpensiveWork(distance: distance);
-      final deferredOrientation = _deferredOrientations[id];
-      final outcome = canDoExpensive && deferredOrientation != null
+      final knownOrientation = _exifOrientations[id];
+      final outcome = canDoExpensive && knownOrientation != null
           ? await _source.loadExpensive(
               file.path,
               longEdge: _longEdge,
-              exifOrientation: deferredOrientation,
+              exifOrientation: knownOrientation,
             )
           : await _source.load(
               file.path,
@@ -520,8 +592,10 @@ class ImagePreloadController {
               allowExpensive: canDoExpensive,
             );
       _scheduler.observe(id, outcome.observedCost);
+      // Rung-2 only: reached when the probe could not measure the file, so the
+      // bridge answer is the sole orientation available (frozen contract A-§2).
       if (outcome.exifOrientation != null) {
-        _deferredOrientations[id] = outcome.exifOrientation!;
+        _exifOrientations.putIfAbsent(id, () => outcome.exifOrientation!);
       }
       final payload = outcome.payload;
       // PERF-INSTRUMENTATION
@@ -532,7 +606,10 @@ class ImagePreloadController {
       );
 
       if (payload != null) {
-        _deferredOrientations.remove(id);
+        // The orientation memo deliberately SURVIVES a successful load. It is
+        // a property of the file, not of this attempt; dropping it here would
+        // make an item that leaves the retention window and comes back buy it
+        // again from the bridge, which is the round trip I6 forbids.
         if (!_retentionIds.contains(id)) return;
         _cache.put(id, payload);
       } else if (!outcome.deferred) {
@@ -540,7 +617,6 @@ class ImagePreloadController {
         // view can say "unreadable" instead of spinning forever, and so no
         // later pass asks again. This is the load-bearing edge of design §3.4:
         // the ONLY new stranding risk in M3 is a failure that nobody records.
-        _deferredOrientations.remove(id);
         _permanentMisses.add(id);
       }
       // A deferred item is the one case with nothing to report yet: the

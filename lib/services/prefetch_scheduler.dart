@@ -1,6 +1,6 @@
 import 'photo_source.dart';
 
-export 'photo_source.dart' show SourceCost;
+export 'photo_source.dart' show ProbeResult, SourceCost;
 
 /// How far from the selected item an EXPENSIVE source may be started.
 ///
@@ -56,21 +56,35 @@ class PrefetchScheduler {
     _cost.putIfAbsent(id, () => cost);
   }
 
-  /// Measures [path] once and memoizes the answer.
+  /// Measures [path] once and memoizes its cost.
   ///
-  /// A null result (unmeasurable content) is NOT memoized: the caller resolves
+  /// A null cost (unmeasurable content) is NOT memoized: the caller resolves
   /// that case from the first bridge answer instead, and that answer is what
   /// gets remembered (frozen contract A-§2).
-  Future<SourceCost?> classify(
+  ///
+  /// The whole [ProbeResult] is returned, not just the rung, because the same
+  /// single walk produced the orientation and this is the caller's one chance
+  /// to keep it -- there is no second probe to ask later (invariant I6). The
+  /// scheduler itself stores only cost: orientation is not a scheduling input,
+  /// and parking it here would make this class the accidental owner of decode
+  /// state it never reads.
+  ///
+  /// A memoized item short-circuits WITHOUT a walk, so its `exifOrientation`
+  /// comes back null; the caller must keep the value it was handed the first
+  /// time rather than expecting every call to restate it.
+  Future<ProbeResult> classify(
     String id,
     String path, {
     required int longEdge,
   }) async {
     final known = _cost[id];
-    if (known != null) return known;
-    final measured = await PhotoSource.probe(path, longEdge: longEdge);
-    observe(id, measured);
-    return measured;
+    if (known != null) return (cost: known, exifOrientation: null);
+    // The canonical entry point, never the `probe()` projection: production
+    // code must not depend on a cost-only view of a walk that also produced
+    // the orientation this pipeline needs.
+    final probed = await PhotoSource.probeSource(path, longEdge: longEdge);
+    observe(id, probed.cost);
+    return probed;
   }
 
   /// Whether a source for [id] may be STARTED right now, [distance] items away
