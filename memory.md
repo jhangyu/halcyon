@@ -153,6 +153,22 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **驗證**：`test/app_state_test.dart`（TC-049~TC-051）。
 - **對應任務**：EXIF 重新命名功能（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 7）。
 
+### AD-018｜Tier-2 解碼視窗與昂貴 RAW 啟動資格必須是兩個常數（禁止再合併）
+- **日期**：2026-08-23
+- **決策**：新增 `kTierTwoRadius = 2`（`lib/services/prefetch_scheduler.dart:32`）專司 tier-2 全尺寸解碼視窗；`kExpensiveStartupRadius` 維持 `1`，只管昂貴 RAW 的啟動資格（`allowsStartup` / `allowsExpensiveWork`）。**兩者不得再合併回同一個常數。**
+- **依據**：原本一個常數同時承擔兩種語意。使用者的凍結釐清是「±1 只代表昂貴 RAW 的啟動資格，永遠不是保留邊界」，另一條裁決是「循序 RAW 解碼維持不變」。要同時滿足這兩條，只有拆開一途。若直接放寬共用常數，會把循序 RAW 那一級從三個項目變成五個——依實測每次昂貴切換 8.5 秒計，冷啟動安定時間從約 25 秒變成約 42 秒。**危險之處在於它看起來像是忠實實作**：tier-2 需求達成了，卻同時靜默違反上述兩條裁決。
+- **保護**：`test/image_preload_window_test.dart` 有一條專門的 killer test——距離 2 的昂貴項目必須拿不到 payload 且解碼器呼叫次數為 0。任何人把兩個常數合併，這條會紅。
+- **已知限制**：因為昂貴項目只在 ±1 內取得 payload，而 tier-1 預快取只消費 payload、從不生產（`image_preload_controller.dart:707-708` peek 到 null 就跳過），所以**在「無內嵌預覽的 RAW」資料夾上，距離 2..5 的格子兩層快取都是空的**。九格保證只對有預覽的檔案成立。這是拆分的設計後果，不是缺陷。
+- **對應任務**：M3 round 2（commit `f9869db`）。
+
+### AD-019｜兩個快取常數以相反的樣本組計算，不可互相驗算
+- **日期**：2026-08-23
+- **決策**：`imageCacheMaxBytes = 768 << 20`（805,306,368 bytes，`lib/main.dart:25`）；`kPayloadByteBudget = 224 * 1024 * 1024`（234,881,024 bytes，`lib/services/photo_payload_cache.dart:31`）。單位一律 MiB（bytes / 1048576），載重數字一律釘原始位元組。
+- **依據**：兩個常數**是照相反的樣本組算出來的**——ImageCache 上限照「便宜（含內嵌預覽）」樣本組算，payload 預算照「昂貴（無預覽）」樣本組算。原因是 tier-2 成本會反轉排程器對「昂貴」的直覺：`EncodedPayload` 走 `MemoryImage` 且是原生全尺寸（本樣本組 24 MP 約 91.55 MiB），`PixelPayload` 走 `RawPixelsImage` 且已是視窗尺寸（約 22.4 MiB）。**貴的快取項來自便宜那一級。** 另外 `PixelPayload` 在兩層切換回傳同一個 provider，所以一個 RAW 只佔一個快取項，而一個 `EncodedPayload` 佔兩個。
+- **後果**：**任何一方都無法為另一方做健全性檢查。** 想「簡化」這一對常數的人，會靜默弄壞其中一個。
+- **實測**：round-2 的 AC8 量到 kernel max RSS 996,392,960 bytes = 950.2 MiB，低於 pre-M3 基線 1,043,218,432 bytes = 994.9 MiB（使用者採相對判準）。**但那次量測掃的是昂貴樣本組**，也就是九格保證不成立的那一組；便宜樣本組（上限真正據以計算、且每項佔兩個快取項的那一組）**至今未量測**。
+- **對應任務**：M3 round 2（commit `f9869db`）。
+
 ---
 
 ## Gotchas（踩坑紀錄）

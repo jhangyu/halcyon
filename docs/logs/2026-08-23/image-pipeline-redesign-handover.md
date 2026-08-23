@@ -275,3 +275,63 @@ probe ＋ 成本閘 ＋ 統一快取 ＋ 步驟 3b ＋ 整個 DELETE 區塊一�
 
 - ~~`CLAUDE.md` 說 `build_apps.py` 的原生 CMake 路徑「從未執行過」。~~ **已於 2026-08-23 修正**（`CLAUDE.md` §Commands）。更正內容：沒跑過的是 `build_apps.py` 的**編排**，不是 CMake 本身——上游 commit `d36e1bd`（2026-08-22）在真實 Windows 機器上跑過 MSVC 建置並提交了 1,906,688 bytes 的 `dng_decoder_native.dll`。該 commit 未記錄 S4 色彩閘，所以 DLL 仍屬 trust-on-first-use。
 - `CLAUDE.md` 的「Native bridges」段與 `memory.md` AD-010 的原文都會被 M6 改寫，屆時一併處理。
+
+---
+
+# 12. 執行狀態對帳（2026-08-23 收盤，對 §6 的 M0–M6 逐項）
+
+> 本節由 m3-lead-2-opus 於 M3 round 2 收尾時補寫。**只使用 §6 原有的 M0–M6 編號**；各輪內部使用過的代號一律譯回白話描述。
+> 對帳基準：branch `m3-cache`，設計錨點 `a8ae038` 之後的完整譜系。
+
+| 階段 | 狀態 | commit 證據 |
+|---|---|---|
+| **M0** 抽取器 | **完成** | `d4c97f5` byte-range 讀取＋依尺寸挑候選；`0ca6ba4` 合併；`40dc5fc` 凍結契約與兩份獨立審查 |
+| **M1** 側欄解碼上限 | **完成** | `25005d1`；`3d6fe6d` 合併。現況可驗：`sidebar_view.dart:285-289` 帶 `ResizeImagePolicy.fit` |
+| **M2** 行為保持的抽取 | **完成** | `f81ad9a` 把來源選擇搬進 `PhotoSource`；`e234182` 合併。驗收可機械複驗：`grep -c "\.dng\|isRaw" lib/services/image_preload_controller.dart` == **0** |
+| **M3** 決定性的一步 | **完成（兩輪）** | round 1：`193bf12` 型別盲 payload 快取＋`RawPixelsImage`、`c272f8e` 成本探測與視窗尺寸 RAW、`0e6407e` 統一管線、`3280f14` 單次走訪融合成本與 orientation 探測。round 2：`f9869db` 放寬預快取跨度並重設快取預算、`d87d1d5` 凍結斷言重新錨定 |
+| **M4** 排程統一 | **未做** | 樹上無 `_failedIds`（`grep -rn "_failedIds" lib/` 無結果），預覽路徑亦無 generation guard。`image_preload_controller.dart:817,841,863` 的 `_thumbBatchGeneration` 是**側欄縮圖批次**既有的計數器，不是 M4 要的預覽路徑 guard |
+| **M5** RAW 全解析度 tier-2（選配） | **未做** | 依 §6 原文「以 M3 的記憶體數字為閘」。該數字現已存在（見下）但**只涵蓋昂貴樣本組**，尚不足以開閘 |
+| **M6** variant 收攏＋runner 清理 | **未做** | `native_thumbnail_service.dart:61` `NativeImageNeedsRawDecode` 與 `:89` `kNoEmbeddedPreviewCode` 仍在；`macos/Runner/AppDelegate.swift` 仍有 3 處 `NO_EMBEDDED_PREVIEW`；`macos/Runner/DngPreviewExtractor.swift` 仍在。§6 明訂 M6 必須排在 M0–M4 全綠之後，而 M4 未做 |
+
+## 12.1 凍結後的裁決異動（全部由使用者裁定，逐條記錄）
+
+以下各項**改變了 §6／§1 的原文**，任何後續執行以本節為準：
+
+1. **M3 的 `峰值 RSS < 350 MB` 驗收（§6 M3 末條，[U-3]）已被使用者取代為相對判準。**
+   新判準：「在相同方法下，峰值 RSS 不差於 M3 之前的基線」。兩個實測數字都在手上——
+   **M3 之前基線 1,043,218,432 bytes = 994.9 MiB**；**round-2 實測 996,392,960 bytes = 950.2 MiB**（低於基線 44.7 MiB，**通過**）。round-1 當時的 M3 數字為 943,685,632 bytes = 900.0 MiB。
+   絕對值約 1 GiB 這件事是**延後處理，不是駁回**，且在基線兩側都同樣未獲解釋。
+
+2. **快取常數定案：`imageCacheMaxBytes` 768 MiB（805,306,368 bytes）、`kPayloadByteBudget` 224 MiB（234,881,024 bytes）。**
+   注意 payload 預算是**下修**（原 256 MiB）。兩者以相反樣本組計算、不可互相驗算——見 `memory.md` AD-019。
+
+3. **tier-2 解碼視窗由 ±1 放寬為 ±2，且必須用新常數 `kTierTwoRadius = 2`；`kExpensiveStartupRadius` 維持 1。**
+   這一拆分是從兩條既有使用者陳述**推導**出來的，不是偏好選擇：凍結釐清「±1 只代表昂貴 RAW 的啟動資格，永遠不是保留邊界」，加上 round-2 裁決「循序 RAW 解碼維持不變」。詳見 `memory.md` AD-018。
+   **這同時也是對 §1 D2「tier-2 現行行為凍結」的一次明確例外**：D2 作廢的是 perf 提的 F1／F2（縮小或延後 tier-2），而本次是**放寬**，由使用者在 round 2 明確授權。
+
+4. **tier-1 預快取跨度由硬編碼 ±2 放寬為完整保留視窗 −3..+5。**
+   跨度改由 `kRetentionBefore`／`kRetentionAfter` 導出（`image_preload_controller.dart:719,723`），不再另立第三組手寫數字。out-of-span 驅逐掃描**不需另外修改**：它以 `!neededIds.contains(id)` 判斷，而 `neededIds` 本來就由跨度建構，會自動跟著走。
+
+5. **循序 RAW 解碼與 250 ms debounce 維持不變，代價已量化。**
+   維持循序的代價是每次昂貴切換實測 8.5 秒；若當初把共用常數一起放寬，冷啟動安定時間會從約 25 秒變成約 42 秒（三項變五項）。**這正是拆常數的理由。**
+
+6. **AC5 的凍結測試位元閘門重新錨定（`test/dng_nav_probe_m3_test.dart`）。**
+   該檔第 101 行斷言 `imageCache.currentSize == 5`，而那個 `5` **就是舊的 ±2 跨度本身**，不是對它的描述。tier-1 放寬到九格後必然變 9，於是「檔案位元不動」與「檔案為綠」無法同時成立。
+   經授權做單一斷言窄改（`5` → `9` 與其 reason 字串），sha256 由 `be3a595d6cc49c48d9f4bd29e91ecf5827261c50ae6b5d1c18e911e8b47d2341` **重新錨定為** `59b1f3c7112b01784cd868ffd2fbd5bab9f25c30ec46eb8a26d542cee33b8e2c`（commit `d87d1d5`，1 檔 +8/−3）。
+   **性質是「需求變更向下流進一個記錄了舊需求的測試」，不是「為了遷就實作而扭曲測試」**——與 round 1 對 `test/photo_source_test.dart:104-122` 的處理同一類。另兩個凍結閘門**未動且仍具約束力**：`scripts/tmp/dng_nav_probe_test.dart`（`05565d33…`）、`test/image_preload_controller_m3_amend3_test.dart`（`fcdd564e…`）。
+
+## 12.2 緩議項（記錄在案，使用者裁定不在本輪執行）
+
+| # | 項目 | 為什麼重要 | 解決它需要什麼 |
+|---|---|---|---|
+| P-1 | **便宜（有內嵌預覽）樣本組的 RSS 從未量測** | 那才是記憶體上的昂貴情況：每項佔**兩個** ImageCache 項，且九格保證在該組**確實成立**。round-2 的 950.2 MiB 掃的是昂貴組，**不能拿來代表 round 2 的真實成本** | 一次真實量測。**但必須先做應用內版本戳記**——理由見 P-2 |
+| P-2 | **應用內版本戳記（啟動時把 build commit 與兩個常數寫進 perf log）** | 在昂貴組上，過期 binary 會產生**持平**結果，而預註冊的「持平即可疑」規則抓得到；**在便宜組上這層保護會反轉**——過期 binary 產生的是**偏低**數字，讀起來像好消息，沒有任何規則會觸發 | 小改動。它同時堵住「過期 binary」與「靠推理證明來源」兩個缺口，把推論換成事實 |
+| P-3 | **無預覽 RAW 資料夾上，距離 2..5 的格子兩層皆空** | 九格 tier-1 保證在該情境**不成立**。這是 AD-018 拆分的設計後果 | 要嘛放寬 `kExpensiveStartupRadius`（**禁止**，那正是 42 秒對 25 秒的違反），要嘛為 ±1 之外的 RAW 新增一條 payload 生產路徑（與「循序 RAW 解碼不變」相衝）。**兩者都是使用者決策** |
+| P-4 | **532.3 MiB 殘差仍未歸因** | 它是每一份尺寸推算裡**最大的單一項**，而且是「實測峰值減去已歸因點陣圖」的**減法結果，不是量測值** | 一次真正的記憶體剖析。對同一批既有產物再做更多算術**到不了**這個答案 |
+
+## 12.3 本輪確認的儀器陷阱（會製造出可信假結果，全部已實地踩到）
+
+1. **背景任務通知的退出碼會說謊**：曾對一次 `flutter test` 實際回傳 1 的執行回報「exit code 0」——那是包裝層的退出碼。`${PIPESTATUS[0]}` 在本環境不展開，已確認**可重現**。**退出碼一律讀 artifact 內自行捕獲的 `$?`。**
+2. **量測前必須證明 binary 含有受測程式碼，而且要用「觀察到的建置事件」，不是時間戳**：曾有 release binary 比受測程式碼早 78 分鐘。時間戳變新，與「no-op 增量建置」「部分失敗仍動到檔案」「快取重蓋時間戳」都相容。
+3. **`stat` 讀 macOS `.framework` 讀到的是 symlink 本身**：建置成功後 `App.framework/App` 仍顯示舊時間，`stat -L` 才看到真正的 AOT binary。**一律用 `stat -L` 或直接指向 `Versions/A/`。**
+4. **不要用「從 binary grep 常數」證明建置新鮮度**：`234881024` = `0x0E000000`、`805306368` = `0x30000000`，是單一非零位元組的字，在 6.2 MB 的 AOT snapshot 裡必然隨機命中。**不可能失敗的檢查不是證據，比沒有檢查更糟**，因為它製造假信心。
