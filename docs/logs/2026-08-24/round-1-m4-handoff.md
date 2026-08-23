@@ -75,18 +75,23 @@ UI 切換延遲與記憶體／RSS 量測**改由使用者親自執行**；agent 
 - 依程式碼推理，M4 每次導航新增的成本是：側欄迴圈一次記憶體 Set 查找、`preloadImages` 兩次整數比較。無新 IO、無新 channel 呼叫、無常數改動。**這是推理，不是量測**，不要當成量測引用。
 - **拒絕以 headless 解碼基準替代**：AC4 的量測對象是 `selectItem.enter`→`image.painted`，橫跨排程、預載視窗、debounce、precache 與實際 paint；CLI 解碼基準只量吞吐量。那會是一個「對另一個問題精確正確」的數字，掛在 AC4 標題下被未來 session 讀成「已證明不退步」。**沒有數字好過誤導的數字。**
 
-### 4.2 基線登錄檔與本檔的數字有出入（需指揮官裁決）
-兩組數字都來自**同一顆 leg-A binary、同一錨點 `b3b0ddd`**，差別只在樣本數：
+### 4.2 AC4 基線的採樣數之爭（已裁決，記錄經過以防重演）
+**結論先講：基線登錄檔與本檔一致，採 n=12（原始已登錄遍歷數）。** 下表即定版值：
 
-| 資料集／模式 | n=12（登錄檔原始遍歷數，member 定版） | n=36（uplift，指揮官已採納入登錄檔） |
+| 資料集／模式 | 中位數 | 門檻 |
 |---|---|---|
-| A paced | median 3.928ms / 門檻 ≤6.013ms | median 3.134ms / 門檻 ≤5.887ms |
-| A rapid | median 3.270ms / 門檻 ≤59.024ms | median 3.477ms / 門檻 ≤58.849ms |
-| B paced | median 4.264ms / 門檻 ≤5.949ms | median 2.968ms / 門檻 ≤5.755ms |
-| B rapid | median 7.987ms / 門檻 ≤55.086ms | median 7.017ms / 門檻 ≤66.803ms |
+| A paced（字面 JPEG） | 3.928 ms | ≤ 6.013 ms |
+| A rapid | 3.270 ms | ≤ 59.024 ms |
+| B paced（便宜 DNG） | 4.264 ms | ≤ 5.949 ms |
+| B rapid | 7.987 ms | ≤ 55.086 ms |
 
-經過：lead 先下 n≥36 加樣指令 → 使用者建立登錄檔並禁止重量已登錄基線 → lead 撤回加樣 → 撤回與執行在途交錯。member 最後依登錄檔規則以**原始遍歷數**重算（n=12，檔案 `tmp/verify/baseline_permode_final.stats.txt`）；指揮官則在收到 lead 撤回前**採納 n=36 並改寫了登錄檔**。
-**兩組都是有效量測**（同 binary、同錨點、全數 gate-ACCEPT、零 timeout）。**登錄檔為準**；本節保留 n=12 對照與其 artifact，供稽核。
+判準：`band_mode = max(p95_mode - median_mode, 1.5ms)`；`PASS_mode iff after_median_mode <= baseline_median_mode + band_mode`；paced／rapid 永不合池；**四格全過才算 AC4 通過**。
+出處：`tmp/verify/baseline_permode_final.stats.txt`。同一顆 leg-A binary、錨點 `b3b0ddd`、無 rebuild、baseline 樹無原始碼改動（由量測成員書面確認）。
+
+**經過（值得記住的部分不是數字，是流程如何差點失守）**：lead 先下 n≥36 加樣令 → 使用者建立基線登錄檔並禁止重量已登錄基線 → lead 撤回加樣令 → 撤回與執行在途交錯，成員已完成 n=36 → 成員依登錄檔規則改以原始遍歷數重算 n=12 → 指揮官在收到 lead 撤回前一度採納 n=36 並改寫登錄檔 → lead 主動回報該筆採納已被自己的撤回作廢 → 指揮官撤銷 n=36，登錄檔改回 n=12。
+n≥36 的 uplift 產物（`baseline_dngB_run2/3`、`baseline_jpgA_run3-6`、`baseline_permode.stats.txt`）**保留在磁碟並標記為 out-of-scope，未刪除**——刪掉的資料無法稽核。
+
+**教訓**：本輪沒有任何一方隱瞞或取巧，數字之爭純由訊息交錯造成；能收斂是因為每一步都往上報而不是默默採用較好看的那組。跨 agent 的規則變更要當成有延遲的分散式狀態處理：下了指令不代表對方收到，**收到回報時先確認對方基於哪一版指令行動**。
 
 ### 4.3 量測靈敏度：`rapid` 模式是粗閘
 `paced` 是承重閘門（約 2.8ms 帶寬 vs 約 3ms 中位數，靈敏）。`rapid` 的 55–60ms 帶寬**是該模式的固有性質**——刻意跑贏預載器本來就會產生偶發的即時解碼，那個離散度是工作負載的真實訊號而非量測噪音。**`rapid` 通過只代表沒有嚴重退步，不是強證據。** 本輪未為 `rapid` 發明更緊的統計量：一個沒有在已知好／已知壞版本上驗證過的統計量，比一個誠實標註為粗糙的統計量更糟。
