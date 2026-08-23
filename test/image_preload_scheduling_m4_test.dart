@@ -149,6 +149,91 @@ void main() {
     },
   );
 
+  test(
+    'M6-PL1 a throwing sidebar thumbnail loader must not abort the sweep, '
+    'must release the in-flight key, and must record a permanent miss like '
+    'a non-bytes result',
+    () async {
+      // b3b0ddd's preloadThumbnails loop has no try/catch around the loader
+      // await and removes _loadingKeys OUTSIDE any finally (round-1
+      // parking-lot PL-1/PL-2/PL-10). A loader that THROWS instead of
+      // returning a NativeImageFailure -- e.g. an unconverted
+      // PlatformException, or a future non-macOS bridge -- unwinds the `for`
+      // loop, so every remaining item in that sweep is silently never
+      // requested, and the thrower's `thumb_<id>` in-flight key leaks for
+      // the rest of the session.
+      final thumbRequests = <String>[];
+      final items = List.generate(3, (i) {
+        final id = 'IMG_${i.toString().padLeft(2, '0')}';
+        return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+      });
+      final throwingPath = items[0].files.single.path;
+
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          if (purpose != ImageRequestPurpose.sidebarThumbnail) {
+            return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          }
+          thumbRequests.add(path);
+          if (path == throwingPath) {
+            // Simulates an unconverted PlatformException / MissingPluginException
+            // reaching this seam, or a native TypeError on a non-Uint8List
+            // channel reply (see native_thumbnail_service.dart:117).
+            throw StateError('native bridge threw instead of returning '
+                'NativeImageFailure');
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      addTearDown(controller.dispose);
+
+      Future<void> sweep(int start, int end) async {
+        await controller.preloadThumbnails(
+          items: items,
+          startIdx: start,
+          endIdx: end,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+
+      await sweep(0, 2);
+
+      // The sweep must CONTINUE past the thrower: items 1 and 2 come after
+      // item 0 in fetch order, and without try/catch the exception unwinds
+      // the whole `for` loop, so neither is ever requested.
+      expect(
+        controller.thumbnailBytesFor(items[1].id),
+        isNotNull,
+        reason:
+            'a throwing loader for item 0 must not abort the rest of the '
+            'sweep -- item 1 comes after it in fetch order',
+      );
+      expect(
+        controller.thumbnailBytesFor(items[2].id),
+        isNotNull,
+        reason: 'item 2 must also still be requested',
+      );
+
+      // Two more sweeps with DIFFERENT ranges (so the unchanged-range
+      // early-return never masks a re-request), both covering item 0.
+      await sweep(0, 1);
+      await sweep(1, 2);
+      await sweep(0, 2);
+
+      expect(
+        thumbRequests.where((p) => p == throwingPath).length,
+        1,
+        reason:
+            'a throwing loader must be treated like a non-bytes result and '
+            'recorded as a permanent miss -- without a released in-flight '
+            'key AND a recorded miss, the thrower is either re-requested '
+            'forever or perpetually skipped as "still loading" instead of '
+            'being answered once',
+      );
+    },
+  );
+
   testWidgets(
     'M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the '
     'window it started with (invariant I4)',
