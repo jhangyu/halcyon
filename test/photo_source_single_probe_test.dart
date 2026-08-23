@@ -182,6 +182,44 @@ void main() {
     }, skip: hasSamples ? null : 'no local samples');
   });
 
+  // The caller's list is LIVE. AppState hands the controller its own photo
+  // list and clears it on a folder reload, which can land in the middle of one
+  // of preloadImages' awaits -- after which `items.length - 1` is -1 and the
+  // retention-window clamp throws ArgumentError from inside an async gap.
+  //
+  // The aliasing always existed; probe-first made it reachable on the ordinary
+  // path by adding an await before the clamp. The fix is a snapshot at entry,
+  // and this is the assertion that fails if anyone removes it: the list is
+  // emptied while the first probe is still in flight, which is precisely the
+  // window the crash lived in.
+  test('TC-094 emptying the caller list mid-load does not crash preloadImages',
+      () async {
+    expect(noPreviewDng.existsSync(), isTrue, reason: 'sample missing');
+    final controller = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageFailure('NULL_RESULT', 'not the subject'),
+    );
+    addTearDown(controller.dispose);
+    controller.updateTargetSize(800, 600);
+
+    final live = [PhotoItem(id: 'live-0', files: [noPreviewDng])];
+    final pending = controller.preloadImages(
+      items: live,
+      selectedItemId: 'live-0',
+      notifyLoaded: () {},
+    );
+    // Mid-flight, exactly as a folder reload does it.
+    live.clear();
+
+    await expectLater(
+      pending,
+      completes,
+      reason: 'preloadImages must not index a list the caller mutated under '
+          'it -- before the snapshot this threw ArgumentError from the '
+          'window clamp',
+    );
+  }, skip: hasSamples ? null : 'no local samples');
+
   // The end-to-end consequence, and the reason the ruling exists: invariant I6.
   // The loader here is the native bridge seam. A no-preview DNG used to reach
   // its RAW decode only after asking the bridge -- that call was where the
