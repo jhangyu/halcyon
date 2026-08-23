@@ -56,7 +56,15 @@
 
 ## 3. 下一輪依賴的介面契約（M6 動手前必讀）
 
-1. **`thumb_<id>` 命名空間是刻意的，不要「統一」掉。** 側欄項目與預覽項目共用同一個 `_permanentMisses` Set 實例（滿足 I8），但側欄用 `thumb_<id>` 鍵、預覽用裸 id。理由：縮圖做不出來與預覽做不出來是**兩個不同的問題**，問的是不同的 native 分支；讓失敗的 200px 縮圖翻動 `hasFailed(id)` 會使主畫面用不足以支持的證據宣告檔案不可讀。裸 id 使用點在 `:215/:564/:666/:672`，`thumb_` 使用點在 `:891/:916`，兩者不相交且無任何處迭代或取用該 Set 的長度。
+1. **側欄與預覽各有自己的 permanent-miss 集合——這是修正後的形態，不要合併回一個。**
+   - 預覽：`_permanentMisses`（`:129`），只由預覽路徑以**裸 id** 讀寫（`:227` `hasFailed`、`:577`、`:679`、`:685`）。
+   - 側欄：`_thumbPermanentMisses`（`:149`），只由側欄以**裸 id** 讀寫（`:906`、`:931`）。
+   - `reset()` 兩個都清（`:275-276`）——「問一次、記到重載為止」的**政策**是共用的（不變式 I8），**容器不是**。
+   - **禁止用前綴／哨符把兩者塞回同一個 Set。** id 空間是使用者控制的檔名，任何 in-band 前綴只是把碰撞搬家。
+
+   > **本輪 review 推翻的錯誤主張（保留原文以警示）**：本檔初版宣稱側欄用 `thumb_<id>` 鍵、預覽用裸 id，兩者「不相交」，並稱已驗證。**該主張是錯的，已被 reviewer 以反例推翻。** `PhotoItem.id` 是 `basenameWithoutExtension`（`supported_photo_formats.dart:44`，於 `photo_library_scanner.dart:23` 當分組鍵），因此同時含 `IMG_01.jpg` 與 `thumb_IMG_01.jpg` 的資料夾會讓「`IMG_01` 的側欄鍵」與「`thumb_IMG_01` 的預覽鍵」變成同一個字串——側欄縮圖失敗會把 `thumb_IMG_01.jpg` 永久標成不可讀直到重載。
+   > **錯在哪裡值得記住**：當時驗證的是「兩條程式路徑使用不同的鍵形式」，然後把它當成「鍵集合不相交」。後者要成立必須是「沒有任何合法 id 會等於 `thumb_` ＋另一個合法 id」，而 id 是使用者控制的檔名。**驗證了機制，卻誤以為驗證了主張。** 修正後兩個集合是**由構造而不相交**，不再依賴任何關於鍵形狀的論證。
+
 2. **`_previewGeneration` 與 `_thumbBatchGeneration` 是兩個計數器，不可合併。** 前者管預覽路徑，後者管側欄批次。
 3. **AD-018／AD-019 紅線未變**：`kTierTwoRadius`(2) 與 `kExpensiveStartupRadius`(1) 仍分列於 `prefetch_scheduler.dart:12`／`:32`，不得合併；768 MiB 與 224 MiB 出自相反樣本組，不得互驗。
 4. **D4 型別盲**：`photo_payload_cache.dart` 的 `EncodedPayload|PixelPayload` grep 必須維持 0。
@@ -184,3 +192,28 @@ python3 scripts/tmp/perf/parse_r2.py <log>
 2. **合併後在 `main` 上重跑全套是獨立閘門（AC12）**，分支內全綠證明不了跨分支組合。本輪 tip `611877f` 的 242/0-skip 不能替代它。
 3. **本輪四個真實缺陷全部出在儀器，不是程式碼**：detached 執行沒有可捕捉的 exit code；驗收條件被窄化成較方便的資料集；symlink 資料集被掃成 `items=0`；噪音帶無法偵測十倍退步。程式碼每次首檢都是乾淨的。下一輪把稽核力氣放在量測與驗收的定義上，不要只審 diff。
 4. **收件先驗儀器**：本輪每一個「否定結果」與每一個「漂亮數字」都先當儀器問題查一次，四次全中。
+
+---
+
+## 9. Review 循環紀錄（cycle 1／上限 2）
+
+**裁決：REFUTED，一個 BLOCKER。**
+
+| 項目 | 內容 |
+|---|---|
+| 發現 | 側欄 `thumb_<id>` 鍵與預覽裸 id 鍵共用 `_permanentMisses` 而**不相交**；含 `IMG_01.jpg` ＋ `thumb_IMG_01.jpg` 的資料夾會讓側欄失敗污染預覽狀態，該照片永久不可讀直到重載。**本輪引入**（`b3b0ddd` 時沒有任何 `thumb_` 鍵寫入該集合） |
+| reviewer 證據 | `tmp/verify/reviewer_namespace_collision_test.dart`（RC=1） |
+| 修正 commit | `2476896` — 側欄改用自己的 `_thumbPermanentMisses`，兩集合皆以裸 id 操作，`reset()` 兩者都清 |
+| 交付回歸測試 | `M4-AC1b`（實作者獨立撰寫，未開啟 reviewer 的探針檔）。RED：`tmp/verify/20260824-impl-collision-red.txt`（`+4 -1`，RC=1，**該次執行中唯一失敗的就是新測試**，其餘四個同時綠——證明失敗來自反例而非環境）。GREEN：`tmp/verify/20260824-impl-collision-green.txt`（`+5`，RC=0） |
+| 修正後全套 | 243 執行（242＋1）、0 skip、`TEST_RC=0`；`flutter analyze` 0 issues；AC6 三雜湊不變；AC7 count=0。lead 複驗紀錄：`tmp/verify/lead-fixcycle1-verify.txt` |
+
+**§3.1 的原主張已更正**（見該節內的警示框），不是抹掉重寫——錯誤的推理過程比結論更值得留給下一輪。
+
+### 本輪新增 parking-lot（reviewer 提出＋修正過程發現，一律未動）
+| # | 項目 | 級別 |
+|---|---|---|
+| PL-6 | 暫時性縮圖失敗現在會被記成「永久到重載為止」——相對 `b3b0ddd` 是行為損失，但超出 AC1 定義範圍 | should-fix |
+| PL-7 | AC2 的第二道 guard 沒有交付測試（reviewer 自己的探針顯示 guard 本身正確） | should-fix |
+| PL-8 | TC-100 編號與 `image_preload_window_test.dart:335`（AD-018/AD-019 killer test）撞號 | nit |
+| PL-9 | 部分 red artifact 缺 provenance 行 | nit |
+| PL-10 | `_loadingKeys` 有**同型**命名空間混用（裸 id 於 `:346/:569/:623/:696`，`thumb_$id` 於 `:890/:898/:906`），**`b3b0ddd` 即存在**。爆炸半徑小得多：條目在同一趟被移除，碰撞只造成下一次 sweep 會修正的暫時跳過。**但實作者補充的細節值得注意**——側欄的移除**不在 `finally` 裡**（`:908`），若該 loader 曾拋出，其 `thumb_<id>` 條目會洩漏整個 session，碰撞受害者的預覽會被當成「載入中」跳過一整個 session。這是 PL-1／PL-2 的潛伏拋出洞與本條疊加的結果 | should-fix（疊加後升級） |
