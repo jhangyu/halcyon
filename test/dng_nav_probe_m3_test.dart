@@ -100,10 +100,15 @@ void main() {
     expect(PaintingBinding.instance.imageCache.containsKey(key), isTrue);
     expect(
       PaintingBinding.instance.imageCache.currentSize,
-      5,
+      9,
       reason:
-          'P1 frozen cheap arrival count: exactly the current +/-2 tier-1 '
-          'window is decoded before the tier-2 debounce',
+          'P1 frozen cheap arrival count: exactly the current -3..+5 tier-1 '
+          'window is decoded before the tier-2 debounce. Was 5 (a +/-2 span) '
+          'until the round-2 tier-1 widening; changed under orchestrator '
+          'authorization because this number encoded the OLD requirement, '
+          'which the user replaced by ruling that tier-1 covers the whole '
+          'retention window. The byte-identity gate on this file re-anchors '
+          'to the new sha256; it is amended, not retired',
     );
 
     PaintingBinding.instance.imageCache.clear();
