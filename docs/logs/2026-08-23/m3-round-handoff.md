@@ -158,25 +158,75 @@ value — `${PIPESTATUS[0]}` did not expand in its shell — yet its report clai
 The exit code above comes from a separate lead re-run that captured it properly. If a future round
 uses the same `tee` + `PIPESTATUS` pattern, verify the value actually landed in the file.
 
-**AC8 (RSS < 350 MB):** samples confirmed by the user, RUNNABLE, sequenced LAST, in progress at the
-time of writing. Method agreed BEFORE any number existed: macOS release build; real files with NO
-copies (sorted by name the first twelve entries are the Xiaomi no-preview files, so selecting index 3
-makes the -3..+5 window exactly indices 0..8 — nine genuinely preview-less DNGs); `/usr/bin/time -l`
-kernel max RSS as the authoritative figure, 100 ms `ps` sampler as cross-check, both reported;
-400 ms between navigation steps, deliberately ABOVE the 250 ms debounce, because a faster burst
-cancels it and would measure LESS work. Pre-registered expectation, written down before the run:
-~23.5 MB per payload x 9 ~= 212 MB before engine baseline and tier-2 cache, so it should land NEAR
-350 MB and a fail would not be surprising.
-Lead-added requirements: record window size and backing scale factor (payload size is
-window-resolution x DPR, so a number without the geometry is neither reproducible nor comparable);
-prove exactly one Halcyon process exists and that the sampler follows the PID `time -l` wrapped;
-verify in-app that 26 items loaded with selection at index 3 — a window that silently held fewer or
-cheaper items would be low FOR THE WRONG REASON, and low-for-the-wrong-reason PASSES, which makes it
-more dangerous than a fail.
-Read the number in context: 13 of 26 samples are 9-13 MB expensive files (one is 24 MB), so a 9-slot
-window can be almost entirely expensive items on the newly SEQUENTIAL rung. The contract's authors
-wrote AC8 against a corpus where expensive was 1-in-14. The 350 MB ceiling is unchanged; the
-workload behind it is materially harsher.
+**AC8 (RSS < 350 MB): FAILED — and the failure is a PRE-EXISTING CONDITION, not an M3 defect.**
+
+*Unit convention, declared once and used throughout this section: MiB (bytes / 1048576). Raw byte
+counts are pinned so a later restatement cannot lose the convention. "900 MiB" and "943.7 decimal MB"
+are the same measurement; earlier messages in this round mixed the two.*
+
+| | kernel max RSS (`/usr/bin/time -l`) | sampler peak (~100 ms) |
+|---|---|---|
+| pre-M3 `e234182` | **994.9 MiB** (1,043,218,432 B) | 930.5 MiB |
+| M3 `e7815a3` | **900.0 MiB** (943,685,632 B) | 867.0 MiB |
+
+**Both fail the 350 ceiling, and pre-M3 fails by more.** The kernel figure is authoritative; the
+sampler sits below it in both runs, the expected direction for a sampler that misses transients.
+
+VERDICT by a rule pre-registered BEFORE the baseline app was built (the rule text sits ABOVE the
+result in the same artifact, so the ordering is self-evidencing): band of ~15% around 900 = 765..1035;
+the baseline's 994.9 falls INSIDE it => **PRE-EXISTING CONDITION. M3 neither caused nor fixed it.**
+The "<= 450 => M3 regression" branch was NOT triggered, so **disposal-removal is not implicated.**
+M3 measured 9.5% lower; that is deliberately NOT claimed as an improvement, because the rule defines
+that band as no attributable change and because of the unequal-work caveat below.
+
+**THE RUNS DID NOT DO EQUAL WORK — read the memory delta only in this light.** Same script, pacing,
+16 s budget and four switches, but pre-M3 completed **14 payload loads** to M3's **6**: a **2.3x
+throughput reduction**. This is the first hard measurement of named behaviour change #1 (sequential
+±1: worst case becomes the SUM, not the MAX). Consequences: the 9.5% memory delta must NOT be read as
+"M3 uses less memory for equal work"; and M3's memory profile AT EQUAL WORK is unmeasured, because
+this method cannot produce it.
+
+**THE CAPS DO NOT BOUND REAL RSS — on either side.** 500 MiB ImageCache (`main.dart:12`) + 256 MiB
+payload budget (`photo_payload_cache.dart:19`) = **756 MiB admissible before any eviction is obliged
+to fire, against a 350 ceiling — the design's own bound is 2.16x the criterion it must satisfy.**
+Yet both runs measured ABOVE even that: M3 by 144 MiB, pre-M3 by 238.9 MiB. And pre-M3 did not have
+the 256 MiB payload budget at all — its admissible ceiling was LOWER while it measured HIGHER.
+Two conclusions: cap arithmetic does not explain real RSS, and this independently corroborates the
+attribution from a different direction — the version WITH explicit disposal was the higher of the two.
+**The 500 MiB ImageCache cap is byte-identical pre-M3** (`git show e234182:lib/main.dart`); what M3
+changed is removing disposal alongside it, not the cap.
+
+LIMITS ON THE RECORD:
+- **AC8 as written — nine slots, FULLY POPULATED — has never been executed, in either run.** At ~8.5 s
+  per expensive settle, a genuine nine-slot window needs ~1 minute; the user-elected 30 s cap made
+  full population impossible IN PRINCIPLE. The 350 ceiling has not yet been tested at its own stated
+  workload, and doing so would only be worse.
+- Per-payload byteCost is not comparable across the two: pre-M3 logs `bytes=-1` on this path, M3 logs
+  real values (15.5-22.4 MiB each, 113.7 MiB for six). So "payload retention is inside budget" holds
+  for M3 but has no baseline counterpart by this method.
+- The unexplained remainder was not attributed. Candidates named but NOT verified: engine/raster
+  baseline, unresized tier-2 `MemoryImage` entries (~46.5 MiB per 12MP, ~92 MiB for the 24MP file),
+  native decoder buffers. An RSS number cannot apportion these; a memory profile can. Nobody guessed.
+- A separate read-only analysis (`m3-imagecache-analysis.md`) REFUTED the full-size-decode-for-
+  no-preview-DNGs candidate — window-resolution `RawPixelsImage` is the only reachable path — which
+  agrees with the measured per-payload figures. It also found the ±1 tier-2 stale sweep sits INSIDE
+  the debounced body, so sustained navigation can leave up to nine full-size entries resident. That is
+  a design weakness inside M3's scope, recorded and NOT acted on.
+
+THREE OPEN DECISIONS FOR THE USER, none of them resolvable by this squad:
+1. **AC8 as frozen cannot be met by the design as frozen** — visible in two constants without running
+   anything. Change a cap (both are policy numbers, not laws), change the ceiling, or tighten tier-2
+   release.
+2. The measured ~1 GiB is a pre-existing condition of the application, outside M3's frozen scope.
+3. The 2.3x sequentialisation throughput cost is now quantified and may warrant its own decision,
+   independent of memory.
+
+Neither resolution should be "loosen the ceiling" nor "declare M3 clean". M3 delivered its stated end
+state with a green battery; AC8 is a criterion the whole application fails and always did.
+
+Artifacts (copied out of the two isolated diagnostic worktrees, which were then removed):
+`tmp/verify/ac8-*` (M3 run), `tmp/verify/ac8-baseline-*` (pre-M3 run), `tmp/verify/tc094-*`
+(mutation kill). Both diagnostic lanes ran without ever touching the `m3-cache` tree.
 
 **The battery at `b0ab0f8` is VOID as acceptance evidence** — it ran while the sample directory
 changed underneath it.
