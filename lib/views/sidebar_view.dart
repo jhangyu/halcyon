@@ -278,7 +278,7 @@ class _SidebarViewState extends State<SidebarView> {
     // ResizeImage's `fit` policy, which fits the source within a
     // cap x cap box while preserving aspect ratio — `exact` (or naive
     // cacheWidth+cacheHeight) would silently squash non-square sources.
-    final cap = (32 * MediaQuery.of(context).devicePixelRatio).round();
+    final cap = (32 * MediaQuery.devicePixelRatioOf(context)).round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: Image(
