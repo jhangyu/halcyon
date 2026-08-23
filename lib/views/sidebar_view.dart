@@ -268,10 +268,26 @@ class _SidebarViewState extends State<SidebarView> {
         ),
       );
     }
+    // M1 (image-pipeline redesign, docs/logs/2026-08-23/
+    // image-pipeline-redesign-handover.md §6 M1): width/height on
+    // Image.memory alone are LAYOUT constraints only — the decoder still
+    // produces a full-resolution bitmap. Today that is masked because the
+    // native side caps sidebarThumbnail requests at 200px, but a future
+    // shared cache (M3) can hand this widget a full-size image. Cap the
+    // DECODE itself at 32 * devicePixelRatio on the longest edge via
+    // ResizeImage's `fit` policy, which fits the source within a
+    // cap x cap box while preserving aspect ratio — `exact` (or naive
+    // cacheWidth+cacheHeight) would silently squash non-square sources.
+    final cap = (32 * MediaQuery.of(context).devicePixelRatio).round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
-      child: Image.memory(
-        thumbBytes,
+      child: Image(
+        image: ResizeImage(
+          MemoryImage(thumbBytes),
+          width: cap,
+          height: cap,
+          policy: ResizeImagePolicy.fit,
+        ),
         width: 32,
         height: 32,
         fit: BoxFit.cover,
