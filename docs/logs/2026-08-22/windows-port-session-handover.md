@@ -1,6 +1,11 @@
 # Windows port review, unified build script, cross-platform thumbnails — Session Handover
 
 > **建立時間**：2026-08-22 23:15（UTC+8）
+> **⚠️ 執行方向已於 2026-08-23 被取代**：見 `docs/logs/2026-08-23/image-pipeline-redesign-handover.md`。
+> 本檔的**證據、量測與版本狀態仍然有效且仍需閱讀**（§2 根因、§3 工作樹、§9 禁止重踩、§11 已知限制）；
+> 被取代的只有 §8 的待解議題表與 `thumbnail-dart-first-plan.md` 的 R1–R4 分階。
+> 取代的原因：診斷從「Windows 缺一塊原生實作」修正為「模組按執行路徑切而非按功能切」，
+> 且使用者已裁決三條路徑共用一個 `(path, size)` 模組、快取行為對檔案類型完全一致。
 > **交接目的**：讓下一個 session 把 **Windows 縮圖顯示不出來** 這件事真正修好。分析與計畫已完成，**程式碼一行都還沒寫**。
 > **目前判定**：merge 已完成並通過閘門；**原始需求「讓 thumbnails 全平台通用」尚未達成**。
 > **可信版本錨點**：Halcyon `main` @ `a8ae038`；flutter_dng_decoder `main` @ `d36e1bd`。
@@ -91,7 +96,11 @@ R1 的修法就是在 `case NativeImageFailure()` 這個已存在的分支裡補
 
 ## 8. 待解議題（依賴順序）
 
-**這張表的第一列就是原始需求本身，它還沒被做。** 前面幾輪產出的是分析與計畫，不是修復。
+> **⚠️ 本節已於 2026-08-23 被取代。不要照這張表施工。**
+> 現行執行方向：`docs/logs/2026-08-23/image-pipeline-redesign-handover.md` 的 M0–M6。
+> 對照：R1 併入 M3（它原本要合成的 variant 已被裁決刪除）／R2 成為 M1，內容不變／
+> R3 拆進 M0、M2、M3／R4 併入 M5 之後。P0 的兩個症狀由 M3 一次關掉。
+> 下表保留供追溯，**其中的症狀描述與量測仍然正確**，只有「下一動作」欄失效。
 
 | 優先 | 狀態 | 議題 | 下一動作 | 完成條件 |
 |---|---|---|---|---|
