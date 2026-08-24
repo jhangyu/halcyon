@@ -1195,7 +1195,14 @@ class ImagePreloadController {
             );
             if (generation != _thumbBatchGeneration) return;
             if (result is NativeImageBytes) {
-              _thumbCache[id] = await sidebarCacheBytes(result.bytes);
+              final cacheBytes = await sidebarCacheBytes(result.bytes);
+              // Re-check after EVERY await before the cache write: a
+              // stale-generation task landing here after the new
+              // generation's removeWhere prune would silently reopen the
+              // viewport-bound cache-size invariant (round-review blocker,
+              // 2026-08-24).
+              if (generation != _thumbBatchGeneration) return;
+              _thumbCache[id] = cacheBytes;
               notifyLoaded();
             } else if (_sidebarRawDecoder != null &&
                 SupportedPhotoFormats.isRawPath(file.path)) {
@@ -1212,10 +1219,14 @@ class ImagePreloadController {
                 final orientation =
                     await DngPreviewExtractor.readOrientation(file.path) ??
                     kDefaultExifOrientation;
-                _thumbCache[id] = await pngFromOrientedPixels(
+                final png = await pngFromOrientedPixels(
                   decoded,
                   exifOrientation: orientation,
                 );
+                // Same stale-generation write guard as the bytes branch
+                // above (round-review blocker, 2026-08-24).
+                if (generation != _thumbBatchGeneration) return;
+                _thumbCache[id] = png;
                 notifyLoaded();
               } catch (_) {
                 // Decode failed too: fall through to the same permanent-miss
