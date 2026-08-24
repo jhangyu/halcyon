@@ -10,7 +10,7 @@
 ## 0. 六十秒速讀
 
 - M6 原 delete list 的三個前提，在現行樹上**逐項複驗仍為假**：variant 是活邏輯、凍結檔構造點互斥、Swift 抽取器是承重路徑（94–183 倍實測）。M5 沒有改變其中任何一項。
-- **M5 讓情況更緊，不是更鬆**：`test/image_preload_dual_window_m5_test.dart` 新增 **6 個** `NativeImageNeedsRawDecode` 構造點，全樹構造點自 round 2 的 21 個增為 **27 個**（凍結檔內仍是 12 個，未變）。
+- **M5 讓情況更緊，不是更鬆**：`test/image_preload_dual_window_m5_test.dart` 新增 **6 個** `NativeImageNeedsRawDecode` 構造點，全樹構造點自 round 2 的 27 個增為 **33 個**（指揮官親 grep 複驗；成員原報 21→27 為沿用 round 2 舊總數的算術誤植，逐檔表本身正確）（凍結檔內仍是 12 個，未變）。
 - **發現一項與上級 framing 相反的事實**：`memory.md:92`（AD-010 的 2026-08-22 修訂）宣稱「改由 Dart 端自行建構此 variant，orientation 來自 `DngPreviewExtractor.readOrientationFromFile`」——**該符號在現行樹不存在，該 Dart 建構點也不存在**。現行樹 `lib/` 內唯一構造點是 `native_thumbnail_service.dart:127`，來源是 macOS channel error。詳見 §1.5，這是本次最重要的新發現。
 - 上述事實的後果：**刪掉 macOS 的 `NO_EMBEDDED_PREVIEW` 發射，等於讓 `DngFullDecoder`（FFI RAW 解碼）在所有平台成為死碼**——包括 M5 剛建立的 RAW 全解析度 tier-2。這比 round 2 記載的殘差嚴重一級。
 - 建議：**採 Opt-B（事實對齊版 M6）**，正式撤銷刪除案、只做文件與註解對齊，零 `lib/` 行為改動；把「Dart 抽取器升主通道」拆成獨立的效能契約，不掛在 M6 清理名下。
@@ -64,7 +64,7 @@
 | `test/image_preload_dual_window_m5_test.dart` | **6（M5 新增）** | 否 |
 | `test/image_preload_scheduling_m4_test.dart` | 2（:402, :444） | 否 |
 | `test/image_preload_window_test.dart` | 2（:239 TC-098「AC6 killer」、:297） | 否 |
-| 合計 | **27**（凍結內 12／凍結外 15） | — |
+| 合計 | **33**（凍結內 12／凍結外 21；本列由指揮官依逐檔表加總更正，原載 27/15 為 round 2 舊值） | — |
 
 `test/native_thumbnail_service_test.dart` 不直接構造，但以型別斷言（`:24-25, :56-57, :67-68`）與 `PlatformException(code: 'NO_EMBEDDED_PREVIEW')`（`:19, :51, :62`）**映射該機制本身**——刪除 variant 時這幾個測試是整條刪除，不是編輯。
 
@@ -152,7 +152,7 @@ Dart 側分流：                                             photo_source.dart:
 - **交付物**：
   1. `memory.md` AD-010 修訂勘誤：把 2026-08-22 那段標為「當時採納但**未落地**的計畫」，補一行現況（唯一構造點 `native_thumbnail_service.dart:127`、來源 macOS 發射、Windows 回 `RAW_UNSUPPORTED`）。
   2. 新增一則 AD（或 G-NNN gotcha）記錄本檔 §1.3／§1.5：Swift 抽取器是承重路徑（附 94–183 倍 artifact 路徑）、刪除發射會使 FFI 解碼與 M5 全解析度 tier-2 一併死亡。
-  3. `native_thumbnail_service.dart` 於 `NativeImageNeedsRawDecode`（`:61`）加一段**反射攔截註解**：說明它看似死碼但不可刪，點名 27 個構造點中的 12 個位於凍結檔、`package:` 只解析到 `lib/`。**素材可自 `scripts/tmp/20260823T174359Z-m6-parked-dart-half.patch` 復原**（round 2 評為該輪品質最高產物），但**必須先剝除其中所有「發射已消失／只剩兩個 variant」的宣稱**——在 Opt-3 撤回後那些句子即為假。
+  3. `native_thumbnail_service.dart` 於 `NativeImageNeedsRawDecode`（`:61`）加一段**反射攔截註解**：說明它看似死碼但不可刪，點名 33 個構造點中的 12 個位於凍結檔、`package:` 只解析到 `lib/`。**素材可自 `scripts/tmp/20260823T174359Z-m6-parked-dart-half.patch` 復原**（round 2 評為該輪品質最高產物），但**必須先剝除其中所有「發射已消失／只剩兩個 variant」的宣稱**——在 Opt-3 撤回後那些句子即為假。
   4. 把 M5 設計 §2.7 的界線正式升格為 memory.md 條目（現在只活在一份任務設計檔裡）。
 - **機械驗收草案**：`grep -c "readOrientationFromFile" memory.md` 的殘留描述已改寫（改為斷言勘誤標記字串存在）；`grep -rn "NativeImageNeedsRawDecode" lib/services/native_thumbnail_service.dart` 註解區含「凍結」與構造點數字；`git diff --name-only` 只含 `memory.md`＋`native_thumbnail_service.dart`（＋文件）；`flutter analyze` 0 issues；`flutter test -j 1` 252 執行／0 skip（註解改動不得改變執行數）。
 - **風險**：低。唯一風險是註解本身再次寫成「計畫」被誤讀為「現況」——以 §1.5 的通則自我約束（凡宣稱皆附 file:line）。
@@ -209,7 +209,7 @@ Dart 側分流：                                             photo_source.dart:
 ```bash
 git -C /Users/jhangyu/project/Halcyon log --oneline -1                     # 451e9c4 或其後
 grep -rn "readOrientationFromFile" lib/ | wc -l                            # 0（§1.5 失實符號）
-grep -rn "NativeImageNeedsRawDecode(" test/ scripts/tmp/*.dart | wc -l     # 27 構造點（§1.2）
+grep -rn "NativeImageNeedsRawDecode(" test/ scripts/tmp/*.dart | wc -l     # 33 構造點（§1.2，指揮官實跑值）
 shasum -a 256 test/dng_nav_probe_m3_test.dart test/image_preload_controller_m3_amend3_test.dart scripts/tmp/dng_nav_probe_test.dart
                                                                            # == baseline-registry.md 三值
 flutter test -j 1                                                          # All tests passed!，252 執行／0 skip
