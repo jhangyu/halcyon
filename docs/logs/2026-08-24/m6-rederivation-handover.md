@@ -17,6 +17,21 @@
 
 ---
 
+## 0.1 接手啟動序列（下一團隊照此開工）
+
+1. Read 本檔全文（180+ 行）——§1.5 的文件失實發現與 §3 選項空間是決策核心。
+2. Read `docs/logs/2026-08-24/m5-round-handoff.md` §5–6——M5 剛落地什麼、與 M6 的界線。
+3. Run `git -C /Users/jhangyu/project/Halcyon log --oneline -3`——預期 tip 為 `451e9c4` 或其後、含 `c2ae385` M5 合併。
+4. Run 本檔 §末「驗收命令」區塊——確認前提查證的機械事實仍成立（構造點數、凍結 sha、失實符號零命中）。
+5. **開工前提：§4 的裁決 1（M6 終態是否重新定義）必須先由使用者拍板**——本檔為 [D] 待決狀態，不構成任何選項的執行授權。
+
+## 0.2 版本與工作樹狀態（2026-08-24 交付當下）
+
+- Branch `main`；程式碼錨點 `c2ae385`（M5 合併）；docs tip `451e9c4`（本檔 commit）。
+- Working tree：乾淨（untracked 僅 gitignored scratch：`scripts/tmp/`、`local_data`、`.claude/` 等，非本輪產物）。
+- 無在途 worktree／分支／team／背景程序：m5-team 已按 shutdown protocol 四步關閉（drain `live_panes: []`）；halcyon-m5／halcyon-m6 worktree 與分支皆已刪除。
+- 參考 patch（勿直接套用）：`scripts/tmp/20260823T174141Z-m6-parked-macos-half.patch`、`…-dart-half.patch`（gitignored，主樹持有）。
+
 ## 1. 前提查證（逐項對現行樹）
 
 ### 1.1 第三個 variant 還活著嗎？——是，且比 round 2 更活
@@ -178,3 +193,31 @@ Dart 側分流：                                             photo_source.dart:
 - `scripts/tmp/round2-verify/` 的 benchmark artifact 我核對了檔案存在與 round-2 交接對它的引述，未逐行重讀其全文數字；引用的三組數字取自 round-2 交接 §3.4 表格。
 - Windows/Android/iOS 路徑我只確認了 `RAW_UNSUPPORTED` 的存在與註解自述，未追完其完整分支行為。
 - `.arw/.cr2/.nef/.orf/.rw2` 走 `isRaw` 分支（`AppDelegate.swift:313` 宣告、`:426` 分支、`:433` CIRAWFilter），本檔的所有選項皆不觸及它；round-2 §4 第 6 條的 [U-2] 依賴未複查。
+
+---
+
+## 5. 待解議題（依賴排序）
+
+| 優先 | 狀態 | 議題 | 解除條件 | 下一動作 |
+|---|---|---|---|---|
+| P0 | [D] | M6 終態是否重新定義（§4 裁決 1–4） | 使用者拍板選項 A／B／C | 無——等待裁決，不得先行實作 |
+| P1 | [ ] | 裁決後依所選選項執行（B：memory.md 勘誤＋註解；C：另立效能契約） | P0 完成 | B 的機械驗收草案在 §3 Opt-B；C 必須先凍結效能閘 |
+| P2 | [ ] | AD-010 勘誤（不論選項皆需，§4 裁決 3） | P0 完成（處置方式隨裁決） | 編輯 `memory.md:92` 一帶，計畫與現況分開標示 |
+
+## 6. 驗收命令（只讀，複驗本檔機械事實）
+
+```bash
+git -C /Users/jhangyu/project/Halcyon log --oneline -1                     # 451e9c4 或其後
+grep -rn "readOrientationFromFile" lib/ | wc -l                            # 0（§1.5 失實符號）
+grep -rn "NativeImageNeedsRawDecode(" test/ scripts/tmp/*.dart | wc -l     # 27 構造點（§1.2）
+shasum -a 256 test/dng_nav_probe_m3_test.dart test/image_preload_controller_m3_amend3_test.dart scripts/tmp/dng_nav_probe_test.dart
+                                                                           # == baseline-registry.md 三值
+flutter test -j 1                                                          # All tests passed!，252 執行／0 skip
+```
+
+## 7. 參考入口
+
+- 必讀：`docs/logs/2026-08-24/round-2-m6-handoff.md` §3——三前提被推翻的原始證據包。
+- 必讀：`docs/logs/2026-08-24/m5-round-handoff.md` §5–6——M5 交付內容與 M6 界線。
+- Artifact：`scripts/tmp/round2-verify/20260823T173937Z-risk1-cheap-dng-bench.txt`——94–183 倍退化的預註冊 benchmark（2026-08-23，Swift 受測碼現行樹未變，仍有效）。
+- 基線：`docs/logs/2026-08-24/baseline-registry.md`——現行錨點 `c2ae385`、凍結三 sha、禁止重量規則。
