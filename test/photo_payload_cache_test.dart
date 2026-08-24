@@ -59,19 +59,21 @@ void main() {
       },
     );
 
-    test('TC-061 the least recently USED entry is evicted, not the oldest '
-        'inserted', () {
+    test('TC-061 eviction is FIFO by insertion order -- reading an entry '
+        'does not protect it', () {
       final cache = PhotoPayloadCache(byteBudget: cost * 3);
       cache.put('a', encoded());
       cache.put('b', pixels());
       cache.put('c', encoded());
-      // Touch 'a' so 'b' becomes the least recently used.
-      expect(cache['a'], isNotNull);
+      // Reading 'a' (via peek, the only reader operator [] left behind) must
+      // NOT change eviction order: this cache is FIFO-within-window, not
+      // LRU (C10 -- see the AD note on this in memory.md).
+      expect(cache.peek('a'), isNotNull);
       cache.put('d', pixels());
 
-      expect(cache.contains('b'), isFalse, reason: 'b was the LRU entry');
-      expect(cache.contains('a'), isTrue, reason: 'a was re-used before d');
-      expect(cache.ids.toList(), ['c', 'a', 'd']);
+      expect(cache.contains('a'), isFalse, reason: 'a was the oldest entry');
+      expect(cache.contains('b'), isTrue, reason: 'reading a did not save it');
+      expect(cache.ids.toList(), ['b', 'c', 'd']);
     });
 
     test('TC-062 peek does not count as a use', () {
@@ -131,6 +133,26 @@ void main() {
         for (var i = 16; i <= 19; i++) 'id$i',
       });
       expect(retentionWindowIds(<String>[], 0, idOf), isEmpty);
+    });
+
+    test('TC-219 retentionWindowIds honours explicit before/after', () {
+      final items = List.generate(20, (i) => 'id$i');
+      final window = retentionWindowIds<String>(
+        items,
+        10,
+        (item) => item,
+        before: 2,
+        after: 2,
+      );
+      expect(window, {'id8', 'id9', 'id10', 'id11', 'id12'});
+    });
+
+    test('TC-220 retentionWindowIds defaults are still -3..+5', () {
+      final items = List.generate(20, (i) => 'id$i');
+      final window = retentionWindowIds<String>(items, 10, (item) => item);
+      expect(window, {
+        'id7', 'id8', 'id9', 'id10', 'id11', 'id12', 'id13', 'id14', 'id15',
+      });
     });
   });
 }

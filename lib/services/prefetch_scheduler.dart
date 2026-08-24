@@ -61,10 +61,6 @@ class PrefetchScheduler {
   /// covers raw items, non-raw failures and thumbnails alike.
   final Map<String, SourceCost> _cost = {};
 
-  SourceCost? costOf(String id) => _cost[id];
-
-  bool isKnown(String id) => _cost.containsKey(id);
-
   /// Records [cost] for [id], first writer wins.
   ///
   /// First-writer-wins matters: the content probe and the bridge answer can
@@ -105,18 +101,6 @@ class PrefetchScheduler {
     final probed = await PhotoSource.probeSource(path, longEdge: longEdge);
     observe(id, probed.cost);
     return probed;
-  }
-
-  /// Whether a source for [id] may be STARTED right now, [distance] items away
-  /// from the selection.
-  ///
-  /// An unmeasured item is allowed: the bridge answer is how its cost gets
-  /// determined at all, and that call is the one the old code already made for
-  /// every item in the window. What the caller must NOT do is let an
-  /// unmeasured item perform an expensive decode -- see `allowsExpensiveWork`.
-  bool allowsStartup(String id, {required int distance}) {
-    return _cost[id] != SourceCost.expensive ||
-        distance <= kExpensiveStartupRadius;
   }
 
   /// Whether an expensive decode may actually run for an item [distance] away.

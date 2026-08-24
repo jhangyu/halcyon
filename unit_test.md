@@ -1185,6 +1185,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-218~220｜Preload controller in-flight key 分離、retentionWindowIds 參數化（Tech-Debt Task 3）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-218（縮圖 sweep 進行中時，detail 路徑的 `isLoadingForTest(id)` 必須回答 false，`test/image_preload_controller_test.dart`；壞掉時：`_loadingKeys` 同時裝裸 id 與 `thumb_$id`，detail 誤判該項目正在載入）／TC-219（`retentionWindowIds` 帶入明確 `before`/`after` 產生的視窗與該半徑一致，`test/photo_payload_cache_test.dart`）／TC-220（`retentionWindowIds` 不帶 `before`/`after` 時預設仍是 `-3..+5`，`test/photo_payload_cache_test.dart`；防止參數化過程中悄悄改掉預設視窗大小） |
+| **測試類型** | 單元測試（`test/image_preload_controller_test.dart`、`test/photo_payload_cache_test.dart`，無 platform channel） |
+| **背景** | C12：`_loadingKeys` 一個 Set 同時裝兩種 key 形狀（裸 id / `thumb_$id`），是檔案自己在檔頭警告過的 collision class；C6：tier-2 解碼視窗（`_decodeTierTwoWindow`）與 tier-1 precache 視窗（`_precacheTierOneWindow`）各自重複同一段 clamp 算式，`retentionWindowIds` 已有相同算式；C10：`PhotoPayloadCache.operator []` 是唯一會更新使用順序的讀取介面，`lib/` 內零呼叫者，判定為死碼；C13：`prefetch_scheduler.dart` 的 `costOf`/`isKnown`/`allowsStartup` 在 `lib/`、`test/` 皆零呼叫者。詳見 memory.md AD-023、G-018 |
+| **預期結果** | 如上逐條；`operator []` 刪除後 `_enforceBudget` 行為零變更（FIFO-within-window，本來就是實際行為，因為 `operator []` 從未被 production code 呼叫過） |
+| **狀態** | ✅ 已通過。全套 `flutter test -j 1`：333 個測試 `All tests passed!`，RC=0 自捕（Task 2 落地 const-eval 修補後重跑）；`test/image_preload_controller_test.dart` + `test/photo_payload_cache_test.dart` 單獨執行 31/31 綠燈。`flutter analyze`：僅剩 1 個 info 等級提示在 `lib/services/thumbnail_export_service.dart:7`（`meta` 套件依賴未宣告），屬於 Task 2 檔案所有權範圍，非本任務改動造成，本任務六個檔案本身零 issue |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令

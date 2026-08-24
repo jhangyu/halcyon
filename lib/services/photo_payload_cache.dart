@@ -24,9 +24,9 @@ const int kRetentionAfter = 5;
 /// Below ~202 MiB an in-window RAW payload is dropped and re-entering that slot
 /// costs a full sequential RAW decode (~8.5 s measured) instead of a cache hit
 /// -- which is the one cost this retention design exists to avoid. Unused
-/// budget is not free either: it is headroom the LRU will fill before evicting
-/// anything, which is why this sits just above the row it must hold rather than
-/// at a round larger number. Derivation:
+/// budget is not free either: it is headroom the cache will fill before
+/// evicting anything, which is why this sits just above the row it must hold
+/// rather than at a round larger number. Derivation:
 /// docs/logs/2026-08-23/cache-sizing-estimate.md §A.5/§A.6.
 const int kPayloadByteBudget = 224 * 1024 * 1024;
 
@@ -51,21 +51,18 @@ class PhotoPayloadCache {
 
   final int byteBudget;
 
-  // Insertion-ordered; re-inserted on every read/write, so iteration order is
-  // least-recently-used first.
+  // Insertion-ordered. Nothing re-inserts on read (the only LRU-touching
+  // reader -- an indexing operator -- had zero callers and was deleted in
+  // M7), so iteration order is INSERTION order and eviction is FIFO within the
+  // retention window -- not LRU. That is deliberate and adequate: the `-3..+5`
+  // sweep in `retainOnly` already drops everything outside the window, so the
+  // budget path only ever chooses among entries the user is plausibly about to
+  // look at, where arrival order is as good a victim as recency.
   final LinkedHashMap<String, SourcePayload> _entries =
       LinkedHashMap<String, SourcePayload>();
 
-  /// The retained payload for [id], or null. Counts as a use for LRU purposes.
-  SourcePayload? operator [](String? id) {
-    if (id == null) return null;
-    final payload = _entries.remove(id);
-    if (payload == null) return null;
-    _entries[id] = payload;
-    return payload;
-  }
-
-  /// Read WITHOUT touching LRU order, for bookkeeping and assertions.
+  /// Read, for bookkeeping and assertions. Does not affect eviction order --
+  /// see the FIFO note on [_entries].
   SourcePayload? peek(String? id) => id == null ? null : _entries[id];
 
   bool contains(String id) => _entries.containsKey(id);
@@ -125,14 +122,19 @@ class PhotoPayloadCache {
 /// The ids inside the retention window centred on [index].
 ///
 /// The one definition of the window, so "cache retention is the same for every
-/// file type" is not something two call sites have to agree about.
+/// file type" is not something three call sites have to agree about. The
+/// tier-2 decode window uses a different (symmetric) radius from the tier-1
+/// retention window, which is why [before] and [after] are parameters rather
+/// than always the constants.
 Set<String> retentionWindowIds<T>(
   List<T> items,
   int index,
-  String Function(T item) idOf,
-) {
+  String Function(T item) idOf, {
+  int before = kRetentionBefore,
+  int after = kRetentionAfter,
+}) {
   if (items.isEmpty || index < 0) return const <String>{};
-  final start = (index - kRetentionBefore).clamp(0, items.length - 1);
-  final end = (index + kRetentionAfter).clamp(0, items.length - 1);
+  final start = (index - before).clamp(0, items.length - 1);
+  final end = (index + after).clamp(0, items.length - 1);
   return {for (var i = start; i <= end; i++) idOf(items[i])};
 }
