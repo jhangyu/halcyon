@@ -7,6 +7,8 @@ import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 
+import 'support/synthetic_dng.dart';
+
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');
   List<File> dngs() => sampleDir
@@ -20,8 +22,10 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final jpeg = File('${dir.path}/a.jpg');
     await jpeg.writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xD9]); // SOI+EOI only
-    final result =
-        await dartImageLoad(jpeg.path, purpose: ImageRequestPurpose.preview);
+    final result = await dartImageLoad(
+      jpeg.path,
+      purpose: ImageRequestPurpose.preview,
+    );
     expect(result, isA<NativeImageBytes>());
     expect((result as NativeImageBytes).bytes, const [0xFF, 0xD8, 0xFF, 0xD9]);
   });
@@ -33,42 +37,66 @@ void main() {
           await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
       if (expected == null) continue;
       covered++;
-      final result =
-          await dartImageLoad(f.path, purpose: ImageRequestPurpose.preview);
+      final result = await dartImageLoad(
+        f.path,
+        purpose: ImageRequestPurpose.preview,
+      );
       expect(result, isA<NativeImageBytes>(), reason: f.path);
       expect((result as NativeImageBytes).bytes, expected, reason: f.path);
     }
-    expect(covered, greaterThan(0), reason: 'sample set must exercise the hit path');
+    expect(
+      covered,
+      greaterThan(0),
+      reason: 'sample set must exercise the hit path',
+    );
   });
 
-  test('no-preview DNGs yield NeedsRawDecode with the walked orientation', () async {
-    var covered = 0;
-    for (final f in dngs()) {
-      final full =
-          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
-      if (full != null) continue;
-      covered++;
-      final result =
-          await dartImageLoad(f.path, purpose: ImageRequestPurpose.preview);
-      expect(result, isA<NativeImageNeedsRawDecode>(), reason: f.path);
-      final walked = await DngPreviewExtractor.readOrientation(f.path);
-      expect((result as NativeImageNeedsRawDecode).exifOrientation,
-          walked ?? kDefaultExifOrientation, reason: f.path);
-    }
-    expect(covered, greaterThan(0), reason: 'sample set must exercise the miss path');
-  });
+  test(
+    'no-preview DNGs yield NeedsRawDecode with the walked orientation',
+    () async {
+      var covered = 0;
+      for (final f in dngs()) {
+        final full =
+            await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+              f.path,
+            );
+        if (full != null) continue;
+        covered++;
+        final result = await dartImageLoad(
+          f.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        expect(result, isA<NativeImageNeedsRawDecode>(), reason: f.path);
+        final walked = await DngPreviewExtractor.readOrientation(f.path);
+        expect(
+          (result as NativeImageNeedsRawDecode).exifOrientation,
+          walked ?? kDefaultExifOrientation,
+          reason: f.path,
+        );
+      }
+      expect(
+        covered,
+        greaterThan(0),
+        reason: 'sample set must exercise the miss path',
+      );
+    },
+  );
 
   test('sidebar purpose never returns the raw-decode signal', () async {
     for (final f in dngs()) {
-      final result = await dartImageLoad(f.path,
-          purpose: ImageRequestPurpose.sidebarThumbnail);
+      final result = await dartImageLoad(
+        f.path,
+        purpose: ImageRequestPurpose.sidebarThumbnail,
+      );
       expect(result is! NativeImageNeedsRawDecode, isTrue, reason: f.path);
     }
   });
 
   test('missing file is a failure, not a throw', () async {
-    final result = await dartImageLoad('/nonexistent/x.dng',
-        purpose: ImageRequestPurpose.preview);
+    final result = await dartImageLoad(
+      '/nonexistent/x.dng',
+      purpose: ImageRequestPurpose.preview,
+    );
     expect(result, isA<NativeImageFailure>());
   });
 
@@ -82,8 +110,10 @@ void main() {
           await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
       final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
       await f.copy(asArw.path);
-      final result =
-          await dartImageLoad(asArw.path, purpose: ImageRequestPurpose.preview);
+      final result = await dartImageLoad(
+        asArw.path,
+        purpose: ImageRequestPurpose.preview,
+      );
       if (full != null) {
         hits++;
         expect(result, isA<NativeImageBytes>(), reason: asArw.path);
@@ -128,24 +158,132 @@ void main() {
 
   test('F-20: a header claiming a 40000x40000 decode is refused, never'
       ' handed to a raw decode', () async {
-    final dir = await Directory.systemTemp.createTemp('dart_image_loader_oversized');
+    final dir = await Directory.systemTemp.createTemp(
+      'dart_image_loader_oversized',
+    );
     addTearDown(() => dir.delete(recursive: true));
     final huge = File('${dir.path}/huge.dng');
     await huge.writeAsBytes(handcraftedOversizedTiff());
-    final result =
-        await dartImageLoad(huge.path, purpose: ImageRequestPurpose.preview);
+    final result = await dartImageLoad(
+      huge.path,
+      purpose: ImageRequestPurpose.preview,
+    );
     expect(result, isA<NativeImageFailure>());
     expect((result as NativeImageFailure).code, 'IMAGE_TOO_LARGE');
   });
 
-  test('F-20: the guard does not fire on real, ordinary-sized samples', () async {
-    expect(dngs(), isNotEmpty);
-    for (final f in dngs()) {
-      final result =
-          await dartImageLoad(f.path, purpose: ImageRequestPurpose.preview);
-      if (result is NativeImageFailure) {
-        expect(result.code, isNot('IMAGE_TOO_LARGE'), reason: f.path);
+  test(
+    'F-20: the guard does not fire on real, ordinary-sized samples',
+    () async {
+      expect(dngs(), isNotEmpty);
+      for (final f in dngs()) {
+        final result = await dartImageLoad(
+          f.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        if (result is NativeImageFailure) {
+          expect(result.code, isNot('IMAGE_TOO_LARGE'), reason: f.path);
+        }
       }
-    }
+    },
+  );
+
+  // -------------------------------------------------------------------
+  // M7 ruling G-2 / Decision Log A-6: an undersized embedded candidate sends
+  // a DNG into RAW decode on the preview path, and ONLY there.
+  //
+  // These use a synthetic container rather than a real sample on purpose.
+  // Measured over local_data/photo_samples/DNG (26 files,
+  // scripts/tmp/m7-t2/newly-routed.txt): ZERO samples are newly routed by this
+  // rule -- 13 already have no qualifying candidate, 13 have one that already
+  // clears 2800. So no real file in the corpus can exercise this behaviour,
+  // and a test built on the corpus would pass without testing anything.
+  // -------------------------------------------------------------------
+  group('G-2 undersized-candidate rule', () {
+    late Directory tmp;
+    late String dngPath;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('dart_image_loader_g2_');
+      addTearDown(() async {
+        if (await tmp.exists()) await tmp.delete(recursive: true);
+      });
+      // Largest (only) candidate is 160x120, far under preview's 2800.
+      dngPath = await writeSyntheticDng(
+        buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 160, height: 120)],
+        ),
+        dir: tmp,
+        name: 'undersized.dng',
+      );
+    });
+
+    test('(a) preview on an undersized .dng enters RAW decode instead of '
+        'returning the undersized bytes', () async {
+      final result = await dartImageLoad(
+        dngPath,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(
+        result,
+        isA<NativeImageNeedsRawDecode>(),
+        reason:
+            'previously this returned NativeImageBytes with a 160x120 '
+            'rendition; G-2 makes it a decode request',
+      );
+    });
+
+    test('(b) the sidebar stays lenient (P-11/P-13)', () async {
+      final result = await dartImageLoad(
+        dngPath,
+        purpose: ImageRequestPurpose.sidebarThumbnail,
+      );
+      expect(result, isA<NativeImageBytes>());
+      expect((result as NativeImageBytes).bytes, isNotEmpty);
+    });
+
+    test('(b) export stays lenient — strictness there would turn "export a '
+        'smaller image" into "export fails"', () async {
+      final result = await dartImageLoad(
+        dngPath,
+        purpose: ImageRequestPurpose.export,
+      );
+      expect(result, isA<NativeImageBytes>());
+      expect((result as NativeImageBytes).bytes, isNotEmpty);
+    });
+
+    test('A-6: non-DNG RAW stays lenient — the .dng-gated RAW-decode escape '
+        'hatch does not exist for it, so strictness would only delete an '
+        'image the user can currently see', () async {
+      final asArw = File('${tmp.path}/undersized.arw');
+      await File(dngPath).copy(asArw.path);
+      final result = await dartImageLoad(
+        asArw.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(
+        result,
+        isA<NativeImageBytes>(),
+        reason:
+            'a rejection here would fall through to '
+            'RAW_NO_EMBEDDED_PREVIEW, not to a decode',
+      );
+    });
+
+    test('a DNG whose candidate DOES clear 2800 is unaffected on the preview '
+        'path', () async {
+      final bigPath = await writeSyntheticDng(
+        buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 3000, height: 2250)],
+        ),
+        dir: tmp,
+        name: 'large.dng',
+      );
+      final result = await dartImageLoad(
+        bigPath,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(result, isA<NativeImageBytes>());
+    });
   });
 }

@@ -19,7 +19,8 @@ Future<NativeImageResult> dartImageLoad(
   required ImageRequestPurpose purpose,
 }) async {
   final lower = path.toLowerCase();
-  final isEncodedBitstream = lower.endsWith('.jpg') ||
+  final isEncodedBitstream =
+      lower.endsWith('.jpg') ||
       lower.endsWith('.jpeg') ||
       lower.endsWith('.png');
   try {
@@ -48,8 +49,32 @@ Future<NativeImageResult> dartImageLoad(
           ? const NativeImageFailure('NO_THUMBNAIL', 'no embedded candidate')
           : NativeImageBytes(candidate.bytes);
     }
-    final full =
-        await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
+    // M7 ruling G-2: when no embedded candidate reaches the requested long
+    // edge, the file enters RAW decode instead of being served an undersized
+    // rendition. `minLongEdge` is a post-selection REJECTION in the extractor,
+    // not a different choice, so this branch still gets the largest qualifying
+    // candidate when one exists.
+    //
+    // The guard is deliberately narrower than "the preview purpose":
+    //  - `purpose == sidebarThumbnail` never reaches here; the sidebar branch
+    //    above stays lenient under rulings P-11/P-13.
+    //  - `purpose == export` is excluded because the RAW-decode escape hatch
+    //    below is unreachable for it, so strictness would turn "export a
+    //    smaller-than-ideal image" into "export fails" -- a capability loss
+    //    G-2 did not ask for.
+    //  - non-DNG RAW (`.cr2`/`.nef`/`.arw`) is excluded for exactly the same
+    //    reason: that escape hatch is gated on `.dng`, so a rejection there
+    //    would fall through to RAW_NO_EMBEDDED_PREVIEW rather than to a decode
+    //    (M7 Decision Log A-6). G-2 is a DNG ruling and stays one.
+    final strictPreview =
+        purpose == ImageRequestPurpose.preview && lower.endsWith('.dng');
+    final full = (await DngPreviewExtractor.extractEmbeddedJpeg(
+      path,
+      longEdge: null,
+      minLongEdge: strictPreview
+          ? ImageRequestPurpose.preview.targetSize
+          : null,
+    ))?.bytes;
     if (full != null) return NativeImageBytes(full);
     if (purpose == ImageRequestPurpose.preview && lower.endsWith('.dng')) {
       final dims = await DngPreviewExtractor.readImageDimensions(path);
@@ -58,7 +83,9 @@ Future<NativeImageResult> dartImageLoad(
         // (formerly AppDelegate.swift renderCGImage). A header claiming an
         // absurd extent must be an error result, never an OOM.
         return const NativeImageFailure(
-            'IMAGE_TOO_LARGE', 'decode exceeds the decoded-pixel budget');
+          'IMAGE_TOO_LARGE',
+          'decode exceeds the decoded-pixel budget',
+        );
       }
       // Ruling (b): the raw-decode signal is constructed in Dart from an
       // extraction miss + the walker's own orientation read.

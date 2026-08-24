@@ -55,11 +55,29 @@ class DngPreviewExtractor {
   /// is `>= longEdge`; the `0.90 * cropMax` floor does not apply, and when no
   /// candidate reaches [longEdge] the largest available candidate is returned.
   ///
+  /// [minLongEdge] is a REJECTION applied after selection, in both selection
+  /// modes: when the selected candidate's `max(width, height)` is below it,
+  /// this returns `null` instead of the candidate. It does not change which
+  /// candidate is chosen -- the full-size request still yields the largest
+  /// qualifying candidate rather than a merely-adequate one. `null` (the
+  /// default) is the historical behaviour exactly, which is what leaves every
+  /// existing caller untouched.
+  ///
+  /// The fallback-to-largest described above is therefore NO LONGER
+  /// UNCONDITIONAL (M7 ruling G-2): the preview/full-size route passes
+  /// `minLongEdge: ImageRequestPurpose.preview.targetSize`, so a DNG whose
+  /// best embedded candidate is smaller than a preview needs enters a real RAW
+  /// decode instead of being served an undersized rendition. **The sidebar
+  /// route deliberately does NOT pass [minLongEdge] and stays lenient**,
+  /// keeping its smallest-then-largest-candidate behaviour under rulings P-11
+  /// and P-13. Both halves of that are load-bearing; neither is an oversight.
+  ///
   /// [onDiskRead] is invoked once per physical read with the byte count read.
   /// Never throws.
   static Future<DngEmbeddedJpeg?> extractEmbeddedJpeg(
     String path, {
     int? longEdge,
+    int? minLongEdge,
     void Function(int byteCount)? onDiskRead,
   }) async {
     RandomAccessFile? raf;
@@ -69,7 +87,7 @@ class DngPreviewExtractor {
       final length = await raf.length();
       if (length < 8) return null;
       final source = _FileSource(raf, length, onDiskRead);
-      return _walk(source, longEdge);
+      return _walk(source, longEdge, minLongEdge: minLongEdge);
     } catch (_) {
       return null;
     } finally {
@@ -119,7 +137,11 @@ class DngPreviewExtractor {
       if (reader == null) return null;
       final ifd0 = _readIFD0(reader);
       if (ifd0 == null) return null;
-      return _orientationOf(reader, ifd0);
+      // Null is preserved (it means "could not determine", per this method's
+      // documented three-way contract); only a value that WAS read is clamped
+      // to the EXIF-legal range.
+      final raw = _orientationOf(reader, ifd0);
+      return raw == null ? null : _sanitizeOrientation(raw);
     } catch (_) {
       return null;
     } finally {
@@ -185,9 +207,10 @@ class DngPreviewExtractor {
     if (reader == null) return 1;
     final ifd0 = _readIFD0(reader);
     if (ifd0 == null) return 1;
-    // `?? 1` keeps this method's observable behaviour identical by
-    // construction: every input that yielded 1 before still yields 1.
-    return _orientationOf(reader, ifd0) ?? 1;
+    // Folding null to 1 keeps this method's observable behaviour identical by
+    // construction: every input that yielded 1 before still yields 1. M7
+    // ruling E additionally folds an out-of-range value to 1.
+    return _sanitizeOrientation(_orientationOf(reader, ifd0));
   }
 
   /// Pure in-memory variant of [extractFullSizeEmbeddedJpegFromFile]. Returns
@@ -227,13 +250,36 @@ class DngPreviewExtractor {
   /// default). Returns `null` for "found the tag, could not read it" -- a
   /// value field with a bad type, a zero count or an offset past EOF -- which
   /// is undetermined, not "no rotation". Callers that must not distinguish
-  /// the two fold the null back with `?? 1`.
+  /// the two fold the null back through [_sanitizeOrientation], which also
+  /// clamps a present-but-out-of-range value; no caller in this file applies a
+  /// bare `?? 1` any more (M7 ruling E).
+  ///
+  /// Note this reports the tag's value VERBATIM when it was read -- range
+  /// validation is [_sanitizeOrientation]'s job, deliberately kept separate so
+  /// "what the file claims" and "what we act on" stay distinguishable.
   static int? _orientationOf(_TIFFReader reader, Map<int, _IFDEntry> ifd0) {
     final entry = ifd0[0x0112];
     if (entry == null) return 1;
     final vals = reader.values(entry);
     if (vals == null || vals.isEmpty) return null;
     return vals.first;
+  }
+
+  /// Clamps a raw IFD0 0x0112 value to the EXIF-legal range (M7 ruling E).
+  ///
+  /// Returns [raw] when it is non-null and within 1..8 inclusive, and 1 ("no
+  /// transform", the value `kDefaultExifOrientation` names in
+  /// `image_source_types.dart` -- spelled literally here to keep this file's
+  /// deliberate zero-import posture) for null and for every out-of-range
+  /// value. `_orientationOf` already null-defaults an ABSENT tag
+  /// to 1, but it faithfully reports whatever integer a PRESENT tag carries --
+  /// so before this, a file declaring orientation 0 or 9 propagated that value
+  /// into pixel-orientation baking downstream. Callers that must preserve the
+  /// three-way "could not read" contract (`readOrientation`, `probeContent`)
+  /// keep their own null and route only the non-null value through here.
+  static int _sanitizeOrientation(int? raw) {
+    if (raw == null || raw < 1 || raw > 8) return 1;
+    return raw;
   }
 
   /// Everything ONE bounded content probe can learn about [path]: the largest
@@ -294,7 +340,12 @@ class DngPreviewExtractor {
       if (ifd0 == null) return null;
       // Free at this point: IFD0 is already parsed and in memory. This is the
       // whole reason the two questions share one walk.
-      final orientation = _orientationOf(reader, ifd0);
+      // Same three-way contract as [readOrientation]: null survives, a value
+      // that WAS read is clamped to the EXIF-legal range (M7 ruling E).
+      final rawOrientation = _orientationOf(reader, ifd0);
+      final orientation = rawOrientation == null
+          ? null
+          : _sanitizeOrientation(rawOrientation);
       // longEdge: 0 keeps every structurally valid candidate (the 0.90*cropMax
       // full-size floor is a selection rule, not a validity rule), so the
       // answer describes the FILE rather than one request's taste.
@@ -321,8 +372,13 @@ class DngPreviewExtractor {
   }
 
   /// Walks IFD0 + SubIFDs once, selects a candidate per [longEdge] and reads
-  /// the selected strip. Returns `null` when nothing qualifies.
-  static DngEmbeddedJpeg? _walk(_ByteSource source, int? longEdge) {
+  /// the selected strip. Returns `null` when nothing qualifies, including when
+  /// the selected candidate is rejected by [minLongEdge].
+  static DngEmbeddedJpeg? _walk(
+    _ByteSource source,
+    int? longEdge, {
+    int? minLongEdge,
+  }) {
     final reader = _readerFor(source);
     if (reader == null) return null;
     final ifd0 = _readIFD0(reader);
@@ -330,14 +386,21 @@ class DngPreviewExtractor {
 
     // Orientation lives in IFD0. The extraction path cannot express
     // "undetermined" -- it injects EXIF only for a known non-1 value -- so an
-    // unreadable tag folds to 1 exactly as it did before AC12h.
-    final orientation = _orientationOf(reader, ifd0) ?? 1;
+    // unreadable tag folds to 1 exactly as it did before AC12h. An
+    // out-of-range value folds to 1 too (M7 ruling E): a file claiming
+    // orientation 0 or 9 must not propagate that into pixel-orientation
+    // baking downstream.
+    final orientation = _sanitizeOrientation(_orientationOf(reader, ifd0));
 
     final candidates = _gatherCandidates(reader, source, ifd0, longEdge);
     if (candidates == null) return null;
 
     final best = _select(candidates, longEdge);
     if (best == null) return null;
+
+    // Applied AFTER selection and in BOTH selection modes: this is a
+    // rejection, not a different choice (M7 ruling G-2).
+    if (minLongEdge != null && best.maxDim < minLongEdge) return null;
 
     final jpegBytes = source.read(best.offset, best.byteCount);
     if (jpegBytes == null || jpegBytes.length != best.byteCount) return null;
@@ -557,7 +620,9 @@ class DngPreviewExtractor {
     while (pos + 2 <= end) {
       if (jpeg[pos] != 0xFF) break;
       final marker = jpeg[pos + 1];
-      if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      if (marker == 0xD8 ||
+          marker == 0x01 ||
+          (marker >= 0xD0 && marker <= 0xD7)) {
         pos += 2;
         continue;
       }
