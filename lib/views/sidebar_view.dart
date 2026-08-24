@@ -6,6 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'batch_delete_feedback.dart';
 import 'rename_dialog.dart';
 import 'settings_dialog.dart';
+import 'theme_tokens.dart';
 
 /// Shared menu-item value for "Thumbnail Starred...", referenced by
 /// itemBuilder, onSelected, AND the widget test so the two ends of the
@@ -67,7 +68,7 @@ class _SidebarViewState extends State<SidebarView> {
   // undecided product call, not a bug.
   Color _iconColor(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark
-      ? Colors.white
+      ? HalcyonTokens.of(context).text
       : const Color.fromARGB(255, 59, 59, 59);
 
   void _noteBuiltIndex(int index) {
@@ -170,7 +171,7 @@ class _SidebarViewState extends State<SidebarView> {
                       // elsewhere via _iconColor — unifying is an undecided
                       // product call, left as-is.
                       color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white
+                          ? HalcyonTokens.of(context).text
                           : const Color.fromARGB(255, 32, 32, 32),
                     ),
                   ),
@@ -248,11 +249,11 @@ class _SidebarViewState extends State<SidebarView> {
   Widget _buildStatusIcon(PhotoStatus status, bool recycleMode) {
     switch (status) {
       case PhotoStatus.starred:
-        return const Icon(Icons.star, color: Colors.amber, size: 16);
+        return Icon(Icons.star, color: HalcyonTokens.of(context).starred, size: 16);
       case PhotoStatus.trashed:
         return Icon(
           recycleMode ? Icons.restore_from_trash : Icons.delete,
-          color: Colors.red,
+          color: HalcyonTokens.of(context).danger,
           size: 16,
         );
       case PhotoStatus.unmarked:
@@ -403,7 +404,7 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasTrashed,
             child: Text(
               state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
-              style: const TextStyle(color: Colors.red),
+              style: TextStyle(color: HalcyonTokens.of(context).danger),
             ),
           ),
           const PopupMenuDivider(),
