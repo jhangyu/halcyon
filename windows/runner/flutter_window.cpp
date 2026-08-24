@@ -1,7 +1,5 @@
 #include "flutter_window.h"
 
-#include <shellapi.h>
-
 #include <optional>
 #include <vector>
 
@@ -74,19 +72,6 @@ void FlutterWindow::OnDestroy() {
   }
 
   Win32Window::OnDestroy();
-}
-
-void FlutterWindow::DeliverOpenFile(const std::string& utf8_path) {
-  if (utf8_path.empty()) {
-    return;
-  }
-  if (channels_) {
-    channels_->PushOpenFile(utf8_path);
-  } else {
-    // A delivery before OnCreate finished is not expected, but if the
-    // ordering ever changes, hold the path rather than drop it silently.
-    launch_file_ = utf8_path;
-  }
 }
 
 LRESULT

@@ -30,9 +30,6 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
-  // Sends |utf8_path| to Dart on halcyon/open_with, if the channels are up.
-  void DeliverOpenFile(const std::string& utf8_path);
-
   // The project to run.
   flutter::DartProject project_;
 
