@@ -4,9 +4,9 @@ import 'dng_preview_extractor.dart';
 import 'image_source_types.dart';
 
 /// Pure-Dart production implementation of the `NativeImageLoad` seam
-/// (photo_source.dart:76-80). Replaces the deleted `halcyon/thumbnail`
-/// channel as the production byte producer (M6 C-1/C-2). Free of Platform
-/// checks by construction (C-3).
+/// (photo_source.dart:76-80). Replaces the deleted native thumbnail
+/// MethodChannel as the production byte producer (M6 C-1/C-2). Free of
+/// Platform checks by construction (C-3).
 ///
 /// Invariants carried over from the native producer:
 /// - [NativeImageNeedsRawDecode] is emitted ONLY for

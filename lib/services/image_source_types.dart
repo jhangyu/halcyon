@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 /// Pure types for the `NativeImageLoad` seam (`photo_source.dart:76-80`).
 ///
-/// M6 P3.3: split out of `native_thumbnail_service.dart` when the
-/// `halcyon/thumbnail` `MethodChannel` service was deleted. These types have
+/// M6 P3.3: split out of `native_thumbnail_service.dart` when its native
+/// thumbnail `MethodChannel` service was deleted. These types have
 /// no platform dependency (no `flutter/services` import) -- they describe the
 /// SHAPE of an image-bytes request outcome, not how it was produced. The
 /// production implementation of the seam is `dartImageLoad`
