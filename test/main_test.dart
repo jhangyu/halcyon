@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/main.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -68,5 +68,17 @@ void main() {
     expect(drop, findsOneWidget);
     final widget = tester.widget<DropTarget>(drop);
     expect(widget.onDragDone, isNotNull);
+  });
+
+  testWidgets('R key toggles recycle mode', (tester) async {
+    final state = await stateForFolder(tester);
+    await tester.pumpWidget(harness(state));
+    await tester.pump();
+
+    final before = state.recycleMode;
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+    await tester.pump();
+
+    expect(state.recycleMode, !before);
   });
 }

@@ -118,6 +118,9 @@ class _MainScreenState extends State<MainScreen> {
           } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
             _zoom.stepZoomOut();
             return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.keyR) {
+            state.toggleRecycleMode();
+            return KeyEventResult.handled;
           }
         }
         return KeyEventResult.ignored;

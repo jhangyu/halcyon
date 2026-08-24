@@ -63,8 +63,8 @@ class PhotoActionBar extends StatelessWidget {
               onPressed: () =>
                   context.read<AppState>().markCurrent(PhotoStatus.trashed),
               tooltip: recycle
-                  ? 'Recycle (X) — right-click: switch to direct delete'
-                  : 'Trash (X) — right-click: switch to recycle mode',
+                  ? 'Recycle (X) — right-click or R: switch to direct delete'
+                  : 'Trash (X) — right-click or R: switch to recycle mode',
             ),
           ),
         ],
