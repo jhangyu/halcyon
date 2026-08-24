@@ -23,7 +23,13 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: M6 跨平台一致性（契約 C-1…C-8，`docs/logs/2026-08-24/m6-spec-contract.md`）✅ **P0–P5 全部完成**（R2 收尾 @ `8418c7e`，2026-08-24）
+- **Task**: 全庫技術債清償（Phase 12；4-reviewer 掃描 → 30 項修繕，計畫 `docs/logs/2026-08-24/Task_refactor_plan_main.md` + `Task_refactor_plan_D1.md`）✅ **全部 30 項完成**（D4 收尾 @ `5c48c68`，2026-08-25）
+- **中斷點與交接 (Handover)**: A1-A8（批次失敗回報、原子寫入、JSON 防護、undo journal 韌性、currentItem null 化）、B1-B2（匯出/側欄編碼移出 UI isolate）、C1-C13（sidecar/EXIF 方向/夾取/typedef 去重、FIFO 重新命名、死碼清理）、D1（TierTwoRegistry 抽取，變異證明紅→綠）、D2（RenameCoordinator）、D3（displayProvider + rename_dialog 拆分 + theme tokens）、D4（sidebar 色彩 token 化，使用者已外觀驗收）、E1-E2（CLAUDE.md 原生橋接段重寫）。全套件 352 綠 @ `5c4a9c9`（gate artifact `scripts/tmp/final-gate.txt`）。TC-230 掛死根因（fake-async zone 內真實 I/O await）已修，雙 opus 獨立收斂確認。完整交接見 `docs/logs/2026-08-25/refactor-campaign-handover.md`。
+- **下一個子步驟**: M5-DW6 flaky 測試調查（同 HEAD 一紅一綠，可能掩蓋快取記帳競態——待使用者裁決是否開工）。parking-lot 全清單見交接檔 §8。
+
+---
+
+- **前一個 Task**: M6 跨平台一致性（契約 C-1…C-8，`docs/logs/2026-08-24/m6-spec-contract.md`）✅ **P0–P5 全部完成**（R2 收尾 @ `8418c7e`，2026-08-24）
 - **中斷點與交接 (Handover)**: 影像/EXIF 核心統一為純 Dart（R1），OS 整合五項（拖放 `desktop_drop`、檔案總管顯示、R 鍵回收、Windows 檔案關聯 `.reg` 產生器、Android/iOS Open With 接線）與 P5 收尾（快取預算 seam、C-4 基線稽核、G″″ 回歸 gate 33/33 PASS）全數落地（R2）。套件 280/280、`flutter analyze` 0、macOS+Android release 建置綠、C-3 防護 grep 乾淨。執行帳見 `m6-execution-plan.md` ledger；審查證據在 `scripts/tmp/m6-r2-verify/`。
 - **下一個子步驟**: 使用者驗收與關單（P5.3 票依規由使用者關閉）。待決僅 P-2（Linux FFI `.so` 建置）。parking-lot 清單見 R2 收尾報告（Windows 端 `.reg`/`explorer` 為 trust-on-first-use，首次真機驗證建議由使用者執行）。
 

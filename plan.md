@@ -46,6 +46,7 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 | 9 | Android build toolchain 升級 | ✅ 已完成 | Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21、JDK 25 build |
 | 10 | 技術債清償 | 🔲 待辦 | Auto-advance 修正（Task 16）、AppDelegate 強化（Task 17）、Zoom 狀態下沉（Task 19）、sidebar 重複邏輯（Task 20）|
 | 11 | 影像切換延遲與 DNG 解碼整合 | ✅ 已完成 | Tier-1/tier-2 sliding preload（Task 23）、DNG 全尺寸解碼整合（Task 22）、Finder 開啟方式冷啟動（Task 24）、回收模式（`.trash`）批次刪除（Task 25）、唯讀資料夾 status line 警告（Task 21）、sidebar itemBuilder 驅動預載（Task 26）|
+| 12 | 全庫技術債清償（4-reviewer 掃描 → 30 項修繕） | ✅ 已完成（2026-08-25） | 行為缺陷 A1-A8、UI isolate 卸載 B1-B2、去重/命名 C1-C13、結構重構 D1（TierTwoRegistry）/D2（RenameCoordinator）/D3（view 拆分）/D4（HalcyonTokens 主題統一）、文件 E1-E2；計畫檔 `docs/logs/2026-08-24/Task_refactor_plan_{main,D1}.md`；交接 `docs/logs/2026-08-25/refactor-campaign-handover.md`。殘留：M5-DW6 flaky 調查（待裁決） |
 
 ---
 

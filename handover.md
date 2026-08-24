@@ -21,7 +21,23 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 當前任務
 
-**本輪（2026-08-20）｜EXIF 重新命名（批次、可 undo，commit `58fe681`，Task 10 文件收尾）**
+**本輪（2026-08-25）｜全庫技術債清償（30 項，HEAD `5c48c68`）**
+
+已落地（計畫：`docs/logs/2026-08-24/Task_refactor_plan_main.md` + `Task_refactor_plan_D1.md`；完整交接：`docs/logs/2026-08-25/refactor-campaign-handover.md`）：
+- 行為缺陷 8 項：批次複製/搬移/刪除逐檔容錯並回報失敗、狀態檔原子寫入＋單槽寫入鏈、損壞 JSON 降級不崩潰、rename undo journal 容錯＋逐批 flush、`currentItem` 失配回 null 不再默選第一張、掃描失敗顯示狀態列。
+- 效能 2 項：縮圖匯出與側欄 JPEG 重編碼移入 `Isolate.run`。
+- 去重/清理 13 項：sidecar 路徑、EXIF 方向表、JSON 讀取、視窗夾取、typedef、選單常數、快取上限常數各一處定義；PhotoPayloadCache 如實改稱視窗內 FIFO；死碼清除。
+- 結構 4 項：`TierTwoRegistry`（tier-2 記帳可單測，變異證明紅→綠）、`RenameCoordinator`、`AppState.displayProvider` + rename_dialog 拆四個子 widget、`HalcyonTokens` ThemeExtension 統一色彩（含新增 `starred`；使用者已外觀驗收）。
+- 文件 2 項：CLAUDE.md 原生橋接段改寫為純 Dart 管線事實、main.dart 過時註解修正。
+- 驗證：全套件 352 綠、analyze 0（gate artifact `scripts/tmp/final-gate.txt` @ `5c4a9c9`）。TC-230 掛死根因＝testWidgets fake-async zone 內真實 dart:io await，已修（單變數 A/B 證明）。
+
+**下一步**：
+1. M5-DW6 flaky 調查（同 HEAD 一紅一綠；斷言「全尺寸升級零增量」可能掩蓋真實快取記帳競態）——待使用者裁決。
+2. parking-lot 逐項裁決（見交接檔 §8）。
+
+---
+
+**上一輪（2026-08-20）｜EXIF 重新命名（批次、可 undo，commit `58fe681`，Task 10 文件收尾）**
 
 已落地（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-9）：
 - 批次從 EXIF metadata 重新命名資料夾內所有照片：`RenameRule`（純函式模板渲染，含 4 個 preset 與自訂規則）+ `planRenames`（無碰撞規劃，RAW/JPG/sidecar 同群組同新名，碰撞附加 `-1`/`-2`）+ `applyRenames`/`undoLastRename`（`.halcyon_rename_log.jsonl` append-only undo journal，避免 10,000 筆時 O(n²) 重寫陣列）。
