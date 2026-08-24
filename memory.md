@@ -243,6 +243,16 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 （Task 9 依賴）：回傳 `currentFullResProvider` 或 `currentDecodedProvider` 的**同一個物件**，
 絕不自建 provider（凍結的 tier-1/tier-2 cache-key identity 規則）。
 
+### AD-027｜tier-2 就緒性合取由 `TierTwoRegistry` 單一持有（2026-08-24, D1）
+
+- **決策**：`_tierTwoKeys` / `_tierTwoSources` / `_tierTwoReadyIds` / `_fullResFailures` 四個容器與 `isFullSizeReady` 的四項合取，全部搬出 `ImagePreloadController`，改由 `lib/services/tier_two_registry.dart` 的 `TierTwoRegistry` 單一持有。控制器只保留排程（±2 視窗、250ms debounce、序列化佇列）與兩個 provider 工廠。
+- **理由**：round-2 BLOCKER 1（id-keyed 記帳描述的是 payload-object-keyed 的 ImageCache 條目）與 BLOCKER 3（`containsKey` 對 pending 條目也回 true）過去只有註解在守；抽出後這四項只存在一處，且可在沒有 controller、payload cache、假 photo source 的情況下直接單元測試（TC-231~238）。
+- **不可再拆**：四個容器必須留在同一個類別內。任何一個被搬回控制器或搬進第三個類別，合取就重新散落，兩個 BLOCKER 就重新變成只靠註解守的東西。
+- **關聯**：AD-010 / AD-011（`NativeImageResult` 三變體不變，registry 不得 import 該契約）、AD-018（`kTierTwoRadius` 與 `kExpensiveStartupRadius` 仍是兩個常數）。
+- **`publishEncoded` 與 `publishFullRes` 的註冊順序相反，且兩者都是刻意的**：前者先 `resolve()`+`addListener` 再於 `obtainKey().then` 內註冊（同步化會讓 `isReady` 比今天更早翻真，正是 BLOCKER 3 守的方向）；後者先同步註冊再 `resolve()`（讓並行的升級決策立即看得到條目，AC-M5-4）。
+- **實作偏差**：D1 計畫草稿假設下一個可用編號是 AD-023，但落地時 AD-023~026 已被其他並行任務（main 整治計畫）佔用；本條實際編號為 AD-027。計畫內的 verbatim 程式碼區塊照抄不受影響，僅文件編號順移。
+- **已知缺口**：`lib/providers/app_state.dart:200-214` 是 `fullResProviderFor` 的唯一消費者，沒有 null-vs-provider 的直接測試。本次重構沒有讓它更糟，但也沒有補上。
+
 ---
 
 ## Gotchas（踩坑紀錄）

@@ -171,6 +171,7 @@ Halcyon/
 | `PhotoLibraryScanner` | `lib/services/photo_library_scanner.dart` | 掃描資料夾、忽略隱藏檔、依 base name 分組 |
 | `PhotoStatusStore` | `lib/services/photo_status_store.dart` | `.halcyon_status.json` 讀寫與 orphan cleanup |
 | `ImagePreloadController` | `lib/services/image_preload_controller.dart` | 大圖/縮圖 sliding window cache、debounce、驅逐 |
+| `TierTwoRegistry` | `lib/services/tier_two_registry.dart` | tier-2（全尺寸）ImageCache 記帳：哪個 id 有條目、為哪個 payload 物件解的、解碼是否已完成、該 payload 的全解析升級是否已失敗。`isReady` 的四項合取只存在於此（AD-027）。不含排程 |
 | `PhotoFileActions` | `lib/services/photo_file_actions.dart` | copy/move/trash 檔案操作；回收模式（`.trash`）批次刪除與 sibling 分組移動 |
 | `TrashService` | `lib/services/trash_service.dart` | `halcyon/trash` MethodChannel contract，將檔案移入 macOS Trash 或資料夾內 `.trash` |
 | `NativeThumbnailService` | `lib/services/native_thumbnail_service.dart` | `preview` / `sidebarThumbnail` / `export` MethodChannel request contract |

@@ -1247,6 +1247,20 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-231~238｜`TierTwoRegistry`：tier-2 就緒性合取與失敗備忘錄（D1）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試檔** | `test/tier_two_registry_test.dart` |
+| **測試 ID** | TC-231（未註冊任何條目 → `isReady` 為 false，`keyIds` 為空）／TC-232（條目仍 PENDING → `containsKey` 為 true 但 `isReady` 為 false，BLOCKER 3 單獨隔離）／TC-233（listener 觸發後四項合取全成立 → true）／TC-234（`currentPayloadFor` 換成另一個 payload 物件 → 立刻 false，BLOCKER 1 只需一行 closure 置換）／TC-235（ImageCache 條目被外部 evict → false，就緒性是讀取時重新推導而非快取旗標）／TC-236（`hasFullResEntryFor` 在 ready 旗標翻真「之前」就為 true——AC-M5-4 的「恰好一次解碼」靠的就是這個區別）／TC-237（失敗備忘錄綁 payload 物件：同物件 true、換物件 false、換 id false）／TC-238（`evict` 只清一個 id 並連帶 evict ImageCache 條目，`clear` 清光全部） |
+| **背景** | D1：`_tierTwoKeys`/`_tierTwoSources`/`_tierTwoReadyIds`/`_fullResFailures` 四個容器與 `isFullSizeReady` 的四項合取，從 `ImagePreloadController` 搬到新檔 `lib/services/tier_two_registry.dart` 的 `TierTwoRegistry`；控制器只保留排程（±2 視窗、250ms debounce、序列化佇列）。詳見 memory.md AD-027 |
+| **測試類型** | 純單元測試，`test()`（非 `testWidgets()`，發布路徑會 await 真實引擎 future），無 controller、無 payload cache、無假 photo source |
+| **通過門檻** | 8/8 綠，且變異測試留證：刪 `identical(decodedFor, current)` 項 → TC-234 與控制器層對應測試轉紅；刪 `_readyIds.contains(id)` 項 → TC-232 與控制器層對應測試轉紅（`scripts/tmp/d1-mutation.txt`，皆在 scratch worktree `../halcyon-d1-mutation` 執行後復原並移除） |
+| **狀態** | ✅ 已通過。`flutter test test/tier_two_registry_test.dart -j 1`：8 個測試 All tests passed!，RC=0（首次執行即綠，characterisation test；紅色一半由變異測試補齊）。全套 `flutter test -j 1`：352 個測試 All tests passed!，RC=0；`flutter analyze`：No issues found!，RC=0。Step 3.10 的 `alreadyDecoded` 兩項內聯檢查改用 `_tierTwo.isReady(item.id)` 取代，計畫規定的主要形式（非 `hasEntryFor` 後備形式）一次通過閘門測試套件，未需要後備方案。基準測試套件執行數在本任務開工時從計畫預期的 39 修正為 63（main 整治計畫 TC-206~230 已先落地），已依 team-lead 裁決以 63 為新基準重新比對，逐檔計數見 `scripts/tmp/d1-baseline-counts.txt` |
+| **已知缺口** | `lib/providers/app_state.dart:200-214` 是 `fullResProviderFor` 的唯一消費者，沒有 null-vs-provider 的直接測試，本次重構未改善也未惡化。程式碼行數效果約為 `image_preload_controller.dart` 1267 行中的 150 行（~12%）——這是正確性重構而非體積重構，用行數判斷會得出錯誤結論 |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令
