@@ -35,6 +35,11 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return DropTarget(
+      // Disabled under a modal route (e.g. a rename/confirm dialog): a drop
+      // there would call openPhotoAtPath -> loadFolder and swap the folder
+      // out from under a dialog whose action still reads state at execution
+      // time, landing renames/deletes in a folder the user never previewed.
+      enable: ModalRoute.of(context)?.isCurrent ?? true,
       onDragDone: (detail) {
         if (detail.files.isEmpty) return;
         // Same entry as OS Open-With: load the folder, select that photo.

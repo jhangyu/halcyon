@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -80,5 +81,32 @@ void main() {
     await tester.pump();
 
     expect(state.recycleMode, !before);
+  });
+
+  testWidgets('DropTarget is disabled while a dialog route is on top', (
+    tester,
+  ) async {
+    final state = await stateForFolder(tester);
+    await tester.pumpWidget(harness(state));
+    await tester.pump();
+
+    expect(tester.widget<DropTarget>(find.byType(DropTarget)).enable, isTrue);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push(
+        DialogRoute<void>(
+          context: navigator.context,
+          builder: (_) => const AlertDialog(title: Text('Rename')),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      tester.widget<DropTarget>(find.byType(DropTarget)).enable,
+      isFalse,
+    );
   });
 }
