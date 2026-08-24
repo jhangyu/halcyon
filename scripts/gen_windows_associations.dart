@@ -34,26 +34,30 @@ void main() {
   final exts = SupportedPhotoFormats.supportedExtensions.toList()..sort();
   final command = '"$exePath" "%1"';
 
-  final buffer = StringBuffer()
-    ..writeln('Windows Registry Editor Version 5.00')
-    ..writeln()
-    ..writeln('[HKEY_CURRENT_USER\\Software\\Classes\\$progId]')
-    ..writeln('@="Halcyon Photo"')
-    ..writeln()
-    ..writeln(
-      '[HKEY_CURRENT_USER\\Software\\Classes\\$progId\\shell\\open\\command]',
-    )
-    ..writeln(regExpandSzLine(command));
+  // regedit expects CRLF (its own exports are UTF-16LE+CRLF); build_apps.py
+  // regenerates this file on the Windows host at build time, so `git
+  // autocrlf` never gets a chance to fix up LF-only output. Build as a line
+  // list and join with \r\n explicitly rather than StringBuffer.writeln
+  // (which emits bare \n) so every line, including the last, is CRLF.
+  final lines = <String>[
+    'Windows Registry Editor Version 5.00',
+    '',
+    '[HKEY_CURRENT_USER\\Software\\Classes\\$progId]',
+    '@="Halcyon Photo"',
+    '',
+    '[HKEY_CURRENT_USER\\Software\\Classes\\$progId\\shell\\open\\command]',
+    regExpandSzLine(command),
+  ];
 
   for (final ext in exts) {
-    buffer
-      ..writeln()
-      ..writeln('[HKEY_CURRENT_USER\\Software\\Classes\\$ext]')
-      ..writeln('@="$progId"');
+    lines
+      ..add('')
+      ..add('[HKEY_CURRENT_USER\\Software\\Classes\\$ext]')
+      ..add('@="$progId"');
   }
 
   final out = File('windows/runner/halcyon_associations.reg');
-  out.writeAsStringSync('${buffer.toString()}\n');
+  out.writeAsStringSync('${lines.join('\r\n')}\r\n');
   stdout.writeln(
     'wrote ${out.path} (${exts.length} extensions: ${exts.join(', ')})',
   );
