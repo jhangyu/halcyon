@@ -9,12 +9,30 @@ import 'dart:io';
 
 import '../lib/models/supported_photo_formats.dart';
 
+/// Encodes [value] as a .reg REG_EXPAND_SZ line: `hex(2):` followed by the
+/// UTF-16LE bytes (+ null terminator) as comma-separated hex pairs. Plain
+/// `@="..."` imports as REG_SZ, which Windows does NOT environment-expand in
+/// a shell\open\command value — %LOCALAPPDATA% would be passed through
+/// literally and the launch would silently fail. hex(2) is the only .reg
+/// syntax for REG_EXPAND_SZ.
+String regExpandSzLine(String value) {
+  final units = value.codeUnits.toList()..add(0); // UTF-16LE + NUL terminator
+  final bytes = <int>[];
+  for (final u in units) {
+    bytes.add(u & 0xff);
+    bytes.add((u >> 8) & 0xff);
+  }
+  final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(',');
+  return '@=hex(2):$hex';
+}
+
 void main() {
   const progId = 'Halcyon.Photo';
   // %LOCALAPPDATA%\Halcyon\halcyon.exe matches the loose-exe layout
   // build_apps.py's windows phase produces (build/windows/x64/runner/Release).
   const exePath = r'%LOCALAPPDATA%\Halcyon\halcyon.exe';
   final exts = SupportedPhotoFormats.supportedExtensions.toList()..sort();
+  final command = '"$exePath" "%1"';
 
   final buffer = StringBuffer()
     ..writeln('Windows Registry Editor Version 5.00')
@@ -25,7 +43,7 @@ void main() {
     ..writeln(
       '[HKEY_CURRENT_USER\\Software\\Classes\\$progId\\shell\\open\\command]',
     )
-    ..writeln('@="\\"$exePath\\" \\"%1\\""');
+    ..writeln(regExpandSzLine(command));
 
   for (final ext in exts) {
     buffer

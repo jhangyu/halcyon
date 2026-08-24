@@ -4,7 +4,7 @@ Windows Registry Editor Version 5.00
 @="Halcyon Photo"
 
 [HKEY_CURRENT_USER\Software\Classes\Halcyon.Photo\shell\open\command]
-@="\"%LOCALAPPDATA%\Halcyon\halcyon.exe\" \"%1\""
+@=hex(2):22,00,25,00,4c,00,4f,00,43,00,41,00,4c,00,41,00,50,00,50,00,44,00,41,00,54,00,41,00,25,00,5c,00,48,00,61,00,6c,00,63,00,79,00,6f,00,6e,00,5c,00,68,00,61,00,6c,00,63,00,79,00,6f,00,6e,00,2e,00,65,00,78,00,65,00,22,00,20,00,22,00,25,00,31,00,22,00,00,00
 
 [HKEY_CURRENT_USER\Software\Classes\.arw]
 @="Halcyon.Photo"
