@@ -19,8 +19,8 @@ import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
 import '../services/raw_pixels_image.dart';
 import '../services/rename_rule.dart';
-import '../services/rename_service.dart';
 import '../services/thumbnail_export_service.dart';
+import 'rename_coordinator.dart';
 
 /// Outcome of a batch delete, returned to the view layer so feedback lives
 /// in the widgets rather than the provider. Failures are never swallowed.
@@ -90,6 +90,16 @@ class AppState extends ChangeNotifier {
                  ? null
                  : halcyonDngSizedDecoder,
            ) {
+    _renameCoordinator = RenameCoordinator(
+      statusStore: _statusStore,
+      itemsOf: () => _items,
+      dirOf: () => _currentDir,
+      selectedIdOf: () => _selectedItemID,
+      readMetadata: readMetadataFor,
+      showStatus: showStatus,
+      reloadFolder: loadFolder,
+      notify: notifyListeners,
+    );
     _initPrefs();
   }
 
@@ -99,18 +109,11 @@ class AppState extends ChangeNotifier {
   final ImagePreloadController _preloadController;
   final ThumbnailExportService _exportService;
   final ExifBatchReader _exifReader;
+  late final RenameCoordinator _renameCoordinator;
 
-  bool _isRenaming = false;
-  bool _renameCancelled = false;
+  bool get isRenaming => _renameCoordinator.isRenaming;
 
-  /// old id -> new id for the most recent batch, used to unwind marks on undo.
-  Map<String, String> _lastRenameIdMap = const {};
-
-  bool get isRenaming => _isRenaming;
-
-  void cancelRename() {
-    _renameCancelled = true;
-  }
+  void cancelRename() => _renameCoordinator.cancelRename();
 
   Directory? _currentDir;
   List<PhotoItem> _items = [];
@@ -205,6 +208,12 @@ class AppState extends ChangeNotifier {
   ImageProvider? get currentFullResProvider =>
       _preloadController.fullResProviderFor(_selectedItemID);
 
+  /// The provider the detail view should paint right now. Same object
+  /// identity as [currentFullResProvider]/[currentDecodedProvider] — never
+  /// constructs a provider (that would break the tier-1/tier-2 cache-key rule).
+  ImageProvider? get displayProvider =>
+      currentItemHasFullSize ? currentFullResProvider : currentDecodedProvider;
+
   /// True when the current item's file could not be read at all (corrupt or
   /// unsupported). The view shows an error instead of a spinner.
   bool get currentItemFailed => _preloadController.hasFailed(_selectedItemID);
@@ -277,9 +286,7 @@ class AppState extends ChangeNotifier {
       // culled: default to recycling so a mis-click can't take the RAW with it.
       _recycleMode = _items.any((item) => item.files.length > 1);
       if (!await _statusStore.isWritable(dir)) {
-        showStatus(
-          const StatusMessage('此卷宗為*唯讀*，標記不會被儲存（檢查記憶卡的防寫鎖）'),
-        );
+        showStatus(const StatusMessage('此卷宗為*唯讀*，標記不會被儲存（檢查記憶卡的防寫鎖）'));
       }
       String? lastViewedId;
 
@@ -530,11 +537,8 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<String?> loadSavedRenameRule() async {
-    final dir = _currentDir;
-    if (dir == null) return null;
-    return _statusStore.loadRenameRule(dir);
-  }
+  Future<String?> loadSavedRenameRule() =>
+      _renameCoordinator.loadSavedRenameRule();
 
   /// Reads EXIF for [items], one read per item (from the JPG sibling when
   /// there is one — see [PhotoItem.bestFileToLoad]) and keyed by item id.
@@ -564,125 +568,12 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
-  /// Renames every photo in the current folder from [rule]. [isCustom] is
-  /// true when the rule came from the editor rather than a built-in preset;
-  /// only custom rules are remembered for the folder.
-  Future<void> renameByExif(RenameRule rule, {required bool isCustom}) async {
-    final dir = _currentDir;
-    if (dir == null || _items.isEmpty || _isRenaming) return;
+  /// Thin forwarder — see [RenameCoordinator].
+  Future<void> renameByExif(RenameRule rule, {required bool isCustom}) =>
+      _renameCoordinator.renameByExif(rule, isCustom: isCustom);
 
-    _isRenaming = true;
-    _renameCancelled = false;
-    notifyListeners();
-
-    try {
-      final metadata = await readMetadataFor(
-        _items,
-        onProgress: (done, total) {
-          showStatus(StatusMessage('讀取 EXIF *$done/$total*…'));
-        },
-      );
-
-      final fileModified = <String, DateTime>{};
-      final existingNames = <String>{};
-      for (final entity in dir.listSync()) {
-        existingNames.add(p.basename(entity.path));
-      }
-      for (final item in _items) {
-        final file = item.bestFileToLoad;
-        if (file == null) continue;
-        fileModified[item.id] = file.statSync().modified;
-      }
-
-      final plans = planRenames(
-        items: _items,
-        metadata: metadata,
-        fileModified: fileModified,
-        rule: rule,
-        existingNames: existingNames,
-      );
-
-      if (plans.isEmpty) {
-        showStatus(const StatusMessage('沒有檔案需要重新命名'));
-        return;
-      }
-
-      // Assigned only after the early return: an empty batch must not clobber
-      // the previous batch's undo map.
-      _lastRenameIdMap = {for (final plan in plans) plan.oldId: plan.newId};
-
-      final outcome = await applyRenames(
-        plans,
-        dir,
-        onProgress: (done, total) {
-          showStatus(
-            StatusMessage(
-              '重新命名 *$done/$total*…',
-              actionLabel: '取消',
-              onAction: cancelRename,
-            ),
-          );
-        },
-        isCancelled: () => _renameCancelled,
-      );
-
-      // The status file is keyed by item id (the basename), so without this
-      // every star, trash mark and the last-viewed pointer would be orphaned.
-      await _statusStore.remapKeys(dir, {
-        for (final plan in plans) plan.oldId: plan.newId,
-      });
-      await _statusStore.saveRenameRule(dir, isCustom ? rule.template : null);
-
-      final currentPlan = plans.where((x) => x.oldId == _selectedItemID);
-      await loadFolder(
-        dir,
-        targetSelectionId: currentPlan.isEmpty
-            ? _selectedItemID
-            : currentPlan.first.newId,
-      );
-
-      var message = '已重新命名 *${outcome.renamedCount}* 個項目';
-      if (outcome.cancelled) message += '（已取消）';
-      if (outcome.failures.isNotEmpty) {
-        message += '，*${outcome.failures.length}* 個失敗';
-        for (final failure in outcome.failures.take(3)) {
-          debugPrint('Rename failure: $failure');
-        }
-      }
-      showStatus(
-        StatusMessage(message, actionLabel: '還原', onAction: undoRename),
-      );
-    } catch (e) {
-      showStatus(StatusMessage('重新命名失敗：$e'));
-    } finally {
-      _isRenaming = false;
-      notifyListeners();
-    }
-  }
-
-  /// Replays the folder's rename journal backwards. No-op when there is none.
-  Future<void> undoRename() async {
-    final dir = _currentDir;
-    if (dir == null || _isRenaming) return;
-
-    final logExists = File(p.join(dir.path, kRenameLogName)).existsSync();
-    if (!logExists) {
-      showStatus(const StatusMessage('沒有可還原的重新命名紀錄'));
-      return;
-    }
-
-    final outcome = await undoLastRename(dir);
-
-    // The journal is per FILE; the status file is keyed per ITEM (basename
-    // without extension), so remap with the inverse of the batch's id map.
-    await _statusStore.remapKeys(dir, {
-      for (final entry in _lastRenameIdMap.entries) entry.value: entry.key,
-    });
-    _lastRenameIdMap = const {};
-
-    await loadFolder(dir);
-    showStatus(StatusMessage('已還原 *${outcome.renamedCount}* 個檔案的原始檔名'));
-  }
+  /// Thin forwarder — see [RenameCoordinator].
+  Future<void> undoRename() => _renameCoordinator.undoRename();
 
   @override
   void dispose() {
