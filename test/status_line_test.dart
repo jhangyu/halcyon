@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -10,7 +12,7 @@ void main() {
 
   Future<AppState> pumpLine(
     WidgetTester tester, {
-    void Function(String path)? revealInFinder,
+    Future<String?> Function(String path)? revealInFinder,
   }) async {
     final state = AppState();
     await tester.pumpWidget(
@@ -99,5 +101,35 @@ void main() {
     expect(find.text('還原'), findsOneWidget);
     await tester.tap(find.text('還原'));
     expect(taps, 1);
+  });
+
+  test('reveal builds the right command per OS and surfaces failure',
+      () async {
+    final calls = <(String, List<String>)>[];
+    Future<ProcessResult> fake(String cmd, List<String> args) async {
+      calls.add((cmd, args));
+      return ProcessResult(1, 1, '', 'boom'); // nonzero: must be surfaced
+    }
+
+    final failed = await revealInFileManager('/p/photo.jpg',
+        os: 'macos', runProcess: fake);
+    // NOTE (deviation from m6-execution-plan.md P4.2 Step 1 snippet):
+    // record equality (`expect(calls.single, (cmd, args))`) is field-wise
+    // `==`, and List doesn't override `==` (identity-based) — two distinct
+    // List instances with equal contents are never `==`. Split into
+    // per-field assertions (matching the plan's own Windows-case pattern,
+    // which already does this) so the test actually exercises deep
+    // equality on the args list.
+    expect(calls.single.$1, 'open');
+    expect(calls.single.$2, ['-R', '/p/photo.jpg']);
+    expect(failed, isNotNull); // human-readable failure string
+    calls.clear();
+    await revealInFileManager(r'C:\p\photo.jpg', os: 'windows', runProcess: fake);
+    expect(calls.single.$1, 'explorer');
+    expect(calls.single.$2, ['/select,', r'C:\p\photo.jpg']);
+    calls.clear();
+    await revealInFileManager('/p/photo.jpg', os: 'linux', runProcess: fake);
+    expect(calls.single.$1, 'xdg-open');
+    expect(calls.single.$2, ['/p']); // folder-open only, per ruling
   });
 }

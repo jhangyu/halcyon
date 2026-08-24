@@ -19,8 +19,8 @@ import '../providers/app_state.dart';
 class StatusLine extends StatefulWidget {
   const StatusLine({super.key, this.revealInFinder});
 
-  /// Injection point for tests; defaults to `open <path>`.
-  final void Function(String path)? revealInFinder;
+  /// Injection point for tests; defaults to [revealInFileManager].
+  final Future<String?> Function(String path)? revealInFinder;
 
   static const visibleDuration = Duration(milliseconds: 2500);
   static const fadeDuration = Duration(milliseconds: 500);
@@ -106,10 +106,17 @@ class _StatusLineState extends State<StatusLine> {
               if (message.revealPath != null) ...[
                 const SizedBox(width: 12),
                 TextButton(
-                  onPressed: () =>
-                      (widget.revealInFinder ?? _openInFinder)(
-                        message.revealPath!,
-                      ),
+                  onPressed: () async {
+                    final reveal = widget.revealInFinder ?? revealInFileManager;
+                    final path = message.revealPath!;
+                    final capturedContext = context;
+                    final failure = await reveal(path);
+                    if (failure != null && capturedContext.mounted) {
+                      capturedContext.read<AppState>().showStatus(
+                            StatusMessage(failure),
+                          );
+                    }
+                  },
                   style: TextButton.styleFrom(
                     foregroundColor: accentColor,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -155,7 +162,28 @@ List<TextSpan> emphasisSpans(String text, Color accent) {
   ];
 }
 
-// macOS-only app; `open` on a directory reveals it in Finder.
-void _openInFinder(String path) {
-  Process.run('open', [path]);
+/// M6 F-19. The single C-3 enumerated exception: per-platform commands via
+/// Process.run, awaited, errors surfaced (the old fire-and-forget discarded
+/// the Future AND the failure). Returns null on success, else a message for
+/// the status line.
+Future<String?> revealInFileManager(
+  String path, {
+  String? os,
+  Future<ProcessResult> Function(String, List<String>)? runProcess,
+}) async {
+  final system = os ?? Platform.operatingSystem;
+  final run = runProcess ?? (c, a) => Process.run(c, a);
+  final (cmd, args) = switch (system) {
+    'macos' => ('open', ['-R', path]), // selects the file
+    'windows' => ('explorer', ['/select,', path]), // selects the file
+    _ => ('xdg-open', [File(path).parent.path]), // folder only (ruling)
+  };
+  try {
+    final result = await run(cmd, args);
+    return result.exitCode == 0
+        ? null
+        : 'Reveal failed: $cmd exited ${result.exitCode}';
+  } on ProcessException catch (e) {
+    return 'Reveal failed: ${e.message}';
+  }
 }
