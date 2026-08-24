@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
+import 'package:halcyon_flutter/services/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:halcyon_flutter/views/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
@@ -264,6 +267,136 @@ void main() {
         isTrue,
         reason: 'preview-bearing samples must yield sidebar bytes via Dart',
       );
+    },
+  );
+
+  // M6 P2.5b (matrix P-12): the sidebar RAW-decode fallback for bare-CFA
+  // DNGs with no embedded JPEG at any size. Drives ImagePreloadController
+  // directly (via AppState's preloadController override) with a loader
+  // forced to NativeImageFailure, so the fallback branch is the only
+  // possible source of bytes -- exactly isolates the branch under test from
+  // P2.1's byte-source path. Same direct-AppState-call pattern as the test
+  // above (no SidebarView pump), for the same FakeAsync-Timer reason.
+  Future<NativeImageResult> alwaysFailLoader(
+    String path, {
+    required ImageRequestPurpose purpose,
+  }) async => const NativeImageFailure('FORCED_FAIL_FOR_TEST', 'forced');
+
+  DecodedRgba fourByTwoFixture() {
+    final bytes = Uint8List(4 * 2 * 4);
+    for (var i = 0; i < bytes.length; i += 4) {
+      bytes[i] = 100; // R marker, opaque
+      bytes[i + 3] = 255;
+    }
+    return DecodedRgba(rgba: bytes, width: 4, height: 2);
+  }
+
+  Future<Directory> tempDirWith(WidgetTester tester, String fileName) async {
+    late Directory dir;
+    await tester.runAsync(() async {
+      dir = await Directory.systemTemp.createTemp('halcyon_sidebar_p25b_');
+      await File(p.join(dir.path, fileName)).writeAsBytes([1, 2, 3]);
+    });
+    addTearDown(() => dir.delete(recursive: true));
+    return dir;
+  }
+
+  testWidgets(
+    'sidebar RAW-decode fallback: decodable PNG for a bare-CFA DNG, maxDim'
+    ' 200 requested',
+    (tester) async {
+      var decoderCalls = 0;
+      int? capturedMaxDim;
+      Future<DecodedRgba> fakeDecoder(String path, {required int maxDim}) async {
+        decoderCalls++;
+        capturedMaxDim = maxDim;
+        return fourByTwoFixture();
+      }
+
+      final dir = await tempDirWith(tester, 'a.dng');
+      final controller = ImagePreloadController(
+        imageLoader: alwaysFailLoader,
+        sidebarRawDecoder: fakeDecoder,
+      );
+      final state = AppState(preloadController: controller);
+      await tester.runAsync(() async {
+        await state.loadFolder(dir);
+        await state.preloadThumbnails(0, state.items.length - 1);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+
+      expect(decoderCalls, 1);
+      expect(capturedMaxDim, 200);
+      final id = state.items.single.id;
+      final bytes = state.getThumbnailBytes(id);
+      expect(bytes, isNotNull);
+      // Decodable: a garbage buffer would fail this round-trip.
+      await tester.runAsync(() async {
+        final codec = await ui.instantiateImageCodec(bytes!);
+        final frame = await codec.getNextFrame();
+        // readOrientation on this non-DNG fixture file returns null ->
+        // kDefaultExifOrientation (1, identity) -> no dim swap.
+        expect(frame.image.width, 4);
+        expect(frame.image.height, 2);
+      });
+    },
+  );
+
+  testWidgets(
+    'sidebar RAW-decode fallback: decoder throwing is a permanent miss, no'
+    ' crash, no retry signal',
+    (tester) async {
+      var decoderCalls = 0;
+      Future<DecodedRgba> throwingDecoder(
+        String path, {
+        required int maxDim,
+      }) async {
+        decoderCalls++;
+        throw StateError('simulated decode failure');
+      }
+
+      final dir = await tempDirWith(tester, 'b.dng');
+      final controller = ImagePreloadController(
+        imageLoader: alwaysFailLoader,
+        sidebarRawDecoder: throwingDecoder,
+      );
+      final state = AppState(preloadController: controller);
+      await tester.runAsync(() async {
+        await state.loadFolder(dir);
+        await state.preloadThumbnails(0, state.items.length - 1);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+
+      expect(decoderCalls, 1);
+      final id = state.items.single.id;
+      expect(state.getThumbnailBytes(id), isNull);
+    },
+  );
+
+  testWidgets(
+    'sidebar RAW-decode fallback: a non-RAW item never reaches the decoder',
+    (tester) async {
+      var decoderCalls = 0;
+      Future<DecodedRgba> fakeDecoder(String path, {required int maxDim}) async {
+        decoderCalls++;
+        return fourByTwoFixture();
+      }
+
+      final dir = await tempDirWith(tester, 'c.jpg');
+      final controller = ImagePreloadController(
+        imageLoader: alwaysFailLoader,
+        sidebarRawDecoder: fakeDecoder,
+      );
+      final state = AppState(preloadController: controller);
+      await tester.runAsync(() async {
+        await state.loadFolder(dir);
+        await state.preloadThumbnails(0, state.items.length - 1);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+
+      expect(decoderCalls, 0);
+      final id = state.items.single.id;
+      expect(state.getThumbnailBytes(id), isNull);
     },
   );
 }

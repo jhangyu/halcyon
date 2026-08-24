@@ -6,9 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../models/photo_item.dart';
+import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'dng_preview_extractor.dart';
 import 'native_thumbnail_service.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -79,9 +81,16 @@ class ImagePreloadController {
   ImagePreloadController({
     required ImageBytesLoader imageLoader,
     DngFullDecoder? dngDecoder,
-  }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder);
+    DngSizedDecoder? sidebarRawDecoder,
+  }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),
+       _sidebarRawDecoder = sidebarRawDecoder;
 
   final PhotoSource _source;
+  // M6 P2.5b: sized RAW-decode fallback for the sidebar sweep, for bare-CFA
+  // DNGs that carry no embedded JPEG at any size (the Dart sidebar route
+  // never decodes by design otherwise -- see the sweep below). Null on
+  // platforms/tests with no RAW decoder at all.
+  final DngSizedDecoder? _sidebarRawDecoder;
   final PhotoPayloadCache _cache = PhotoPayloadCache();
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
@@ -1188,6 +1197,33 @@ class ImagePreloadController {
             if (result is NativeImageBytes) {
               _thumbCache[id] = await sidebarCacheBytes(result.bytes);
               notifyLoaded();
+            } else if (_sidebarRawDecoder != null &&
+                SupportedPhotoFormats.isRawPath(file.path)) {
+              // M6 P2.5b (matrix P-12): the Dart sidebar route never decodes
+              // by design, so a bare-CFA DNG with no embedded JPEG at any
+              // size would otherwise regress to a permanently blank tile.
+              // Try the sized RAW decode before giving up.
+              try {
+                final decoded = await _sidebarRawDecoder(
+                  file.path,
+                  maxDim: 200,
+                );
+                if (generation != _thumbBatchGeneration) return;
+                final orientation =
+                    await DngPreviewExtractor.readOrientation(file.path) ??
+                    kDefaultExifOrientation;
+                _thumbCache[id] = await pngFromOrientedPixels(
+                  decoded,
+                  exifOrientation: orientation,
+                );
+                notifyLoaded();
+              } catch (_) {
+                // Decode failed too: fall through to the same permanent-miss
+                // answer as any other unrecoverable thumbnail.
+                if (generation == _thumbBatchGeneration) {
+                  _thumbPermanentMisses.add(id);
+                }
+              }
             } else {
               // Native only ever emits the raw-decode signal for purpose ==
               // preview, so anything that is not bytes here means no source

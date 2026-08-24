@@ -10,6 +10,7 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/dart_image_loader.dart';
 import '../services/dng_decode_contract.dart';
+import '../services/dng_decode_service.dart';
 import '../services/exif_metadata_service.dart';
 import '../services/image_preload_controller.dart';
 import '../services/native_thumbnail_service.dart';
@@ -86,6 +87,12 @@ class AppState extends ChangeNotifier {
              // adapter. While null, a DNG with no embedded preview falls back
              // to the legacy CIRAWFilter bytes rather than showing nothing.
              dngDecoder: dngDecoder,
+             // M6 P2.5b: the sidebar's sized RAW-decode fallback only exists
+             // where the app has a decoder at all (a platform/test with no
+             // dngDecoder stays on the uniform explicit miss).
+             sidebarRawDecoder: dngDecoder == null
+                 ? null
+                 : halcyonDngSizedDecoder,
            ) {
     _initPrefs();
   }

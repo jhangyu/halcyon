@@ -28,3 +28,12 @@ class DecodedRgba {
 ///
 /// Throws on failure; callers treat any throw as "fall back to the old path".
 typedef DngFullDecoder = Future<DecodedRgba> Function(String path);
+
+/// Decodes a DNG requesting a decode whose longest output edge is
+/// approximately [maxDim] pixels (M6 P2.5b, sidebar RAW-decode fallback for
+/// bare-CFA DNGs with no embedded JPEG at any size). [maxDim] is a request,
+/// not a guarantee -- callers must read the returned [DecodedRgba]'s actual
+/// dimensions rather than assume them. Throws on failure; callers treat any
+/// throw as "no thumbnail available".
+typedef DngSizedDecoder =
+    Future<DecodedRgba> Function(String path, {required int maxDim});
