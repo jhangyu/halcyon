@@ -1,9 +1,9 @@
 // Halcyon Windows native bridges.
 //
-// Declares the non-RAW image pipeline, the Recycle Bin bridge, and the
-// MethodChannel registration used by the Windows runner. The Dart contracts
-// these must satisfy live in:
-//   lib/services/native_thumbnail_service.dart  (halcyon/thumbnail)
+// Declares the Recycle Bin bridge and the MethodChannel registration used by
+// the Windows runner. The native image pipeline was deleted in M6 (F-04/06/07
+// moved to a pure-Dart producer); only Trash and Open With remain native. The
+// Dart contracts these must satisfy live in:
 //   lib/services/trash_service.dart             (halcyon/trash)
 //   lib/services/open_with_channel.dart         (halcyon/open_with)
 //
@@ -25,20 +25,6 @@
 
 namespace halcyon {
 
-// Outcome of a native image request.
-//
-// Mirrors the Dart-side `NativeImageResult` split (native_thumbnail_service.dart
-// :36-69) minus the `NativeImageNeedsRawDecode` variant, which Windows never
-// emits this round: emitting `NO_EMBEDDED_PREVIEW` would instruct Dart to run a
-// `DngFullDecoder` that has no Windows build path at all (see
-// docs/logs/2026-08-21/premise-audit-platforms.md).
-struct ImageResult {
-  bool ok = false;
-  std::vector<uint8_t> bytes;  // Encoded JPEG; only meaningful when |ok|.
-  std::string error_code;      // Only meaningful when !|ok|.
-  std::string error_message;
-};
-
 // Outcome of a Recycle Bin request. Dart only distinguishes success from
 // failure (trash_service.dart:9-19), but the code is kept for log fidelity.
 struct TrashResult {
@@ -46,18 +32,6 @@ struct TrashResult {
   std::string error_code;
   std::string error_message;
 };
-
-// True when |lowercase_utf8_path| ends in an extension Halcyon treats as RAW.
-// The list mirrors macos/Runner/AppDelegate.swift:312-318 exactly.
-bool IsRawExtension(const std::string& lowercase_utf8_path);
-
-// Decodes |utf8_path| and returns JPEG-encoded bytes capped at |target_size|
-// on the long edge. |purpose| is one of "sidebarThumbnail" / "preview" /
-// "export" (ImageRequestPurpose.platformValue, native_thumbnail_service.dart
-// :5-18). RAW input always fails with code "RAW_UNSUPPORTED".
-ImageResult RequestImage(const std::string& utf8_path,
-                         const std::string& purpose,
-                         int target_size);
 
 // Moves |utf8_path| to the Recycle Bin.
 //
@@ -73,12 +47,12 @@ TrashResult TrashFile(const std::string& utf8_path);
 // Windows appends to the command line.
 std::string FirstExistingFileArgument(const std::vector<std::string>& arguments);
 
-// Owns Halcyon's three Windows MethodChannels for the lifetime of the engine.
+// Owns Halcyon's two Windows MethodChannels for the lifetime of the engine.
 class Channels {
  public:
-  // Registers `halcyon/thumbnail` and `halcyon/trash` handlers immediately.
-  // `halcyon/open_with` is created but gets NO handler: like macOS
-  // (AppDelegate.swift:80-86) it is push-only, native -> Dart.
+  // Registers `halcyon/trash`'s handler immediately. `halcyon/open_with` is
+  // created but gets NO handler: like macOS (AppDelegate.swift:80-86) it is
+  // push-only, native -> Dart.
   explicit Channels(flutter::BinaryMessenger* messenger);
   ~Channels();
 
@@ -92,7 +66,6 @@ class Channels {
   void PushOpenFile(const std::string& utf8_path);
 
  private:
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> thumbnail_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> trash_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> open_with_;
 };

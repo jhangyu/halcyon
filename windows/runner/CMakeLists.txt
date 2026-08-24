@@ -9,7 +9,6 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "halcyon_channels.cpp"
-  "halcyon_image.cpp"
   "halcyon_trash.cpp"
   "main.cpp"
   "utils.cpp"

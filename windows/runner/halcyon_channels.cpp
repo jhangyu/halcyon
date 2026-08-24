@@ -41,68 +41,10 @@ std::string StringArgument(const EncodableMap& map,
   return fallback;
 }
 
-// The standard codec narrows small Dart ints to int32_t and keeps larger ones
-// as int64_t, so both alternatives have to be accepted.
-int IntArgument(const EncodableMap& map, const char* key, int fallback) {
-  if (const EncodableValue* value = ValueFor(map, key)) {
-    if (const auto* narrow = std::get_if<int32_t>(value)) {
-      return static_cast<int>(*narrow);
-    }
-    if (const auto* wide = std::get_if<int64_t>(value)) {
-      return static_cast<int>(*wide);
-    }
-  }
-  return fallback;
-}
-
 }  // namespace
 
 Channels::Channels(flutter::BinaryMessenger* messenger) {
   const auto& codec = flutter::StandardMethodCodec::GetInstance();
-
-  // native_thumbnail_service.dart:87 (channel), :104 (method `getThumbnail`),
-  // :105-108 (argument keys `path` / `purpose` / `targetSize` /
-  // `allowRawDecodeSignal`).
-  thumbnail_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
-      messenger, "halcyon/thumbnail", &codec);
-  thumbnail_->SetMethodCallHandler(
-      [](const flutter::MethodCall<EncodableValue>& call,
-         std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
-        if (call.method_name() != "getThumbnail") {
-          result->NotImplemented();
-          return;
-        }
-        const auto* arguments = std::get_if<EncodableMap>(call.arguments());
-        if (arguments == nullptr) {
-          result->Error("INVALID_ARGS", "Missing path");
-          return;
-        }
-        const std::string path = StringArgument(*arguments, "path", "");
-        if (path.empty()) {
-          result->Error("INVALID_ARGS", "Missing path");
-          return;
-        }
-        // Defaults match AppDelegate.swift:39-40 so the two platforms behave
-        // identically when a caller omits an optional argument.
-        const std::string purpose =
-            StringArgument(*arguments, "purpose", "preview");
-        const int target_size = IntArgument(*arguments, "targetSize", 4000);
-
-        // `allowRawDecodeSignal` is read but has no effect on Windows: it only
-        // selects whether a DNG with no embedded preview reports
-        // NO_EMBEDDED_PREVIEW or falls through to a native RAW decode, and
-        // Windows has neither path this round. RAW always fails outright.
-
-        ImageResult image = RequestImage(path, purpose, target_size);
-        if (!image.ok) {
-          result->Error(image.error_code, image.error_message,
-                        EncodableValue(path));
-          return;
-        }
-        // A std::vector<uint8_t> is encoded by the standard codec as a
-        // Uint8List, which is what native_thumbnail_service.dart:104 awaits.
-        result->Success(EncodableValue(std::move(image.bytes)));
-      });
 
   // trash_service.dart:7 (channel), :11 (method `trashFile` and key `path`).
   trash_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
@@ -149,9 +91,6 @@ Channels::~Channels() {
   // MethodChannel::SetMethodCallHandler). Both handlers capture nothing, so
   // there is no dangling state either way, but leaving a live handler bound to
   // a destroyed channel is exactly the shape of a later use-after-free.
-  if (thumbnail_) {
-    thumbnail_->SetMethodCallHandler(nullptr);
-  }
   if (trash_) {
     trash_->SetMethodCallHandler(nullptr);
   }
