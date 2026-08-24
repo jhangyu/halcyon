@@ -40,6 +40,25 @@ class DngEmbeddedJpeg {
   final int orientation;
 }
 
+/// Outcome of a malformed-aware walk: the selected embedded JPEG (when one was
+/// found) plus whether the container is structurally broken.
+///
+/// [malformed] is `true` only when the container PARSED but every candidate it
+/// declared is unreadable -- a strip offset or byte count past EOF, a byte
+/// count that does not match what the read returned, or bytes that are not a
+/// JPEG bitstream. It is `false` when the container simply declares no
+/// candidate at all (the valid-miss case, which must keep routing to a real RAW
+/// decode), when the candidate was rejected for being undersized (M7 ruling
+/// G-2 -- that is a deliberate miss, not a defect), and when the file is not a
+/// parseable TIFF/DNG at all (a truncation that fails before IFD0 is readable
+/// walks to `null` exactly as it did before M7 Task 3).
+class DngPreviewProbe {
+  const DngPreviewProbe({required this.jpeg, required this.malformed});
+
+  final DngEmbeddedJpeg? jpeg;
+  final bool malformed;
+}
+
 /// Reads and extracts DNG embedded JPEG previews, mirroring the Swift
 /// TIFF/IFD walker byte-for-byte. Every read is bounds-checked against the
 /// source length; malformed/truncated/non-DNG input degrades to `null`, never
@@ -90,6 +109,55 @@ class DngPreviewExtractor {
       return _walk(source, longEdge, minLongEdge: minLongEdge);
     } catch (_) {
       return null;
+    } finally {
+      try {
+        await raf?.close();
+      } catch (_) {
+        // Closing a handle we already failed on is not actionable.
+      }
+    }
+  }
+
+  /// Malformed-aware sibling of [extractEmbeddedJpeg]: same selection rules,
+  /// same [longEdge]/[minLongEdge] semantics, but it also reports whether the
+  /// container is structurally broken (see [DngPreviewProbe.malformed]).
+  ///
+  /// This is an ADDED API, not a migration: [extractEmbeddedJpeg] keeps its
+  /// exact signature and return type, and every existing caller stays on it.
+  /// The distinction exists because `_gatherCandidates` skips a candidate whose
+  /// strip lies past EOF, which made "the container declared no candidate" and
+  /// "the container declared only unreadable candidates" indistinguishable at
+  /// the call site -- so a corrupt file was handed to the RAW decoder as though
+  /// it were merely preview-less (M7 Task 3, audit gaps 2+3).
+  ///
+  /// One extra difference from [extractEmbeddedJpeg]: the selected candidate's
+  /// bytes must actually start with a JPEG SOI marker here. That check is
+  /// confined to this entry point on purpose, so the older API's behaviour on
+  /// non-bitstream bytes is untouched.
+  ///
+  /// Never throws.
+  static Future<DngPreviewProbe> probeEmbeddedJpeg(
+    String path, {
+    int? longEdge,
+    int? minLongEdge,
+    void Function(int byteCount)? onDiskRead,
+  }) async {
+    const miss = DngPreviewProbe(jpeg: null, malformed: false);
+    RandomAccessFile? raf;
+    try {
+      final file = File(path);
+      raf = await file.open();
+      final length = await raf.length();
+      if (length < 8) return miss;
+      final source = _FileSource(raf, length, onDiskRead);
+      return _probeWalk(
+        source,
+        longEdge,
+        minLongEdge: minLongEdge,
+        strictBitstream: true,
+      );
+    } catch (_) {
+      return miss;
     } finally {
       try {
         await raf?.close();
@@ -349,10 +417,10 @@ class DngPreviewExtractor {
       // longEdge: 0 keeps every structurally valid candidate (the 0.90*cropMax
       // full-size floor is a selection rule, not a validity rule), so the
       // answer describes the FILE rather than one request's taste.
-      final candidates = _gatherCandidates(reader, source, ifd0, 0);
-      if (candidates == null) return null;
+      final scan = _gatherCandidates(reader, source, ifd0, 0);
+      if (scan == null) return null;
       var best = 0;
-      for (final c in candidates) {
+      for (final c in scan.candidates) {
         if (c.maxDim > best) best = c.maxDim;
       }
       return (
@@ -378,11 +446,32 @@ class DngPreviewExtractor {
     _ByteSource source,
     int? longEdge, {
     int? minLongEdge,
+  }) => _probeWalk(
+    source,
+    longEdge,
+    minLongEdge: minLongEdge,
+    strictBitstream: false,
+  ).jpeg;
+
+  /// The one implementation behind both [_walk] and [probeEmbeddedJpeg]. With
+  /// [strictBitstream] false its `jpeg` field is bit-for-bit what [_walk]
+  /// returned before M7 Task 3; the `malformed` field is new information
+  /// computed alongside, never a change of selection.
+  ///
+  /// Reading a strip to decide `malformed` costs nothing on the hot paths: the
+  /// selected candidate's read is the one [_walk] already performs, and the
+  /// other candidates are only touched when that read fails.
+  static DngPreviewProbe _probeWalk(
+    _ByteSource source,
+    int? longEdge, {
+    int? minLongEdge,
+    required bool strictBitstream,
   }) {
+    const miss = DngPreviewProbe(jpeg: null, malformed: false);
     final reader = _readerFor(source);
-    if (reader == null) return null;
+    if (reader == null) return miss;
     final ifd0 = _readIFD0(reader);
-    if (ifd0 == null) return null;
+    if (ifd0 == null) return miss;
 
     // Orientation lives in IFD0. The extraction path cannot express
     // "undetermined" -- it injects EXIF only for a known non-1 value -- so an
@@ -392,30 +481,67 @@ class DngPreviewExtractor {
     // baking downstream.
     final orientation = _sanitizeOrientation(_orientationOf(reader, ifd0));
 
-    final candidates = _gatherCandidates(reader, source, ifd0, longEdge);
-    if (candidates == null) return null;
+    final scan = _gatherCandidates(reader, source, ifd0, longEdge);
+    if (scan == null) return miss;
 
-    final best = _select(candidates, longEdge);
-    if (best == null) return null;
+    final best = _select(scan.candidates, longEdge);
+    if (best == null) {
+      // No selectable candidate. If the container nevertheless DECLARED
+      // candidates and every one of them was dropped as out of bounds, the file
+      // is broken rather than preview-less -- that is the whole distinction
+      // this walk exists to surface.
+      return DngPreviewProbe(jpeg: null, malformed: scan.unreadable > 0);
+    }
 
     // Applied AFTER selection and in BOTH selection modes: this is a
-    // rejection, not a different choice (M7 ruling G-2).
-    if (minLongEdge != null && best.maxDim < minLongEdge) return null;
+    // rejection, not a different choice (M7 ruling G-2). Deliberately NOT
+    // malformed: the candidate is intact, just too small, and that case must
+    // keep routing to a real RAW decode.
+    if (minLongEdge != null && best.maxDim < minLongEdge) return miss;
 
-    final jpegBytes = source.read(best.offset, best.byteCount);
-    if (jpegBytes == null || jpegBytes.length != best.byteCount) return null;
+    final jpegBytes = _readStrip(source, best, strictBitstream);
+    if (jpegBytes == null) {
+      // The selected strip did not read back. Malformed only if NO declared
+      // candidate is readable -- one bad strip beside a good one is not a
+      // broken container.
+      final anyReadable = scan.candidates.any(
+        (c) =>
+            !identical(c, best) && _readStrip(source, c, strictBitstream) != null,
+      );
+      return DngPreviewProbe(jpeg: null, malformed: !anyReadable);
+    }
 
     var bytes = jpegBytes;
     if (orientation != 1) {
       final oriented = _injectExifOrientation(jpegBytes, orientation);
       if (oriented != null) bytes = oriented;
     }
-    return DngEmbeddedJpeg(
-      bytes: bytes,
-      width: best.width,
-      height: best.height,
-      orientation: orientation,
+    return DngPreviewProbe(
+      jpeg: DngEmbeddedJpeg(
+        bytes: bytes,
+        width: best.width,
+        height: best.height,
+        orientation: orientation,
+      ),
+      malformed: false,
     );
+  }
+
+  /// Reads one candidate's strip, returning `null` when it is unreadable:
+  /// out of bounds, short of its declared byte count, or -- when
+  /// [strictBitstream] -- not starting with a JPEG SOI marker.
+  static Uint8List? _readStrip(
+    _ByteSource source,
+    _Candidate candidate,
+    bool strictBitstream,
+  ) {
+    final bytes = source.read(candidate.offset, candidate.byteCount);
+    if (bytes == null || bytes.length != candidate.byteCount) return null;
+    if (strictBitstream &&
+        (bytes.length < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8)) {
+      return null;
+    }
+    return bytes;
   }
 
   /// Collects every structurally valid embedded-JPEG candidate in IFD0 and its
@@ -425,7 +551,15 @@ class DngPreviewExtractor {
   ///
   /// Returns `null` when the full-size request cannot be judged at all
   /// (`longEdge == null` and no usable DefaultCropSize).
-  static List<_Candidate>? _gatherCandidates(
+  ///
+  /// The returned scan separates the two reasons a declared IFD produces no
+  /// candidate. "Not a candidate" (no Compression/Photometric/dimension/strip
+  /// tags, wrong compression, or below the `0.90 * cropMax` full-size floor) is
+  /// simply absence. "Unreadable candidate" -- a fully-tagged JPEG candidate
+  /// whose strip lies outside the file -- is counted in [_CandidateScan
+  /// .unreadable], because a container whose every declared candidate is
+  /// unreadable is broken, not preview-less (M7 Task 3, audit gaps 2+3).
+  static _CandidateScan? _gatherCandidates(
     _TIFFReader reader,
     _ByteSource source,
     Map<int, _IFDEntry> ifd0,
@@ -474,6 +608,7 @@ class DngPreviewExtractor {
     if (longEdge == null && cropMax <= 0) return null;
 
     final candidates = <_Candidate>[];
+    var unreadable = 0;
 
     for (final ifd in candidateIFDs) {
       final compEntry = ifd[0x0103];
@@ -521,6 +656,9 @@ class DngPreviewExtractor {
           byteCount <= 0 ||
           offset >= source.length ||
           offset + byteCount > source.length) {
+        // A DECLARED candidate that cannot be read. Distinct from the
+        // `continue`s above, which mean "this IFD is not a candidate at all".
+        unreadable++;
         continue;
       }
 
@@ -534,7 +672,7 @@ class DngPreviewExtractor {
       );
     }
 
-    return candidates;
+    return _CandidateScan(candidates: candidates, unreadable: unreadable);
   }
 
   /// Candidate selection. `longEdge == null` keeps today's rule (largest area
@@ -665,6 +803,17 @@ class DngPreviewExtractor {
     }
     return true;
   }
+}
+
+/// What one candidate gather found: the usable candidates, plus how many
+/// fully-declared candidates had to be dropped because their strip lies outside
+/// the file. Zero usable candidates with a non-zero [unreadable] is the
+/// malformed-container signal.
+class _CandidateScan {
+  const _CandidateScan({required this.candidates, required this.unreadable});
+
+  final List<_Candidate> candidates;
+  final int unreadable;
 }
 
 class _Candidate {

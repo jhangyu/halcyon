@@ -68,14 +68,31 @@ Future<NativeImageResult> dartImageLoad(
     //    (M7 Decision Log A-6). G-2 is a DNG ruling and stays one.
     final strictPreview =
         purpose == ImageRequestPurpose.preview && lower.endsWith('.dng');
-    final full = (await DngPreviewExtractor.extractEmbeddedJpeg(
+    final probe = await DngPreviewExtractor.probeEmbeddedJpeg(
       path,
       longEdge: null,
       minLongEdge: strictPreview
           ? ImageRequestPurpose.preview.targetSize
           : null,
-    ))?.bytes;
+    );
+    final full = probe.jpeg?.bytes;
     if (full != null) return NativeImageBytes(full);
+    // M7 Task 3 (audit gaps 2+3): a container that PARSED but declares only
+    // unreadable candidates is broken, not preview-less. Before this it fell
+    // through to NeedsRawDecode below and failed slowly inside the RAW decoder
+    // with a generic error. The valid-miss path — a genuinely preview-less DNG,
+    // and an undersized-candidate rejection under G-2 — reports
+    // `malformed == false` and is deliberately untouched.
+    //
+    // Gated on `.dng` for the same reason the RAW-decode escape hatch below is:
+    // this is a DNG-container verdict, and a non-DNG RAW keeps its uniform
+    // RAW_NO_EMBEDDED_PREVIEW state (matrix F-08).
+    if (probe.malformed && lower.endsWith('.dng')) {
+      return const NativeImageFailure(
+        'DNG_PARSE_FAILED',
+        'every embedded preview the container declares is unreadable',
+      );
+    }
     if (purpose == ImageRequestPurpose.preview && lower.endsWith('.dng')) {
       final dims = await DngPreviewExtractor.readImageDimensions(path);
       if (dims != null && dims.width * dims.height * 4 > 1500000000) {

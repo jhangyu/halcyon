@@ -286,4 +286,136 @@ void main() {
       expect(result, isA<NativeImageBytes>());
     });
   });
+
+  // -------------------------------------------------------------------
+  // M7 Task 3 (audit gaps 2+3): a container that parsed but declares only
+  // unreadable candidates is BROKEN, not preview-less. Before this it was
+  // handed to the RAW decoder as though it were merely preview-less.
+  //
+  // `corruptOffsets: true` is exactly that input: IFD0 stays walkable (the
+  // orientation still reads) while every StripOffsets points past EOF.
+  // -------------------------------------------------------------------
+  group('malformed-DNG parse-failure state', () {
+    late Directory tmp;
+    late String corruptPath;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('dart_image_loader_t3_');
+      addTearDown(() async {
+        if (await tmp.exists()) await tmp.delete(recursive: true);
+      });
+      corruptPath = await writeSyntheticDng(
+        buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 3000, height: 2250)],
+          corruptOffsets: true,
+        ),
+        dir: tmp,
+        name: 'corrupt.dng',
+      );
+    });
+
+    test('(a) preview on a container whose every declared candidate is '
+        'unreadable fails fast instead of entering RAW decode', () async {
+      final result = await dartImageLoad(
+        corruptPath,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(
+        result,
+        isA<NativeImageFailure>(),
+        reason: 'previously this returned NativeImageNeedsRawDecode',
+      );
+      expect((result as NativeImageFailure).code, 'DNG_PARSE_FAILED');
+    });
+
+    test('(c) the sidebar branch is unchanged: still NO_THUMBNAIL', () async {
+      final result = await dartImageLoad(
+        corruptPath,
+        purpose: ImageRequestPurpose.sidebarThumbnail,
+      );
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
+    });
+
+    test('(b) a real preview-less DNG still yields NeedsRawDecode — the '
+        'valid-miss path did not regress', () async {
+      var covered = 0;
+      for (final f in dngs()) {
+        final full =
+            await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+              f.path,
+            );
+        if (full != null) continue;
+        covered++;
+        final result = await dartImageLoad(
+          f.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        expect(result, isA<NativeImageNeedsRawDecode>(), reason: f.path);
+      }
+      expect(
+        covered,
+        greaterThan(0),
+        reason: 'sample set must exercise the valid-miss path',
+      );
+    });
+
+    test('the G-2 undersized rejection is NOT malformed — an intact but small '
+        'candidate keeps routing to RAW decode', () async {
+      final smallPath = await writeSyntheticDng(
+        buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 160, height: 120)],
+        ),
+        dir: tmp,
+        name: 'small.dng',
+      );
+      final probe = await DngPreviewExtractor.probeEmbeddedJpeg(
+        smallPath,
+        longEdge: null,
+        minLongEdge: ImageRequestPurpose.preview.targetSize,
+      );
+      expect(probe.jpeg, isNull);
+      expect(probe.malformed, isFalse);
+    });
+
+    test('probe: a corrupt container reports malformed, an intact one does '
+        'not, and a non-TIFF file is not malformed either', () async {
+      final corrupt = await DngPreviewExtractor.probeEmbeddedJpeg(corruptPath);
+      expect(corrupt.jpeg, isNull);
+      expect(corrupt.malformed, isTrue);
+
+      final intactPath = await writeSyntheticDng(
+        buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 3000, height: 2250)],
+        ),
+        dir: tmp,
+        name: 'intact.dng',
+      );
+      final intact = await DngPreviewExtractor.probeEmbeddedJpeg(intactPath);
+      expect(intact.jpeg, isNotNull);
+      expect(intact.malformed, isFalse);
+
+      // Fails before IFD0 is readable: walks to null as it always did, and is
+      // explicitly NOT malformed-with-candidates.
+      final junk = File('${tmp.path}/junk.dng');
+      await junk.writeAsBytes(Uint8List.fromList(List<int>.filled(64, 0x5A)));
+      final notTiff = await DngPreviewExtractor.probeEmbeddedJpeg(junk.path);
+      expect(notTiff.jpeg, isNull);
+      expect(notTiff.malformed, isFalse);
+    });
+
+    test('extractEmbeddedJpeg keeps its contract on the same corrupt input '
+        '(added API, not a migration)', () async {
+      expect(
+        await DngPreviewExtractor.extractEmbeddedJpeg(corruptPath),
+        isNull,
+      );
+      expect(
+        await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+          corruptPath,
+        ),
+        isNull,
+      );
+    });
+  });
 }
