@@ -8,6 +8,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_file_actions.dart';
+import 'package:halcyon_flutter/services/photo_library_scanner.dart';
 import 'package:halcyon_flutter/services/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -243,6 +244,45 @@ void main() {
       state.items.clear();
 
       expect(state.currentItem, isNull); // was: StateError from _items.first
+    });
+
+    test('TC-221 a failing copy surfaces a status message', () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_ps221_src_');
+      addTearDown(() => src.delete(recursive: true));
+      final dest = await Directory.systemTemp.createTemp(
+        'halcyon_ps221_dest_',
+      );
+      addTearDown(() => dest.delete(recursive: true));
+      await _touch(src, 'IMG_0001.jpg');
+      // Block the destination path with a DIRECTORY so the copy throws.
+      await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
+
+      final state = _testState();
+      await state.loadFolder(src);
+      state.markCurrent(PhotoStatus.starred);
+
+      await state.processStarred(dest.path, false);
+
+      expect(state.status, isNotNull);
+      expect(state.status!.text, contains('1'));
+      expect(state.status!.text, contains('失敗'));
+    });
+
+    test('TC-224 a scan failure surfaces a status message', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_scanfail_');
+      addTearDown(() => dir.delete(recursive: true));
+
+      final state = AppState(
+        scanner: _ThrowingScanner(const FileSystemException('unreadable')),
+        thumbnailLoader: (path, {required purpose}) async {
+          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+        },
+      );
+
+      await state.loadFolder(dir);
+
+      expect(state.status, isNotNull);
+      expect(state.status!.text, contains('無法讀取'));
     });
   });
 
@@ -495,4 +535,11 @@ AppState _testState() {
       return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
     },
   );
+}
+
+class _ThrowingScanner extends PhotoLibraryScanner {
+  _ThrowingScanner(this.error);
+  final Object error;
+  @override
+  Future<List<PhotoItem>> scan(Directory dir) async => throw error;
 }

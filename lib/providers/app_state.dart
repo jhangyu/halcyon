@@ -322,6 +322,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint("Error loading directory: $e");
+      showStatus(StatusMessage('無法讀取此卷宗：$e'));
     }
   }
 
@@ -443,14 +444,23 @@ class AppState extends ChangeNotifier {
     final currentIndex = _items.indexWhere((i) => i.id == currentId);
 
     try {
-      await _fileActions.processStarred(
+      final outcome = await _fileActions.processStarred(
         _items,
         destDir,
         move: move,
         overwriteExisting: _overwriteExisting,
       );
+      if (outcome.failures.isNotEmpty) {
+        // Previously debugPrint only, so a read-only destination or a
+        // permission-denied copy looked identical to a working app.
+        for (final failure in outcome.failures.take(3)) {
+          debugPrint('processStarred failure: $failure');
+        }
+        showStatus(StatusMessage('*${outcome.failures.length}* 個檔案處理失敗'));
+      }
     } catch (e) {
       debugPrint("Error processing starred items: $e");
+      showStatus(StatusMessage('檔案處理失敗：$e'));
     }
 
     if (_currentDir != null) {
@@ -501,7 +511,8 @@ class AppState extends ChangeNotifier {
         movedCount = outcome.movedCount;
         failures.addAll(outcome.failures);
       } else {
-        await _fileActions.deleteTrashed(_items);
+        final outcome = await _fileActions.deleteTrashed(_items);
+        failures.addAll(outcome.failures);
       }
     } catch (e) {
       // Previously this only debugPrint()ed, so a card where the system trash
