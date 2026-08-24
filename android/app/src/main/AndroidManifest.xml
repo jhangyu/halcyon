@@ -28,18 +28,34 @@
                  ACTION_VIEW. content:// URI resolution to a real filesystem path
                  (and the folder-scan support needed to act on it) is NOT done
                  here; see MainActivity.kt and open_with_channel.dart doc
-                 comments. This declares the OS-level entry point only. -->
+                 comments. This declares the OS-level entry point only.
+
+                 Scoped to mimeType "image/*", not "*/*": review cycle 1 found
+                 "*/*" advertises Halcyon as an Open With target for every file
+                 type (PDF/video/zip), not just photos. "image/*" is a wildcard
+                 match against the subtype, so it covers our RAW formats too;
+                 Android/vendor MIME registries use "image/x-adobe-dng",
+                 "image/x-canon-cr2", "image/x-sony-arw", etc., all under the
+                 "image/" type. Deliberately NOT also adding pathPattern
+                 extension matching: Android's intent-filter data matching
+                 pools scheme/host/path/mimeType across ALL data tags in one
+                 filter rather than per-tag, so a wrong pathPattern glob (its
+                 minimal, non-regex "*" syntax; case-sensitive; requires an
+                 explicit host to be evaluated at all for file:// URIs) is easy
+                 to get subtly wrong and impossible to verify without a device
+                 on this host; image/* alone already fixes the reported
+                 defect without that risk. BROWSABLE dropped: this activity has
+                 no web content to expose to browser-driven URL navigation, it
+                 only matters for app/file-manager driven ACTION_VIEW. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="file" android:mimeType="*/*"/>
+                <data android:scheme="file" android:mimeType="image/*"/>
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="content" android:mimeType="*/*"/>
+                <data android:scheme="content" android:mimeType="image/*"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

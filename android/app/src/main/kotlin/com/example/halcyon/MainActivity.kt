@@ -16,8 +16,9 @@ import io.flutter.plugin.common.MethodChannel
 // content:// URI, not a filesystem path. Resolving that to a real path (and
 // the enclosing-folder access needed to act on it) is out of scope for this
 // ticket -- see open_with_channel.dart doc comment and M6 matrix F-02/F-16.
-// This only forwards file:// URIs' paths and content:// URIs' raw string
-// form; the end-to-end mobile flow stays parked until folder-scan works on
+// This only forwards Uri.path, which for file:// is a real filesystem path
+// but for content:// is an opaque provider-internal segment, not a usable
+// path; the end-to-end mobile flow stays parked until folder-scan works on
 // Android.
 class MainActivity : FlutterActivity() {
     private val openWithChannelName = "halcyon/open_with"
