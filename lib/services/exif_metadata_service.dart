@@ -11,8 +11,9 @@ import 'rename_rule.dart';
 /// platform channel. Returned list is index-aligned with the input; an entry
 /// is null when nothing could be read.
 typedef ExifBatchReader = Future<List<ExifMetadata?>> Function(
-  List<String> paths,
-);
+  List<String> paths, {
+  void Function(int done, int total)? onProgress,
+});
 
 /// Paths per channel call. Large enough that 10,000 photos cost 20 calls, small
 /// enough that progress updates stay smooth.
@@ -26,12 +27,16 @@ class ExifMetadataService {
   /// only path everywhere (matrix F-14, parity gold standard per
   /// m6-spec-contract §3). Chunking is retained so a huge folder still
   /// yields incremental progress rather than one giant `Future.wait`.
-  static Future<List<ExifMetadata?>> readBatch(List<String> paths) async {
+  static Future<List<ExifMetadata?>> readBatch(
+    List<String> paths, {
+    void Function(int done, int total)? onProgress,
+  }) async {
     final results = <ExifMetadata?>[];
     for (var start = 0; start < paths.length; start += kExifChunkSize) {
       final end = (start + kExifChunkSize).clamp(0, paths.length);
       final chunk = paths.sublist(start, end);
       results.addAll(await _readChunk(chunk));
+      onProgress?.call(end, paths.length);
     }
     return results;
   }

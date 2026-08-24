@@ -559,14 +559,13 @@ class AppState extends ChangeNotifier {
       paths.add(file.path);
     }
 
+    // Chunking (and its progress reporting) lives in ExifMetadataService.
+    // This used to chunk by the same fixed size as well, so a 1200-photo
+    // folder ran a 500-item loop inside a 500-item loop.
+    final all = await _exifReader(paths, onProgress: onProgress);
     final out = <String, ExifMetadata?>{};
-    for (var start = 0; start < paths.length; start += kExifChunkSize) {
-      final end = (start + kExifChunkSize).clamp(0, paths.length);
-      final chunk = await _exifReader(paths.sublist(start, end));
-      for (var i = 0; i < chunk.length; i++) {
-        out[ids[start + i]] = chunk[i];
-      }
-      onProgress?.call(end, paths.length);
+    for (var i = 0; i < ids.length && i < all.length; i++) {
+      out[ids[i]] = all[i];
     }
     return out;
   }

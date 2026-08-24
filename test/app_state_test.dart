@@ -284,6 +284,47 @@ void main() {
       expect(state.status, isNotNull);
       expect(state.status!.text, contains('無法讀取'));
     });
+
+    test('TC-225 readMetadataFor chunks once and reports progress', () async {
+      final chunkSizes = <int>[];
+      final progress = <int>[];
+
+      // A fake scanner avoids creating 1200 real files: this test is about
+      // AppState's chunking loop, not the filesystem scan.
+      final state = AppState(
+        scanner: _FixedScanner(
+          List.generate(
+            1200,
+            (i) => PhotoItem(
+              id: 'P$i',
+              files: [File(p.join('/nonexistent', 'P$i.jpg'))],
+            ),
+          ),
+        ),
+        thumbnailLoader: (path, {required purpose}) async {
+          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+        },
+        exifReader: (paths, {onProgress}) async {
+          chunkSizes.add(paths.length);
+          onProgress?.call(paths.length, paths.length);
+          return List<ExifMetadata?>.filled(paths.length, null);
+        },
+      );
+      addTearDown(state.dispose);
+
+      await state.loadFolder(Directory.systemTemp);
+      await state.readMetadataFor(state.items, onProgress: (done, total) {
+        progress.add(done);
+      });
+
+      // ONE call into the reader with the whole list: the chunking lives in
+      // ExifMetadataService, and AppState must not chunk a second time on
+      // top (previously ran a 500-item loop inside ExifMetadataService's own
+      // 500-item loop).
+      expect(chunkSizes, [1200]);
+      expect(progress, isNotEmpty);
+      expect(progress.last, 1200);
+    });
   });
 
   group('AppState.openPhotoAtPath', () {
@@ -443,7 +484,7 @@ void main() {
         thumbnailLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
-        exifReader: (paths) async => [
+        exifReader: (paths, {onProgress}) async => [
           for (final path in paths)
             ExifMetadata(
               captureDate: p.basename(path).startsWith('A')
@@ -542,4 +583,11 @@ class _ThrowingScanner extends PhotoLibraryScanner {
   final Object error;
   @override
   Future<List<PhotoItem>> scan(Directory dir) async => throw error;
+}
+
+class _FixedScanner extends PhotoLibraryScanner {
+  _FixedScanner(this.result);
+  final List<PhotoItem> result;
+  @override
+  Future<List<PhotoItem>> scan(Directory dir) async => result;
 }

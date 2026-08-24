@@ -1209,6 +1209,20 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-221~225｜AppState 不再吞掉失敗、currentItem 不再回退到錯誤的照片、EXIF 讀取不再雙重分批（Tech-Debt Task 5）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-221（`processStarred` 遇到失敗會透過 `showStatus` 顯示狀態列訊息而非只 `debugPrint`，`test/app_state_test.dart`；壞掉時：唯讀目的地或權限被拒的複製看起來與正常運作的 app 一模一樣）／TC-222（`currentItem` 對已經不在 `_items` 裡的選取 id 回傳 `null`，`test/app_state_test.dart`；壞掉時：舊行為用 `orElse: () => _items.first` 回退，使用者標記套用到的照片跟畫面上看到的不是同一張）／TC-223（`currentItem` 在 `_items` 為空時不拋例外，`test/app_state_test.dart`；壞掉時：`_items.first` 對空列表拋 `StateError`）／TC-224（`loadFolder` 的 scan 失敗會顯示狀態列訊息，`test/app_state_test.dart`；壞掉時：資料夾讀取失敗只 `debugPrint`，使用者以為 app 卡住）／TC-225（`readMetadataFor` 只呼叫一次 `_exifReader`（整批），不再自己按 `kExifChunkSize` 二次分批，`test/app_state_test.dart`；壞掉時：1200 張照片的資料夾會在 `ExifMetadataService.readBatch` 的 500 筆迴圈外再套一層 `AppState` 自己的 500 筆迴圈） |
+| **測試類型** | 單元測試（`test/app_state_test.dart`，真實暫存目錄 + 注入的 fake scanner/exifReader，無 platform channel） |
+| **背景** | 稽核發現 `processStarred`/`deleteTrashed`/`loadFolder` 的例外處理只 `debugPrint`，使用者看不到任何回饋；`currentItem` 用 `firstWhere(orElse: () => _items.first)` 掩蓋「選取項目消失」這個真實狀態；`readMetadataFor` 在呼叫已經會分批的 `_exifReader` 之前，自己又做了一層一模一樣大小的分批迴圈。詳見 `docs/logs/2026-08-24/Task_refactor_plan_main.md` Task 5 spec（A1/A2/A3/A8/C8） |
+| **預期結果** | 如上逐條 |
+| **狀態** | ✅ 已通過（`test/app_state_test.dart` + `test/exif_metadata_service_test.dart` + `test/rename_dialog_test.dart` 合計 30 個測試 `All tests passed!`，RC=0 自捕；`flutter analyze` 對五個改動檔案 `No issues found!`）。TC-221~225 紅→綠留證：修補前 TC-221/224 是 `Expected: not null Actual: <null>`，TC-222 是 `Expected: null Actual: <Instance of 'PhotoItem'>`，TC-223 是 `Bad state: No element`，TC-225 是 `Expected: [1200] Actual: [500, 500, 200]` |
+
+> **範圍外附帶修改（非計畫檔案清單內，但被 C8 的簽名變更強制要求）**：`ExifBatchReader` typedef 新增可選具名參數 `onProgress` 後，`test/rename_dialog_test.dart:13` 原本用位置參數形式 `(paths) async => ...` 的 fake 無法再滿足新型別，`flutter analyze` 對該檔案直接報 `argument_type_not_assignable`；已在同一提交把該 fake 改為 `(paths, {onProgress}) async => ...`，除此之外未改動該檔案任何其他內容。
+
+---
+
 ### TC-226｜側欄選單動作值改用具名常數、main.dart 過期 CIRAWFilter 註解修正（Tech-Debt Task 6）
 
 | 欄位 | 內容 |

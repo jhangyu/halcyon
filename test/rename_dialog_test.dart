@@ -10,7 +10,10 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) =>
-            AppState(exifReader: (paths) async => [for (final _ in paths) null]),
+            AppState(
+              exifReader: (paths, {onProgress}) async =>
+                  [for (final _ in paths) null],
+            ),
         child: const MaterialApp(home: Scaffold(body: RenameDialog())),
       ),
     );
