@@ -39,9 +39,11 @@ void configureImageCache() {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   configureImageCache();
-  // Composition root: injects the real RAW decoder. AppState's dngDecoder
-  // defaults to null (which degrades to the legacy CIRAWFilter bytes path),
-  // so this line is what makes the round-3b raw-decode path reachable at all.
+  // Composition root: injects the real RAW decoder. When dngDecoder is null
+  // (tests, and any platform without the native dylib) a DNG carrying no
+  // embedded preview is a PERMANENT MISS -- there is no legacy decode channel
+  // left to fall back to; it was deleted in M6. See the dngDecoder comment in
+  // AppState's constructor.
   final appState = AppState(
     dngDecoder: halcyonDngFullDecoder,
   ); // PERF-INSTRUMENTATION

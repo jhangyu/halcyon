@@ -1209,6 +1209,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-226｜側欄選單動作值改用具名常數、main.dart 過期 CIRAWFilter 註解修正（Tech-Debt Task 6）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-226（`sidebar_view.dart` 的選單 overflow 仍只暴露五個值 `copy`/`move`/`thumbnailStarred`/`delete`/`settings`，改用 `kCopyMenuValue`/`kMoveMenuValue`/`kThumbnailStarredMenuValue`/`kDeleteMenuValue`/`kSettingsMenuValue` 五個具名常數後字面值不變，`test/sidebar_view_test.dart`） |
+| **測試類型** | Widget 測試（`test/sidebar_view_test.dart`，無 platform channel） |
+| **背景** | C9：`onSelected` 與 9 個字面字串比對／`value:` 散落，容易打錯字面量讓選單靜默失效（既有 G-012 已踩過一次）；本輪加入 `kCopyMenuValue`/`kMoveMenuValue`/`kDeleteMenuValue`/`kSettingsMenuValue` 四個常數與既有的 `kThumbnailStarredMenuValue` 並列，全部 9 個比對/宣告點改用常數。E2：`main.dart` 的 `dngDecoder` 註解宣稱 null 時「degrades to the legacy CIRAWFilter bytes path」，與 `app_state.dart:88-93` 的事實（永久 miss，無 legacy channel）矛盾，已改寫為與該檔一致的措辭（措辭上避開字面 `CIRAWFilter` 字串，因為計畫本身給的替換文字與其自己的驗收 grep `0 hits` 互相矛盾——已改述保留原意）。詳見 memory.md 待補 |
+| **預期結果** | 字面字串值不變，僅命名；`main.dart` 不再含 `CIRAWFilter` 字樣 |
+| **狀態** | ✅ TC-226 通過（見任務回報）。C11（刪除 `imageCacheMaxBytes`）**未執行**——`test/image_preload_window_test.dart:339,345`（TC-100）直接讀取該常數斷言精確位元組數，是計畫 Step 6.5 宣稱不存在的 executable reader，且該檔不在本任務 Files 所有權內；已停手回報 lead 裁決，未刪除 |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令

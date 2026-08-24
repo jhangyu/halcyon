@@ -13,6 +13,10 @@ import 'settings_dialog.dart';
 /// a bug where a hardcoded value/onSelected string mismatch silently
 /// disabled a menu button.
 const String kThumbnailStarredMenuValue = 'thumbnailStarred';
+const String kCopyMenuValue = 'copy';
+const String kMoveMenuValue = 'move';
+const String kDeleteMenuValue = 'delete';
+const String kSettingsMenuValue = 'settings';
 
 class SidebarView extends StatefulWidget {
   const SidebarView({super.key});
@@ -325,12 +329,12 @@ class _SidebarViewState extends State<SidebarView> {
       constraints: const BoxConstraints(),
       onSelected: (value) async {
         final state = context.read<AppState>();
-        if (value == 'copy' || value == 'move') {
+        if (value == kCopyMenuValue || value == kMoveMenuValue) {
           final String? dest = await getDirectoryPath(
-            confirmButtonText: value == 'copy' ? 'Copy Here' : 'Move Here',
+            confirmButtonText: value == kCopyMenuValue ? 'Copy Here' : 'Move Here',
           );
           if (dest != null) {
-            await state.processStarred(dest, value == 'move');
+            await state.processStarred(dest, value == kMoveMenuValue);
           }
         } else if (value == kThumbnailStarredMenuValue) {
           final String? dest = await getDirectoryPath(
@@ -339,13 +343,13 @@ class _SidebarViewState extends State<SidebarView> {
           if (dest != null) {
             await state.exportStarredThumbnails(dest);
           }
-        } else if (value == 'delete') {
+        } else if (value == kDeleteMenuValue) {
           final result = await state.deleteTrashed();
           if (!context.mounted) return;
           showBatchDeleteFeedback(context, result);
         } else if (value == kRenameMenuValue) {
           showDialog(context: context, builder: (ctx) => const RenameDialog());
-        } else if (value == 'settings') {
+        } else if (value == kSettingsMenuValue) {
           showDialog(context: context, builder: (ctx) => SettingsDialog());
         }
       },
@@ -362,7 +366,7 @@ class _SidebarViewState extends State<SidebarView> {
 
         return [
           PopupMenuItem(
-            value: 'copy',
+            value: kCopyMenuValue,
             enabled: hasStarred,
             child: Text(
               'Copy Starred...',
@@ -370,7 +374,7 @@ class _SidebarViewState extends State<SidebarView> {
             ),
           ),
           PopupMenuItem(
-            value: 'move',
+            value: kMoveMenuValue,
             enabled: hasStarred,
             child: Text(
               'Move Starred...',
@@ -395,7 +399,7 @@ class _SidebarViewState extends State<SidebarView> {
           ),
           const PopupMenuDivider(),
           PopupMenuItem(
-            value: 'delete',
+            value: kDeleteMenuValue,
             enabled: hasTrashed,
             child: Text(
               state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
@@ -404,7 +408,7 @@ class _SidebarViewState extends State<SidebarView> {
           ),
           const PopupMenuDivider(),
           PopupMenuItem(
-            value: 'settings',
+            value: kSettingsMenuValue,
             child: Row(
               children: [
                 Icon(Icons.settings, size: 18, color: actionTextColor),

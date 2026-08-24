@@ -408,4 +408,18 @@ void main() {
       expect(state.getThumbnailBytes(id), isNull);
     },
   );
+
+  testWidgets('TC-226 the overflow menu exposes exactly the five actions',
+      (tester) async {
+    expect(
+      {
+        kCopyMenuValue,
+        kMoveMenuValue,
+        kThumbnailStarredMenuValue,
+        kDeleteMenuValue,
+        kSettingsMenuValue,
+      },
+      {'copy', 'move', 'thumbnailStarred', 'delete', 'settings'},
+    );
+  });
 }
