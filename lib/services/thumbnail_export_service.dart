@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:image/image.dart' as img;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/photo_item.dart';
@@ -65,14 +66,10 @@ class ThumbnailExportService {
       if (frame != null) frame = img.bakeOrientation(frame);
     } else if (result is NativeImageNeedsRawDecode && decoder != null) {
       final decoded = await decoder(path);
-      frame = img.Image.fromBytes(
-        width: decoded.width,
-        height: decoded.height,
-        bytes: decoded.rgba.buffer,
-        numChannels: 4,
-      );
+      final wrapped = imageFromDecodedRgba(decoded);
+      if (wrapped == null) return null;
       // FFI output is unrotated; bake from the signal's orientation.
-      frame = bakeExifOnDecoded(frame, result.exifOrientation);
+      frame = bakeExifOnDecoded(wrapped, result.exifOrientation);
     }
     if (frame == null) return null;
     // Re-attach EXIF read from the ORIGINAL source file (M6 P3 review P-14
@@ -253,6 +250,44 @@ class ThumbnailExportService {
       failures: failures,
     );
   }
+}
+
+/// Wraps a raw RGBA8 frame from the FFI decoder as an [img.Image].
+///
+/// `bytesOffset` and `order` are NOT optional decoration: `decoded.rgba` can
+/// be a VIEW into a larger buffer (non-zero `offsetInBytes`), and
+/// `img.Image.fromBytes` reads from the START of the ByteBuffer unless told
+/// otherwise -- so omitting them silently reads the wrong bytes with the
+/// wrong channel order. The correct shape is the one
+/// `sidebar_thumbnail_codec.dart:_encodeJpeg` already uses.
+///
+/// Returns null when the buffer and the dimensions disagree, rather than
+/// constructing a mis-sized image whose pixels are meaningless.
+img.Image? imageFromDecodedRgba(DecodedRgba decoded) {
+  final expected = decoded.width * decoded.height * 4;
+  if (decoded.rgba.length != expected) return null;
+  return img.Image.fromBytes(
+    width: decoded.width,
+    height: decoded.height,
+    bytes: decoded.rgba.buffer,
+    bytesOffset: decoded.rgba.offsetInBytes,
+    numChannels: 4,
+    order: img.ChannelOrder.rgba,
+  );
+}
+
+/// Test seam for the RAW-decode half of [ThumbnailExportService.exportBytesFor]
+/// -- the export path without needing a real file on disk.
+@visibleForTesting
+Future<Uint8List?> exportJpegForTest(
+  DecodedRgba decoded, {
+  int exifOrientation = 1,
+}) async {
+  final frame = imageFromDecodedRgba(decoded);
+  if (frame == null) return null;
+  return Uint8List.fromList(
+    img.encodeJpg(bakeExifOnDecoded(frame, exifOrientation), quality: 90),
+  );
 }
 
 /// Applies an EXIF Orientation value (1..8) to a raw-decoded (unrotated)

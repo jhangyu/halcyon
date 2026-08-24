@@ -548,4 +548,42 @@ void main() {
       expect(rgbaAt(out, 0, 1), red);
     });
   });
+
+  group('A7 offset-view export regression', () {
+    test('TC-214 an offset-view RGBA buffer exports the same pixels', () async {
+      const width = 4;
+      const height = 4;
+      final pixels = Uint8List(width * height * 4);
+      for (var i = 0; i < pixels.length; i += 4) {
+        pixels[i] = 200; // R
+        pixels[i + 1] = 40; // G
+        pixels[i + 2] = 10; // B
+        pixels[i + 3] = 255; // A
+      }
+      // The FFI decoder can hand back a VIEW into a larger buffer. Build one
+      // with a non-zero offsetInBytes holding the identical pixels.
+      final backing = Uint8List(64 + pixels.length)
+        ..setRange(64, 64 + pixels.length, pixels);
+      final view = Uint8List.view(backing.buffer, 64, pixels.length);
+      expect(view.offsetInBytes, 64);
+
+      final flat = await exportJpegForTest(
+        DecodedRgba(rgba: pixels, width: width, height: height),
+      );
+      final offset = await exportJpegForTest(
+        DecodedRgba(rgba: view, width: width, height: height),
+      );
+
+      expect(offset, isNotNull);
+      expect(offset, equals(flat));
+    });
+
+    test('TC-215 a length/dimension mismatch returns null, not garbage', () async {
+      final short = Uint8List(4 * 4 * 4 - 8);
+      final result = await exportJpegForTest(
+        DecodedRgba(rgba: short, width: 4, height: 4),
+      );
+      expect(result, isNull);
+    });
+  });
 }
