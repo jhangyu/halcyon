@@ -33,9 +33,9 @@ Every task implicitly includes all of these. Values are copied verbatim from the
 - **C-2 parity rule:** No behaviour may exist on a subset of the supported platform set. Declared exceptions are a closed list — F-12 system Trash (mac+win native), F-16 Open With (macOS/Windows/Android/iOS; Linux excluded), F-18 file association (Windows+macOS). Nothing new may cite them as precedent.
 - **C-3, no platform branches in `lib/`:** `Platform.isX`, `kIsWeb`, `defaultTargetPlatform`, conditional imports, and shelled-out platform binaries are forbidden in `lib/`. The enumerated exceptions are unchanged: `perf_driver.dart`'s env reads and the single F-19 reveal site in `status_line.dart`. Verification command for every task that touches `lib/`:
   ```bash
-  grep -rn "Platform\.is\|kIsWeb\|defaultTargetPlatform" lib/ | grep -v perf_driver.dart | grep -v status_line.dart; RC=$?
+  grep -rn "Platform\.is\|kIsWeb\|defaultTargetPlatform" lib/ | grep -v perf_driver.dart | grep -v status_line.dart | grep -vE ':[[:space:]]*(//|/\*|\*)'; RC=$?
   ```
-  Expected: no rows (`RC=1`).
+  Expected: no rows (`RC=1`). The trailing filter drops comment lines: `lib/main.dart:31` and `lib/services/cache_budget.dart:6` both mention `Platform.isX` in prose *describing the prohibition*, and the original command could not tell documentation from a branch (A-7, raised by Task 2's implementer). Prose naming the rule is not a violation of it.
 - **C-4:** A test asserting single-platform semantics is deleted with its reason recorded; the frozen-file seal in `docs/logs/2026-08-24/baseline-registry.md` is lifted only for those tests, and new sha256 values are re-registered in the same commit.
 - **C-5 / P-8 / P-13:** Performance gates run before any deletion. Swift-accelerator retention is rejected; on FAIL, optimise and re-gate. **Standing latency rule: any per-sample decode under 75 ms passes outright, regardless of the 2.0× ratio clause.**
 - **C-6 scope-out:** no new product features beyond the two named items, no UI redesign, and **no UI latency or memory measurement by agents** — those are user-run only.
