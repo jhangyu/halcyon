@@ -13,7 +13,7 @@ import '../services/dng_decode_contract.dart';
 import '../services/dng_decode_service.dart';
 import '../services/exif_metadata_service.dart';
 import '../services/image_preload_controller.dart';
-import '../services/native_thumbnail_service.dart';
+import '../services/image_source_types.dart';
 import '../services/photo_file_actions.dart';
 import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
@@ -85,8 +85,9 @@ class AppState extends ChangeNotifier {
            ImagePreloadController(
              imageLoader: thumbnailLoader ?? dartImageLoad,
              // Null until the app's composition root injects the pkg squad's
-             // adapter. While null, a DNG with no embedded preview falls back
-             // to the legacy CIRAWFilter bytes rather than showing nothing.
+             // adapter. While null, a DNG with no embedded preview is a
+             // permanent miss (M6 U-12) -- there is no legacy channel path
+             // left to fall back to.
              dngDecoder: dngDecoder,
              // M6 P2.5b: the sidebar's sized RAW-decode fallback only exists
              // where the app has a decoder at all (a platform/test with no

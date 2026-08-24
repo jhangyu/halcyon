@@ -33,7 +33,7 @@ import 'package:halcyon_flutter/main.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_payload_cache.dart';
 import 'package:halcyon_flutter/services/prefetch_scheduler.dart';
 

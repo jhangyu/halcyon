@@ -7,10 +7,10 @@
 //
 // PERMANENT PERF HARNESS (contract: docs/logs/2026-08-16/round-3-implementation-plan.md §3).
 //
-// Drives the REAL app stack (real MethodChannel -> real AppDelegate.swift,
-// real engine decode, real raster) through N photo switches and logs
-// per-stage timestamps. A structural no-op unless HALCYON_PERF_DIR is set --
-// see PerfDriver.active, only reached from main.dart behind that same check.
+// Drives the REAL app stack (the pure-Dart image producer, real engine
+// decode, real raster) through N photo switches and logs per-stage
+// timestamps. A structural no-op unless HALCYON_PERF_DIR is set -- see
+// PerfDriver.active, only reached from main.dart behind that same check.
 //
 // The macOS build is sandboxed: HALCYON_PERF_DIR/HALCYON_PERF_OUT must be
 // RELATIVE paths (resolved against the app container's Data dir), never
@@ -29,7 +29,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/scheduler.dart';
 
 import '../providers/app_state.dart';
-import '../services/native_thumbnail_service.dart';
+import '../services/dart_image_loader.dart';
+import '../services/image_source_types.dart';
 import 'perf_log.dart';
 
 class PerfDriver {
@@ -181,7 +182,8 @@ class PerfDriver {
   }
 
   /// Isolated component costs, measured outside the widget pipeline:
-  ///  - native channel roundtrip (H2/H3)
+  ///  - pure-Dart loader roundtrip (H2/H3; M6 successor of the deleted
+  ///    native channel roundtrip)
   ///  - engine JPEG decode (H1)
   static Future<void> _microbench(AppState state) async {
     PerfLog.log('microbench.begin');
@@ -195,10 +197,9 @@ class PerfDriver {
     for (var i = 0; i < files.length && i < 12; i++) {
       final path = files[i].path;
       final t0 = PerfLog.us;
-      final bytes = await NativeThumbnailService.getThumbnail(
-        path,
-        purpose: ImageRequestPurpose.preview,
-      );
+      final result =
+          await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+      final bytes = result is NativeImageBytes ? result.bytes : null;
       final t1 = PerfLog.us;
       PerfLog.log(
         'micro.channel|$i|${bytes?.length ?? -1}|roundtrip=${t1 - t0}',

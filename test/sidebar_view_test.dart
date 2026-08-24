@@ -10,7 +10,7 @@ import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/views/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
 import 'package:path/path.dart' as p;

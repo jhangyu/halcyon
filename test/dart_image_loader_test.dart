@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');

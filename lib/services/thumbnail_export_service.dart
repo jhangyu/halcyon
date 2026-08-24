@@ -8,7 +8,7 @@ import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import 'dart_image_loader.dart';
 import 'dng_decode_contract.dart';
-import 'native_thumbnail_service.dart';
+import 'image_source_types.dart';
 
 /// Result of a "Thumbnail Starred" export batch. [failures] entries are
 /// `"<filename>: <error message>"`, mirroring [RecycleOutcome]'s shape in
@@ -55,9 +55,9 @@ class ThumbnailExportService {
     img.Image? frame;
     if (result is NativeImageBytes) {
       frame = img.decodeImage(result.bytes);
-      // Pixels rotated per EXIF, Orientation forced to 1 -- the native
-      // export branch's documented contract (ImageRequestPurpose.export docs
-      // in native_thumbnail_service.dart).
+      // Pixels rotated per EXIF, Orientation forced to 1 -- the export
+      // contract documented on ImageRequestPurpose.export
+      // (image_source_types.dart).
       if (frame != null) frame = img.bakeOrientation(frame);
     } else if (result is NativeImageNeedsRawDecode && decoder != null) {
       final decoded = await decoder(path);

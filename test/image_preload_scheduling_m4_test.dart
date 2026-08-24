@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_source.dart';
 
 // M4 (scheduling unification). Three acceptance conditions of the frozen
@@ -176,9 +176,9 @@ void main() {
           }
           thumbRequests.add(path);
           if (path == throwingPath) {
-            // Simulates an unconverted PlatformException / MissingPluginException
-            // reaching this seam, or a native TypeError on a non-Uint8List
-            // channel reply (see native_thumbnail_service.dart:117).
+            // Simulates a loader implementation throwing instead of returning
+            // a NativeImageFailure -- e.g. an unconverted platform exception
+            // from a bridge, or any other loader-internal error.
             throw StateError('native bridge threw instead of returning '
                 'NativeImageFailure');
           }
@@ -382,21 +382,9 @@ void main() {
     'M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred '
     'null payload -- the signal the caller turns into a permanent miss',
     () async {
-      // The legacy CIRAWFilter re-request fails too: nothing can produce this
-      // file.
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(
-            const MethodChannel('halcyon/thumbnail'),
-            (call) async => null,
-          );
-      addTearDown(
-        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('halcyon/thumbnail'),
-              null,
-            ),
-      );
-
+      // M6 U-12 (P3.3): the legacy CIRAWFilter channel this used to mock is
+      // deleted -- a throwing decoder with no channel to fall back to IS the
+      // failure now, no mock needed to force it.
       final source = PhotoSource(
         loader: (path, {required purpose}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -425,19 +413,8 @@ void main() {
     'M4-AC3 the step-3b failure path marks a permanent miss and RELEASES the '
     'view from its spinner (invariant T1)',
     () async {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(
-            const MethodChannel('halcyon/thumbnail'),
-            (call) async => null, // legacy CIRAWFilter failed too
-          );
-      addTearDown(
-        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('halcyon/thumbnail'),
-              null,
-            ),
-      );
-
+      // M6 U-12 (P3.3): no legacy channel left to mock -- the throwing
+      // decoder below IS the failure, immediately.
       var notifies = 0;
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose}) async =>

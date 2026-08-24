@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_preview_extractor.dart';
-import 'native_thumbnail_service.dart';
+import 'image_source_types.dart';
 import 'photo_payload.dart';
 
 /// How expensive it is to produce this file's payload, MEASURED from content.
@@ -90,10 +90,11 @@ class PhotoSource {
   final NativeImageLoad loader;
 
   /// Null when no RAW decoder is available. Every use is guarded by step 3b:
-  /// no decoder (or a throwing one) re-requests through
-  /// `NativeThumbnailService.getThumbnail`, which forces
-  /// `allowRawDecodeSignal: false` and so reproduces the pre-round-3b
-  /// CIRAWFilter path byte-for-byte. Degraded, never blank.
+  /// no decoder (or a throwing one) is a genuine permanent miss (M6 U-12
+  /// ruling) -- the native CIRAWFilter re-request this used to fall back to
+  /// no longer exists on any platform, so there is nothing left to degrade
+  /// to; the caller records `payload: null, deferred: false` exactly as any
+  /// other unrecoverable file.
   final DngFullDecoder? dngDecoder;
 
   /// Produces the payload for [path] at [longEdge], plus what that attempt
@@ -136,11 +137,11 @@ class PhotoSource {
       case NativeImageNeedsRawDecode(:final exifOrientation):
         final decoder = dngDecoder;
         if (decoder == null) {
-          // No FFI work exists to defer. Preserve the frozen "slow but
-          // working" behaviour immediately: legacy CIRAWFilter bytes, not a
-          // spinner waiting for a decoder the app does not have.
+          // No FFI work exists to defer, and no legacy channel exists to
+          // fall back to any more (M6 U-12): a genuine permanent miss,
+          // recorded immediately rather than left as a spinner.
           return (
-            payload: await _legacyBytes(path),
+            payload: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
@@ -175,11 +176,13 @@ class PhotoSource {
             fullRes: fullRes,
           );
         } catch (_) {
-          // Step 3b. A throwing decoder must degrade to the old slow path,
-          // never to a blank screen (frozen design §2, oracle-protected at
-          // test/image_preload_controller_test.dart:1118-1120).
+          // Step 3b. A throwing decoder is a genuine permanent miss (M6
+          // U-12): there is no legacy channel path left to degrade to, so
+          // the caller records the uniform null-payload miss (oracle-
+          // protected at test/image_preload_controller_test.dart, the
+          // "no decoder"/"throwing decoder" cases).
           return (
-            payload: await _legacyBytes(path),
+            payload: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
@@ -213,8 +216,9 @@ class PhotoSource {
   }) async {
     final decoder = dngDecoder;
     if (decoder == null) {
+      // M6 U-12: no legacy channel exists to fall back to any more.
       return (
-        payload: await _legacyBytes(path),
+        payload: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
@@ -240,8 +244,9 @@ class PhotoSource {
         fullRes: fullRes,
       );
     } catch (_) {
+      // M6 U-12: a throwing decoder is a genuine permanent miss.
       return (
-        payload: await _legacyBytes(path),
+        payload: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
@@ -269,22 +274,6 @@ class PhotoSource {
       longEdge: 0,
     );
     return (rgba: fullRes.rgba, width: fullRes.width, height: fullRes.height);
-  }
-
-  /// Step 3b: re-request with `allowRawDecodeSignal` forced false, which is
-  /// what `NativeThumbnailService.getThumbnail` always sends. Reproduces the
-  /// pre-round-3b native behaviour byte-for-byte: CIRAWFilter, 2800px cap,
-  /// slow -- but a picture.
-  ///
-  /// A null return means BOTH the decode and the legacy path failed. The
-  /// caller must mark a permanent miss on it; that is the load-bearing edge
-  /// §3.4 names as the only new stranding risk in M3.
-  static Future<EncodedPayload?> _legacyBytes(String path) async {
-    final bytes = await NativeThumbnailService.getThumbnail(
-      path,
-      purpose: ImageRequestPurpose.preview,
-    );
-    return bytes == null ? null : EncodedPayload(bytes);
   }
 
   /// Measures [path] from its CONTENT in ONE bounded walk, reading at most a

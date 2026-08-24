@@ -46,9 +46,15 @@
 ### 凍結測試閘門 sha256（改動需使用者授權）
 | 檔案 | sha256 |
 |---|---|
-| `test/dng_nav_probe_m3_test.dart` | `59b1f3c7112b01784cd868ffd2fbd5bab9f25c30ec46eb8a26d542cee33b8e2c` |
-| `test/image_preload_controller_m3_amend3_test.dart` | `fcdd564ea168039b68ae63a3497d784a9824d5fb141885777bfc3fb3e44c019c` |
-| `scripts/tmp/dng_nav_probe_test.dart`（gitignored，主樹持有正本） | `05565d3347f6e7e3746a8e2702c45ff854a52e1a80bb181c581f8eee4051f77f` |
+| `test/dng_nav_probe_m3_test.dart` | `ab7602e903d4eca1b2a5d6390f73cc85218484144970afe84f69d2ea956bfcf0`（2026-08-24 P3.3 重新登錄，理由見下） |
+| `test/image_preload_controller_m3_amend3_test.dart` | `d624da3ce92e4ee6ad7e8e689a09c29391ddccc224699e8ad4ade121ace5239f`（2026-08-24 P3.3 重新登錄，理由見下） |
+| `scripts/tmp/dng_nav_probe_test.dart`（主樹持有正本） | `9621102d07defa39cb3bd49333a531af7d9f88d98037930dfbe8e3800ebb5ae3`（2026-08-24 P3.3 重新登錄，理由見下） |
+
+#### C-4 封印解除理由（M6 P3.3，2026-08-24）
+- **觸發原因**：三檔皆 `import 'package:halcyon_flutter/services/native_thumbnail_service.dart';` —— 該檔案本輪整檔刪除（型別搬到 `lib/services/image_source_types.dart`，`NativeThumbnailService`/`kNoEmbeddedPreviewCode`/`kAllowRawDecodeSignalArg` 隨通道一併刪除）。三檔皆需改 import 才能編譯，此為 C-4 定義下「衝突案例」，非任意修改。
+- `test/dng_nav_probe_m3_test.dart`：僅改 import 一行；另**刪除 TC-089**（`180-204` 舊行號，`test('TC-089 real preview-bearing DNG content probe cheap leads to immediate loader work', ...)`）——該案已由計畫 Appendix B 列為 P3.3 刪除項；TC-088 原樣保留。斷言邏輯（除 TC-089 刪除外）逐字未動。
+- `test/image_preload_controller_m3_amend3_test.dart`：僅改 import 一行，斷言邏輯逐字未動（Appendix B：Keep unchanged 指內容/斷言，import 因來源檔刪除被迫更新）。
+- `scripts/tmp/dng_nav_probe_test.dart`：僅改 import 一行；本檔自述「THROWAWAY DIAGNOSTIC PROBE -- not part of the test suite」（`:1`），非 `flutter test` 套件成員；`flutter analyze` 對它另外回報 pre-existing（本輪之前就存在）的 `decodedImageFor`/`decodedProviderFor` API 過期錯誤（M3 後期已刪除該二方法，`image_preload_controller_test.dart` 內有對應「FORCED TRANSLATION」註解為證），與本輪改動無關，不在 P3.3 範圍內修復，如實記錄於此。
 
 ### JPEG 切換延遲（PerfLog `selectItem.enter`→`image.painted`，release，本機 arm64；定版：原始已登錄 traversal 的分模式重算，n=12／格）
 **判準（round-1 lead 定版）**：`band_mode = max(p95_mode − median_mode, 1.5ms)`；`PASS_mode ⟺ after_median ≤ baseline_median + band`；paced 與 rapid 分開判定、永不混池；四格（2 資料集 × 2 模式）全過才算過。敏感度註記：paced 是載重閘；rapid 的大 band 是模式本質（超越 preloader 本來就會產生偶發即時解碼），只能抓粗退步。

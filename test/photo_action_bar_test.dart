@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/views/photo_action_bar.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';

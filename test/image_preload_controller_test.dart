@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_payload.dart';
 
 // A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
@@ -725,46 +725,13 @@ void main() {
       }
     }
 
-    /// Installs a mock for the real `halcyon/thumbnail` channel that BEHAVES
-    /// LIKE THE NATIVE SIDE instead of always returning bytes:
-    ///
-    ///   allowRawDecodeSignal == true  -> throws NO_EMBEDDED_PREVIEW
-    ///   allowRawDecodeSignal == false -> returns real bytes
-    ///
-    /// This is what makes the fallback tests DISCRIMINATING rather than
-    /// shape-checking: a fallback that re-requested with the flag still true
-    /// would be told NO_EMBEDDED_PREVIEW again, produce no bytes, and fail --
-    /// which is precisely the no-regression guarantee being claimed. Proven
-    /// to fail against a mutated implementation; see
-    /// tmp/verify/r3b/fallback_mutation.txt.
-    List<Map<Object?, Object?>> mockNativeChannel() {
-      final calls = <Map<Object?, Object?>>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(const MethodChannel('halcyon/thumbnail'), (
-            call,
-          ) async {
-            final args = call.arguments as Map<Object?, Object?>;
-            calls.add(args);
-            if (args[kAllowRawDecodeSignalArg] == true) {
-              // Exactly what the real AppDelegate emits for a DNG with no
-              // embedded full-size JPEG.
-              throw PlatformException(
-                code: kNoEmbeddedPreviewCode,
-                message: 'no embedded preview',
-                details: 6,
-              );
-            }
-            return Uint8List.fromList(_tinyPngBytes);
-          });
-      addTearDown(
-        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('halcyon/thumbnail'),
-              null,
-            ),
-      );
-      return calls;
-    }
+    // M6 P3.3 (Appendix B, C-4): the `halcyon/thumbnail` channel is deleted.
+    // `_legacyBytes`/`NativeThumbnailService` no longer exist, so a DNG with
+    // no embedded preview and no decoder (or a throwing decoder) is a
+    // genuine permanent miss (U-12 ruling) -- there is nothing left to
+    // degrade to, and nothing left to mock. The `mockNativeChannel` helper
+    // and the tests that asserted a channel-backed legacy-bytes fallback
+    // are replaced below by the uniform-miss assertions.
 
     // -------------------------------------------------------------------
     // M3 successor guarantees.
@@ -1195,29 +1162,9 @@ void main() {
     });
 
     test(
-      'TC-085 decoder throws AND legacy fallback returns null marks a permanent '
-      'miss and never asks again',
+      'TC-085 decoder throws marks a permanent miss immediately (no legacy '
+      'channel left to fall back to, M6 U-12) and never asks again',
       () async {
-        final nativeCalls = <Map<Object?, Object?>>[];
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('halcyon/thumbnail'),
-              (call) async {
-                final args = call.arguments as Map<Object?, Object?>;
-                nativeCalls.add(args);
-                return null; // legacy CIRAWFilter also failed
-              },
-            );
-        addTearDown(
-          () => TestDefaultBinaryMessengerBinding
-              .instance
-              .defaultBinaryMessenger
-              .setMockMethodCallHandler(
-                const MethodChannel('halcyon/thumbnail'),
-                null,
-              ),
-        );
-
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose}) async =>
@@ -1240,17 +1187,6 @@ void main() {
           reason: 'the item is marked as a permanent miss, not left spinning',
         );
         expect(controller.payloadFor(items[5].id), isNull);
-        final targetNativeCalls = nativeCalls
-            .where((a) => a['path'] == items[5].files.single.path)
-            .toList();
-        expect(targetNativeCalls, hasLength(1));
-        expect(
-          targetNativeCalls.single[kAllowRawDecodeSignalArg],
-          false,
-          reason:
-              'step 3b must ask for the legacy path, not the raw-decode '
-              'signal again',
-        );
         int targetDecodeCalls() =>
             decodeCalls.where((p) => p == items[5].files.single.path).length;
         expect(targetDecodeCalls(), 1);
@@ -1268,22 +1204,19 @@ void main() {
               'forgetting the miss mark lets every navigation try the '
               'failing decoder again and recreates the permanent spinner risk',
         );
-        expect(
-          nativeCalls.where((a) => a['path'] == items[5].files.single.path),
-          hasLength(1),
-        );
       },
     );
 
-    // --- Mandatory no-regression fallback (frozen design section 2) -------
-    // Turning "slow but working" into a blank screen is not acceptable, so
-    // both no-decoder and throwing-decoder must land legacy CIRAWFilter
-    // bytes via getThumbnail, which forces allowRawDecodeSignal: false.
+    // --- Uniform explicit miss (M6 U-12, replaces the pre-M6 "degrade to
+    // legacy bytes" oracle) -------------------------------------------------
+    // The native CIRAWFilter re-request no longer exists on any platform, so
+    // a DNG with no embedded preview and no working decoder can no longer
+    // degrade to slow-but-working bytes; it is a genuine permanent miss --
+    // recorded, notified, never re-tried, and NEVER an unresolved spinner.
 
     test(
-      'NO DECODER: falls back to legacy bytes with allowRawDecodeSignal false',
+      'NO DECODER: an immediate permanent miss, not a spinner',
       () async {
-        final nativeCalls = mockNativeChannel();
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1298,37 +1231,20 @@ void main() {
           notifyLoaded: () {},
         );
 
-        // DISCRIMINATING: with the native-emulating handler above, bytes can
-        // only be here if the fallback asked with allowRawDecodeSignal false.
-        // Had it asked with true, it got NO_EMBEDDED_PREVIEW again and this
-        // is null.
-        expect(
-          controller.imageBytesFor(items[5].id),
-          isNotNull,
-          reason: 'no decoder must degrade to legacy bytes, never to blank',
-        );
-        expect(controller.imageBytesFor(items[5].id), _tinyPngBytes);
-        // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
-        // Same claim, same strength -- this item did NOT go down the pixel
-        // path, it landed legacy bytes.
-        expect(controller.payloadFor(items[5].id), isNot(isA<PixelPayload>()));
-        expect(nativeCalls, isNotEmpty);
-        // The whole point of the fallback: it must ask the native side NOT
-        // to emit the signal, so native reproduces its pre-round-3b path.
-        expect(
-          nativeCalls.every((a) => a[kAllowRawDecodeSignalArg] == false),
-          isTrue,
+        await until(
+          () => controller.hasFailed(items[5].id),
           reason:
-              'fallback must send allowRawDecodeSignal: false or native will '
-              'just re-signal NO_EMBEDDED_PREVIEW forever',
+              'no decoder and no legacy channel means nothing can produce '
+              'this item -- it must be marked, not left spinning forever',
         );
+        expect(controller.imageBytesFor(items[5].id), isNull);
+        expect(controller.payloadFor(items[5].id), isNull);
       },
     );
 
     test(
-      'THROWING DECODER: falls back to legacy bytes with allowRawDecodeSignal false',
+      'THROWING DECODER: an immediate permanent miss, not a spinner',
       () async {
-        final nativeCalls = mockNativeChannel();
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1343,21 +1259,14 @@ void main() {
           notifyLoaded: () {},
         );
 
-        // DISCRIMINATING for the same reason: a fallback that re-requested
-        // with the flag true never produces bytes and this times out.
         await until(
-          () => controller.imageBytesFor(items[5].id) != null,
-          reason: 'legacy fallback bytes after the decoder threw',
+          () => controller.hasFailed(items[5].id),
+          reason:
+              'a throwing decoder and no legacy channel means nothing can '
+              'produce this item -- it must be marked, not left spinning',
         );
-        expect(controller.imageBytesFor(items[5].id), _tinyPngBytes);
-        // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
-        // Same claim, same strength -- this item did NOT go down the pixel
-        // path, it landed legacy bytes.
-        expect(controller.payloadFor(items[5].id), isNot(isA<PixelPayload>()));
-        expect(
-          nativeCalls.every((a) => a[kAllowRawDecodeSignalArg] == false),
-          isTrue,
-        );
+        expect(controller.imageBytesFor(items[5].id), isNull);
+        expect(controller.payloadFor(items[5].id), isNull);
       },
     );
 

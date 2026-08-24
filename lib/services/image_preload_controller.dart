@@ -11,7 +11,7 @@ import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_preview_extractor.dart';
-import 'native_thumbnail_service.dart';
+import 'image_source_types.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'photo_source.dart';

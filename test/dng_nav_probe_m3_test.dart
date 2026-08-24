@@ -14,7 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_payload.dart';
 import 'package:halcyon_flutter/services/photo_source.dart';
 
@@ -178,30 +178,8 @@ void main() {
     }, skip: hasSamples ? null : 'no local samples');
   }
 
-  test('TC-089 real preview-bearing DNG content probe cheap leads to immediate '
-      'loader work', () async {
-    expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
-    expect(
-      await PhotoSource.probe(previewDng.path, longEdge: 2800),
-      SourceCost.cheap,
-    );
-    var loaderCalls = 0;
-    final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
-        loaderCalls++;
-        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
-      },
-    );
-    addTearDown(controller.dispose);
-    controller.updateTargetSize(800, 600);
-    final photos = realListWith(previewDng, 5);
-    await controller.preloadImages(
-      items: photos,
-      selectedItemId: photos[5].id,
-      notifyLoaded: () {},
-    );
-    expect(loaderCalls, greaterThan(0));
-  }, skip: hasSamples ? null : 'no local samples');
+  // TC-089 deleted (M6 P3.3, Appendix B, C-4): see baseline-registry.md for
+  // the disposition reason; TC-088 above stays.
 
   test('P2 translated: navigation bursts start ZERO expensive decodes, while '
       'cheap DNGs/JPEGs prefetch during the same burst', () async {
