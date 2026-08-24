@@ -1235,6 +1235,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-227~228｜`RenameCoordinator` 抽離、`AppState.displayProvider`（D2，Tech-Debt Task 8）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-227（一個沒有任何檔案需要改名的批次不會清掉前一批留下的 undo map，直接對 `RenameCoordinator` 斷言，`test/rename_coordinator_test.dart`；壞掉時：早退發生在指派新 map 之後，或協調器複製了建構當下的 `_items`/`_currentDir` 快照而非透過 supplier 讀最新值）／TC-228（`AppState.displayProvider` 在 tier-2 全尺寸解碼落地後回傳與 `currentFullResProvider` 相同物件，落地前回傳與 `currentDecodedProvider` 相同物件，`test/rename_coordinator_test.dart`；壞掉時：getter 自己組出一個新 provider，破壞 tier-1/tier-2 cache-key identity 規則） |
+| **測試類型** | 單元測試（TC-227，直接建構 `RenameCoordinator` 搭配 fake callback）／widget 測試（TC-228，需要 `TestWidgetsFlutterBinding` 跑真實 tier-2 解碼與 250ms debounce，用輪詢取代固定 sleep） |
+| **背景** | D2：`renameByExif`/`undoRename`/`loadSavedRenameRule`/`isRenaming`/`cancelRename` 與其私有狀態搬到新檔 `lib/providers/rename_coordinator.dart`；`AppState` 保留同簽章 thin forwarder。詳見 memory.md AD-026 |
+| **預期結果** | `test/app_state_test.dart` 既有的 TC-049~051 零編輯全綠；`RenameCoordinator` 的 supplier callback 規則與 `_lastRenameIdMap` 早退順序原樣保留 |
+| **狀態** | ✅ 已通過（`test/rename_coordinator_test.dart` 2 個測試 All tests passed!，RC=0；`test/app_state_test.dart` 零編輯，全套 `flutter test -j 1` 341 個測試 All tests passed!，RC=0；`flutter analyze` No issues found!）。`lib/providers/app_state.dart` 從 693 行降到 584 行（-109 行），未達計畫要求的 ≥120 行門檻，差 11 行——已抽出的內容（rename 狀態欄位、`renameByExif`/`undoRename` 全部邏輯）與計畫規格完全一致，`grep -n "_lastRenameIdMap\|_isRenaming\|_renameCancelled" lib/providers/app_state.dart` 為 0 命中；剩餘缺口需要刪減與本任務無關的既有註解才能湊到，未做（見任務回報，交由 lead 裁決是否接受） |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令

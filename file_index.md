@@ -50,7 +50,8 @@ Halcyon/
 │   │   │   ├── perf_driver.dart   # 效能埋點驅動（env 變數 gate，debug/release 皆可編譯）
 │   │   │   └── perf_log.dart      # 效能埋點記錄與輸出格式
 │   │   ├── providers/
-│   │   │   └── app_state.dart     # AppState（ChangeNotifier）狀態管理；含 StatusMessage / showStatus() 與唯讀資料夾警告
+│   │   │   ├── app_state.dart     # AppState（ChangeNotifier）狀態管理；含 StatusMessage / showStatus() 與唯讀資料夾警告
+│   │   │   └── rename_coordinator.dart  # RenameCoordinator：EXIF 重新命名/undo/規則記憶（D2 從 AppState 抽出，見 memory.md AD-026）
 │   │   ├── services/
 │   │   │   ├── native_thumbnail_service.dart  # MethodChannel 影像 request contract
 │   │   │   ├── photo_library_scanner.dart     # 資料夾掃描與分組服務

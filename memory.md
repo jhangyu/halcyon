@@ -229,6 +229,20 @@ buffer 起點讀錯位置——`imageFromDecodedRgba` 現在統一補上這兩�
 欄縮圖的 JPEG encode 整段搬進 `Isolate.run`。凍結的 tier-1/tier-2 provider
 identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，不是介面變更。
 
+### AD-026｜Rename 領域搬進 `RenameCoordinator`，以 supplier callback 讀取即時狀態（不複製）
+`renameByExif`/`undoRename`/`loadSavedRenameRule`/`isRenaming`/`cancelRename` 與其私有狀態
+（`_isRenaming`、`_renameCancelled`、`_lastRenameIdMap`）從 `AppState` 搬到新檔
+`lib/providers/rename_coordinator.dart` 的 `RenameCoordinator`。`readMetadataFor` 留在
+`AppState`（重新命名對話框的 5 檔預覽會直接呼叫它），以 `readMetadata` callback 傳入協調器。
+**關鍵規則**：協調器建構時只接收 `itemsOf`/`dirOf`/`selectedIdOf` 三個 supplier callback，
+從不在建構時複製 `_items`/`_currentDir`/`_selectedItemID` 的當下值——`renameByExif` 執行中會呼叫
+`reloadFolder`（即 `AppState.loadFolder`）整批替換 `_items`，`undoRename` 必須讀到 reload 後的
+最新狀態，複製快照會讀到過期資料。`_lastRenameIdMap` 的 undo↔status-remap 契約（空批次的早退
+必須發生在指派新 map 之前，否則會清掉前一批的 undo 記錄）原樣搬入協調器，行為不變。`AppState`
+保留五個同簽章的 thin forwarder，view 與既有測試無感。新增 `AppState.displayProvider` getter
+（Task 9 依賴）：回傳 `currentFullResProvider` 或 `currentDecodedProvider` 的**同一個物件**，
+絕不自建 provider（凍結的 tier-1/tier-2 cache-key identity 規則）。
+
 ---
 
 ## Gotchas（踩坑紀錄）
