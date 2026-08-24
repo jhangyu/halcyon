@@ -13,10 +13,19 @@ import 'package:flutter/services.dart';
 /// Platform status: macOS, Windows, Android and iOS all push on this
 /// channel now (see macos/Runner/AppDelegate.swift,
 /// windows/runner/flutter_window.cpp, the Android MainActivity, and
-/// ios/Runner/AppDelegate.swift). What is still parked is the mobile
-/// end-to-end flow beyond delivering the path: Android/iOS both need the
-/// enclosing folder to land via the folder-scan pipeline (F-02) before
-/// [onPath] actually opens something useful.
+/// ios/Runner/AppDelegate.swift).
+///
+/// Android resolves its intent URI before pushing: `file://` forwards the
+/// path as-is, and a `content://` URI (which has no real filesystem path) is
+/// copied out of the ContentResolver into the app's cache directory, so the
+/// path delivered here always names a file that exists. Paths that do not
+/// exist are ignored by `AppState.openPhotoAtPath` rather than clearing the
+/// folder in view.
+///
+/// STILL PARKED: the mobile end-to-end flow beyond delivering the path.
+/// Android/iOS both need the enclosing folder to land via the folder-scan
+/// pipeline (F-02) before [onPath] opens something useful — until then the
+/// user sees a one-photo folder at best. F-16 on mobile is not complete.
 class OpenWithChannel {
   static const MethodChannel _channel = MethodChannel('halcyon/open_with');
 

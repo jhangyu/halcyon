@@ -234,9 +234,20 @@ class AppState extends ChangeNotifier {
   /// Opens the folder containing [path] and selects that photo. Entry point
   /// for OS-handed files (see [OpenWithChannel]); unsupported extensions are
   /// ignored rather than clearing the folder the user is already viewing.
+  ///
+  /// The same protection covers paths that only *look* like photos: [loadFolder]
+  /// clears the folder, items and selection before it scans, so a string that
+  /// merely ends in a supported extension but names nothing on disk would wipe
+  /// the folder being culled and leave an empty view. Android's ACTION_VIEW
+  /// supplies exactly that shape (a `content://` URI's opaque segment such as
+  /// `/document/image:1234.jpg`), so both the file and its parent directory
+  /// must exist before any state is touched. The check is a plain filesystem
+  /// existence test with no platform branch — it holds identically everywhere.
   Future<void> openPhotoAtPath(String path) async {
     if (!SupportedPhotoFormats.isSupportedPath(path)) return;
     final file = File(path);
+    if (!await file.exists()) return;
+    if (!await file.parent.exists()) return;
     await loadFolder(
       file.parent,
       targetSelectionId: SupportedPhotoFormats.photoIdFor(file),
