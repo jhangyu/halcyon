@@ -45,5 +45,32 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- F-16 Open With: declares Halcyon as an app the OS can hand a photo
+	     file to (Files app "Share"/"Open With", other apps' share sheets).
+	     Inspection-only on this host (no iOS device/simulator build run
+	     here) -- the AppDelegate.swift push side is untested at runtime. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Halcyon Photo</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.jpeg</string>
+				<string>public.png</string>
+				<string>public.camera-raw-image</string>
+				<string>com.adobe.raw-image</string>
+				<string>com.canon.cr2-raw-image</string>
+				<string>com.nikon.raw-image</string>
+				<string>com.sony.arw-raw-image</string>
+				<string>com.olympus.raw-image</string>
+				<string>com.panasonic.raw-image</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
