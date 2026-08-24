@@ -48,6 +48,7 @@ dependencies:
   # Fallback EXIF reader for platforms without the halcyon/exif native handler.
   exif: ^3.3.0
   image: ^4.9.2
+  desktop_drop: ^0.8.0
 
 dev_dependencies:
   flutter_test:

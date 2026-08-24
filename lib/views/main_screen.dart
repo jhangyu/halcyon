@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -33,14 +34,24 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          _buildKeyboardShortcutHandler(context: context, child: _buildBody()),
-          const StatusLine(),
-        ],
+    return DropTarget(
+      onDragDone: (detail) {
+        if (detail.files.isEmpty) return;
+        // Same entry as OS Open-With: load the folder, select that photo.
+        context.read<AppState>().openPhotoAtPath(detail.files.first.path);
+      },
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            _buildKeyboardShortcutHandler(
+              context: context,
+              child: _buildBody(),
+            ),
+            const StatusLine(),
+          ],
+        ),
       ),
     );
   }

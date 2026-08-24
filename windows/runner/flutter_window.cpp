@@ -49,9 +49,6 @@ bool FlutterWindow::OnCreate() {
     launch_file_.clear();
   }
 
-  // Accept files dropped onto the window as a second "open" route.
-  ::DragAcceptFiles(GetHandle(), TRUE);
-
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -86,28 +83,10 @@ void FlutterWindow::DeliverOpenFile(const std::string& utf8_path) {
   if (channels_) {
     channels_->PushOpenFile(utf8_path);
   } else {
-    // A drop before OnCreate finished is not possible (DragAcceptFiles is
-    // enabled there), but if the ordering ever changes, hold the path rather
-    // than drop it silently.
+    // A delivery before OnCreate finished is not expected, but if the
+    // ordering ever changes, hold the path rather than drop it silently.
     launch_file_ = utf8_path;
   }
-}
-
-void FlutterWindow::HandleDroppedFiles(WPARAM wparam) {
-  const HDROP drop = reinterpret_cast<HDROP>(wparam);
-  if (drop == nullptr) {
-    return;
-  }
-  // Halcyon opens one photo at a time, so only the first path is used; the
-  // rest are discarded deliberately.
-  wchar_t path[MAX_PATH] = {};
-  const UINT copied = ::DragQueryFileW(drop, 0, path, MAX_PATH);
-  if (copied > 0) {
-    DeliverOpenFile(Utf8FromUtf16(path));
-  }
-  // DragFinish must run even when DragQueryFileW found nothing, or the shell
-  // leaks the drop's memory for the life of the process.
-  ::DragFinish(drop);
 }
 
 LRESULT
@@ -128,9 +107,6 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
-    case WM_DROPFILES:
-      HandleDroppedFiles(wparam);
-      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

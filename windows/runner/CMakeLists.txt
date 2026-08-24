@@ -40,8 +40,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 #   windowscodecs.lib - WIC decode/scale/encode, and the WIC CLSID/GUID symbols
 #                       (CLSID_WICImagingFactory, GUID_ContainerFormatJpeg,
 #                       GUID_WICPixelFormat24bppBGR).
-#   shell32.lib       - SHCreateItemFromParsingName, DragQueryFileW, DragFinish,
-#                       DragAcceptFiles.
+#   shell32.lib       - SHCreateItemFromParsingName (moves files to Trash).
 #   ole32.lib         - CoCreateInstance, CreateStreamOnHGlobal,
 #                       GetHGlobalFromStream, PropVariantClear.
 #   oleaut32.lib      - VariantInit / VariantClear for the JPEG encoder options.

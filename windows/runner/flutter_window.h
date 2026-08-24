@@ -33,9 +33,6 @@ class FlutterWindow : public Win32Window {
   // Sends |utf8_path| to Dart on halcyon/open_with, if the channels are up.
   void DeliverOpenFile(const std::string& utf8_path);
 
-  // Handles WM_DROPFILES by forwarding the first dropped path.
-  void HandleDroppedFiles(WPARAM wparam);
-
   // The project to run.
   flutter::DartProject project_;
 
