@@ -1,0 +1,38 @@
+{
+  "_comment": "Manifest for scripts/check_dng_ffi_artifacts.py. Data only — adding or flipping a platform must never require editing the checker script. Governance: per-feature preference cascade (C-8/P-1) stands (2026-08-24). RAW decoder ships macOS+Windows+Android today. Linux .so is open item P-2, not a blocker. No iOS entry — iOS FFI is superseded by the future general raw_decoder effort (see plan Dropped section), not part of this manifest.",
+  "symbol": "dng_decode_and_process_sized",
+  "platforms": {
+    "macos": {
+      "path": "../flutter_dng_decoder/dng_processor_ffi/macos/Libraries/libdng_decoder_native.dylib",
+      "expected": true,
+      "format": "macho",
+      "tool": "nm",
+      "tool_args": ["-gU"],
+      "comment": "Vendored arm64 dylib; ruling P-12 confirmed this symbol is exported."
+    },
+    "windows": {
+      "path": "../flutter_dng_decoder/dng_processor_ffi/windows/Libraries/dng_decoder_native.dll",
+      "expected": true,
+      "format": "pe",
+      "tool": "dumpbin",
+      "tool_args": ["/exports"],
+      "comment": "Trust-on-first-use: built on a real Windows host (commit d36e1bd) but no S4 colour-gate run recorded. dumpbin is unavailable on non-Windows hosts, so this platform legitimately reports symbol=skipped when checked from macOS/Linux."
+    },
+    "android": {
+      "path": "../flutter_dng_decoder/dng_processor_ffi/android/src/main/jniLibs/arm64-v8a/libdng_decoder_native.so",
+      "expected": true,
+      "format": "elf",
+      "tool": "nm",
+      "tool_args": ["-D"],
+      "comment": "arm64-v8a shared object."
+    },
+    "linux": {
+      "path": "../flutter_dng_decoder/dng_processor_ffi/linux/Libraries/libdng_decoder_native.so",
+      "expected": false,
+      "format": "elf",
+      "tool": "nm",
+      "tool_args": ["-D"],
+      "comment": "Open item P-2: Linux .so does not exist yet. Flip 'expected' to true the day it lands; no script changes needed."
+    }
+  }
+}
