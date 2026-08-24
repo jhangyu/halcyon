@@ -1,4 +1,9 @@
 #!/bin/bash
+# TOMBSTONE (M6 P3.1/P3.3, 2026-08-24): macos/Runner/DngPreviewExtractor.swift
+# was deleted (native macOS deletion sweep); its Dart caller,
+# test/dng_extractor_swift_test.dart, was deleted along with it (C-4). This
+# script has no remaining caller in the tree; kept only for ad-hoc/manual use
+# against a locally restored copy of the Swift source, if ever needed.
 # Compiles the SHIPPED macos/Runner/DngPreviewExtractor.swift together with the
 # test suite and runs it. Regenerates the synthetic fixtures first so they can
 # never go stale relative to the generator.

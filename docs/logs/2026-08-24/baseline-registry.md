@@ -55,6 +55,7 @@
 - `test/dng_nav_probe_m3_test.dart`：僅改 import 一行；另**刪除 TC-089**（`180-204` 舊行號，`test('TC-089 real preview-bearing DNG content probe cheap leads to immediate loader work', ...)`）——該案已由計畫 Appendix B 列為 P3.3 刪除項；TC-088 原樣保留。斷言邏輯（除 TC-089 刪除外）逐字未動。
 - `test/image_preload_controller_m3_amend3_test.dart`：僅改 import 一行，斷言邏輯逐字未動（Appendix B：Keep unchanged 指內容/斷言，import 因來源檔刪除被迫更新）。
 - `scripts/tmp/dng_nav_probe_test.dart`：僅改 import 一行；本檔自述「THROWAWAY DIAGNOSTIC PROBE -- not part of the test suite」（`:1`），非 `flutter test` 套件成員；`flutter analyze` 對它另外回報 pre-existing（本輪之前就存在）的 `decodedImageFor`/`decodedProviderFor` API 過期錯誤（M3 後期已刪除該二方法，`image_preload_controller_test.dart` 內有對應「FORCED TRANSLATION」註解為證），與本輪改動無關，不在 P3.3 範圍內修復，如實記錄於此。
+- `test/dng_extractor_swift_test.dart`（**刪除，非重新登錄**——本檔不在上表凍結清單內，經 grep 核實，故無需 sha 儀式）：2026-08-24 lead 授權範圍追加。本檔透過 `scripts/tmp/run_dng_extractor_tests.sh` shell out 編譯 `macos/Runner/DngPreviewExtractor.swift`；該 Swift 檔已被平行成員的 P3.1（macOS 原生刪除）任務刪除，其受測實作已不存在。Dart 側等效覆蓋率已存在於 `test/dng_preview_extractor_test.dart`。整檔刪除（C-4：受測主體消失，非任意修改）。
 
 ### JPEG 切換延遲（PerfLog `selectItem.enter`→`image.painted`，release，本機 arm64；定版：原始已登錄 traversal 的分模式重算，n=12／格）
 **判準（round-1 lead 定版）**：`band_mode = max(p95_mode − median_mode, 1.5ms)`；`PASS_mode ⟺ after_median ≤ baseline_median + band`；paced 與 rapid 分開判定、永不混池；四格（2 資料集 × 2 模式）全過才算過。敏感度註記：paced 是載重閘；rapid 的大 band 是模式本質（超越 preloader 本來就會產生偶發即時解碼），只能抓粗退步。
