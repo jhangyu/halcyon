@@ -31,6 +31,40 @@ class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('TC-218 a thumbnail load in flight does not mark the id as loading',
+      () async {
+    final items = List.generate(5, (index) {
+      final id = 'IMG_${index.toString().padLeft(4, '0')}';
+      return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+    });
+    final gate = Completer<void>();
+
+    final controller = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async {
+        if (purpose == ImageRequestPurpose.sidebarThumbnail) {
+          await gate.future;
+        }
+        return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+      },
+    );
+    addTearDown(controller.dispose);
+
+    final pending = controller.preloadThumbnails(
+      items: items,
+      startIdx: 0,
+      endIdx: 0,
+      notifyLoaded: () {},
+    );
+
+    // The thumbnail fetch for items[0] is parked in the gate. The DETAIL
+    // path must not believe items[0].id is already being loaded -- that is
+    // the 'thumb_$id' vs bare-id collision the file documents at the top.
+    expect(controller.isLoadingForTest(items[0].id), isFalse);
+
+    gate.complete();
+    await pending;
+  });
+
   test(
     'preloadImages evicts preview cache entries outside the sliding window',
     () async {

@@ -95,7 +95,17 @@ class ImagePreloadController {
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
   final Map<String, Uint8List> _thumbCache = {};
+
+  /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
+
+  /// Sidebar-thumbnail loads in flight, keyed by BARE photo id.
+  ///
+  /// A separate set, not a `'thumb_$id'` prefix in [_loadingKeys]: one set
+  /// holding two key shapes is exactly the collision class this file warns
+  /// about at the top, and a prefixed key silently answers `contains(id)`
+  /// with false while a bare id silently answers a thumbnail query with true.
+  final Set<String> _thumbLoadingKeys = {};
   // Callbacks from callers who selected an item while its load was already in
   // flight (started by a previous preload pass). Flushed once the in-flight
   // load completes so the UI never strands on a permanent spinner.
@@ -216,7 +226,17 @@ class ImagePreloadController {
 
   /// The retained payload for [id], whatever kind it is. The view's single
   /// "is there something to paint" question (design §3.5).
+  ///
+  /// Test-only visibility marker: production code reads payloads through the
+  /// provider getters below, not this. Kept public (no `@visibleForTesting`
+  /// enforcement failure) because 14 test call sites use it directly.
+  @visibleForTesting
   SourcePayload? payloadFor(String? id) => _cache.peek(id);
+
+  /// Whether the DETAIL path currently has [id] in flight. Thumbnail loads
+  /// live in a separate set and deliberately do not answer true here.
+  @visibleForTesting
+  bool isLoadingForTest(String id) => _loadingKeys.contains(id);
 
   /// Encoded bytes for [id], or null when the item is not byte-backed (a RAW
   /// item retains pixels instead) or nothing is retained.
@@ -323,6 +343,7 @@ class ImagePreloadController {
     _cache.clear();
     _thumbCache.clear();
     _loadingKeys.clear();
+    _thumbLoadingKeys.clear();
     _pendingPreviewNotifies.clear();
     _retentionIds = {};
     _tierOneKeys.clear();
@@ -521,9 +542,19 @@ class ImagePreloadController {
       0,
       items.length - 1,
     );
-    final neededIds = <String>{
-      for (var i = tierStart; i <= tierEnd; i++) items[i].id,
-    };
+    // The iteration bounds above and the id set below are recomputed from the
+    // same constants rather than one derived from the other, so the ordered
+    // loop range and the (unordered) neededIds set cannot disagree. The loop
+    // below still walks tierStart..tierEnd (not neededIds) because iterating
+    // an unordered Set here would change the tier-2 decode ORDER, which is
+    // load-bearing for the sequential queue.
+    final neededIds = retentionWindowIds<PhotoItem>(
+      items,
+      currentIndex,
+      (item) => item.id,
+      before: kTierTwoRadius,
+      after: kTierTwoRadius,
+    );
     _tierTwoWindowIds = neededIds;
 
     final pendingUpgrades =
@@ -832,6 +863,30 @@ class ImagePreloadController {
     }
   }
 
+  // resolve -> one-shot listener -> removeListener, the dance written three
+  // times in this file. The CALLER keeps all bookkeeping: the three sites
+  // differ in when they register tier-2 keys and what they do on error, and
+  // folding that in here would need a parameter per difference.
+  void _registerDecode(
+    ImageProvider provider, {
+    required void Function() onReady,
+    required void Function() onError,
+  }) {
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, synchronousCall) {
+        stream.removeListener(listener);
+        onReady();
+      },
+      onError: (error, stackTrace) {
+        stream.removeListener(listener);
+        onError();
+      },
+    );
+    stream.addListener(listener);
+  }
+
   void _decodeFullSizeIntoImageCache(
     String id,
     SourcePayload payload,
@@ -843,14 +898,14 @@ class ImagePreloadController {
     // silently re-create the shared-entry "fake tier-2" M5 exists to remove.
     assert(payload is EncodedPayload);
     final provider = _fullSizeProviderForPayload(payload);
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener((image, synchronousCall) {
-      stream.removeListener(listener);
-      _tierTwoReadyIds.add(id);
-      notifyLoaded();
-    }, onError: (error, stackTrace) => stream.removeListener(listener));
-    stream.addListener(listener);
+    _registerDecode(
+      provider,
+      onReady: () {
+        _tierTwoReadyIds.add(id);
+        notifyLoaded();
+      },
+      onError: () {},
+    );
     provider.obtainKey(const ImageConfiguration()).then((key) {
       _tierTwoKeys[id] = key;
       _tierTwoSources[id] = payload;
@@ -955,21 +1010,17 @@ class ImagePreloadController {
     // very same object as a cache hit. No second eviction mechanism (§2.4).
     _tierTwoKeys[id] = provider;
     _tierTwoSources[id] = payload;
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (info, synchronousCall) {
-        stream.removeListener(listener);
+    _registerDecode(
+      provider,
+      onReady: () {
         _tierTwoReadyIds.add(id);
         notifyLoaded();
       },
-      onError: (error, stackTrace) {
-        stream.removeListener(listener);
+      onError: () {
         _fullResFailures[id] = payload;
         _evictTierTwoEntry(id);
       },
     );
-    stream.addListener(listener);
   }
 
   // The PIGGYBACK half of design §2.2: the pixels handed back alongside the
@@ -1050,13 +1101,22 @@ class ImagePreloadController {
       0,
       items.length - 1,
     );
-    final neededIds = <String>{};
+    // Same window the retention-cache sweep in preloadImages used, recomputed
+    // from the same constants via the shared helper (C6) so this method's idea
+    // of the window and the cache's cannot drift apart. The decode loop below
+    // still walks tierStart..tierEnd, not neededIds, because it also decides
+    // WHICH slots to decode (skipping ones with no payload yet) -- that is a
+    // second job the id set alone does not do.
+    final neededIds = retentionWindowIds<PhotoItem>(
+      items,
+      currentIndex,
+      (item) => item.id,
+    );
 
     for (var i = tierStart; i <= tierEnd; i++) {
       final item = items[i];
       final payload = _cache.peek(item.id);
       if (payload == null) continue; // not loaded yet; retried on next pass
-      neededIds.add(item.id);
       _decodeIntoImageCache(
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),
@@ -1102,13 +1162,7 @@ class ImagePreloadController {
   }
 
   void _decodeIntoImageCache(String id, ImageProvider provider) {
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (image, synchronousCall) => stream.removeListener(listener),
-      onError: (error, stackTrace) => stream.removeListener(listener),
-    );
-    stream.addListener(listener);
+    _registerDecode(provider, onReady: () {}, onError: () {});
     provider
         .obtainKey(const ImageConfiguration())
         .then((key) => _tierOneKeys[id] = key);
@@ -1124,6 +1178,13 @@ class ImagePreloadController {
   /// the loop is sequential, so a start-to-end sweep would spend 20 round-trips
   /// on off-screen rows above the viewport before touching a single row the
   /// user is looking at.
+  ///
+  /// **The returned Future completes when the synchronous sweep has been
+  /// ISSUED, not when every thumbnail has landed.** Rows fetched behind the
+  /// debounce complete afterwards and report through [notifyLoaded]. Callers
+  /// that `await` this get "the sweep is scheduled", never "the sidebar is
+  /// fully painted"; awaiting it in a test and then asserting on bytes is a
+  /// race, not a check.
   Future<void> preloadThumbnails({
     required List<PhotoItem> items,
     required int startIdx,
@@ -1168,7 +1229,6 @@ class ImagePreloadController {
 
           final item = items[index];
           final id = item.id;
-          final loadingKey = 'thumb_$id';
           // An in-memory Set lookup and nothing more -- the sidebar's negative
           // cache costs the hot path one hash probe per row and saves a
           // channel round trip per sweep for every file that can never produce
@@ -1176,7 +1236,7 @@ class ImagePreloadController {
           // [_thumbPermanentMisses] for why it cannot live in the preview set
           // under a prefix.
           if (_thumbCache.containsKey(id) ||
-              _loadingKeys.contains(loadingKey) ||
+              _thumbLoadingKeys.contains(id) ||
               _thumbPermanentMisses.contains(id)) {
             continue;
           }
@@ -1184,7 +1244,7 @@ class ImagePreloadController {
           final file = item.bestFileToLoad;
           if (file == null) continue;
 
-          _loadingKeys.add(loadingKey);
+          _thumbLoadingKeys.add(id);
           try {
             // Native only ever emits the raw-decode signal for purpose ==
             // preview, so for thumbnails anything that is not bytes is simply
@@ -1256,12 +1316,10 @@ class ImagePreloadController {
               _thumbPermanentMisses.add(id);
             }
           } finally {
-            _loadingKeys.remove(loadingKey);
+            _thumbLoadingKeys.remove(id);
           }
         }
       },
     );
   }
 }
-
-typedef VoidCallback = void Function();
