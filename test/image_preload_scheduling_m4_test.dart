@@ -149,6 +149,91 @@ void main() {
     },
   );
 
+  test(
+    'M6-PL1 a throwing sidebar thumbnail loader must not abort the sweep, '
+    'must release the in-flight key, and must record a permanent miss like '
+    'a non-bytes result',
+    () async {
+      // b3b0ddd's preloadThumbnails loop has no try/catch around the loader
+      // await and removes _loadingKeys OUTSIDE any finally (round-1
+      // parking-lot PL-1/PL-2/PL-10). A loader that THROWS instead of
+      // returning a NativeImageFailure -- e.g. an unconverted
+      // PlatformException, or a future non-macOS bridge -- unwinds the `for`
+      // loop, so every remaining item in that sweep is silently never
+      // requested, and the thrower's `thumb_<id>` in-flight key leaks for
+      // the rest of the session.
+      final thumbRequests = <String>[];
+      final items = List.generate(3, (i) {
+        final id = 'IMG_${i.toString().padLeft(2, '0')}';
+        return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+      });
+      final throwingPath = items[0].files.single.path;
+
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async {
+          if (purpose != ImageRequestPurpose.sidebarThumbnail) {
+            return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          }
+          thumbRequests.add(path);
+          if (path == throwingPath) {
+            // Simulates an unconverted PlatformException / MissingPluginException
+            // reaching this seam, or a native TypeError on a non-Uint8List
+            // channel reply (see native_thumbnail_service.dart:117).
+            throw StateError('native bridge threw instead of returning '
+                'NativeImageFailure');
+          }
+          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        },
+      );
+      addTearDown(controller.dispose);
+
+      Future<void> sweep(int start, int end) async {
+        await controller.preloadThumbnails(
+          items: items,
+          startIdx: start,
+          endIdx: end,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+
+      await sweep(0, 2);
+
+      // The sweep must CONTINUE past the thrower: items 1 and 2 come after
+      // item 0 in fetch order, and without try/catch the exception unwinds
+      // the whole `for` loop, so neither is ever requested.
+      expect(
+        controller.thumbnailBytesFor(items[1].id),
+        isNotNull,
+        reason:
+            'a throwing loader for item 0 must not abort the rest of the '
+            'sweep -- item 1 comes after it in fetch order',
+      );
+      expect(
+        controller.thumbnailBytesFor(items[2].id),
+        isNotNull,
+        reason: 'item 2 must also still be requested',
+      );
+
+      // Two more sweeps with DIFFERENT ranges (so the unchanged-range
+      // early-return never masks a re-request), both covering item 0.
+      await sweep(0, 1);
+      await sweep(1, 2);
+      await sweep(0, 2);
+
+      expect(
+        thumbRequests.where((p) => p == throwingPath).length,
+        1,
+        reason:
+            'a throwing loader must be treated like a non-bytes result and '
+            'recorded as a permanent miss -- without a released in-flight '
+            'key AND a recorded miss, the thrower is either re-requested '
+            'forever or perpetually skipped as "still loading" instead of '
+            'being answered once',
+      );
+    },
+  );
+
   testWidgets(
     'M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the '
     'window it started with (invariant I4)',
@@ -210,6 +295,84 @@ void main() {
           controller.isFullSizeReady(items[0].id),
           isFalse,
           reason: 'nothing may be decoded for the abandoned window',
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'M6-PL7 the SECOND generation guard (after the window await, :406) must '
+    'discard a stale resume too, not only the priority-load guard (:381)',
+    (tester) async {
+      await tester.runAsync(() async {
+        // Guard 1 (:381, right after the priority load) only fires when a
+        // stale pass is superseded before its window loads even start. This
+        // test parks pass A one step later -- inside the WINDOW await
+        // (Future.wait(pendingLoads), :398) -- so guard 1 sees no
+        // supersession yet and pass A only becomes stale WHILE waiting on the
+        // window. That is the only way execution reaches guard 2 with a
+        // generation mismatch already in hand.
+        final gate = Completer<NativeImageResult>();
+        final items = List.generate(14, (i) {
+          final id = 'IMG_${i.toString().padLeft(2, '0')}';
+          return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+        });
+        // Pass A (selected index 0) retains -3..+5 -> window 0..5. Index 2
+        // is inside that window. Pass B (selected index 10) retains 7..13.
+        // Index 2 is outside pass B's window, so gating it stalls ONLY pass
+        // A's window loop while pass B runs to completion untouched.
+        final gatedPath = items[2].files.single.path;
+
+        final controller = ImagePreloadController(
+          imageLoader: (path, {required purpose}) {
+            if (path == gatedPath) return gate.future;
+            return Future<NativeImageResult>.value(
+              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+            );
+          },
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(10, 10);
+
+        // Pass A's priority load (item 0) is NOT gated, so it clears guard 1
+        // and enters the window loop, where it parks on item 2's gate.
+        final stalePass = controller.preloadImages(
+          items: items,
+          selectedItemId: items[0].id,
+          notifyLoaded: () {},
+        );
+        // Give pass A's priority load and the start of its window loop a
+        // chance to run before pass B supersedes it.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        // Pass B is the current generation. None of its window items (7..13)
+        // are gated, so it runs to completion and schedules tier-2 for
+        // index 10.
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[10].id,
+          notifyLoaded: () {},
+        );
+
+        // Release pass A. It resumes past Future.wait with a generation that
+        // no longer matches -- guard 2 (:406) is what must stop it here;
+        // guard 1 already ran and saw no mismatch.
+        gate.complete(NativeImageBytes(Uint8List.fromList(_tinyPngBytes)));
+        await stalePass;
+
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+
+        expect(
+          controller.isFullSizeReady(items[10].id),
+          isTrue,
+          reason:
+              "current window's tier-2 schedule must survive the stale "
+              'resume',
+        );
+        expect(
+          controller.isFullSizeReady(items[0].id),
+          isFalse,
+          reason: 'the abandoned window must get no tier-2 decode',
         );
       });
     },

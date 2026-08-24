@@ -911,24 +911,40 @@ class ImagePreloadController {
           if (file == null) continue;
 
           _loadingKeys.add(loadingKey);
-          // Native only ever emits the raw-decode signal for purpose ==
-          // preview, so for thumbnails anything that is not bytes is simply
-          // "no thumbnail", exactly as null was before.
-          final result = await _source.loader(
-            file.path,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-          );
-          _loadingKeys.remove(loadingKey);
-          if (generation != _thumbBatchGeneration) return;
-          if (result is NativeImageBytes) {
-            _thumbCache[id] = result.bytes;
-            notifyLoaded();
-          } else {
+          try {
             // Native only ever emits the raw-decode signal for purpose ==
-            // preview, so anything that is not bytes here means no source
-            // produced a thumbnail -- an answer that cannot change until the
-            // folder is reloaded (which is what clears the set).
-            _thumbPermanentMisses.add(id);
+            // preview, so for thumbnails anything that is not bytes is simply
+            // "no thumbnail", exactly as null was before.
+            final result = await _source.loader(
+              file.path,
+              purpose: ImageRequestPurpose.sidebarThumbnail,
+            );
+            if (generation != _thumbBatchGeneration) return;
+            if (result is NativeImageBytes) {
+              _thumbCache[id] = result.bytes;
+              notifyLoaded();
+            } else {
+              // Native only ever emits the raw-decode signal for purpose ==
+              // preview, so anything that is not bytes here means no source
+              // produced a thumbnail -- an answer that cannot change until the
+              // folder is reloaded (which is what clears the set).
+              _thumbPermanentMisses.add(id);
+            }
+          } catch (_) {
+            // The loader THREW instead of returning a NativeImageFailure --
+            // an unconverted PlatformException/MissingPluginException, or a
+            // native TypeError on a non-Uint8List channel reply (round-1
+            // parking-lot PL-1/PL-2/PL-10). Treat it exactly like a non-bytes
+            // result: an answer that cannot change until the folder reloads,
+            // so no later sweep re-asks. Without this the exception used to
+            // unwind the whole `for` loop, silently dropping every remaining
+            // item in this sweep, on top of leaking `loadingKey` for the rest
+            // of the session (the finally below is what fixes that half).
+            if (generation == _thumbBatchGeneration) {
+              _thumbPermanentMisses.add(id);
+            }
+          } finally {
+            _loadingKeys.remove(loadingKey);
           }
         }
       },
