@@ -247,6 +247,21 @@ class ImagePreloadController {
   @visibleForTesting
   Set<String> get debugTierTwoKeyIds => _tierTwoKeys.keys.toSet();
 
+  /// The tier-2 provider currently registered for [id] -- a [RawFullResImage]
+  /// for a pixel-backed item, the encoded path's own provider otherwise --
+  /// or null when the item has no tier-2 entry.
+  ///
+  /// Every tier-2 key in this class IS its own provider (`obtainKey` returns
+  /// `this` for the pixel kind, and `MemoryImage` is its own key for the
+  /// encoded kind), so this is a read of the existing bookkeeping and not a
+  /// second registry. Tests use it to read [RawFullResImage.width]/[height]
+  /// off the provider instead of resolving the image (AC-M5-3).
+  @visibleForTesting
+  ImageProvider<Object>? debugTierTwoProviderFor(String id) {
+    final key = _tierTwoKeys[id];
+    return key is ImageProvider<Object> ? key : null;
+  }
+
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
   /// Total retained payload cost. The successor to the old "is that ~50MB
