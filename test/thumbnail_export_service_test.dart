@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
@@ -377,6 +378,88 @@ void main() {
 
         expect(outcome.exportedCount, 0);
         expect(outcome.failures, hasLength(1));
+      },
+    );
+  });
+
+  // M6 P3 review (task #6), P-14 ruling: exported JPEGs must carry the
+  // source file's EXIF metadata again, with Orientation forced to 1. This
+  // promotes the reviewer's throwaway probe
+  // (scripts/tmp/m6-r1-verify/export_exif_probe_test.dart) into a permanent
+  // regression test. The fixture is self-validating: it reads the source
+  // DNG's own EXIF via pkg:exif first, so the assertions are pinned against
+  // whatever that DNG actually carries, not a hard-coded guess.
+  group('exportBytesFor: source EXIF carry-over (P3 review P-14 ruling)', () {
+    test(
+      'export of a DNG with source Make/Model/DateTimeOriginal EXIF carries '
+      'those tags into the output JPEG, with Orientation forced to 1',
+      () async {
+        final samples = _dngs();
+        File? withExif;
+        Map<String, pkg_exif.IfdTag>? sourceTags;
+        for (final f in samples) {
+          final tags = await pkg_exif.readExifFromFile(f);
+          final make = tags['Image Make']?.printable.trim();
+          final model = tags['Image Model']?.printable.trim();
+          final dateTimeOriginal =
+              tags['EXIF DateTimeOriginal']?.printable.trim();
+          if ((make?.isNotEmpty ?? false) &&
+              (model?.isNotEmpty ?? false) &&
+              (dateTimeOriginal?.isNotEmpty ?? false)) {
+            withExif = f;
+            sourceTags = tags;
+            break;
+          }
+        }
+        expect(
+          withExif,
+          isNotNull,
+          reason: 'sample set must include a DNG with Make/Model/'
+              'DateTimeOriginal EXIF',
+        );
+
+        final exported =
+            await ThumbnailExportService.exportBytesFor(withExif!.path);
+        expect(exported, isNotNull);
+
+        final outImage = img.decodeJpg(exported!);
+        expect(outImage, isNotNull);
+        final exif = outImage!.exif;
+
+        expect(
+          exif.isEmpty,
+          isFalse,
+          reason: 'exported JPEG must carry source EXIF metadata',
+        );
+        expect(
+          exif.imageIfd['Make']?.toString(),
+          sourceTags!['Image Make']!.printable.trim(),
+        );
+        expect(
+          exif.imageIfd['Model']?.toString(),
+          sourceTags['Image Model']!.printable.trim(),
+        );
+        expect(
+          exif.exifIfd['DateTimeOriginal']?.toString(),
+          sourceTags['EXIF DateTimeOriginal']!.printable.trim(),
+        );
+
+        // Orientation must be verified via an INDEPENDENT oracle
+        // (pkg:exif reading the raw output bytes), not via
+        // `img.decodeJpg`/`outImage.exif`: the `image` package's own JPEG
+        // decoder unconditionally clears the Orientation tag on every decode
+        // (`getImageFromJpeg`/`_jpeg_quantize_io.dart:225`,
+        // `..exif.imageIfd.orientation = null`) because it always bakes
+        // orientation into pixel layout -- so `outImage.exif` can never show
+        // Orientation regardless of what bytes were actually written. This
+        // is a decode-time package behaviour, not something under this
+        // service's control.
+        final outputTags = await pkg_exif.readExifFromBytes(exported);
+        expect(
+          outputTags['Image Orientation']?.values.firstAsInt(),
+          1,
+          reason: 'orientation must be forced to 1 in the exported bytes',
+        );
       },
     );
   });

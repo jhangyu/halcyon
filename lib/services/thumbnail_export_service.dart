@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:exif/exif.dart' as pkg_exif;
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
@@ -55,9 +56,12 @@ class ThumbnailExportService {
     img.Image? frame;
     if (result is NativeImageBytes) {
       frame = img.decodeImage(result.bytes);
-      // Pixels rotated per EXIF, Orientation forced to 1 -- the export
-      // contract documented on ImageRequestPurpose.export
-      // (image_source_types.dart).
+      // `image`'s own JPEG decoder already physically bakes EXIF orientation
+      // into pixel layout at decode time and clears the Orientation tag
+      // before this ever runs (verified against image-4.9.2's
+      // bake_orientation.dart early-return path) -- this call is a no-op
+      // safeguard for that case, and the real rotation for any other decoded
+      // format that still carries an Orientation tag.
       if (frame != null) frame = img.bakeOrientation(frame);
     } else if (result is NativeImageNeedsRawDecode && decoder != null) {
       final decoded = await decoder(path);
@@ -71,6 +75,21 @@ class ThumbnailExportService {
       frame = bakeExifOnDecoded(frame, result.exifOrientation);
     }
     if (frame == null) return null;
+    // Re-attach EXIF read from the ORIGINAL source file (M6 P3 review P-14
+    // ruling): the decoded bytes above never carry it -- an embedded-preview
+    // JPEG stream inside a DNG has no APP1 block of its own, and the FFI RAW
+    // decode output is documented as carrying no EXIF at all. This mirrors
+    // (core tags, not a byte-for-byte block copy) what the deleted native
+    // export branch did by copying `CGImageSourceCopyPropertiesAtIndex` on
+    // the source file. Orientation is always forced to 1: pixels are already
+    // rotated above.
+    await _attachSourceExif(frame, path);
+    frame.exif.imageIfd['Orientation'] = 1;
+    // img.copyResize does NOT propagate source.exif onto the resized output
+    // (verified against image-4.9.2's copy_resize.dart -- it only reads
+    // src.exif for its own orientation-aware sizing math), so the metadata
+    // set above must be re-attached to the resized frame explicitly.
+    final exif = frame.exif;
     if (frame.width > 2048 || frame.height > 2048) {
       frame = img.copyResize(
         frame,
@@ -78,8 +97,83 @@ class ThumbnailExportService {
         height: frame.height > frame.width ? 2048 : null,
         interpolation: img.Interpolation.linear,
       );
+      frame.exif = exif;
     }
     return Uint8List.fromList(img.encodeJpg(frame, quality: 90));
+  }
+
+  /// Reads EXIF from [sourcePath] via `package:exif` (the same reader
+  /// `ExifMetadataService` uses as the sole, all-platforms path post-F-14 --
+  /// proven to parse DNG/TIFF-structured files, not just JPEG) and copies a
+  /// core set of tags onto [frame]'s [img.ExifData]. This is a best-effort
+  /// re-read of the source file, not a full block copy: maker notes and any
+  /// tag outside this list are not carried over. Failures (unreadable file,
+  /// unsupported format, no EXIF present) are swallowed -- a missing source
+  /// EXIF block must not fail the export.
+  static Future<void> _attachSourceExif(img.Image frame, String sourcePath) async {
+    Map<String, pkg_exif.IfdTag> tags;
+    try {
+      tags = await pkg_exif.readExifFromFile(File(sourcePath));
+    } catch (_) {
+      return;
+    }
+    if (tags.isEmpty) return;
+
+    final exif = frame.exif;
+    final imageIfd = exif.imageIfd;
+    final exifIfd = exif.exifIfd;
+    final gpsIfd = exif.gpsIfd;
+
+    String? ascii(String key) {
+      final tag = tags[key];
+      if (tag == null) return null;
+      final value = tag.printable.trim();
+      return value.isEmpty ? null : value;
+    }
+
+    void setAscii(img.IfdDirectory dir, String tagName, String sourceKey) {
+      final value = ascii(sourceKey);
+      if (value != null) dir[tagName] = value;
+    }
+
+    void setRational(img.IfdDirectory dir, String tagName, String sourceKey) {
+      final values = tags[sourceKey]?.values;
+      if (values is pkg_exif.IfdRatios && values.ratios.isNotEmpty) {
+        final r = values.ratios.first;
+        dir[tagName] = [r.numerator, r.denominator];
+      }
+    }
+
+    void setRationalList(
+      img.IfdDirectory dir,
+      String tagName,
+      String sourceKey,
+    ) {
+      final values = tags[sourceKey]?.values;
+      if (values is pkg_exif.IfdRatios && values.ratios.isNotEmpty) {
+        dir[tagName] = values.ratios
+            .map((r) => [r.numerator, r.denominator])
+            .toList();
+      }
+    }
+
+    setAscii(imageIfd, 'Make', 'Image Make');
+    setAscii(imageIfd, 'Model', 'Image Model');
+    setAscii(imageIfd, 'DateTime', 'Image DateTime');
+    setAscii(imageIfd, 'Artist', 'Image Artist');
+
+    setAscii(exifIfd, 'DateTimeOriginal', 'EXIF DateTimeOriginal');
+    setRational(exifIfd, 'ExposureTime', 'EXIF ExposureTime');
+    setRational(exifIfd, 'FNumber', 'EXIF FNumber');
+    setRational(exifIfd, 'FocalLength', 'EXIF FocalLength');
+    setAscii(exifIfd, 'LensModel', 'EXIF LensModel');
+    final iso = tags['EXIF ISOSpeedRatings']?.values.firstAsInt();
+    if (iso != null && iso > 0) exifIfd['ISOSpeed'] = iso;
+
+    setAscii(gpsIfd, 'GPSLatitudeRef', 'GPS GPSLatitudeRef');
+    setRationalList(gpsIfd, 'GPSLatitude', 'GPS GPSLatitude');
+    setAscii(gpsIfd, 'GPSLongitudeRef', 'GPS GPSLongitudeRef');
+    setRationalList(gpsIfd, 'GPSLongitude', 'GPS GPSLongitude');
   }
 
   // ponytail: concurrency ceiling of 4 — a RAW full decode can cost hundreds

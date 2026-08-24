@@ -18,8 +18,13 @@ enum ImageRequestPurpose {
   // per-request value without changing the loader's argument shape.
   preview(targetSize: 2800, platformValue: 'preview'),
   // Social-media export: long edge capped at 2048px, aspect ratio preserved,
-  // all EXIF carried over with Orientation forced to 1 (pixels are already
-  // rotated). Handled in Dart by `thumbnail_export_service.dart`'s
+  // core EXIF (Make/Model/DateTime[Original]/Artist/ExposureTime/FNumber/
+  // FocalLength/ISO/LensModel/GPS lat-long) re-read from the ORIGINAL source
+  // file and carried over, with Orientation forced to 1 (pixels are already
+  // rotated). This is a best-effort re-read of a fixed tag set, not a
+  // byte-for-byte copy of the source's full EXIF block (no maker notes) --
+  // see `ThumbnailExportService._attachSourceExif` (M6 P3 review P-14
+  // ruling). Handled in Dart by `thumbnail_export_service.dart`'s
   // `exportBytesFor` (M6 F-11): decode -> resize -> encode, replacing the
   // native export branch AppDelegate.swift used to run.
   export(targetSize: 2048, platformValue: 'export');
