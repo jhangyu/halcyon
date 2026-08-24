@@ -23,6 +23,58 @@ class PhotoStatusStore {
     return File(p.join(dir.path, '.halcyon_status.json'));
   }
 
+  bool _loggedCorrupt = false;
+
+  /// The ONE read path for `.halcyon_status.json`.
+  ///
+  /// A missing file, a `FormatException`, or a decoded value that is not a
+  /// JSON object all degrade to an empty map: a corrupt status file must cost
+  /// the user their marks, not their ability to open the folder. Logged at
+  /// most once per store so a big folder cannot spam the console.
+  Future<Map<String, dynamic>> _readJsonMap(File file) async {
+    if (!await file.exists()) return <String, dynamic>{};
+    try {
+      final decoded = json.decode(await file.readAsString());
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (e) {
+      if (!_loggedCorrupt) {
+        _loggedCorrupt = true;
+        // ignore: avoid_print
+        print('Halcyon: unreadable ${p.basename(file.path)} ($e); ignoring it');
+      }
+      return <String, dynamic>{};
+    }
+    if (!_loggedCorrupt) {
+      _loggedCorrupt = true;
+      // ignore: avoid_print
+      print('Halcyon: ${p.basename(file.path)} is not a JSON object; ignoring it');
+    }
+    return <String, dynamic>{};
+  }
+
+  /// Serialises every mutation on this store. Two independent debounce timers
+  /// in AppState (`_saveStatusCache` and `_saveLastViewedId`) both
+  /// read-modify-write this one file; without this chain a save that started
+  /// earlier can finish later and write back a map that never saw the other's
+  /// change.
+  Future<void> _writeChain = Future<void>.value();
+
+  Future<T> _serialise<T>(Future<T> Function() action) {
+    final result = _writeChain.then((_) => action());
+    _writeChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// tmp-file + rename, so a crash or a yanked card can never leave a
+  /// half-written `.halcyon_status.json` behind. The tmp file sits in the same
+  /// directory as the target, which keeps the rename a same-volume metadata
+  /// operation.
+  Future<void> _atomicWrite(File file, String contents) async {
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(contents, flush: true);
+    await tmp.rename(file.path);
+  }
+
   /// A locked SD card mounts read-only, so every status write throws and the
   /// marks vanish on reload. Directory permission bits lie here (exFAT mounts
   /// `noowners`, so the folder still looks like drwx------), so the only
@@ -43,10 +95,9 @@ class PhotoStatusStore {
     List<PhotoItem> items,
   ) async {
     final file = statusFileFor(dir);
-    if (!await file.exists()) return const PhotoStatusSnapshot();
+    final jsonMap = await _readJsonMap(file);
+    if (jsonMap.isEmpty) return const PhotoStatusSnapshot();
 
-    final content = await file.readAsString();
-    final jsonMap = json.decode(content) as Map<String, dynamic>;
     final validKeys = items.map((item) => item.id).toSet();
     var needsCleanup = false;
 
@@ -78,88 +129,76 @@ class PhotoStatusStore {
     );
   }
 
-  Future<void> saveStatuses(Directory dir, List<PhotoItem> items) async {
-    final file = statusFileFor(dir);
-    final statusMap = <String, String>{};
-
-    if (await file.exists()) {
-      final existingContent = await file.readAsString();
-      final existingJson = json.decode(existingContent) as Map<String, dynamic>;
+  Future<void> saveStatuses(Directory dir, List<PhotoItem> items) {
+    return _serialise(() async {
+      final file = statusFileFor(dir);
+      final statusMap = <String, String>{};
+      final existingJson = await _readJsonMap(file);
       for (final key in reservedKeys) {
         final value = existingJson[key];
         if (value is String) statusMap[key] = value;
       }
-    }
-
-    for (final item in items) {
-      if (item.status != PhotoStatus.unmarked) {
-        statusMap[item.id] = item.status.name;
+      for (final item in items) {
+        if (item.status != PhotoStatus.unmarked) {
+          statusMap[item.id] = item.status.name;
+        }
       }
-    }
-
-    await file.writeAsString(json.encode(statusMap));
+      await _atomicWrite(file, json.encode(statusMap));
+    });
   }
 
-  Future<void> saveLastViewedId(Directory dir, String selectedItemId) async {
-    final file = statusFileFor(dir);
-    var jsonMap = <String, dynamic>{};
-
-    if (await file.exists()) {
-      final content = await file.readAsString();
-      jsonMap = json.decode(content) as Map<String, dynamic>;
-    }
-
-    if (jsonMap['_last_viewed_id'] != selectedItemId) {
-      jsonMap['_last_viewed_id'] = selectedItemId;
-      await file.writeAsString(json.encode(jsonMap));
-    }
+  Future<void> saveLastViewedId(Directory dir, String selectedItemId) {
+    return _serialise(() async {
+      final file = statusFileFor(dir);
+      final jsonMap = await _readJsonMap(file);
+      if (jsonMap['_last_viewed_id'] != selectedItemId) {
+        jsonMap['_last_viewed_id'] = selectedItemId;
+        await _atomicWrite(file, json.encode(jsonMap));
+      }
+    });
   }
 
   Future<String?> loadRenameRule(Directory dir) async {
-    final file = statusFileFor(dir);
-    if (!await file.exists()) return null;
-    final jsonMap =
-        json.decode(await file.readAsString()) as Map<String, dynamic>;
+    final jsonMap = await _readJsonMap(statusFileFor(dir));
     final rule = jsonMap[_renameRuleKey];
     return rule is String ? rule : null;
   }
 
   /// Persists the folder's custom rename rule; [rule] == null removes it
   /// (which is what picking a built-in preset does).
-  Future<void> saveRenameRule(Directory dir, String? rule) async {
-    final file = statusFileFor(dir);
-    final jsonMap = await _readMap(file);
-    if (rule == null) {
-      jsonMap.remove(_renameRuleKey);
-    } else {
-      jsonMap[_renameRuleKey] = rule;
-    }
-    await file.writeAsString(json.encode(jsonMap));
+  Future<void> saveRenameRule(Directory dir, String? rule) {
+    return _serialise(() async {
+      final file = statusFileFor(dir);
+      final jsonMap = await _readJsonMap(file);
+      if (rule == null) {
+        jsonMap.remove(_renameRuleKey);
+      } else {
+        jsonMap[_renameRuleKey] = rule;
+      }
+      await _atomicWrite(file, json.encode(jsonMap));
+    });
   }
 
   /// Rewrites photo keys after a rename batch. Without this, every star and
   /// the last-viewed pointer would be orphaned the moment files are renamed,
   /// because this file is keyed by [PhotoItem.id] (the basename).
-  Future<void> remapKeys(Directory dir, Map<String, String> oldToNew) async {
-    final file = statusFileFor(dir);
-    if (!await file.exists() || oldToNew.isEmpty) return;
-
-    final jsonMap = await _readMap(file);
-    final remapped = <String, dynamic>{};
-    for (final entry in jsonMap.entries) {
-      if (reservedKeys.contains(entry.key)) {
-        remapped[entry.key] = entry.key == '_last_viewed_id'
-            ? (oldToNew[entry.value] ?? entry.value)
-            : entry.value;
-      } else {
-        remapped[oldToNew[entry.key] ?? entry.key] = entry.value;
+  Future<void> remapKeys(Directory dir, Map<String, String> oldToNew) {
+    return _serialise(() async {
+      if (oldToNew.isEmpty) return;
+      final file = statusFileFor(dir);
+      final jsonMap = await _readJsonMap(file);
+      if (jsonMap.isEmpty) return;
+      final remapped = <String, dynamic>{};
+      for (final entry in jsonMap.entries) {
+        if (reservedKeys.contains(entry.key)) {
+          remapped[entry.key] = entry.key == '_last_viewed_id'
+              ? (oldToNew[entry.value] ?? entry.value)
+              : entry.value;
+        } else {
+          remapped[oldToNew[entry.key] ?? entry.key] = entry.value;
+        }
       }
-    }
-    await file.writeAsString(json.encode(remapped));
-  }
-
-  Future<Map<String, dynamic>> _readMap(File file) async {
-    if (!await file.exists()) return <String, dynamic>{};
-    return json.decode(await file.readAsString()) as Map<String, dynamic>;
+      await _atomicWrite(file, json.encode(remapped));
+    });
   }
 }

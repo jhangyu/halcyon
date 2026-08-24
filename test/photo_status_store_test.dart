@@ -75,4 +75,42 @@ void main() {
     expect(map['_last_viewed_id'], '2026-01-02');
     expect(map['_rename_rule'], '{YYYY}');
   });
+
+  test('TC-208 a corrupt status file loads as empty instead of throwing',
+      () async {
+    await store.statusFileFor(tempDir).writeAsString('{"A": "starr');
+
+    final items = [item('A', PhotoStatus.unmarked)];
+    final snapshot = await store.applySavedStatuses(tempDir, items);
+
+    expect(snapshot.lastViewedId, isNull);
+    expect(items.single.status, PhotoStatus.unmarked);
+  });
+
+  test('TC-209 corrupt JSON degrades on every read entry point', () async {
+    final file = store.statusFileFor(tempDir);
+    await file.writeAsString('[1, 2, 3]'); // valid JSON, not a Map
+
+    expect(await store.loadRenameRule(tempDir), isNull);
+
+    await store.saveRenameRule(tempDir, '{YYYY}');
+    expect(await store.loadRenameRule(tempDir), '{YYYY}');
+
+    await file.writeAsString('not json at all');
+    await store.remapKeys(tempDir, {'A': 'B'});
+    expect(await store.loadRenameRule(tempDir), isNull);
+  });
+
+  test('TC-210 concurrent saves do not lose each other\'s keys', () async {
+    final futures = <Future<void>>[];
+    for (var i = 0; i < 20; i++) {
+      futures.add(store.saveStatuses(tempDir, [item('A', PhotoStatus.starred)]));
+      futures.add(store.saveLastViewedId(tempDir, 'A$i'));
+    }
+    await Future.wait(futures);
+
+    final map = await readJson();
+    expect(map['A'], 'starred');
+    expect(map['_last_viewed_id'], isNotNull);
+  });
 }
