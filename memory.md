@@ -192,6 +192,18 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 
 ---
 
+### AD-022｜「容器宣告了預覽但全部讀不到」與「容器沒宣告預覽」是兩個不同的終局狀態
+- **日期**：2026-08-24
+- **背景**：`DngPreviewExtractor._gatherCandidates` 遇到 strip 位移或長度落在檔案範圍外的候選就跳過。它原本回傳一個裸 list，於是在呼叫端「容器沒宣告任何候選」與「容器宣告的候選全都讀不到」是同一個空 list——結構壞掉的 `.dng` 因此被當成單純沒有預覽圖，交給 RAW 解碼器慢慢失敗，最後吐一個泛用的解碼錯誤。
+- **決策**：改回傳 `_CandidateScan {candidates, unreadable}`，且**只有邊界檢查那一種拒絕**計入 `unreadable`。缺 Compression/Photometric/尺寸/strip 標籤、非 JPEG 壓縮、或未達全尺寸的 `0.90 * cropMax` 下限，一律仍是「不是候選」——那是缺席，不是損壞。把這兩者合併會讓每一張普通的無預覽 DNG 都被報成損毀。
+- **介面**：新增 `DngPreviewProbe {jpeg, malformed}` 與 `probeEmbeddedJpeg`，由 `dartImageLoad` 的非側欄分支消費，回傳 `NativeImageFailure('DNG_PARSE_FAILED', …)`，並以 `.dng` 為條件（同 A-6 理由：非 DNG RAW 維持統一的 `RAW_NO_EMBEDDED_PREVIEW`，矩陣 F-08）。
+- **`malformed` 的界線**：只有在**沒有任何**宣告的候選可讀時才為真——一個壞 strip 旁邊還有一個好的，不算容器損壞。三種情況刻意**不算** malformed，每一種都有一條測試會在界線被移動時失敗：真正無預覽的 DNG（裁決 (b)：仍回 `NeedsRawDecode` 並帶走 walker 讀到的方位）；G-2 判定尺寸不足但本身完好的候選（那是一次刻意的 miss，仍走 RAW 解碼——把它標成 malformed 的突變會讓 Task 2 的路徑轉紅，界線是被驗證出來的而非用斷言宣稱的）；以及在 IFD0 可讀之前就失敗的截斷檔（照舊走到 `null`）。
+- **A-1 以否定收斂**：外部計畫是用單次走訪的 `inspectEmbeddedJpeg` 取代雙呼叫形狀來交付這個能力。契約 §2.1 刻意選了雙呼叫，因此 `extractEmbeddedJpeg` 的簽章與回傳型別完全不動，`probeEmbeddedJpeg` 加在它旁邊，沒有遷移任何呼叫端。實作上兩者共用同一個私有 `_probeWalk`，`_walk` 以 `strictBitstream: false` 委派過去，所以兩個入口不可能漂移；唯一的行為差異是 probe 另外要求選中的 strip 以 JPEG SOI 標記開頭。單次走訪是對一個有意識選擇的設計做效能重構，不是行為缺口，在有人量出足以重開 §2.1 的代價之前不進範圍。
+- **已知未覆蓋**：strip 位移在範圍內、但內容不是 JPEG 位元流的那條分支（`_readStrip` 的 `strictBitstream` 限）目前沒有測試——合成容器產生器已凍結、產不出這個形狀。該分支經檢視為正確但未經實測，列為 parking-lot，不列為已驗證。
+- **對應任務**：M7 Task 3。
+
+---
+
 ## Gotchas（踩坑紀錄）
 
 ### G-001｜側邊欄 Scroll Debounce（觸發機制已由 AD-014 取代，debounce 本身仍在）

@@ -1100,6 +1100,79 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-160~163｜AppState.openPhotoAtPath — 不存在的路徑不得清空使用者正在檢視的資料夾（M7 Task 4）
+
+> 編號說明：本組沿用實作者已寫入測試名稱並提交（`d4796ec`）的 TC-160~163。TC-121~159 為未使用的空號，後續新增測試請從 TC-164 起編，勿回填空號以免與已提交的測試名稱衝突。
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-160 / TC-161 / TC-162 / TC-163 |
+| **名稱** | keeps the loaded folder when the file does not exist / keeps the loaded folder when the parent directory is missing / still opens a real file and selects it / ignores unsupported extensions |
+| **測試類型** | 單元測試（4 案例，真實暫存目錄，無 platform channel） |
+| **背景** | M7 Task 4：`openPhotoAtPath` 原本只用副檔名過濾，就直接呼叫 `loadFolder`，而 `loadFolder` 會**先**清空 `_currentDir`／`_items`／preload／選取狀態**才**掃描（`lib/providers/app_state.dart:251-255`）。任何「只是結尾像照片副檔名」的字串因此會抹掉使用者正在挑片的資料夾，換成一個不存在目錄的空掃描。Android `ACTION_VIEW` 的 `content://` URI 不透明片段（例如 `/document/image:1234.jpg`）正是這種字串。修法是在動任何狀態前檢查檔案與其父目錄是否存在（`:246-249`），純檔案系統檢查、無平台分支（C-3） |
+| **預期結果** | TC-160／TC-161：`currentDir`、items、選取狀態與呼叫前完全相同；TC-162：真實檔案仍會載入其資料夾並選中該照片；TC-163：不支援的副檔名被忽略且不清空資料夾 |
+| **驗證方式** | `flutter test test/app_state_open_with_test.dart` |
+| **狀態** | ✅ 已通過（紅→綠留證：`scripts/tmp/m7-t4/red.log` 修補前 TC-160 實得 `/nonexistent/dir`、TC-161 實得 `.../no_such_subdir`，自捕 `RC=1`；`green.log` 修補後 `All tests passed!`、自捕 `RC=0`、4/4） |
+
+---
+
+### TC-164~171｜DngPreviewExtractor — big-endian（MM）讀取路徑差分覆蓋（M7 Task 1）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-164（產生器決定性，`:53`）／TC-165（`:69`）／TC-166（`:80`）／TC-167（longEdge:200 選中尺寸 MM==II，`:100`）／TC-168（longEdge:null 選中尺寸 MM==II，`:116`）／TC-169（取出的 bytes MM==II，`:135`）／TC-170（orientation MM==II，`:151`）／TC-171（`corruptOffsets` 容器目前行為，`:161`） |
+| **測試類型** | 單元測試（8 案例，容器由 `test/support/synthetic_dng.dart` 在記憶體中組出後寫入暫存目錄，無 committed binary fixture） |
+| **背景** | 稽核發現 `_detectByteOrder`／`_readerFor` 宣稱支援 big-endian，但 `test/` 下沒有任何 `MM` 輸入，整條大端分支從未被執行過。刻意採**差分**設計：同一個邏輯容器分別以 `bigEndian: false` 與 `true` 各建一份，斷言兩者結果相同——若改斷言絕對值，一個「錯得前後一致」的 reader 也會通過 |
+| **預期結果** | 兩種位元組序在四個面向完全一致：longEdge:200 的選中尺寸、longEdge:null 的選中尺寸、取出的 JPEG bytes（`Uint8List` 完全相等）、orientation |
+| **驗證方式** | `flutter test -j 1 test/dng_preview_extractor_endian_test.dart`（宣告 8 == 實跑 +8，RC=0 自捕） |
+| **狀態** | ✅ 已通過，且**未發現位元組序缺陷**——`lib/services/dng_preview_extractor.dart` 未被修改。此否定結果由突變測試背書而非目視：把 `_TIFFReader.u32` 的大端分支（`:757`）改成小端寫法後，5 條涉及 MM 的斷言全紅、3 條只走 II 的維持綠（`scripts/tmp/m7-t1/red-m1.txt`），突變已還原 |
+
+> Task 3 注意：TC-171 斷言的是**目前**對 `corruptOffsets: true` 容器的行為（兩種位元組序皆自 `extractEmbeddedJpeg` 得到 `null`）。malformed 偵測改以 `probeEmbeddedJpeg` 新增 API 交付時，只要 `extractEmbeddedJpeg` 的簽章與回傳契約真的沒變，這條期望就仍成立。若發現非改這行不可，代表 API 是被遷移而非新增，應回報 lead 而非逕行修改。
+
+---
+
+### TC-180~193｜預覽圖尺寸不足改走 RAW 解碼 + 方向值範圍夾限（M7 Task 2）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | 方向值夾限 TC-180（原始值 0→1）／TC-181（1→1，下界保留）／TC-182（8→8，上界保留）／TC-183（9→1）／TC-184（無法判定時 `readDngOrientation` 折成 1、`readOrientation` 保留 null）；`minLongEdge` 規則 TC-185（`longEdge:null`）／TC-186（`longEdge:200`，證明兩種選取模式都套用）／TC-187（是拒絕而非改選：有合格候選時仍取最大者）／TC-188（預設 null，顯式 null 與寬鬆包裝函式結果一致）；載入器行為 TC-189（尺寸不足的 `.dng` + 預覽用途 → 進 RAW 解碼）／TC-190（同檔 + 側欄縮圖 → 仍直接給 bytes，P-11/P-13 維持寬鬆）／TC-191（同檔 + 匯出 → 仍直接給 bytes）／TC-192（尺寸不足的**非 DNG** RAW + 預覽用途 → 仍給 bytes，不是失敗）／TC-193（預覽圖已達 2800 的 `.dng` 不受影響） |
+| **測試類型** | 單元測試（14 案例，跨 `test/dng_preview_extractor_test.dart` 與 `test/dart_image_loader_test.dart`，容器由 Task 1 的合成產生器建出） |
+| **背景** | 使用者裁決 G-2：內嵌預覽圖沒有任何一張達到要求尺寸時，該檔改走 RAW 解碼，而不是拿一張過小的預覽圖充數。作用範圍經 A-5／A-6 兩次收斂：只套用在**預覽路徑且限 `.dng`**。側欄維持寬鬆（P-11/P-13）；匯出維持寬鬆（該路徑沒有 RAW 解碼可退，嚴格化會把「匯出一張略小的圖」變成「匯出失敗」）；非 DNG 的 RAW 同理，因為載入器的 RAW 解碼逃生口本身就只對 `.dng` 開放。方向值部分：原本只做 null 預設，任何超出 EXIF 合法範圍 1..8 的值都會原封不動流進下游的方向烘焙 |
+| **預期結果** | 如上逐條 |
+| **狀態** | ✅ 已通過（`+46: All tests passed!`，RC=0 自捕，`scripts/tmp/m7-t2/green-both.txt`）。四次突變驗證各自只讓對應斷言轉紅：拿掉範圍檢查只紅 0 與 9 兩列、1 與 8 維持綠；拿掉尺寸拒絕只紅兩條 `minLongEdge` 斷言；拿掉載入器接線只紅 TC-189；把守衛改成不限 `.dng` 只紅 TC-192，實得 `NativeImageFailure`——這一條把 A-6 從紙上論證變成實測結果。突變全部還原 |
+
+> 效能驗收條件在本樣本集上為**空集合**：26 個樣本中 0 個因這條規則改變路徑（13 個本來就走 RAW 解碼、13 個預覽圖本來就達標），證據 `scripts/tmp/m7-t2/newly-routed.txt`。這是這份樣本集的性質，不是「世上不存在這種檔案」的證明——一張內嵌預覽只有 1024 像素的 DNG 就會被新導向。
+
+---
+
+### TC-172~176｜側欄 RAW 退路的快取編碼由 PNG 改為 JPEG q80（M7 Task 5）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-172（恰好等於重編門檻的輸入原樣通過，邊界為 `<=`）／TC-173（超過門檻者重編為 JPEG：斷言 SOI 標記 `FF D8`、且能反解回長邊 ≤ 200 的影像）／TC-174（無法解碼的超門檻輸入仍退回原始 bytes，不讓該列消失）／TC-175（`jpegFromOrientedPixels` 把 EXIF 方向 6 烘進可解碼的 JPEG）／TC-176（品質參數可調且確實改變體積，q30 < q95） |
+| **測試類型** | 單元測試（`test/sidebar_thumbnail_codec_test.dart`） |
+| **背景** | 原始碼註解自己記著當初選 PNG 的理由：`dart:ui` 只能編 PNG，等匯出功能引入 `image` 套件後就可改 JPEG。該前提已成立，這是把 M6 的緩議項目兌現。兩個函式的結構不變（同一次解碼、同樣的方向烘焙與長邊縮放），只換編碼那一步 |
+| **預期結果** | 如上逐條；PNG 路徑必須完全移除而非並存（`grep -rn "pngFromOrientedPixels\|ImageByteFormat.png" lib/` 無列，RC=1） |
+| **狀態** | ✅ 已通過（全套 311 測試 `All tests passed!`，RC=0 自捕，`scripts/tmp/m7-t5/fullsuite2.log:1554-1555`）。紅→綠留證：修改前兩個函式實得 `[137, 80]`（PNG magic）而非預期的 `[255, 216]`，RC=1 自捕 |
+
+> **體積結論與其適用範圍**（`scripts/tmp/m7-t5/size-comparison.md`，8 個真實 DNG 樣本）：JPEG q80 相對 PNG 為 4.15×–6.38×、整體 5.06×（354,159 B → 69,929 B），僅量位元組，未量 UI 延遲或記憶體（C-6 屬使用者自量）。**但這個優勢是照片類內容的性質，在低熵的人工合成影像上會反轉**——實測條紋圖 PNG 5,739 B 勝過 JPEG 14,634 B。因此本組刻意**沒有**寫「JPEG 比較小」的斷言：那只會證明測試圖被挑對了。未來若有人用產生的測試圖做基準而得到相反結論，請先讀這段再決定是否翻案（同 memory.md G-016）。
+
+---
+
+### TC-200~205｜結構損毀的 DNG 與「單純沒有預覽圖」必須分開（M7 Task 3）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-200（損毀容器 + 預覽用途 → `DNG_PARSE_FAILED`，不再進 RAW 解碼）／TC-201（同一損毀容器 + 側欄 → 仍是 `NO_THUMBNAIL`，側欄分支未動）／TC-202（`local_data/photo_samples/DNG` 中每一張真正無預覽的 DNG 仍回 `NeedsRawDecode`；迴圈斷言 `covered > 0`，空樣本集無法矇混通過）／TC-203（G-2 判定尺寸不足但完好的候選 probe 出 `jpeg == null, malformed == false`——刻意的 miss 不是損壞）／TC-204（`probeEmbeddedJpeg` 三態：損毀 → malformed；完好 → 有 jpeg；非 TIFF 垃圾檔在 IFD0 之前就失敗 → 兩者皆否）／TC-205（`extractEmbeddedJpeg` 與其全尺寸包裝函式對同一損毀輸入仍回 `null`——新 API 是「加上去」而非「遷移」） |
+| **測試類型** | 單元測試（`test/dart_image_loader_test.dart`，損毀容器由合成產生器以「IFD0 仍可走訪、但每個 strip 位移都指到檔尾之外」的方式建出） |
+| **背景** | 稽核發現結構壞掉的 `.dng` 會被當成單純沒有預覽圖，交給 RAW 解碼器慢慢失敗後吐一個泛用錯誤。根因是候選蒐集函式對「不是候選」與「候選讀不到」用同一個 `continue`，在呼叫端無法區分。詳見 memory.md AD-022 |
+| **預期結果** | 如上逐條 |
+| **狀態** | ✅ 已通過（全套 317 測試 `All tests passed!`，宣告數 == 實跑數，RC=0 自捕，紀錄自 `+0` 起連續無中斷）。三次突變各自只讓預期的斷言轉紅；其中最有價值的一次是把 G-2 的尺寸不足 miss 強制標成 malformed，結果讓 Task 2 的路徑轉紅——代表若把損壞的定義擴大一行，會無聲吃掉前一項任務的裁決，而測試會當場喊出來 |
+
+> **已知未覆蓋（parking-lot，非通過項）**：strip 位移在範圍內、但內容不是 JPEG 位元流的分支沒有測試——合成容器產生器已凍結、產不出這個形狀。經檢視正確但未實測。
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令
