@@ -162,6 +162,14 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **已知限制**：因為昂貴項目只在 ±1 內取得 payload，而 tier-1 預快取只消費 payload、從不生產（`image_preload_controller.dart:707-708` peek 到 null 就跳過），所以**在「無內嵌預覽的 RAW」資料夾上，距離 2..5 的格子兩層快取都是空的**。九格保證只對有預覽的檔案成立。這是拆分的設計後果，不是缺陷。
 - **對應任務**：M3 round 2（commit `f9869db`）。
 
+### AD-020｜M6 契約：影像行為統一於 Dart 核心，三個宣告例外之外禁止平台分歧
+- **日期**：2026-08-24
+- **決策**：Halcyon 的照片行為（哪些檔案能載入、畫面上出現哪些像素、刪除做什麼、匯出產出什麼）只用 Dart 實作一次，在每個支援平台產生相同的可觀察結果；native runner 只保留 app shell、視窗管線，以及三個封閉清單的例外：**F-12 系統 Trash**（macOS/Windows 原生）、**F-16 Open With 傳輸層**（macOS/Windows/Android/iOS，Linux 排除）、**F-18 檔案關聯**（Windows/macOS）。清單封閉——任何新的平台分歧都不得援引這三項為先例。
+- **依據**：`docs/logs/2026-08-24/m6-spec-contract.md` §1 C-2/C-3；`lib/` 內禁止 `Platform.isX`/`kIsWeb`/`defaultTargetPlatform`/條件匯入/shell 出去的平台指令（唯一例外：F-19 reveal-in-file-manager 的一處 `Process.run`，已從 grep 護欄的檔案清單排除）。production `NativeImageLoad` seam 的實作從 `halcyon/thumbnail` MethodChannel 搬到純 Dart producer（`dart_image_loader.dart`，基於 `DngPreviewExtractor`）；seam 本身保留作為測試注入點。
+- **能力損失（U-11/U-12，使用者已裁決，非靜默降級）**：**U-12** 是本輪最大的一次架構轉向——`photo_source.dart` 的 `_legacyBytes` CIRAWFilter 降級路徑整個刪除，一張無內嵌預覽又無可用解碼器的 DNG，現在是**立即、統一、不可恢復**的 permanent miss（不再有「退化到原生 bytes」這條路可走，因為那條路本身就是要刪除的原生橋接）；U-11 是與 F-05（HEIC 移出支援集，見 commit `68308c4`）配套的能力收斂。兩者皆為使用者在 matrix 上明確裁決的結果，寫在 round 報告中而非埋在程式碼裡。
+- **測試面（C-4，見 baseline-registry.md）**：任何斷言單平台語意的既有測試，隨受測 channel/類型一起刪除或改寫，同一 commit 內把理由與（若為凍結檔）新 sha256 記入 `docs/logs/2026-08-24/baseline-registry.md`。Appendix B（`m6-execution-plan.md:1092-1105`）是本輪測試處置的權威清單，P5.2（2026-08-24）稽核過全部 10 列，逐列核對 commit 與 baseline-registry 同步登錄，發現的殘留問題（TC-057 受測檔已刪除但矩陣未標註、TC-049 測試 ID 在兩個測試檔重複）記在 `unit_test.md` 對應條目，未回頭改動 `test/`（P5.2 owned files 不含 `test/`）。
+- **對應任務**：M6 P2–P4（commits `90ca085`…`3a7a2b2`…`c20e0ce`），P5.2 稽核（本條）。
+
 ### AD-019｜兩個快取常數以相反的樣本組計算，不可互相驗算
 - **日期**：2026-08-23
 - **決策**：`imageCacheMaxBytes = 768 << 20`（805,306,368 bytes，`lib/main.dart:25`）；`kPayloadByteBudget = 224 * 1024 * 1024`（234,881,024 bytes，`lib/services/photo_payload_cache.dart:31`）。單位一律 MiB（bytes / 1048576），載重數字一律釘原始位元組。
@@ -246,6 +254,15 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **問題**：EXIF 重新命名的實作計畫標注 tech stack 為「Flutter 3.35 / Dart 3.9」，但本機實際安裝的 toolchain 是 **Flutter 3.44.6 / Dart 3.12.2**；`RadioListTile` 的 `groupValue`/`onChanged` 參數在 Flutter 3.32 之後已棄用。
 - **解法**：`lib/views/rename_dialog.dart`（`rename_dialog.dart:178` 起）改用 `RadioGroup<String>` 祖先 widget 包裹一組 `RadioListTile`，而非計畫文件中字面給出的 `groupValue`/`onChanged` 寫法。
 - **注意**：不要把這裡「修回」計畫文件中的舊寫法——那是已棄用的 API，日後升級 Flutter 版本前都應保持 `RadioGroup` 寫法。
+
+### G-015｜量測儀器打錯進入點會產生假 HARD FAIL：G3 量的是全尺寸解碼，不是側欄縮圖抽取
+- **嚴重程度**：高（差點誤判一個 PASS 的實作為 FAIL，若真的據此回頭改實作方向會是白工）
+- **問題**：M6 P2.6 前的 G3 量測跑出 HARD FAIL——13 個樣本在 Dart 路徑回傳 null，而 native 路徑產出影像，照 Appendix A 判定規則這是「無聚合、無重跑」的硬失敗。但這 13 個 null 剛好精準對應「沒有全尺寸內嵌預覽」的 DNG：預先登記的 Dart 路由呼叫的是**全尺寸進入點**，但那些樣本本來就該用 `extractEmbeddedJpeg(path, longEdge: 200)` 這個側欄縮圖進入點才找得到縮小版預覽——量測腳本打錯了進入點，不是實作真的漏掉這批樣本。
+- **根因**：`DngPreviewExtractor` 有兩個進入點（全尺寸 vs `longEdge: 200` 的側欄縮圖），量測腳本的預註冊路由只接了全尺寸那一個，卻拿它去跑本來就該走側欄縮圖進入點的樣本組。
+- **識讀方式**：13 個 null 不是隨機分布，而是**精準等於**「無全尺寸內嵌預覽」的樣本子集——這個「完美對應」本身就是路由錯誤的訊號，不是實作缺陷的訊號（真正的實作 bug 通常不會產生這麼乾淨的子集邊界）。
+- **解法**：P2.5（decode-time 長邊降尺寸／`instantiateImageCodecWithSize`）+ P2.6 重新用正確進入點跑 G2′/G3′，而不是去改 `dart_image_loader.dart` 的實作去「補上」原本就存在的側欄縮圖路徑。
+- **教訓**：任何 HARD FAIL 或看似整齊的失敗子集，先問「量測腳本打的是不是正確的進入點／API」，再假設實作有洞——尤其當失敗樣本的邊界精確符合某個已知的業務語意分類（此處是「有無內嵌預覽」）時，這通常是儀器打錯路由的指紋，而非巧合的真實 bug 分布。這是 `~/.claude/rules/lessons-learned.md` 2026-08-17「否定結果先驗儀器」條目在 M6 的一次具體重演，值得單獨記錄因為它差點造成方向性誤判（若真去改 P2.1 的核心實作而非量測路由，會是白工且引入不必要複雜度）。
+- **對應任務**：M6 P2.6（`m6-execution-plan.md:30`「G3 HARD FAIL is an instrument-route artifact」段落）。Artifacts：`scripts/tmp/20260824T084906Z-m6-g1.txt`、`…085119Z-m6-g2.txt`、`…085320Z-m6-g3.txt`。
 
 ### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
 - **嚴重程度**：中

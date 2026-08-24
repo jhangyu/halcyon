@@ -696,7 +696,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-047｜ExifMetadataService — readBatch 分批且保持順序
+### TC-047｜ExifMetadataService — readBatch 分批且保持順序 ❌ 已刪除（M6 F-14, P5.2 audit）
 
 | 欄位 | 內容 |
 |------|------|
@@ -704,12 +704,12 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **名稱** | readBatch chunks the paths and preserves order |
 | **測試類型** | 單元測試（mock `MethodChannel`）|
 | **預期結果** | 1200 個路徑依 `kExifChunkSize`（500）分成 `[500, 500, 200]` 三批呼叫；結果與輸入順序一致 |
-| **驗證方式** | `test/exif_metadata_service_test.dart` |
-| **狀態** | ✅ 已通過 |
+| **驗證方式** | ~~`test/exif_metadata_service_test.dart`~~（已刪除） |
+| **狀態** | ❌ **已刪除**（commit `36dfc37`, F-14：`halcyon/exif` channel 讀取路徑整個刪除，EXIF 讀取改為 isolate-only；本案例釘住的是舊 channel-mock 的分批行為，受測對象消失，屬 C-4 單平台語意斷言）。刪除理由記於 `test/exif_metadata_service_test.dart:46-53` 的原始碼註解；未列入 `baseline-registry.md` 凍結 sha256 清單，故無需 sha 重新登錄儀式。分批行為由 **TC-049**（下方，改寫版）改對真實 isolate 路徑驗證 |
 
 ---
 
-### TC-048｜ExifMetadataService — channel 失敗回傳 null 而非拋錯
+### TC-048｜ExifMetadataService — channel 失敗回傳 null 而非拋錯 ❌ 已刪除（M6 F-14, P5.2 audit）
 
 | 欄位 | 內容 |
 |------|------|
@@ -717,10 +717,12 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **名稱** | a channel failure yields nulls rather than throwing |
 | **測試類型** | 單元測試（mock `MethodChannel` 拋 `PlatformException`）|
 | **預期結果** | `readBatch` 回傳與輸入等長、全為 null 的清單，不向上拋出例外 |
-| **驗證方式** | `test/exif_metadata_service_test.dart` |
-| **狀態** | ✅ 已通過 |
+| **驗證方式** | ~~`test/exif_metadata_service_test.dart`~~（已刪除） |
+| **狀態** | ❌ **已刪除**（同 TC-047，commit `36dfc37`, F-14——mock 的是已刪除的 channel 失敗路徑，受測對象消失）。降級為 null 的行為由 TC-049 的「找不到的路徑一律降級為 null」子斷言覆蓋 |
 
 ---
+
+> **⚠️ 測試 ID 衝突（P5.2 audit 發現，2026-08-24，未修復——不在本任務 owned files 範圍）**：下方 TC-049 條目原本描述 `test/app_state_test.dart:386` 的 `renameByExif` 案例。commit `3a7a2b2`（M6 P3.3/C-4）在 `test/exif_metadata_service_test.dart:61` 新增了**另一個**字面同樣叫 `TC-049`（`readBatch never touches a platform channel`）的測試，取代上面被刪除的 TC-047/048。兩個測試檔的 `test(...)` 呼叫字串都硬編了 `'TC-049 ...'`，違反本檔頁首「測試 ID 不可重複」的維護政策。這是**測試原始碼**裡的衝突（不是文件筆誤），P5.2 owned files 不含 `test/`，故此處僅如實記錄、不擅自修復或重新編號兩個測試檔的字面字串。下方矩陣條目維持登錄原本的 `renameByExif` 語意；`readBatch never touches a platform channel` 的完整描述見上方分隔線後的說明文字，需要一位有 `test/` 檔案所有權的成員把其中一個改名（建議改 exif 那個為未使用的下一個 ID，例如 TC-118 之前的空位或往後接續新分配區段）。
 
 ### TC-049｜AppState — renameByExif 重新命名並把星號帶到新 id
 
@@ -853,7 +855,19 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-057｜NativeThumbnailService — MissingPluginException 退化為 NativeImageFailure
+### TC-089｜dng_nav_probe_m3_test — real preview-bearing DNG probe cheap leads to immediate loader work ❌ 已刪除（M6 C-4, P5.2 audit 補登）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-089 |
+| **名稱** | real preview-bearing DNG content probe cheap leads to immediate loader work |
+| **測試類型** | 單元測試 |
+| **驗證方式** | ~~`test/dng_nav_probe_m3_test.dart:180-204`~~（已刪除） |
+| **狀態** | ❌ **已刪除**（commit `3a7a2b2`, M6 P3.3, Appendix B 列項；`baseline-registry.md` 已於同一 commit 記錄 sha256 重新登錄與 C-4 理由）。TC-088（`:144-176`）保留不動。本條在 M5 前從未進過本檔矩陣（僅見於 `docs/logs/2026-08-24/m6-execution-plan.md` Appendix B 與 `test/image_preload_scheduling_m4_test.dart` 背景說明的旁引），P5.2 audit 一併補登以求矩陣完整可追溯 |
+
+---
+
+### TC-057｜NativeThumbnailService — MissingPluginException 退化為 NativeImageFailure ⚠️ 受測主體已刪除，行為由 TC-030-AC5 接手（M6 U-12, P5.2 audit 補註）
 
 | 欄位 | 內容 |
 |------|------|
@@ -862,8 +876,8 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | Unit Test |
 | **背景** | Windows/Android/iOS 尚無 `halcyon/thumbnail` 的 native 實作，mock messenger 拋出 `MissingPluginException`（不是 `PlatformException` 的子類，需獨立 catch）。修復前會一路 rethrow 穿過 `image_preload_controller.dart` 的 `_loadPreview`，讓整個 preload pipeline 崩潰、UI 全黑 |
 | **預期結果** | `requestImage` catch `MissingPluginException` 並回傳 `NativeImageFailure(code: 'MISSING_PLUGIN', ...)`，不拋出；`image_preload_controller.dart` 既有的 `NativeImageFailure` → `_failedIds` 錯誤顯示路徑不需改動即可正確處理 |
-| **驗證方式** | `test/native_thumbnail_service_test.dart` |
-| **狀態** | ✅ 已通過（修復前跑過一次紅燈，見 `scripts/tmp/verify/d2-before-fix.txt`；修復後綠燈見 `d2-after-fix.txt`） |
+| **驗證方式** | ~~`test/native_thumbnail_service_test.dart`~~（**整檔已刪除**，commit `3a7a2b2`，Appendix B 列項：`NativeThumbnailService` 本體隨 `halcyon/thumbnail` channel 一併刪除）。等效行為現由 `test/m6_bridge_free_test.dart` 的 `AC5: with the channel throwing MissingPluginException, cheap AND no-preview DNGs still behave` 覆蓋——但語意已從「退化為 `NativeImageFailure` 特例」升級為 U-12 裁定的「一律立即統一 miss」，不再有 `MISSING_PLUGIN` 這個特殊 code 分支 |
+| **狀態** | ⚠️ **此條目描述的具體實作已不存在**；不標記刪除是因為它記錄的行為意圖（channel 不可用時優雅降級、不讓 pipeline 崩潰）仍然成立，只是承載測試與實作機制換了。`m6_bridge_free_test.dart` AC4/AC5 兩案例 `flutter test test/m6_bridge_free_test.dart` 本輪未重新登記獨立 TC 號（P5.2 audit 未在 owned 範圍內新增更多矩陣條目，僅記錄本條的失效狀態） |
 
 ---
 
@@ -1041,6 +1055,34 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **預期結果** | 升級前 `retainedByteCost == 0`（尚未解碼）；升級後 `retainedByteCost` 恰等於 ±1 帶內每個 `PixelPayload.byteCost` 的總和，不含任何全解析度緩衝的額外位元組 |
 | **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
 | **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+---
+
+### TC-118｜cache_budget — image-cache 記憶體衍生預算夾在 256–768 MiB（F-25）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-118 |
+| **名稱** | budget derivation: floor 256MiB, ceiling 768MiB, quarter of physical |
+| **測試類型** | 單元測試（純函式） |
+| **背景** | P5.1（F-25）：Dart 無法查詢實際物理記憶體，`imageCacheBudgetBytes({int? physicalMemoryBytes})` 是留給未來补上真實查詢的衍生縫（seam）；`physicalMemoryBytes: null` 時回退到 768 MiB 上限，這條上限維持 `docs/logs/2026-08-23/cache-sizing-estimate.md` §A.4/§A.6 的估算有效 |
+| **預期結果** | `null` → 768 MiB；32 GiB 物理記憶體 → 仍夾在 768 MiB 上限；2 GiB → 512 MiB（1/4）；512 MiB 物理記憶體 → 256 MiB 下限（低於此值 M5 no-re-decode 保證會失效） |
+| **驗證方式** | `test/cache_budget_test.dart` |
+| **狀態** | ✅ 已通過（`flutter test test/cache_budget_test.dart`，RC=0，2026-08-24 P5.2 audit 重跑確認） |
+
+---
+
+### TC-119｜OpenWithChannel — 推播式 openFile 送達監聽者（F-16, Android/iOS 統一 Dart 交付）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-119 |
+| **名稱** | a pushed openFile call is delivered to the listener / an empty path is ignored / an unrecognised method is ignored |
+| **測試類型** | 單元測試（3 案例，mock `MethodChannel('halcyon/open_with')`） |
+| **背景** | P4.5（F-16）：Android/iOS 的 manifest/Info.plist 宣告＋原生推播已補上，但 Dart 側契約不變——原生推 `openFile` method call，`OpenWithChannel.listen()` 把路徑交給呼叫端。此測試只證明這條 Dart 交付機制，**不**涵蓋 Android/iOS 實機／模擬器（本機無裝置），也**不**宣稱行動端 end-to-end 已可用——資料夾掃描（F-02）在 Android/iOS 仍是 parked 狀態，見 `test/open_with_channel_test.dart:6-11` 檔頭註解 |
+| **預期結果** | 推播 `openFile('/tmp/example.dng')` 後監聽者收到該路徑；空字串路徑被忽略；未知 method 名被忽略 |
+| **驗證方式** | `test/open_with_channel_test.dart` |
+| **狀態** | ✅ 已通過（`flutter test test/open_with_channel_test.dart`，RC=0，2026-08-24 P5.2 audit 重跑確認；4 個測試共同一次執行，見上方 TC-118 指令輸出） |
 
 ---
 

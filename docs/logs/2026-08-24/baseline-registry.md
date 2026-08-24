@@ -57,6 +57,11 @@
 - `scripts/tmp/dng_nav_probe_test.dart`：僅改 import 一行；本檔自述「THROWAWAY DIAGNOSTIC PROBE -- not part of the test suite」（`:1`），非 `flutter test` 套件成員；`flutter analyze` 對它另外回報 pre-existing（本輪之前就存在）的 `decodedImageFor`/`decodedProviderFor` API 過期錯誤（M3 後期已刪除該二方法，`image_preload_controller_test.dart` 內有對應「FORCED TRANSLATION」註解為證），與本輪改動無關，不在 P3.3 範圍內修復，如實記錄於此。
 - `test/dng_extractor_swift_test.dart`（**刪除，非重新登錄**——本檔不在上表凍結清單內，經 grep 核實，故無需 sha 儀式）：2026-08-24 lead 授權範圍追加。本檔透過 `scripts/tmp/run_dng_extractor_tests.sh` shell out 編譯 `macos/Runner/DngPreviewExtractor.swift`；該 Swift 檔已被平行成員的 P3.1（macOS 原生刪除）任務刪除，其受測實作已不存在。Dart 側等效覆蓋率已存在於 `test/dng_preview_extractor_test.dart`。整檔刪除（C-4：受測主體消失，非任意修改）。
 
+#### P5.2 稽核附記（2026-08-24）
+- Appendix B（`m6-execution-plan.md:1092-1105`）10 列逐列核對：disposition 全數已在對應 commit 執行（`git log --oneline -- <file>`／`git show --stat` 交叉核對），凍結三檔的 sha256 與本檔登錄值逐字元相符（`shasum -a 256`，見 `scripts/tmp/m6-r2-verify/p5-baseline.txt`）。
+- `scripts/tmp/dng_nav_probe_test.dart` 本次重新檢視：內容自 P3.3 登錄後未變（sha 相符），未發現任何斷言單平台語意的新案例，**無需刪除任何 case、無需重新登錄 sha**。`flutter analyze` 對它回報的 `decodedImageFor`/`decodedProviderFor` 未定義方法錯誤（10 處）仍是 P3.3 記載的既有問題（`analysis_options.yaml:17-18` 本就把 `scripts/**` 排除在 `flutter analyze` 護欄外，不影響正式 gate），非本輪改動引入，不在 C-4 範圍內修復。
+- **文件標籤更正**：本檔與 `m6-execution-plan.md` 皆稱 `scripts/tmp/dng_nav_probe_test.dart`「gitignored」，但 `git ls-files scripts/tmp/dng_nav_probe_test.dart` 顯示**此檔實際受版控追蹤**（`.gitignore` 未列出它），且 commit `3a7a2b2` 的 diff 確實包含它的 373 行內容。如實記錄此標籤與事實不符，不擅自修改 `.gitignore` 或移除追蹤（不在 P5.2 owned files 範圍，且會是有風險的行為變更，需使用者/lead 決定是否要讓它保持追蹤或補進 `.gitignore`）。
+
 ### JPEG 切換延遲（PerfLog `selectItem.enter`→`image.painted`，release，本機 arm64；定版：原始已登錄 traversal 的分模式重算，n=12／格）
 **判準（round-1 lead 定版）**：`band_mode = max(p95_mode − median_mode, 1.5ms)`；`PASS_mode ⟺ after_median ≤ baseline_median + band`；paced 與 rapid 分開判定、永不混池；四格（2 資料集 × 2 模式）全過才算過。敏感度註記：paced 是載重閘；rapid 的大 band 是模式本質（超越 preloader 本來就會產生偶發即時解碼），只能抓粗退步。
 
