@@ -1244,6 +1244,43 @@ def build_native(target, layout, args):
 # --------------------------------------------------------------------------
 # Phase 2/3: Flutter build + artifact verification
 # --------------------------------------------------------------------------
+def git_build_commit(halcyon):
+    """The commit this build's `lib/` came from, for the P-2 in-app version
+    stamp (lib/perf/perf_log.dart's `kHalcyonBuildCommit`, injected below via
+    --dart-define). Degrades to the literal string "unknown" on ANY failure
+    (git missing, not a checkout, a timeout) rather than a plausible-looking
+    wrong hash -- the whole point of the stamp is that a reader can trust it,
+    so silence here would be worse than no stamp at all. A dirty working
+    tree gets a distinguishable "<hash>-dirty" suffix: a hash claiming to be
+    a clean commit while the tree had uncommitted changes is exactly the
+    kind of confident-but-wrong provenance P-2 exists to prevent.
+    """
+    try:
+        rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(halcyon), capture_output=True, timeout=15, text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if rev.returncode != 0:
+        return "unknown"
+    commit = rev.stdout.strip()
+    if not commit:
+        return "unknown"
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(halcyon), capture_output=True, timeout=15, text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Commit hash is real; dirty-or-not is merely unknown. Report the
+        # hash rather than throwing away a fact we do have.
+        return commit
+    if status.returncode == 0 and status.stdout.strip():
+        return f"{commit}-dirty"
+    return commit
+
+
 def macos_config_name(mode):
     return {"debug": "Debug", "profile": "Profile", "release": "Release"}[mode]
 
@@ -1390,7 +1427,12 @@ def build_flutter(target, layout, mode, args, placed_native):
     phase(f"Phase 2: flutter build {target} ({mode})")
     run_checked("flutter", ["pub", "get"], layout.halcyon, "flutter pub get")
 
-    build_args = ["build", *FLUTTER_BUILD_ARGS[target], f"--{mode}"]
+    build_commit = git_build_commit(layout.halcyon)
+    step(f"build commit stamp: {build_commit}")
+    build_args = [
+        "build", *FLUTTER_BUILD_ARGS[target], f"--{mode}",
+        f"--dart-define=HALCYON_BUILD_COMMIT={build_commit}",
+    ]
     if target == "ios" and not args.ios_codesign:
         # ponytail: unattended builds have no signing identity configured here.
         # Upgrade path: drop --no-codesign and pass --ios-codesign once an

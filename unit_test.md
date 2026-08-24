@@ -49,6 +49,19 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 - 目的：讓下一輪或審查者能在不重跑的情況下，僅憑 artifact 本身判斷它證明的是哪一份程式碼的行為——這正是 2026-08-23 M3 教訓（見 `~/.claude/rules/lessons-learned.md`）要求的「先證明 binary／測試跑的是受測碼」在文件產物上的對應規則。
 - 本輪示例：`tmp/verify/pl1-red.txt`／`pl7-mutation-red.txt` 均以此規則自證。
 
+### 應用內版本戳記：哪條路徑蓋真戳、哪條蓋 unknown（round-2 P-2b）
+
+`lib/perf/perf_log.dart` 的 `kHalcyonBuildCommit` 是 `String.fromEnvironment('HALCYON_BUILD_COMMIT', defaultValue: 'unknown')`——**編譯期**常數，只有編譯當下傳入 `--dart-define` 才會生效，執行期無法補救。哪條路徑蓋哪種值：
+
+| 建置路徑 | `build.stamp` 的 `commit=` 值 |
+|---|---|
+| `python3 scripts/build_apps.py <target>`（`build_flutter()` 已自動注入，見 `git_build_commit()`） | 真實 40-char git commit hash；工作樹有未提交改動時附 `-dirty` 後綴 |
+| 手動 `flutter run` / `flutter build ...`（未帶 `--dart-define=HALCYON_BUILD_COMMIT=...`） | 字面字串 `unknown` |
+| 手動帶正確 `--dart-define=HALCYON_BUILD_COMMIT=<hash>` 呼叫 `flutter run`/`build` | 呼叫者傳入的值（原樣，不驗證格式） |
+| git metadata 不可得（非 git checkout、`git` 逾時或缺失） | `unknown`（`git_build_commit()` 刻意退化成誠實的「不知道」，絕不猜一個看似合理但錯的 hash） |
+
+**操作規則（P-2 存在的真正安全性質，不是「永遠知道」而是「絕不假裝知道」）**：任何 perf log 的 `build.stamp` 行若讀到 `commit=unknown`，**該次量測必須視為作廢，不得被解讀成任何結論**——不是「缺乏資訊仍可湊合判讀」，是直接不採信這次跑出來的數字。`-dirty` 後綴的 hash 仍是已知程式碼＋已知改動的組合，可以判讀但需在報告中註記工作樹不乾淨。
+
 ---
 
 ## Feature Matrix（功能矩陣）
@@ -948,6 +961,20 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **預期結果** | 把 stale pass 卡在 **window 迴圈**（`Future.wait(pendingLoads)`，而非優先載入）以確保第一道 guard 未觸發、真正到達第二道 guard；釋放後 stale pass 不得改排新一代的 tier-2 schedule：目前世代（index 10）的 `isFullSizeReady` 為 true，被放棄的世代（index 0）為 false |
 | **驗證方式** | `test/image_preload_scheduling_m4_test.dart` |
 | **狀態** | ✅ 已通過（既有行為即正確，故此測試預期立即綠燈：`tmp/verify/pl7-green.txt`，RC=0；靈敏度以區域變異驗證——暫時移除第二道 guard 得紅燈 `tmp/verify/pl7-mutation-red.txt`，RC=1，變異已還原並以 `grep -c MUTATION-MARKER-PL7-TEMP` == 0 確認） |
+
+---
+
+### TC-111｜PerfLog — kHalcyonBuildCommit 反映編譯期 --dart-define（round-2 P-2b）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-111 |
+| **名稱** | P-2b kHalcyonBuildCommit reflects HALCYON_BUILD_COMMIT at compile time |
+| **測試類型** | Unit Test（一般 suite 成員，裸跑與帶 `--dart-define` 跑都是有效驗證） |
+| **背景** | Round-2 parking-lot P-2b：`scripts/build_apps.py` 現在會在呼叫 `flutter build` 時自動注入 `--dart-define=HALCYON_BUILD_COMMIT=<真實 hash>`（工作樹不乾淨時附 `-dirty`），取代原本一律蓋 `unknown` 的預設。此測試驗證的是「define 真的傳到 Dart 常數」這條 plumbing，不驗證 `scripts/build_apps.py` 本身（那是 proof half 2，Python 子行程層級的證據，見 `tmp/verify/p2b-build-half2.txt`／`p2b-binary-grep2.txt`，不在此測試檔覆蓋範圍） |
+| **預期結果** | 裸跑 `flutter test`（無 `--dart-define`）時 `kHalcyonBuildCommit == 'unknown'`（文件化預設值）；帶 `--dart-define=HALCYON_BUILD_COMMIT=<sentinel>` 跑時 `kHalcyonBuildCommit == <sentinel>` 且不等於 `'unknown'` |
+| **驗證方式** | `test/perf_log_build_stamp_test.dart` |
+| **狀態** | ✅ 已通過（裸跑：`tmp/verify/p2b-sentinel-default.txt`，RC=0；帶 sentinel `deadbeefcafef00d0000000000000000sentinel` 跑：`tmp/verify/p2b-sentinel-defined.txt`，RC=0） |
 
 ---
 
