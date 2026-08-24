@@ -170,6 +170,9 @@ Future<RenameOutcome> applyRenames(
           await File(move.from).rename(move.to);
           sink.writeln(json.encode({'from': move.from, 'to': move.to}));
         }
+        // The doc above promises the journal survives a crash mid-batch. An
+        // IOSink buffers, so without this flush that promise was false.
+        await sink.flush();
         renamed++;
       } catch (e) {
         failures.add('${p.basename(plan.moves.first.from)}: $e');
@@ -204,14 +207,26 @@ Future<RenameOutcome> undoLastRename(Directory dir) async {
   final lines = (await log.readAsLines())
       .where((line) => line.trim().isNotEmpty)
       .toList()
-      .reversed;
+      .reversed
+      .toList();
   final failures = <String>[];
   var restored = 0;
 
-  for (final line in lines) {
-    final entry = json.decode(line) as Map<String, dynamic>;
-    final from = entry['from'] as String;
-    final to = entry['to'] as String;
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    String from;
+    String to;
+    try {
+      final entry = json.decode(line) as Map<String, dynamic>;
+      from = entry['from'] as String;
+      to = entry['to'] as String;
+    } catch (e) {
+      // A truncated or hand-edited journal line must not strand the entries
+      // below it, and must not stop the log from being deleted -- otherwise
+      // undo is wedged forever on a file the user can't see.
+      failures.add('line ${lines.length - i}: malformed journal entry');
+      continue;
+    }
     try {
       await File(to).rename(from);
       restored++;

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -222,6 +223,24 @@ void main() {
 
       await undoLastRename(tempDir);
       expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+    });
+
+    test('TC-211 a malformed journal line does not block the undo', () async {
+      final renamed = File(p.join(tempDir.path, 'NEW_0001.jpg'));
+      await renamed.writeAsString('x');
+
+      await File(p.join(tempDir.path, kRenameLogName)).writeAsString(
+        '${json.encode({'from': p.join(tempDir.path, 'OLD_0001.jpg'), 'to': renamed.path})}\n'
+        'this is not json\n',
+      );
+
+      final outcome = await undoLastRename(tempDir);
+
+      expect(outcome.renamedCount, 1);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.failures.single, contains('malformed'));
+      expect(await File(p.join(tempDir.path, 'OLD_0001.jpg')).exists(), isTrue);
+      expect(await File(p.join(tempDir.path, kRenameLogName)).exists(), isFalse);
     });
   });
 }

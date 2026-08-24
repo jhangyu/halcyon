@@ -1173,6 +1173,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-206~212｜檔案批次操作不再全批中止、狀態檔原子寫入、undo journal 容錯壞行（Tech-Debt Task 1）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-206（`processStarred` 遇到單一檔案失敗仍繼續處理其餘檔案，`test/photo_file_actions_test.dart`；壞掉時：一個檔案失敗會讓整批 copy/move 中止）／TC-207（`deleteTrashed` 遇到單一檔案 trash 失敗仍繼續，`test/photo_file_actions_test.dart`；壞掉時：一個 trash 失敗會讓整批中止且吞掉例外）／TC-208（損毀的 `.halcyon_status.json` 經 `applySavedStatuses` 讀取會退化成空 map 而非拋例外，`test/photo_status_store_test.dart`；壞掉時：損毀狀態檔會讓整個資料夾無法開啟）／TC-209（`loadRenameRule`/`saveRenameRule`/`remapKeys` 三個讀取進入點在檔案損毀時都能存活，`test/photo_status_store_test.dart`；壞掉時：任何一個進入點沒接上 `_readJsonMap` 都會讓該操作對損毀檔拋例外）／TC-210（`saveStatuses` 與 `saveLastViewedId` 交錯呼叫 20 次不會互相遺失對方寫入的 key，`test/photo_status_store_test.dart`；壞掉時：兩個獨立 debounce timer 的 read-modify-write 會互相覆蓋，是一個真實的 race）／TC-211（undo journal 裡一行格式錯誤的紀錄不會擋住其餘行的復原，且 log 檔仍會被刪除，`test/rename_service_test.dart`；壞掉時：`json.decode` 對壞行拋出的例外會直接冒出 `undoLastRename`，讓 undo 永遠卡死在那個使用者看不到的檔案上）／TC-212（`sidecarPathFor` 只在 basename 前加 `._` 前綴，`test/photo_file_actions_test.dart`；壞掉時：AppleDouble sidecar 路徑建構分散在六處，其中一處寫錯不會被任何測試發現） |
+| **測試類型** | 單元測試（跨 `test/photo_file_actions_test.dart`、`test/photo_status_store_test.dart`、`test/rename_service_test.dart`，真實暫存目錄，無 platform channel） |
+| **背景** | 稽核發現 `processStarred`/`deleteTrashed` 在第一個檔案操作拋例外時會中止整批（其餘已標記的檔案不會被處理，且呼叫端看不到任何錯誤訊息）；`PhotoStatusStore` 的五個讀取路徑各自重複 `json.decode` 且不處理損毀輸入；兩個獨立 debounce timer 直接 `writeAsString` 沒有原子性也沒有互斥；`undoLastRename` 對壞掉的 journal 行直接讓例外冒出，永久卡住 undo。詳見 memory.md G-019 |
+| **預期結果** | 如上逐條 |
+| **狀態** | ✅ 已通過（三個檔案合計 34 個測試 `All tests passed!`，RC=0 自捕；`flutter analyze` 對六個改動檔案 `No issues found!`）。TC-206~209、TC-211 紅→綠留證：修補前分別是編譯錯誤（`Undefined class 'BatchFileOutcome'`／`sidecarPathFor` 未定義）或 `FormatException` 直接冒出測試；TC-210 額外重跑 10 次確認不是單次僥倖綠 |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令

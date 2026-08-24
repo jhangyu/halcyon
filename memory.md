@@ -204,6 +204,16 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 
 ---
 
+### AD-023｜PhotoPayloadCache 是「視窗內 FIFO」，不是 LRU
+唯一會更新使用順序的讀取介面 `operator []` 從來沒有 lib 呼叫者，所以驅逐一直是
+插入順序。M7 Task 3 的決定是刪掉那個介面、把文件改成 FIFO，而**不是**補上 LRU：
+`retainOnly` 的 -3..+5 掃描已經把視窗外的東西丟掉了，預算路徑只會在使用者即將
+看到的項目之間挑犧牲者，此時到達順序與最近使用一樣好。行為刻意零變更（`_enforceBudget`
+本體未動）；`test/photo_payload_cache_test.dart` 的 TC-061 原本用 `operator []`
+示範 LRU 行為，已改寫為示範 FIFO（讀取不再保護條目不被驅逐）。
+
+---
+
 ## Gotchas（踩坑紀錄）
 
 ### G-001｜側邊欄 Scroll Debounce（觸發機制已由 AD-014 取代，debounce 本身仍在）
@@ -288,6 +298,14 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **教訓**：任何 HARD FAIL 或看似整齊的失敗子集，先問「量測腳本打的是不是正確的進入點／API」，再假設實作有洞——尤其當失敗樣本的邊界精確符合某個已知的業務語意分類（此處是「有無內嵌預覽」）時，這通常是儀器打錯路由的指紋，而非巧合的真實 bug 分布。這是 `~/.claude/rules/lessons-learned.md` 2026-08-17「否定結果先驗儀器」條目在 M6 的一次具體重演，值得單獨記錄因為它差點造成方向性誤判（若真去改 P2.1 的核心實作而非量測路由，會是白工且引入不必要複雜度）。
 - **對應任務**：M6 P2.6（`m6-execution-plan.md:30`「G3 HARD FAIL is an instrument-route artifact」段落）。Artifacts：`scripts/tmp/20260824T084906Z-m6-g1.txt`、`…085119Z-m6-g2.txt`、`…085320Z-m6-g3.txt`。
 
+### G-019 狀態檔寫入必須是原子的，且只能有一條寫入鏈
+`.halcyon_status.json` 由兩個獨立的 debounce timer 讀改寫（`_saveStatusCache`
+與 `_saveLastViewedId`），過去各自 `writeAsString`。兩個後果：拔卡/當機會留下半寫入
+的檔案；先開始的寫入後結束時會用舊快照覆蓋掉另一邊的變更。修法是
+`PhotoStatusStore` 內部的 tmp+rename 原子寫入，加上單槽 `_writeChain` 把所有
+mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，因為它會呼叫
+`saveStatuses`，入鏈會自我死鎖。
+
 ### G-016｜編碼器的體積優劣取決於內容類型；合成 fixture 會把結論反過來
 - **⚠️ 先讀這句**：側欄改用 JPEG q80 的體積優勢是**照片內容的性質**，不是編碼器的普遍性質。**在低熵合成影像（純色塊、條紋、漸層、測試圖卡）上這個結論會反轉，PNG 會贏。** 若你正拿程式產生的測試圖案量這條路徑並看到 JPEG 比較大，那是預期行為，**不是** codec 選錯，也不是實作退步——不要據此改回 PNG，請改用 `local_data/photo_samples/` 的真實照片重量。
 - **嚴重程度**：中（會讓一個正確的改動看起來像退步，或讓一個測試假裝證明了它沒證明的事）
@@ -323,6 +341,13 @@ channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 �
 329 行的行號。刪原生程式碼的同一個 commit 必須同步改文件；審查文件對原生層的
 宣稱時，判準是 `grep -n "MethodChannel" macos/Runner/AppDelegate.swift`，不是讀
 起來合不合理。
+
+### G-018 一個 Set 不可以同時裝兩種 key 形狀
+`image_preload_controller.dart` 的 `_loadingKeys` 曾經同時裝裸 id 與
+`thumb_$id`，於是縮圖 sweep 進行中時，detail 路徑的 `_loadingKeys.contains(id)`
+永遠答錯（正在跑的是縮圖，答案卻說「detail 也在載入」）。M7 Task 3 拆成
+`_loadingKeys`（detail，裸 id）與 `_thumbLoadingKeys`（sidebar，裸 id），`reset()`
+兩個都要清。TC-218 驗證此行為。
 
 ---
 
