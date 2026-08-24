@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
+import '../services/dart_image_loader.dart';
 import '../services/dng_decode_contract.dart';
 import '../services/exif_metadata_service.dart';
 import '../services/image_preload_controller.dart';
@@ -80,13 +81,7 @@ class AppState extends ChangeNotifier {
        _preloadController =
            preloadController ??
            ImagePreloadController(
-             imageLoader:
-                 thumbnailLoader ??
-                 ((path, {required purpose}) =>
-                     NativeThumbnailService.requestImage(
-                       path,
-                       purpose: purpose,
-                     )),
+             imageLoader: thumbnailLoader ?? dartImageLoad,
              // Null until the app's composition root injects the pkg squad's
              // adapter. While null, a DNG with no embedded preview falls back
              // to the legacy CIRAWFilter bytes rather than showing nothing.
