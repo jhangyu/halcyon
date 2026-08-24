@@ -1231,7 +1231,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | Widget 測試（`test/sidebar_view_test.dart`，無 platform channel） |
 | **背景** | C9：`onSelected` 與 9 個字面字串比對／`value:` 散落，容易打錯字面量讓選單靜默失效（既有 G-012 已踩過一次）；本輪加入 `kCopyMenuValue`/`kMoveMenuValue`/`kDeleteMenuValue`/`kSettingsMenuValue` 四個常數與既有的 `kThumbnailStarredMenuValue` 並列，全部 9 個比對/宣告點改用常數。E2：`main.dart` 的 `dngDecoder` 註解宣稱 null 時「degrades to the legacy CIRAWFilter bytes path」，與 `app_state.dart:88-93` 的事實（永久 miss，無 legacy channel）矛盾，已改寫為與該檔一致的措辭（措辭上避開字面 `CIRAWFilter` 字串，因為計畫本身給的替換文字與其自己的驗收 grep `0 hits` 互相矛盾——已改述保留原意）。詳見 memory.md 待補 |
 | **預期結果** | 字面字串值不變，僅命名；`main.dart` 不再含 `CIRAWFilter` 字樣 |
-| **狀態** | ✅ TC-226 通過（見任務回報）。C11（刪除 `imageCacheMaxBytes`）**未執行**——`test/image_preload_window_test.dart:339,345`（TC-100）直接讀取該常數斷言精確位元組數，是計畫 Step 6.5 宣稱不存在的 executable reader，且該檔不在本任務 Files 所有權內；已停手回報 lead 裁決，未刪除 |
+| **狀態** | ✅ TC-226 通過。C11（刪除 `imageCacheMaxBytes`）已依 lead 裁決（方案 a）完成：`test/image_preload_window_test.dart` TC-100 改讀 `cache_budget.dart` 新公開常數 `kImageCacheCeilingBytes`（同一數值 805,306,368／768 MiB，斷言意圖不變，僅換讀取符號），該檔案所有權本輪臨時擴及本任務；`imageCacheMaxBytes` 與其 sizing 說明註解自 `main.dart` 刪除、搬到 `cache_budget.dart` 的 `kImageCacheCeilingBytes` 旁；`photo_payload_cache.dart:19` 的過期引用改為 `imageCacheBudgetBytes`。`grep -rn "imageCacheMaxBytes" lib/ test/` 僅剩 `perf_log.dart:68`（不同數值的字串標籤，非讀取，已確認為誤報）與 `cache_budget.dart` 自身歷史說明句的字面提及。`flutter analyze`：No issues found!，RC=0；`flutter test -j 1`：339 個測試 All tests passed!，RC=0（含 TC-100 repoint 前後兩次獨立單測綠燈留證：repoint 前先跑通過確認新符號可用，刪除舊常數後全套重跑仍綠） |
 
 ---
 

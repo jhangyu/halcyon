@@ -29,8 +29,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/main.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/cache_budget.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
@@ -336,13 +336,13 @@ void main() {
     // Pinned in BYTES on purpose. The round-1 record lost time to MB-vs-MiB
     // drift, and 768 decimal MB (768,000,000) or 224 decimal MB (224,000,000)
     // would both still read as "768"/"224" in a review.
-    expect(imageCacheMaxBytes, 805306368, reason: '768 MiB exactly');
+    expect(kImageCacheCeilingBytes, 805306368, reason: '768 MiB exactly');
     expect(kPayloadByteBudget, 234881024, reason: '224 MiB exactly');
     // The two are sized against OPPOSITE corpora -- the cache figure by the
     // cheap mix (two entries per item, full-size decode), the payload figure by
     // the expensive mix (window-resolution RGBA retained per slot). Neither can
     // sanity-check the other, so both are asserted independently.
-    expect(imageCacheMaxBytes, 768 * 1024 * 1024);
+    expect(kImageCacheCeilingBytes, 768 * 1024 * 1024);
     expect(kPayloadByteBudget, 224 * 1024 * 1024);
   });
 }

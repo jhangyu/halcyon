@@ -16,7 +16,7 @@ const int kRetentionAfter = 5;
 ///
 /// 224 MiB = 234,881,024 B. Sized against the EXPENSIVE (no-preview RAW)
 /// corpus, which is the opposite corpus from the one that sizes
-/// `imageCacheMaxBytes`: a RAW payload retains window-resolution RGBA (22.4 MiB
+/// `imageCacheBudgetBytes`: a RAW payload retains window-resolution RGBA (22.4 MiB
 /// measured per item, so a full -3..+5 window is 201.59 MiB), while a
 /// preview-bearing payload retains compressed JPEG bytes (~2.6 MiB, 23.22 MiB
 /// for the window). 224 MiB carries ~11% headroom over the 201.59 MiB row.
