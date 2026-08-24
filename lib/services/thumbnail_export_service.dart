@@ -10,6 +10,7 @@ import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import 'dart_image_loader.dart';
 import 'dng_decode_contract.dart';
+import 'exif_orientation.dart';
 import 'image_source_types.dart';
 
 /// Result of a "Thumbnail Starred" export batch. [failures] entries are
@@ -291,42 +292,21 @@ Future<Uint8List?> exportJpegForTest(
 }
 
 /// Applies an EXIF Orientation value (1..8) to a raw-decoded (unrotated)
-/// [image.Image] the way [img.bakeOrientation] does for images that already
+/// [img.Image] the way [img.bakeOrientation] does for images that already
 /// carry Orientation in their own EXIF block. `dng_processor`'s FFI decode
-/// output carries no EXIF, so this reimplements the 8-case mapping by hand
-/// against the signal's own [exifOrientation] (M6 F-11, `dartImageLoad`'s
-/// [NativeImageNeedsRawDecode]).
+/// output carries no EXIF, so this applies the shared table by hand against
+/// the signal's own orientation (M6 F-11).
 ///
-/// EXIF Orientation semantics (all 8 cases spelled out -- do not special-case
-/// only the common values):
-///  1 = normal (identity)
-///  2 = flip horizontal
-///  3 = rotate 180
-///  4 = flip vertical
-///  5 = rotate 90 CW, then flip horizontal (transpose)
-///  6 = rotate 90 CW
-///  7 = rotate 270 CW, then flip horizontal (transverse)
-///  8 = rotate 270 CW
+/// The 8-case mapping itself lives in `exif_orientation.dart` -- this function
+/// only translates it into `package:image` operations.
 img.Image bakeExifOnDecoded(img.Image image, int exifOrientation) {
-  switch (exifOrientation) {
-    case 1:
-      return image;
-    case 2:
-      return img.flipHorizontal(image);
-    case 3:
-      return img.copyRotate(image, angle: 180);
-    case 4:
-      return img.flipVertical(image);
-    case 5:
-      return img.flipHorizontal(img.copyRotate(image, angle: 90));
-    case 6:
-      return img.copyRotate(image, angle: 90);
-    case 7:
-      return img.flipHorizontal(img.copyRotate(image, angle: 270));
-    case 8:
-      return img.copyRotate(image, angle: 270);
-    default:
-      // Unrecognised value: treat as identity rather than guessing.
-      return image;
+  final transform = exifTransformFor(exifOrientation);
+  var out = image;
+  if (transform.quarterTurnsCw != 0) {
+    out = img.copyRotate(out, angle: transform.quarterTurnsCw * 90);
   }
+  if (transform.mirrored) {
+    out = img.flipHorizontal(out);
+  }
+  return out;
 }

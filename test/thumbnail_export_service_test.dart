@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/exif_orientation.dart';
 import 'package:halcyon_flutter/services/thumbnail_export_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
@@ -584,6 +585,29 @@ void main() {
         DecodedRgba(rgba: short, width: 4, height: 4),
       );
       expect(result, isNull);
+    });
+  });
+
+  group('shared orientation table parity', () {
+    test('TC-216 bakeExifOnDecoded agrees with the shared table for 1..8',
+        () async {
+      // A 2x1 image: left pixel red, right pixel blue. Any rotation or mirror
+      // moves those two pixels somewhere predictable.
+      img.Image source() {
+        final im = img.Image(width: 2, height: 1, numChannels: 4);
+        im.setPixelRgba(0, 0, 255, 0, 0, 255);
+        im.setPixelRgba(1, 0, 0, 0, 255, 255);
+        return im;
+      }
+
+      for (var orientation = 1; orientation <= 8; orientation++) {
+        final t = exifTransformFor(orientation);
+        final baked = bakeExifOnDecoded(source(), orientation);
+        final expectedWidth = t.quarterTurnsCw.isOdd ? 1 : 2;
+        final expectedHeight = t.quarterTurnsCw.isOdd ? 2 : 1;
+        expect(baked.width, expectedWidth, reason: 'orientation $orientation');
+        expect(baked.height, expectedHeight, reason: 'orientation $orientation');
+      }
     });
   });
 }

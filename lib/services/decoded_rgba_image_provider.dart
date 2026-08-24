@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import 'dng_decode_contract.dart';
+import 'exif_orientation.dart';
 import 'photo_payload.dart';
 
 /// Turns a [DecodedRgba] (RGBA8 straight from the native DNG decoder) into a
@@ -198,15 +199,9 @@ class _ExifTransform {
   bool get isIdentity => quarterTurnsCw == 0 && !mirrored;
 
   static _ExifTransform forOrientation(int orientation) {
-    return switch (orientation) {
-      2 => const _ExifTransform(0, true), // mirror horizontal
-      3 => const _ExifTransform(2, false), // rotate 180
-      4 => const _ExifTransform(2, true), // mirror vertical
-      5 => const _ExifTransform(1, true), // transpose
-      6 => const _ExifTransform(1, false), // rotate 90 CW
-      7 => const _ExifTransform(3, true), // transverse
-      8 => const _ExifTransform(3, false), // rotate 270 CW
-      _ => const _ExifTransform(0, false), // 1, and anything unrecognised
-    };
+    // Shared 8-case table (`exif_orientation.dart`) -- this class is only the
+    // dart:ui-side representation of it.
+    final t = exifTransformFor(orientation);
+    return _ExifTransform(t.quarterTurnsCw, t.mirrored);
   }
 }
