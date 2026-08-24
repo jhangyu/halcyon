@@ -23,7 +23,13 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: EXIF 重新命名（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-10）✅ **已完成，Task 10 文件同步收尾**（commit `58fe681`，2026-08-20）
+- **Task**: M6 跨平台一致性（契約 C-1…C-8，`docs/logs/2026-08-24/m6-spec-contract.md`）✅ **P0–P5 全部完成**（R2 收尾 @ `8418c7e`，2026-08-24）
+- **中斷點與交接 (Handover)**: 影像/EXIF 核心統一為純 Dart（R1），OS 整合五項（拖放 `desktop_drop`、檔案總管顯示、R 鍵回收、Windows 檔案關聯 `.reg` 產生器、Android/iOS Open With 接線）與 P5 收尾（快取預算 seam、C-4 基線稽核、G″″ 回歸 gate 33/33 PASS）全數落地（R2）。套件 280/280、`flutter analyze` 0、macOS+Android release 建置綠、C-3 防護 grep 乾淨。執行帳見 `m6-execution-plan.md` ledger；審查證據在 `scripts/tmp/m6-r2-verify/`。
+- **下一個子步驟**: 使用者驗收與關單（P5.3 票依規由使用者關閉）。待決僅 P-2（Linux FFI `.so` 建置）。parking-lot 清單見 R2 收尾報告（Windows 端 `.reg`/`explorer` 為 trust-on-first-use，首次真機驗證建議由使用者執行）。
+
+---
+
+- **前一個 Task**: EXIF 重新命名（`docs/superpowers/plans/2026-08-19-exif-rename.md` Task 1-10）✅ **已完成，Task 10 文件同步收尾**（commit `58fe681`，2026-08-20）
 - **中斷點與交接 (Handover)**: 批次重新命名（模板/preset/自訂規則）+ undo 全部落地，見下方「已完成任務」EXIF 重新命名條目。本輪（Task 10）只補文件，未動程式碼；`memory.md`/`unit_test.md`/`file_index.md`/`handover.md` 已同步。**未重跑** `flutter test`/`flutter analyze`（本輪 worker 無執行環境），沿用各任務自身 commit 時的通過紀錄，待下一次有執行環境的 session 或使用者確認整套仍綠。
 - **下一個子步驟**: 使用者手動驗收（開真實資料夾、跑重新命名、確認星號保留、undo、確認自訂規則被記住——plan Task 6 Step 4 / Task 8 Step 6，本專案禁止 agent-driven UI 驗證，只能由使用者親自跑）。
 

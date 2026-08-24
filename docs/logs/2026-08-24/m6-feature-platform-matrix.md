@@ -31,7 +31,7 @@ Rows whose §2 target LANDED this round (tree `main` @ 2f01a6b; suite 272/272, m
 - **Native deletion — DONE**: `halcyon/thumbnail` + `halcyon/exif` gone from macos/windows/lib (ce5a81c, 12a98df, 3a7a2b2, 36dfc37); `halcyon/trash` + `halcyon/open_with` preserved per the declared exceptions.
 - **U-12 in effect**: the macOS-only "degraded, never blank" CIRAWFilter fallback is deleted; uniform explicit permanent-miss everywhere.
 
-Not started: F-16/F-17/F-18/F-19/F-24 (P4), F-25 + re-baseline + merge verification (P5). Open: P-2 only.
+R2 (2026-08-24 session 3, tree @ 8418c7e, suite 280/280): **F-16/F-17/F-18/F-19/F-24 (P4) and F-25 + re-baseline + final verification (P5) are all DONE** — F-17 via `desktop_drop` (Windows native drop deleted; drop disabled under modal routes), F-19 per-OS `Process.run` awaited with failure surfaced (explorer exit-code quirk handled), F-24 R-key route, F-18 generated REG_EXPAND_SZ/CRLF `.reg` (registry route, trust-on-first-use on a real Windows host), F-16 Android/iOS declarations + push-channel delivery (image/* filter; mobile flow parked on F-02), F-25 budget-derivation seam. P4 round review MERGEABLE (0 blockers; 4 should-fix fixed in-round). G″″ regression gate 33/33 PASS. Open: P-2 only.
 
 ## 1. Matrix — today
 

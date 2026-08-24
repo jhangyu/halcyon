@@ -64,8 +64,16 @@ Round review after each phase (task list #4/#6/#8): one reviewer, correctness + 
 | P3.4 EXIF isolate-only | ✅ | 36dfc37 | channel constant deleted (AC-over-sample ruling) |
 | P3.8 exit batch | ✅ | 476a2f0 | 271/271 reconciled; macOS+Android builds green |
 | P3 round review | ✅ MERGEABLE (2/2 cycles) | 2f01a6b (EXIF fix) | oracle probe 8/8; independent Orientation verify |
-| P4.1–P4.6 | ⬜ not started | — | next session (see `m6-r1-session2-handover.md`) |
-| P5.1–P5.3 | ⬜ not started | — | P5.2 owes unit_test.md matrix + memory.md AD/G entries |
+| P4.1 desktop_drop | ✅ (R2) | 8455772 | + review fix b7ece89 (DropTarget disabled under modal routes) |
+| P4.2 reveal | ✅ (R2) | 2283e45 | + review fix cad41b1 (explorer exit-code quirk; single-arg `/select,`) |
+| P4.3 R-key recycle | ✅ (R2) | 532570f | tooltips updated |
+| P4.4 Win association | ✅ (R2) | bd62aeb | + eb7ea91 (REG_EXPAND_SZ) + eee83a5 (CRLF); registry route, MSIX rejected; TOFU on a real Windows host |
+| P4.5 Open With mobile | ✅ (R2) | 4e71cad | + review fix 43a078c (image/* filter, BROWSABLE dropped); flow parked on F-02 |
+| P4.6 exit batch | ✅ (R2) | — (`p4-exit.txt`) | 278/278; mac+android builds green; C-3 greps clean |
+| P4 round review | ✅ MERGEABLE (2/2 cycles) | — (`round-p4-review.md`) | 0 blockers; 4 should-fix all fixed in-round; nits/parking-lot recorded |
+| P5.1 cache budget | ✅ (R2) | c20e0ce | seam only; no platform-neutral memory API exists (honest default) |
+| P5.2 re-baseline audit | ✅ (R2) | bcc5cba, 8418c7e | Appendix B 10/10 verified; AD-020 + G-015; TC-120 renumber (was colliding TC-049) |
+| P5.3 final verify + G″″ | ✅ (R2) | — (`p5-3-verify.txt`, `g3-regress-p53.txt`) | 280/280 @ 8418c7e; regression gate 33/33 PASS (bare-CFA samples improved to 31.6–63.1 ms, all under the 75 ms floor); final closure = USER |
 
 ---
 

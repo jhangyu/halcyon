@@ -78,6 +78,8 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 下一步
 
+**M6 R2 收尾（2026-08-24，tree @ `8418c7e`）**：M6 全契約（C-1…C-8）完成——P4 OS 整合五項＋P5 收尾三項落地，套件 280/280、雙平台 release 建置綠、G″″ 回歸 gate 33/33 PASS。與 ACTIVE 一致的待辦：(a) 使用者關閉 P5.3 票；(b) P-2（Linux FFI `.so`）仍開放；(c) Windows 端 `.reg` 匯入與 `explorer /select,` 為 trust-on-first-use，建議首次真機驗證；(d) 手機端 Open With 僅接線，端到端流程 parked 於 F-02（資料夾掃描）。第 4 點「重跑整套測試」已由本輪 P5.3 完成（280/280，`scripts/tmp/m6-r2-verify/p5-3-verify.txt`）。
+
 **已確認完成、原列於此處的舊項目**：Task 12（Trash MethodChannel，`flutter test` 已通過含 trash 案例）、Task 15（`test/photo_file_actions_test.dart` 已存在於 `git ls-files`）、Task 19（Zoom 狀態下沉，已驗收關閉）。以下為本次同步時仍待辦或需人工核實的項目：
 
 1. **EXIF 重新命名使用者手動驗收**（高，見本檔「當前任務」）：`flutter run -d macos` 對真實資料夾操作，本專案禁止代理執行，只能由使用者完成。

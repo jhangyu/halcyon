@@ -11,6 +11,8 @@
 
 C-1's terminal state is REACHED for the image/EXIF core: photo byte production, sidebar thumbnails, export, and EXIF reads are implemented once in Dart and the native `halcyon/thumbnail`/`halcyon/exif` paths are deleted (ledger: `m6-execution-plan.md` "Execution status ledger"; tree @ 2f01a6b, suite 272/272, macOS+Android release builds green, both round reviews MERGEABLE). Declared exceptions (C-2) unchanged and verified surviving: Trash, Open-With transport, file association. C-3 grep guard: 0 outside `perf_driver.dart` + the F-19 site. C-5's gate history closed by rulings P-9/P-10/P-13 (new standing rule: <75 ms absolute passes outright). §4's U-11/U-12 are now IN EFFECT in code. P-14 added core-tag EXIF carry-over to export. Remaining scope: OS-integration items (P4) and closure items (P5); open decision: P-2 only.
 
+**R2 close (2026-08-24 session 3, tree @ 8418c7e):** P4 and P5 are DONE — all OS-integration rulings implemented (F-16/F-17/F-18/F-19/F-24), F-25 seam shipped, C-4 re-baseline audited (AD-020/G-015 recorded, TC matrix reconciled, TC-120 renumber), suite 280/280, macOS+Android release builds green, C-3 guards clean, G″″ regression gate 33/33 PASS. Every contract term C-1…C-8 is now satisfied or closed by ruling; the only open item remains P-2 (Linux `.so`). Final task closure is the user's.
+
 ## 1. Contract terms (C-1…C-8)
 
 **C-1 — Terminal state.** Halcyon's photo behaviour — which files load, what pixels appear, what a delete does, what an export produces — is implemented once in Dart and produces the same observable result on every supported platform; the native runners hold app shell and window plumbing only.
