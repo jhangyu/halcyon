@@ -44,7 +44,7 @@ import UIKit
   override func application(_ app: UIApplication, open url: URL,
                              options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
     handleOpen(url: url)
-    return true
+    return super.application(app, open: url, options: options)
   }
 
   private func handleOpen(url: URL) {
