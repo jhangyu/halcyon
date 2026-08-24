@@ -316,27 +316,6 @@ class PhotoSource {
     );
   }
 
-  /// The cost half of [probeSource], and nothing else.
-  ///
-  // ponytail: this exists ONLY for the hash-frozen test blob
-  // test/dng_nav_probe_m3_test.dart:147/:180 (sha256 be3a595d...), which
-  // compares `PhotoSource.probe(...)` directly against a `SourceCost` and may
-  // not be edited. Deleting it in M5/M6 breaks that byte-identity gate.
-  ///
-  /// It is a PURE DELEGATION on purpose: no walk logic, no branch, no file
-  /// open of its own. That is what keeps the user's one-walk ruling structural
-  /// rather than conventional -- there is no second implementation here that
-  /// could drift from [probeSource] or be composed with it into two walks.
-  /// Production code must call [probeSource]; this projection has no callers
-  /// in `lib/`.
-  static Future<SourceCost?> probe(
-    String path, {
-    required int longEdge,
-    void Function(int byteCount)? onDiskRead,
-  }) async =>
-      (await probeSource(path, longEdge: longEdge, onDiskRead: onDiskRead))
-          .cost;
-
   /// Last-resort preview recovery after the native preview channel has already
   /// failed entirely (`NativeImageFailure`), via the pure-Dart embedded-JPEG
   /// extractor -- additive, and only reachable when native extraction already

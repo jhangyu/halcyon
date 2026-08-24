@@ -95,9 +95,11 @@ class PrefetchScheduler {
   }) async {
     final known = _cost[id];
     if (known != null) return (cost: known, exifOrientation: null);
-    // The canonical entry point, never the `probe()` projection: production
-    // code must not depend on a cost-only view of a walk that also produced
-    // the orientation this pipeline needs.
+    // The canonical entry point: production code must not depend on a
+    // cost-only view of a walk that also produced the orientation this
+    // pipeline needs (`PhotoSource.probe()` no longer exists -- removed
+    // as the last of its callers were the frozen tests, re-anchored to
+    // call `probeSource` directly instead).
     final probed = await PhotoSource.probeSource(path, longEdge: longEdge);
     observe(id, probed.cost);
     return probed;

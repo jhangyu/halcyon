@@ -36,13 +36,19 @@ void main() {
       expect(withoutPreview.existsSync(), isTrue, reason: 'sample missing');
 
       expect(
-        await PhotoSource.probe(withPreview.path, longEdge: windowLongEdge),
+        (await PhotoSource.probeSource(
+          withPreview.path,
+          longEdge: windowLongEdge,
+        )).cost,
         SourceCost.cheap,
         reason: 'this .dng carries a full-size embedded JPEG; charging it a '
             'RAW decode is the 13-in-14 error M3 exists to fix',
       );
       expect(
-        await PhotoSource.probe(withoutPreview.path, longEdge: windowLongEdge),
+        (await PhotoSource.probeSource(
+          withoutPreview.path,
+          longEdge: windowLongEdge,
+        )).cost,
         SourceCost.expensive,
         reason: 'this .dng has no usable embedded JPEG -- promoting it to the '
             'cheap rung puts nine FFI decodes in flight at once',
@@ -93,10 +99,10 @@ void main() {
 
       final expensive = <String>[];
       for (final file in all) {
-        final cost = await PhotoSource.probe(
+        final cost = (await PhotoSource.probeSource(
           file.path,
           longEdge: windowLongEdge,
-        );
+        )).cost;
         expect(cost, isNotNull, reason: '${file.path} could not be measured');
         if (cost == SourceCost.expensive) {
           expensive.add(file.uri.pathSegments.last);
@@ -121,11 +127,11 @@ void main() {
       // dies here.
       final file = File('${dngDir.path}/2026-02-15-19-37-38.dng');
       expect(
-        await PhotoSource.probe(file.path, longEdge: 2800),
+        (await PhotoSource.probeSource(file.path, longEdge: 2800)).cost,
         SourceCost.cheap,
       );
       expect(
-        await PhotoSource.probe(file.path, longEdge: 8000),
+        (await PhotoSource.probeSource(file.path, longEdge: 8000)).cost,
         SourceCost.expensive,
         reason: 'no embedded candidate reaches 8000px, so producing one means '
             'a real decode -- regardless of the file carrying a preview',
@@ -136,7 +142,7 @@ void main() {
         'bytes', () async {
       for (final file in dngs()) {
         var read = 0;
-        await PhotoSource.probe(
+        await PhotoSource.probeSource(
           file.path,
           longEdge: windowLongEdge,
           onDiskRead: (n) => read += n,
@@ -155,11 +161,11 @@ void main() {
           .whereType<File>()
           .firstWhere((f) => f.path.toLowerCase().endsWith('.jpg'));
       var jpgRead = 0;
-      final cost = await PhotoSource.probe(
+      final cost = (await PhotoSource.probeSource(
         jpg.path,
         longEdge: windowLongEdge,
         onDiskRead: (n) => jpgRead += n,
-      );
+      )).cost;
       expect(cost, SourceCost.cheap);
       expect(
         jpgRead,
@@ -172,10 +178,10 @@ void main() {
 
     test('TC-076 an unmeasurable file is UNDETERMINED, not expensive', () async {
       expect(
-        await PhotoSource.probe(
+        (await PhotoSource.probeSource(
           '/tmp/halcyon-no-such-file.dng',
           longEdge: windowLongEdge,
-        ),
+        )).cost,
         isNull,
         reason: 'null and expensive must stay distinct: the caller resolves '
             'the undetermined case from the first bridge answer instead of '

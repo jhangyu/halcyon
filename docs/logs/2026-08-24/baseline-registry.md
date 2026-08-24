@@ -46,9 +46,18 @@
 ### 凍結測試閘門 sha256（改動需使用者授權）
 | 檔案 | sha256 |
 |---|---|
-| `test/dng_nav_probe_m3_test.dart` | `ab7602e903d4eca1b2a5d6390f73cc85218484144970afe84f69d2ea956bfcf0`（2026-08-24 P3.3 重新登錄，理由見下） |
+| `test/dng_nav_probe_m3_test.dart` | `e93cfb9247d7541d9bd36184893c47b8fb6b9469b92a0a0cb7da72d9e2234133`（2026-08-25 P4b 重新登錄，理由見下） |
+| `test/photo_source_probe_test.dart` | `f32e20f9ed6241ad4d165732033df07d2cff7e2216c139c83eb16ccf387631ce`（2026-08-25 P4b 重新登錄，理由見下） |
 | `test/image_preload_controller_m3_amend3_test.dart` | `d624da3ce92e4ee6ad7e8e689a09c29391ddccc224699e8ad4ade121ace5239f`（2026-08-24 P3.3 重新登錄，理由見下） |
 | ~~`scripts/tmp/dng_nav_probe_test.dart`（主樹持有正本）~~ | **2026-08-24 R3 使用者決議刪除**（`git rm`，見下方 R3 附記）——此列凍結 sha 已隨檔案一併作廢，不再代表任何現存檔案 |
+
+#### P4b 重新登錄理由（2026-08-25，P2–P4 remediation contract AC-4）
+`PhotoSource.probe()`（`lib/services/photo_source.dart:332` 舊行號）是零生產呼叫者的投影，僅為讓上列兩個凍結測試檔編譯而保留（`docs/logs/2026-08-23/m4-m6-remaining-handover.md` items 1、5）。使用者本次「團隊修復 P2–P4 所有議題」指令即為修改凍結檔之明確授權，範圍僅限 `probe()` 呼叫點的等價改寫：
+- `test/dng_nav_probe_m3_test.dart`（TC-088 sanity 斷言，舊 `:152`）：`PhotoSource.probe(path, longEdge: n)` → `(await PhotoSource.probeSource(path, longEdge: n)).cost`，斷言目標（`SourceCost` 期望值、fixture）逐字未動，僅換呼叫面。
+- `test/photo_source_probe_test.dart`（TC-072/073/074/075/076，共 8 處呼叫點）：同樣的等價改寫，`onDiskRead` 回呼與所有斷言（含 TC-075 的 300KB／2-byte 預算、TC-076 的 `isNull` 分辨）逐字未動。
+- `lib/services/photo_source.dart`：刪除 `probe()` 方法本體與其上整段 doc-comment（原 `:319-338`），`probeSource()` 之上的既有 doc-comment未提及 `probe()`，無需另外修訂。
+- `lib/services/prefetch_scheduler.dart:98`：註解原文引用「`probe()` 投影」作為反面對照，已改寫為說明 `probe()` 已不存在、其僅存呼叫者（凍結測試）已改呼叫 `probeSource` 本身，語意不變（不得直接呼叫 cost-only 投影）。
+- 驗證：`grep -rn "static Future<SourceCost?> probe" lib/` → 0 命中；`flutter test test/dng_nav_probe_m3_test.dart test/photo_source_probe_test.dart -j 1` → 12/12 passed，RC=0（`scripts/tmp/p2p4/impl2-targeted-tests.txt`）。
 
 #### C-4 封印解除理由（M6 P3.3，2026-08-24）
 - **觸發原因**：三檔皆 `import 'package:halcyon_flutter/services/native_thumbnail_service.dart';` —— 該檔案本輪整檔刪除（型別搬到 `lib/services/image_source_types.dart`，`NativeThumbnailService`/`kNoEmbeddedPreviewCode`/`kAllowRawDecodeSignalArg` 隨通道一併刪除）。三檔皆需改 import 才能編譯，此為 C-4 定義下「衝突案例」，非任意修改。

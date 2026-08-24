@@ -149,7 +149,8 @@ void main() {
         reason: 'no-preview sample missing',
       );
       expect(
-        await PhotoSource.probe(noPreviewDng.path, longEdge: 2800),
+        (await PhotoSource.probeSource(noPreviewDng.path, longEdge: 2800))
+            .cost,
         SourceCost.expensive,
         reason: 'sanity: this must be the real no-preview content witness',
       );
