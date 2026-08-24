@@ -223,6 +223,7 @@ void main() {
       await _touch(dir, 'IMG_0002.jpg');
 
       final state = _testState();
+      addTearDown(state.dispose);
       await state.loadFolder(dir);
       state.selectItem('IMG_0001');
       // Simulate the window where the selection points at a photo the last
@@ -239,6 +240,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
 
       final state = _testState();
+      addTearDown(state.dispose);
       await state.loadFolder(dir);
       state.selectItem('IMG_0001');
       state.items.clear();
@@ -258,6 +260,7 @@ void main() {
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
 
       final state = _testState();
+      addTearDown(state.dispose);
       await state.loadFolder(src);
       state.markCurrent(PhotoStatus.starred);
 
@@ -278,6 +281,7 @@ void main() {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
+      addTearDown(state.dispose);
 
       await state.loadFolder(dir);
 
