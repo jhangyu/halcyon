@@ -6,7 +6,6 @@ import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
 import '../services/image_preload_controller.dart';
-import '../services/raw_pixels_image.dart';
 import 'photo_action_bar.dart';
 import 'zoom_controller.dart';
 
@@ -121,8 +120,7 @@ class _MainDetailViewState extends State<MainDetailView>
                   bytes,
                   state.currentItemHasFullSize,
                   currentId, // PERF-INSTRUMENTATION
-                  state.currentDecodedProvider,
-                  state.currentFullResProvider,
+                  state.displayProvider,
                 ),
         ),
 
@@ -228,13 +226,12 @@ class _MainDetailViewState extends State<MainDetailView>
     Uint8List? bytes,
     bool useFullSize,
     String currentId, // PERF-INSTRUMENTATION
-    RawPixelsImage? decodedProvider,
-    ImageProvider? fullResProvider,
+    ImageProvider? pixelProvider, // AppState.displayProvider
   ) {
     _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
     // A raw-decoded DNG has no preview bytes by construction, so "no bytes"
     // is only a spinner when there is no decoded image either.
-    if (bytes == null && decodedProvider == null) {
+    if (bytes == null && pixelProvider == null) {
       _perfSpinner(currentId); // PERF-INSTRUMENTATION
       return const Center(child: CircularProgressIndicator());
     }
@@ -261,50 +258,38 @@ class _MainDetailViewState extends State<MainDetailView>
         final targetHeight = (constraints.maxHeight * devicePixelRatio).round();
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
-        // useFullSize (AppState.currentItemHasFullSize) is true only when
-        // BOTH: the tier-2 decode for the CURRENT bytes has actually
-        // COMPLETED (not merely started -- ImageCache.containsKey alone
-        // would also be true for a still-pending decode), AND the
-        // resulting entry is still resident under that same bytes object.
-        // Selecting it here is therefore a plain ImageCache hit, exactly
-        // like the tier-1 branch below, and never triggers (or waits on) a
-        // decode on this build/UI path -- the check itself is bookkeeping,
-        // not a resolve.
-        // A pixel-backed (RAW-decoded) item has no bytes to fall back to, so
-        // it wins outright over both byte-backed tiers. Since M5 it has two
-        // tiers of its own: [fullResProvider] is the FULL-RESOLUTION tier-2
-        // entry, non-null only while it is resident for the item's current
-        // payload, and [decodedProvider] is the window-resolution tier-1
-        // fallback used before the upgrade lands, after it is evicted, or when
-        // the full-res decode failed. Both provider objects come from the
-        // preload controller (not built here) so the display path and the
-        // controller's eviction share one object identity, exactly as the two
-        // byte-backed factories require -- and for the full-res one that is
-        // load-bearing rather than merely tidy: it is one-shot, so only the
-        // controller's own object resolves as a cache hit.
-        final ImageProvider provider = decodedProvider != null
-            ? (fullResProvider ?? decodedProvider)
-            : (useFullSize
-                  ? fullSizeProviderFor(bytes!)
-                  : tierOneProviderFor(
-                      bytes!,
-                      width: targetWidth,
-                      height: targetHeight,
-                    ));
-        // Honest tiering: a pixel item painting its window-resolution provider
-        // IS tier 1, and before M5 it was mislabelled tier 2 here.
-        final isFullResolution = decodedProvider != null
-            ? fullResProvider != null
-            : useFullSize;
+        // `pixelProvider` (AppState.displayProvider) already resolves to the
+        // right object for BOTH pixel-backed items (RAW-decoded, no bytes at
+        // all) and byte-backed items whose tier-2 upgrade has landed --
+        // AppState.currentFullResProvider covers encoded payloads too, not
+        // just decoded-pixel ones. It comes out null in exactly one case:
+        // a byte-backed item still on tier-1 (no tier-2 upgrade, no pixel
+        // decode to fall back to) -- that is the one provider still built
+        // locally, because tier-1 needs the viewport size, which only exists
+        // inside this LayoutBuilder. Never construct a provider for the
+        // pixelProvider branch: the object identity must match the preload
+        // controller's own cached object exactly (frozen tier-1/tier-2 cache
+        // key rule), which is why displayProvider hands back the SAME object
+        // rather than a freshly-built one.
+        final ImageProvider provider =
+            pixelProvider ??
+            tierOneProviderFor(bytes!, width: targetWidth, height: targetHeight);
+        // Honest tiering: displayProvider resolves to the tier-2 object
+        // exactly when useFullSize is true, for both provider families
+        // (encoded and pixel-decoded), so this no longer needs to branch on
+        // which family `provider` came from.
+        final isFullResolution = useFullSize;
 
         // PERF-INSTRUMENTATION
         _perfTrack(context, currentId, provider, isFullResolution ? 2 : 1);
 
-        // `decodedProvider != null` is kept as its own term: a pixel item has
-        // no bytes at all, so the Image.memory fallback below is not merely
-        // suboptimal for it, it would dereference a null.
+        // `pixelProvider != null` is kept as its own term: a pixel-backed
+        // item has no bytes at all, so the Image.memory fallback below is
+        // not merely suboptimal for it, it would dereference a null. (For a
+        // byte-backed item with pixelProvider != null, isFullResolution is
+        // already true here, so this term never changes that case's result.)
         final image =
-            (decodedProvider != null ||
+            (pixelProvider != null ||
                 isFullResolution ||
                 (targetWidth > 0 && targetHeight > 0))
             ? Image(

@@ -6,6 +6,7 @@ import 'services/cache_budget.dart';
 import 'services/dng_decode_service.dart';
 import 'services/open_with_channel.dart';
 import 'views/main_screen.dart';
+import 'views/theme_tokens.dart';
 
 // Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
@@ -91,6 +92,7 @@ class HalcyonApp extends StatelessWidget {
           space: 1,
           thickness: 1,
         ),
+        extensions: const <ThemeExtension<dynamic>>[HalcyonTokens.light],
         useMaterial3: true,
       ),
       // Custom Layered Night Theme
@@ -139,6 +141,7 @@ class HalcyonApp extends StatelessWidget {
           space: 1,
           thickness: 1,
         ),
+        extensions: const <ThemeExtension<dynamic>>[HalcyonTokens.dark],
         useMaterial3: true,
       ),
       home: const MainScreen(),
