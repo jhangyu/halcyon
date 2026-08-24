@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
+import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'native_thumbnail_service.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'photo_source.dart';
 import 'prefetch_scheduler.dart';
+import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 
 typedef ImageBytesLoader =
@@ -120,6 +123,19 @@ class ImagePreloadController {
   final Map<String, SourcePayload> _tierTwoSources = {};
   final Set<String> _tierTwoReadyIds = {};
 
+  // Full-resolution upgrade failures, remembered PER PAYLOAD OBJECT (design
+  // §2.5). A RAW whose full-res decode failed keeps its tier-1 display and is
+  // NOT a permanent miss -- that set means "no payload could be produced at
+  // all" (:123-129) and writing to it here would turn a failed upgrade into an
+  // "unreadable" error screen for an item that is on screen and fine.
+  //
+  // Keyed by id but compared with [identical] against the CURRENT payload, so
+  // the memo dies naturally when the payload is replaced (item left the
+  // retention window and came back) and the upgrade may be tried once more.
+  // Without it, every 250ms settle would re-run a 61-406ms FFI decode that
+  // just failed.
+  final Map<String, SourcePayload> _fullResFailures = {};
+
   // Items no source could produce anything for (corrupt/truncated/unsupported,
   // or a RAW decode failure whose legacy fallback also failed). Without this
   // the view cannot tell "not loaded yet" from "will never load" and spins
@@ -210,6 +226,27 @@ class ImagePreloadController {
     return payload is PixelPayload ? RawPixelsImage(payload) : null;
   }
 
+  /// The FULL-RESOLUTION tier-2 provider for a pixel-backed item, or null when
+  /// there is no resident full-resolution entry for the item's current payload.
+  ///
+  /// Unlike [pixelsProviderFor], this must NOT be rebuilt at the display site:
+  /// [RawFullResImage] is one-shot (it carries the decoded image exactly once),
+  /// so the object handed out here is the very object the controller registered
+  /// as the ImageCache key. Resolving it while [isFullSizeReady] is true is a
+  /// plain cache hit -- `loadImage` is never reached, so the one-shot nature is
+  /// never exercised on the display path (design §2.3).
+  ImageProvider? fullResProviderFor(String? id) {
+    if (id == null || !isFullSizeReady(id)) return null;
+    final key = _tierTwoKeys[id];
+    return key is RawFullResImage ? key : null;
+  }
+
+  /// The ids that currently hold a tier-2 ImageCache entry, both payload kinds.
+  /// The dual-window property under test is exactly "this set == the +/-2 band"
+  /// (AC-M5-2).
+  @visibleForTesting
+  Set<String> get debugTierTwoKeyIds => _tierTwoKeys.keys.toSet();
+
   Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
 
   /// Total retained payload cost. The successor to the old "is that ~50MB
@@ -271,6 +308,7 @@ class ImagePreloadController {
     _tierTwoKeys.clear();
     _tierTwoSources.clear();
     _tierTwoReadyIds.clear();
+    _fullResFailures.clear();
     _scheduler.reset();
     _permanentMisses.clear();
     _thumbPermanentMisses.clear();
@@ -305,6 +343,7 @@ class ImagePreloadController {
     _tierTwoKeys.clear();
     _tierTwoSources.clear();
     _tierTwoReadyIds.clear();
+    _fullResFailures.clear();
     _retentionIds = {};
     _cache.clear();
     // Nothing else to do: no image is owned here. A source still in flight at
@@ -462,6 +501,9 @@ class ImagePreloadController {
     };
     _tierTwoWindowIds = neededIds;
 
+    final pendingUpgrades =
+        <({PhotoItem item, PixelPayload payload, int distance})>[];
+
     for (var i = tierStart; i <= tierEnd; i++) {
       final item = items[i];
       final payload = _cache.peek(item.id);
@@ -492,7 +534,35 @@ class ImagePreloadController {
           _tierTwoReadyIds.contains(item.id) &&
           identical(_tierTwoSources[item.id], payload);
       if (alreadyDecoded) continue;
-      _decodeFullSizeIntoImageCache(item.id, payload, notifyLoaded);
+      switch (payload) {
+        case EncodedPayload():
+          // Verbatim today's behaviour. The cheap path is the floor: M5 adds
+          // nothing to it and takes nothing away.
+          _decodeFullSizeIntoImageCache(item.id, payload, notifyLoaded);
+        case PixelPayload():
+          // The CATCH-UP upgrade (design §2.2): this item already has its
+          // window-resolution payload but no full-resolution entry -- it slid
+          // into the +/-2 band, or left and came back after its entry was
+          // evicted. Unlike the piggyback path there is no decode in flight to
+          // ride along on, so it costs one FFI decode, taken on the SAME
+          // sequential queue as payload production (no new concurrency, D2
+          // untouched) and behind the same window re-check.
+          //
+          // Collected rather than enqueued here, so the queue order is the one
+          // the user ruled on (open question 4): payload production -- the
+          // blank slots the user can SEE -- goes in first, in index order,
+          // then upgrades by distance 0, +/-1, +/-2.
+          pendingUpgrades.add((
+            item: item,
+            payload: payload,
+            distance: (i - currentIndex).abs(),
+          ));
+      }
+    }
+
+    pendingUpgrades.sort((a, b) => a.distance.compareTo(b.distance));
+    for (final upgrade in pendingUpgrades) {
+      _enqueueFullResUpgrade(upgrade.item, upgrade.payload, notifyLoaded);
     }
 
     final staleIds = _tierTwoKeys.keys
@@ -543,6 +613,17 @@ class ImagePreloadController {
       // the view would keep showing a spinner.
       final landed = _cache.peek(item.id);
       if (landed == null || !_tierTwoWindowIds.contains(item.id)) return;
+      if (landed is PixelPayload) {
+        // The load above ran the FFI decode and, on success, ALREADY published
+        // the full-resolution entry by piggyback (design §2.2) -- that is what
+        // makes the pair "payload + full-res tier-2" cost exactly one decoder
+        // call. Anything left to do here is the catch-up case (the payload was
+        // already cached, so no decode ran), and it is run INLINE because this
+        // is already the sequential queue.
+        if (_hasFullResEntryFor(item.id, landed)) return;
+        await _upgradeFullRes(item, landed, notifyLoaded);
+        return;
+      }
       _decodeFullSizeIntoImageCache(item.id, landed, notifyLoaded);
     }).catchError((Object _) {
       // One item's failure must not wedge the queue for the rest of the
@@ -690,6 +771,22 @@ class ImagePreloadController {
           cb();
         }
       }
+
+      // PIGGYBACK (design §2.2). The source hands back full-resolution oriented
+      // pixels ONLY when a real FFI decode ran in this very call, so the
+      // full-resolution tier-2 entry costs no extra decoder call -- which is
+      // what keeps the hash-frozen navigation probes' "decoder called exactly
+      // once" assertions green. Done AFTER the notify above so the window
+      // -resolution frame reaches the screen first; the upload itself is a
+      // memcpy plus a GPU upload, and it stays on this sequential queue.
+      final fullRes = outcome.fullRes;
+      if (fullRes != null &&
+          payload is PixelPayload &&
+          identical(_cache.peek(id), payload) &&
+          _tierTwoWindowIds.contains(id) &&
+          !_hasFullResEntryFor(id, payload)) {
+        await _publishPiggybackFullRes(id, payload, fullRes, notifyLoaded);
+      }
     } catch (_) {
       // A source threw (e.g. a PlatformException the native side did not
       // convert to null, or a MissingPluginException on an unimplemented
@@ -715,6 +812,11 @@ class ImagePreloadController {
     SourcePayload payload,
     VoidCallback notifyLoaded,
   ) {
+    // Encoded payloads only since M5: a pixel payload's tier-2 entry is the
+    // FULL-RESOLUTION one, published by [_publishFullRes]. Routing one through
+    // here would register the window-resolution provider as its tier-2 key and
+    // silently re-create the shared-entry "fake tier-2" M5 exists to remove.
+    assert(payload is EncodedPayload);
     final provider = _fullSizeProviderForPayload(payload);
     final stream = provider.resolve(const ImageConfiguration());
     late ImageStreamListener listener;
@@ -728,6 +830,153 @@ class ImagePreloadController {
       _tierTwoKeys[id] = key;
       _tierTwoSources[id] = payload;
     });
+  }
+
+  // True when [id] already has a FULL-RESOLUTION tier-2 entry registered for
+  // exactly this payload object. Deliberately not [isFullSizeReady]: this is
+  // checked to decide whether to spend an FFI decode, and the entry may still
+  // be a few microseconds away from its listener firing (the ready flag is set
+  // by the stream listener, the registration below is synchronous). Asking the
+  // ready flag here would buy a second decode for an upgrade already in hand,
+  // which is exactly what AC-M5-4's "exactly ONE decoder call" forbids.
+  bool _hasFullResEntryFor(String id, SourcePayload payload) =>
+      _tierTwoKeys[id] is RawFullResImage &&
+      identical(_tierTwoSources[id], payload);
+
+  // Queues a catch-up full-resolution upgrade on the SAME sequential queue the
+  // expensive payload loads use. The window re-check is inside the queued body
+  // (not at enqueue time) for the same reason it is in [_enqueueTierTwoLoad]:
+  // by the time this item's turn comes the user may have navigated away.
+  void _enqueueFullResUpgrade(
+    PhotoItem item,
+    PixelPayload payload,
+    VoidCallback notifyLoaded,
+  ) {
+    _tierTwoQueue = _tierTwoQueue.then((_) async {
+      if (!_tierTwoWindowIds.contains(item.id)) return;
+      if (!identical(_cache.peek(item.id), payload)) return;
+      if (_hasFullResEntryFor(item.id, payload)) return;
+      await _upgradeFullRes(item, payload, notifyLoaded);
+    }).catchError((Object _) {
+      // Same rule as the load queue: one item's failure must not wedge the
+      // chain. Real failures are already memoised per payload below.
+    });
+    unawaited(_tierTwoQueue);
+  }
+
+  // One FFI decode -> full-resolution oriented image -> ImageCache. The
+  // window-resolution byproduct is NOT produced and the retained payload object
+  // is NEVER replaced: replacing it would invalidate the tier-1 ImageCache key
+  // and the identity assertions the frozen navigation probes rest on.
+  Future<void> _upgradeFullRes(
+    PhotoItem item,
+    PixelPayload payload,
+    VoidCallback notifyLoaded,
+  ) async {
+    final id = item.id;
+    // Failed once for THIS payload: do not re-buy a 61-406ms decode on every
+    // settle. The memo dies with the payload (design §2.5).
+    if (identical(_fullResFailures[id], payload)) return;
+    final decoder = _source.dngDecoder;
+    final file = item.bestFileToLoad;
+    // Orientation comes from the memo the probe already filled (invariant I6):
+    // no bridge round trip is bought to rotate a frame.
+    final orientation = _exifOrientations[id];
+    if (decoder == null || file == null || orientation == null) {
+      _fullResFailures[id] = payload;
+      return;
+    }
+
+    ui.Image image;
+    try {
+      final decoded = await decoder(file.path);
+      image = await decodedRgbaToImage(decoded, exifOrientation: orientation);
+    } catch (_) {
+      // Tier-1 display is untouched and this is NOT a permanent miss: the
+      // item has a payload and is on screen (design §2.5).
+      _fullResFailures[id] = payload;
+      return;
+    }
+
+    // Re-checked after the await, per invariant I4: the window may have moved
+    // or the payload been replaced while the decode ran, in which case the
+    // image is released HERE rather than stored anywhere.
+    if (!_tierTwoWindowIds.contains(id) ||
+        !identical(_cache.peek(id), payload)) {
+      image.dispose();
+      return;
+    }
+    _publishFullRes(id, payload, image, notifyLoaded);
+  }
+
+  // Hands ownership of [image] to the ImageCache and keeps NO reference to it
+  // (invariant I5 stays dissolved -- nothing here owns a ~50MB handle).
+  // Registration is synchronous and happens BEFORE the resolve, so a
+  // concurrent decision to upgrade sees the entry immediately.
+  void _publishFullRes(
+    String id,
+    SourcePayload payload,
+    ui.Image image,
+    VoidCallback notifyLoaded,
+  ) {
+    final provider = RawFullResImage(
+      payloadIdentity: payload,
+      width: image.width,
+      height: image.height,
+      image: image,
+    );
+    // The provider IS its own key (obtainKey returns `this`), which is what
+    // lets the existing tier-2 bookkeeping evict it and the view resolve the
+    // very same object as a cache hit. No second eviction mechanism (§2.4).
+    _tierTwoKeys[id] = provider;
+    _tierTwoSources[id] = payload;
+    final stream = provider.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, synchronousCall) {
+        stream.removeListener(listener);
+        _tierTwoReadyIds.add(id);
+        notifyLoaded();
+      },
+      onError: (error, stackTrace) {
+        stream.removeListener(listener);
+        _fullResFailures[id] = payload;
+        _evictTierTwoEntry(id);
+      },
+    );
+    stream.addListener(listener);
+  }
+
+  // The PIGGYBACK half of design §2.2: the pixels handed back alongside the
+  // window-resolution payload by the single decode that just ran. They are
+  // already oriented and full-resolution, so all that is left is one GPU
+  // upload. The buffer is a parameter and a local only -- it is never stored
+  // in a field, so nothing outlives this call except the ImageCache entry.
+  Future<void> _publishPiggybackFullRes(
+    String id,
+    PixelPayload payload,
+    ({Uint8List rgba, int width, int height}) fullRes,
+    VoidCallback? notifyLoaded,
+  ) async {
+    if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
+      return;
+    }
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      fullRes.rgba,
+      fullRes.width,
+      fullRes.height,
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
+    final image = await completer.future;
+    // Same post-await re-check as the catch-up path; releases in place.
+    if (!_tierTwoWindowIds.contains(id) ||
+        !identical(_cache.peek(id), payload)) {
+      image.dispose();
+      return;
+    }
+    _publishFullRes(id, payload, image, notifyLoaded ?? () {});
   }
 
   // Removes id's tier-2 bookkeeping and evicts its ImageCache entry (if any).
