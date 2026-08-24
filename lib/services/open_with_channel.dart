@@ -10,14 +10,13 @@ import 'package:flutter/services.dart';
 /// (channel buffers hold the message until a handler is registered), so the
 /// launch-time file arrives whenever Dart is ready.
 ///
-/// Platform status:
-///   * macOS -- implemented in macos/Runner/AppDelegate.swift.
-///   * Windows -- needs the runner to forward argv[1] on the same channel;
-///     no Dart change required beyond that.
-///   * Android -- ACTION_VIEW yields a content:// URI, not a path, so the
-///     native side must resolve it (and the enclosing folder needs SAF)
-///     before it can call [onPath]. That resolution is the Android work,
-///     not this channel.
+/// Platform status: macOS, Windows, Android and iOS all push on this
+/// channel now (see macos/Runner/AppDelegate.swift,
+/// windows/runner/flutter_window.cpp, the Android MainActivity, and
+/// ios/Runner/AppDelegate.swift). What is still parked is the mobile
+/// end-to-end flow beyond delivering the path: Android/iOS both need the
+/// enclosing folder to land via the folder-scan pipeline (F-02) before
+/// [onPath] actually opens something useful.
 class OpenWithChannel {
   static const MethodChannel _channel = MethodChannel('halcyon/open_with');
 
