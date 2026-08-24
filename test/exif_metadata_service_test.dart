@@ -43,41 +43,42 @@ void main() {
     expect(junk!.captureDate, isNull);
   });
 
-  test('TC-047 readBatch chunks the paths and preserves order', () async {
-    final seenChunks = <int>[];
+  // TC-047/TC-048 (deleted, M6 F-14): both pinned single-platform semantics
+  // of the now-deleted `halcyon/exif` channel path (chunking observed via a
+  // channel mock; degrade-to-null on a mocked PlatformException). Neither
+  // assertion is meaningful once `_readChunk` never reaches a channel at
+  // all — replaced below by TC-049, which proves the channel is never
+  // touched and pins chunking + failure-tolerance against the real isolate
+  // parser instead of a mock. Not present in baseline-registry.md's frozen
+  // sha256 list, so no re-registration is required (C-4).
+  //
+  // TC-049 mocks the channel by name rather than via
+  // `ExifMetadataService.channel`: that field was deleted along with the
+  // production channel call (F-14, C-3-adjacent — no lingering channel
+  // handle in lib/), so the AC that `lib/` and `macos/` grep clean for
+  // "halcyon/exif" holds; the mock target here is only ever the name string,
+  // matching how the platform channel is identified regardless of side.
+  test('TC-049 readBatch never touches a platform channel', () async {
+    const probeChannel = MethodChannel('halcyon/exif');
+    var channelCalls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(ExifMetadataService.channel, (call) async {
-      final paths = (call.arguments as Map)['paths'] as List;
-      seenChunks.add(paths.length);
-      return [
-        for (final path in paths) {'camera': path.toString().split('/').last},
-      ];
+        .setMockMethodCallHandler(probeChannel, (call) async {
+      channelCalls++;
+      return null;
     });
     addTearDown(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(ExifMetadataService.channel, null);
+          .setMockMethodCallHandler(probeChannel, null);
     });
 
-    final paths = [for (var i = 0; i < 1200; i++) '/photos/$i.JPG'];
+    // Chunking still applies (kExifChunkSize per call to _readChunk), proven
+    // against the real isolate-parser path: unreadable paths degrade to null
+    // rather than throwing, and the channel is never invoked either way.
+    final paths = [for (var i = 0; i < 1200; i++) '/nonexistent/$i.JPG'];
     final result = await ExifMetadataService.readBatch(paths);
 
-    expect(seenChunks, [kExifChunkSize, kExifChunkSize, 200]);
     expect(result, hasLength(1200));
-    expect(result.first!.camera, '0.JPG');
-    expect(result.last!.camera, '1199.JPG');
-  });
-
-  test('TC-048 a channel failure yields nulls rather than throwing', () async {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(ExifMetadataService.channel, (call) async {
-      throw PlatformException(code: 'BOOM');
-    });
-    addTearDown(() {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(ExifMetadataService.channel, null);
-    });
-
-    final result = await ExifMetadataService.readBatch(['/photos/a.JPG']);
-    expect(result, [null]);
+    expect(result, everyElement(isNull));
+    expect(channelCalls, 0);
   });
 }

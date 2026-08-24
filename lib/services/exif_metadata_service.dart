@@ -3,7 +3,6 @@ import 'dart:isolate';
 
 import 'package:exif/exif.dart' as pkg;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import 'rename_rule.dart';
 
@@ -20,13 +19,13 @@ typedef ExifBatchReader = Future<List<ExifMetadata?>> Function(
 const int kExifChunkSize = 500;
 
 class ExifMetadataService {
-  static const MethodChannel channel = MethodChannel('halcyon/exif');
-
   /// Reads metadata for [paths], chunked, order preserved.
   ///
-  /// On macOS the native handler reads all paths in a chunk in parallel
-  /// (header only, no pixel decode). Everywhere else — and whenever the
-  /// channel is missing — it falls back to parsing in a Dart isolate.
+  /// M6 F-14: the native channel is deleted; the package/isolate path —
+  /// formerly the fallback and always the reference implementation — is the
+  /// only path everywhere (matrix F-14, parity gold standard per
+  /// m6-spec-contract §3). Chunking is retained so a huge folder still
+  /// yields incremental progress rather than one giant `Future.wait`.
   static Future<List<ExifMetadata?>> readBatch(List<String> paths) async {
     final results = <ExifMetadata?>[];
     for (var start = 0; start < paths.length; start += kExifChunkSize) {
@@ -37,22 +36,8 @@ class ExifMetadataService {
     return results;
   }
 
-  static Future<List<ExifMetadata?>> _readChunk(List<String> chunk) async {
-    try {
-      final raw = await channel.invokeMethod<List<Object?>>('readBatch', {
-        'paths': chunk,
-      });
-      if (raw == null) return List<ExifMetadata?>.filled(chunk.length, null);
-      return [
-        for (final entry in raw)
-          metadataFromMap(entry is Map ? entry.cast<Object?, Object?>() : null),
-      ];
-    } on MissingPluginException {
-      return Future.wait(chunk.map(readWithPackage));
-    } on PlatformException catch (e) {
-      debugPrint('EXIF batch read failed: ${e.code} ${e.message}');
-      return List<ExifMetadata?>.filled(chunk.length, null);
-    }
+  static Future<List<ExifMetadata?>> _readChunk(List<String> chunk) {
+    return Future.wait(chunk.map(readWithPackage));
   }
 
   /// Decodes one native map. Public because this shape — not the channel — is
