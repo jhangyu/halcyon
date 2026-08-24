@@ -79,13 +79,17 @@ class NativeImageFailure extends NativeImageResult {
 const int kDefaultExifOrientation = 1;
 
 /// Native error code signalling [NativeImageNeedsRawDecode]. Emitted by
-/// `macos/Runner/AppDelegate.swift` only for `purpose == "preview"` on a
-/// `.dng` whose embedded-JPEG extraction returned nil. It is NOT the only
-/// source of [NativeImageNeedsRawDecode]: `windows/runner/halcyon_image.cpp`
-/// deliberately returns `RAW_UNSUPPORTED` instead, and the Dart pipeline
-/// synthesises the variant itself in that case (see AD-010's 2026-08-22
-/// amendment). Do not reintroduce an assumption that this code is the only
-/// way the raw-decode path can be entered.
+/// `macos/Runner/AppDelegate.swift:396` only for `purpose == "preview"` on a
+/// `.dng` whose embedded-JPEG extraction returned nil (gate at
+/// `AppDelegate.swift:391`, orientation via `readDngOrientation` at `:393`).
+/// This is currently the SOLE tree-wide producer of [NativeImageNeedsRawDecode]
+/// (construction site: this file, below, ~line 126-129) and it is gated on
+/// that macOS-only native emission. `windows/runner/halcyon_image.cpp`
+/// deliberately returns `RAW_UNSUPPORTED` instead, which maps to
+/// [NativeImageFailure], not this variant — the signal never fires on
+/// Windows today. AD-010's memory.md erratum (2026-08-24) corrects an
+/// earlier claim that a Dart-side construction point independent of this
+/// native signal already exists; no such construction exists in code yet.
 const String kNoEmbeddedPreviewCode = 'NO_EMBEDDED_PREVIEW';
 
 /// Channel argument name for opting OUT of the [kNoEmbeddedPreviewCode]

@@ -531,10 +531,14 @@ ImageResult RequestImage(const std::string& utf8_path,
     // the native decoder (docs/logs/2026-08-21/premise-audit-platforms.md), so
     // this returns a plain failure and NOT kNoEmbeddedPreviewCode
     // ("NO_EMBEDDED_PREVIEW"). That distinction is the whole point: the
-    // NO_EMBEDDED_PREVIEW code makes Dart construct NativeImageNeedsRawDecode
-    // (native_thumbnail_service.dart:115-119) and go looking for a
-    // DngFullDecoder, whereas any other code maps to NativeImageFailure
-    // (native_thumbnail_service.dart:120-121) -- a clean "no image available".
+    // NO_EMBEDDED_PREVIEW code (macOS-only, AppDelegate.swift:396) is the
+    // SOLE tree-wide trigger that makes Dart construct NativeImageNeedsRawDecode
+    // (native_thumbnail_service.dart:126-129) and go looking for a
+    // DngFullDecoder; RAW_UNSUPPORTED maps to NativeImageFailure instead
+    // (native_thumbnail_service.dart:132) -- a clean "no image available".
+    // There is no separate Dart-side construction point for this signal on
+    // Windows failure; memory.md AD-010's 2026-08-24 erratum corrects an
+    // earlier claim that one already exists.
     return Fail("RAW_UNSUPPORTED",
                 "RAW and DNG decoding is not available on Windows");
   }
