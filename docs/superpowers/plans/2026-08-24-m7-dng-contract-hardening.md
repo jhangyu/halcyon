@@ -123,45 +123,49 @@ If the results differ, that is a real defect in the byte-order/reader layer and 
 
 **Files:**
 - Modify: `lib/services/dng_preview_extractor.dart:60` (signature), `:330-345` (`_walk` orientation), `:480-499` (`_select`), `:53-56` (the doc comment stating the fallback rule)
-- Modify: `lib/services/dart_image_loader.dart:40-50` (the sidebar branch)
+- Modify: `lib/services/dart_image_loader.dart:51-56` (the **non-sidebar** branch — the sidebar branch at `:40-50` must not be touched)
 - Modify: `test/dng_preview_extractor_test.dart`, `test/dart_image_loader_test.dart`
 - Modify: `unit_test.md`
 - Modify: `memory.md` (one AD-NNN entry)
 
 **Interfaces:**
-- Consumes: `buildSyntheticDng` / `writeSyntheticDng` from Task 1; `NativeImageFailure(String code, String message)` from `lib/services/image_source_types.dart`.
+- Consumes: `buildSyntheticDng` / `writeSyntheticDng` from Task 1; `NativeImageFailure(String code, String message)`, `NativeImageNeedsRawDecode({required int exifOrientation})` and `ImageRequestPurpose` (`targetSize`: `sidebarThumbnail` 200, `preview` 2800, `export` 2048 — `lib/services/image_source_types.dart:13-38`).
 - Produces, for Task 3:
-  - `static Future<DngEmbeddedJpeg?> DngPreviewExtractor.extractEmbeddedJpeg(String path, {int? longEdge, bool requireLongEdge = false, void Function(int byteCount)? onDiskRead})` — the new named parameter.
+  - `static Future<DngEmbeddedJpeg?> DngPreviewExtractor.extractEmbeddedJpeg(String path, {int? longEdge, int? minLongEdge, void Function(int byteCount)? onDiskRead})` — `minLongEdge` is the new parameter, `null` by default.
   - `static int _sanitizeOrientation(int? raw)` — private; returns `raw` when `raw != null && raw >= 1 && raw <= 8`, otherwise `1`.
 
 **Behavior:**
 
-*Undersized-candidate rule (audit gap 1, user ruling C).* `_select` currently falls back to the largest available candidate whenever none reaches the requested `longEdge` (`:495-497`, documented at `:55-56`), so a request for a 200 px thumbnail of a DNG whose only embedded preview is 160×120 is answered with the undersized preview. The user's ruling: **no candidate reaching the requested long edge means "no usable preview", and the file enters RAW decode instead.**
+*Undersized-candidate rule (audit gap 1, user ruling C).* The user's ruling: **when no embedded candidate reaches the requested long edge, the file enters RAW decode instead of being served an undersized candidate.** It applies to the **preview / full-size path**. The **sidebar route keeps its existing lenient smallest-then-largest-candidate behaviour** — rulings P-11 and P-13 govern the sidebar and they stand. Both halves of that are load-bearing; state both in the code comments, not just here.
 
-`requireLongEdge: true` makes `_select` return `null` in exactly that case. The default stays `false`, so every call site that does not opt in behaves bit-for-bit as it does today.
+Mechanism: `minLongEdge` is applied *after* candidate selection, in both selection modes. When the selected candidate's `max(width, height)` is below `minLongEdge`, the extractor returns `null`. Selection itself is untouched — this adds a rejection, not a different choice — so the detail view still receives the largest qualifying candidate rather than a merely-adequate one. `minLongEdge: null` (the default) is today's behaviour exactly, which is what keeps the sidebar and every other caller unchanged.
 
-The call site that opts in is the sidebar branch of `dartImageLoad` (`lib/services/dart_image_loader.dart:41-45`), which requests `longEdge: purpose.targetSize` (200). A `null` there already becomes `NativeImageFailure('NO_THUMBNAIL', …)`, and the sidebar's existing P-12 machinery already treats a non-bytes result for a RAW path as its cue to run the sized RAW decode (`image_preload_controller.dart:1207-1230`, `_sidebarRawDecoder(path, maxDim: 200)`). So the ruling is delivered by flipping one flag: undersized-only DNGs stop returning a small blurry tile and start routing through the same RAW-decode fallback that bare-CFA DNGs already use. No new branch, no new state.
+Call site: the non-sidebar branch of `dartImageLoad` (`lib/services/dart_image_loader.dart:51-56`) currently calls `extractFullSizeEmbeddedJpegFromFile(path)`, which is a thin wrapper over `extractEmbeddedJpeg(path, longEdge: null)` returning only `.bytes` (`dng_preview_extractor.dart:87-92`). Replace that call with `extractEmbeddedJpeg(path, longEdge: null, minLongEdge: ImageRequestPurpose.preview.targetSize)` and use `.bytes`. A `null` result then flows into the branch's existing miss handling — for a `.dng` with `purpose == preview` that is `NativeImageNeedsRawDecode`, i.e. exactly "enter RAW decode". No new state, no new failure code.
 
-**Two consequences a worker must not paper over.** (1) This amends the documented behaviour at `:53-56` and the lenient reading behind ruling P-11's entry-point choice — the doc comment must be rewritten to state the new rule and cite this plan's Decision Log, not left describing the old fallback. (2) It moves samples from "instant small preview" to "one RAW decode, cached thereafter". M6 measured that decode at 31.6–63.1 ms for bare-CFA samples (`p5-3-verify.txt`, ruling P-13), under the 75 ms floor — but that was measured on samples that were *already* taking that path. The newly-routed samples have not been measured, so this task re-runs the gate over them (see acceptance criteria) rather than assuming the old numbers transfer.
+**Scope limit that must not be silently widened: apply `minLongEdge` only for `purpose == preview`.** For `purpose == export` there is no RAW-decode path in the loader — a miss becomes `NativeImageFailure('RAW_NO_EMBEDDED_PREVIEW', …)`, so applying the rule there would convert "export a smaller-than-ideal image" into "export fails", which is a capability loss the ruling did not ask for. Export keeps today's lenient behaviour. If a worker believes export should also be strict, that is a question for the lead, not a decision to make inside the task.
 
-The non-sidebar path needs no change and must not get one: it calls `extractFullSizeEmbeddedJpegFromFile`, whose `longEdge == null` mode already enforces a size floor (`maxDim >= 0.90 * cropMax`, `:53-54`) and already routes a miss to RAW decode. Stating this explicitly so nobody "finishes" gap 1 by adding a redundant second guard there.
+Leave `extractFullSizeEmbeddedJpegFromFile` in place with its current signature; grep its other callers (`grep -rn "extractFullSizeEmbeddedJpegFromFile" lib/ test/`) and leave them on the lenient path.
+
+**Consequences a worker must not paper over.** (1) The doc comment at `:53-56` must be rewritten to state the `minLongEdge` rule and to say explicitly that the sidebar route remains lenient under P-11/P-13; leaving it describing unconditional fallback-to-largest is a doc-drift failure. (2) DNGs whose largest embedded preview is under 2800 px move from "instant preview" to "one RAW decode, then cached". M6 measured that decode at 31.6–63.1 ms for bare-CFA samples (`p5-3-verify.txt`, ruling P-13), under the 75 ms floor — but those samples were *already* on that path. The newly-routed ones have not been measured, so this task re-runs the gate over them rather than assuming the old numbers transfer. (3) A DNG with no FFI decoder on the current cascade tier goes from "small preview" to an explicit miss; that follows from the ruling and is recorded, not worked around.
 
 *Orientation range-clamp (audit gap 4, user ruling E).* `_walk` does `_orientationOf(reader, ifd0) ?? 1` (`:334`) — null-defaults, but accepts any integer the tag carries, so a file claiming orientation 9 or 0 propagates an out-of-range value into pixel-orientation baking downstream. Route every orientation read in this file through `_sanitizeOrientation`, and cover the boundaries in a table-driven test.
 
 **Constraints:**
-- `requireLongEdge` defaults to `false`. A worker who changes the default has silently altered every other call site.
-- Only the sidebar branch of `dart_image_loader.dart` opts in. Do not touch the non-sidebar branch.
+- `minLongEdge` defaults to `null`. A worker who changes the default has silently altered every other call site.
+- Only the non-sidebar branch of `dart_image_loader.dart` opts in, and only for `purpose == preview`. Do not touch the sidebar branch (`:40-50`) — it stays lenient under P-11/P-13.
 - The valid EXIF orientation range is 1..8 inclusive; out-of-range and null both become 1.
 - C-3 grep guard stays clean; no new dependency.
 - Serialise with Tasks 1 and 3 on `dng_preview_extractor.dart`.
 
 **Acceptance criteria:**
-- [ ] `grep -n "requireLongEdge" lib/services/dng_preview_extractor.dart lib/services/dart_image_loader.dart` shows the parameter declared with `= false`, consumed by `_select`, and passed `true` at exactly one call site (the sidebar branch).
+- [ ] `grep -n "minLongEdge" lib/services/dng_preview_extractor.dart lib/services/dart_image_loader.dart` shows the parameter declared as `int? minLongEdge` (defaulting to `null`), applied after `_select` in `extractEmbeddedJpeg`, and passed a non-null value at exactly one call site — the non-sidebar branch, guarded by `purpose == ImageRequestPurpose.preview`.
+- [ ] `grep -n "extractEmbeddedJpeg" lib/services/dart_image_loader.dart` shows the sidebar branch call unchanged (no `minLongEdge` argument).
 - [ ] `grep -n "_sanitizeOrientation" lib/services/dng_preview_extractor.dart` shows the helper defined once, and no bare `?? 1` orientation default remains in the file.
 - [ ] Table-driven orientation test covering raw values 0, 1, 8, 9 and null, expecting 1, 1, 8, 1, 1 — built with Task 1's helper.
-- [ ] Extractor tests, using a synthetic container whose only candidate is 160×120: `extractEmbeddedJpeg(path, longEdge: 200, requireLongEdge: true)` → `null`; the same call with the default → the 160×120 candidate.
-- [ ] Loader test: `dartImageLoad` with `purpose: sidebarThumbnail` on that same container → `NativeImageFailure` with code `NO_THUMBNAIL` (which is what hands it to the sidebar RAW fallback).
-- [ ] The doc comment at `dng_preview_extractor.dart:53-56` no longer describes fallback-to-largest as unconditional and states the `requireLongEdge` rule.
+- [ ] Extractor tests, using a synthetic container whose only candidate is 160×120: `extractEmbeddedJpeg(path, longEdge: null, minLongEdge: 2800)` → `null`; the same call without `minLongEdge` → the 160×120 candidate. Same pair for the `longEdge: 200` selection mode, proving `minLongEdge` applies in both modes.
+- [ ] Loader test (a): `dartImageLoad` on a `.dng` whose largest candidate is under 2800 px with `purpose: preview` → `NativeImageNeedsRawDecode` (previously it returned the undersized bytes). Red-first evidence required.
+- [ ] Loader test (b): the same file with `purpose: sidebarThumbnail` → still `NativeImageBytes` (the sidebar stayed lenient), and with `purpose: export` → still `NativeImageBytes` (export stayed lenient).
+- [ ] The doc comment at `dng_preview_extractor.dart:53-56` no longer describes fallback-to-largest as unconditional, states the `minLongEdge` rule, and states that the sidebar route remains lenient under P-11/P-13.
 - [ ] Gate re-run over the newly-routed samples using Task 7's tracked harness (or, if Task 7 has not landed, the `scripts/tmp/m6-r1-bench/` harness with provenance recorded): every newly-routed sample's per-file decode is reported with the P-13 verdict applied. A sample over 75 ms is reported to the lead, not silently accepted.
 - [ ] `flutter test -j 1` → `All tests passed!`, declared count equals executed count, `RC=0` self-captured; red-first evidence for each new assertion group.
 - [ ] `flutter analyze` → `0 issues`; C-3 grep guard clean.
@@ -180,10 +184,10 @@ The non-sidebar path needs no change and must not get one: it calls `extractFull
 - Modify: `memory.md` (one AD-NNN entry)
 
 **Interfaces:**
-- Consumes: `buildSyntheticDng(..., corruptOffsets: true)` from Task 1; `requireLongEdge` from Task 2; `NativeImageFailure(String code, String message)`, `NativeImageNeedsRawDecode({required int exifOrientation})` from `lib/services/image_source_types.dart`; `kDefaultExifOrientation`.
+- Consumes: `buildSyntheticDng(..., corruptOffsets: true)` from Task 1; `minLongEdge` from Task 2; `NativeImageFailure(String code, String message)`, `NativeImageNeedsRawDecode({required int exifOrientation})` from `lib/services/image_source_types.dart`; `kDefaultExifOrientation`.
 - Produces:
   - `class DngPreviewProbe { const DngPreviewProbe({required this.jpeg, required this.malformed}); final DngEmbeddedJpeg? jpeg; final bool malformed; }` in `lib/services/dng_preview_extractor.dart`.
-  - `static Future<DngPreviewProbe> DngPreviewExtractor.probeEmbeddedJpeg(String path, {int? longEdge, bool requireLongEdge = false})` — the malformed-aware sibling of `extractEmbeddedJpeg`, which keeps its exact current signature and return type.
+  - `static Future<DngPreviewProbe> DngPreviewExtractor.probeEmbeddedJpeg(String path, {int? longEdge, int? minLongEdge})` — the malformed-aware sibling of `extractEmbeddedJpeg`, which keeps its exact current signature and return type.
   - Failure code string `'DNG_PARSE_FAILED'`, emitted by `dartImageLoad`.
 
 **Behavior:**
@@ -404,7 +408,8 @@ Append one row per decision as it is made. This is M7's record; the M6 documents
 | ID | Decision | Answered by | Date | Consequence |
 |---|---|---|---|---|
 | G-1 | Per-feature cascade stands; five-platform mandate and supersession claim VOID | USER | 2026-08-24 | No governance gate in this plan; Task 6's manifest is three-platform; iOS out |
-| G-2 | Undersized candidate → RAW decode (audit gap 1) | USER | 2026-08-24 | Task 2 wires `requireLongEdge: true` at the sidebar call site; amends the documented fallback rule |
+| G-2 | Undersized candidate → RAW decode (audit gap 1) | USER | 2026-08-24 | Task 2 wires `minLongEdge: ImageRequestPurpose.preview.targetSize` at the **non-sidebar** call site, for `purpose == preview` only; sidebar and export stay lenient (P-11/P-13); amends the documented fallback rule |
+| A-5 | Scope of G-2 is the preview path, not the sidebar | This plan (Task 2) | 2026-08-24 | Reconciled an inconsistent draft that named `requireLongEdge` on the sidebar branch; `minLongEdge` on the preview branch is authoritative |
 | G-3 | Committed fixture corpus declined | USER | 2026-08-24 | Task 1 ships a code-built synthetic-container helper instead |
 | G-4 | Visible-render smoke records declined | USER | 2026-08-24 | No smoke-record task; UI observation stays user-run |
 | G-5 | iOS FFI superseded by the future general `raw_decoder` effort | USER | 2026-08-24 | Not in M7; platform-port decisions belong to that effort |
