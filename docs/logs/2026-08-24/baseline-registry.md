@@ -5,7 +5,17 @@
 > **失效條件**：僅當（a）錨點 commit 之後**受測表面**的程式碼有變動，或（b）量測機器／toolchain 更換時，該條基線才需重量。文件改動不使基線失效。
 > **量測紀律**：一律遵守 `docs/logs/2026-08-23/m4-m6-remaining-handover.md` §6（自捕 `$?`、binary provenance、`stat -L`、`-j 1`）。
 
-## 現行錨點：`main` @ `72afd7a`（Round 2 合併：parking-lot＋P-2/P-2b provenance stamp；review 經使用者裁決跳過，2026-08-24 升格）
+## 現行錨點：`main` @ `c2ae385`（M5 合併：RAW 全解析度 tier-2 雙窗，2026-08-24 升格）
+
+### 測試套件（合併後於 main 實測，test-runner-haiku 執行、指揮官抽查簽收，2026-08-24）
+| 項目 | 值 |
+|---|---|
+| `flutter analyze` | 0 issues（RC_ANALYZE=0） |
+| `flutter test -j 1`（單次全跑） | RC_TEST=0，**EXECUTED=252 / PASSED=252 / SKIPPED=0**（246＋M5-DW 6） |
+| 凍結三 sha | 與本檔登錄值逐字元相同（RC_SHASUM=0） |
+| 證據 | `scripts/tmp/verify/main-post-merge-c2ae385.txt`；worktree 閘 `gate-m5-final.txt`（副本 `scripts/tmp/m5-verify/`） |
+
+## 前錨點：`main` @ `72afd7a`（Round 2 合併：parking-lot＋P-2/P-2b provenance stamp；review 經使用者裁決跳過，2026-08-24 升格）
 
 ### 測試套件（合併後於 main 實測，test-runner-haiku 執行、指揮官抽查簽收，2026-08-24；量測時 HEAD `a0c14a4` 為 docs-only 疊加，程式碼同 `72afd7a`）
 | 項目 | 值 |
@@ -66,5 +76,6 @@
 - 樣本正典 26 檔：昂貴 13（十二個 `2024-07-*`＋`IMG_20251112_092839.dng`）、便宜 13（`2026-*`）。mtime 不可信。
 
 ## 登錄歷史
+- 2026-08-24：升格錨點 `c2ae385`（M5 合併後套件 252/0 skip，artifact main-post-merge-c2ae385.txt）。
 - 2026-08-24：升格錨點 `72afd7a`（Round 2 合併後套件 246/0 skip，artifact main-post-merge-72afd7a.txt）。
 - 2026-08-24：建檔，錨點 `b3b0ddd`。套件／凍結閘門／JPG-A 延遲由 M4 round-1 實測並經 lead 簽收；DNG-B 待 round-1 handoff 定版。
