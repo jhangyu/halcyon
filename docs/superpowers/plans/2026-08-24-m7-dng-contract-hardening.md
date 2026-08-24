@@ -158,7 +158,7 @@ Leave `extractFullSizeEmbeddedJpegFromFile` in place with its current signature;
 - Serialise with Tasks 1 and 3 on `dng_preview_extractor.dart`.
 
 **Acceptance criteria:**
-- [ ] `grep -n "minLongEdge" lib/services/dng_preview_extractor.dart lib/services/dart_image_loader.dart` shows the parameter declared as `int? minLongEdge` (defaulting to `null`), applied after `_select` in `extractEmbeddedJpeg`, and passed a non-null value at exactly one call site — the non-sidebar branch, guarded by `purpose == ImageRequestPurpose.preview`.
+- [ ] `grep -n "minLongEdge" lib/services/dng_preview_extractor.dart lib/services/dart_image_loader.dart` shows the parameter declared as `int? minLongEdge` (defaulting to `null`), applied after `_select` in `extractEmbeddedJpeg`, and passed a non-null value at exactly one call site — the non-sidebar branch, guarded by `purpose == ImageRequestPurpose.preview && lower.endsWith('.dng')` (see A-6: strictness applies only where a RAW-decode path actually exists).
 - [ ] `grep -n "extractEmbeddedJpeg" lib/services/dart_image_loader.dart` shows the sidebar branch call unchanged (no `minLongEdge` argument).
 - [ ] `grep -n "_sanitizeOrientation" lib/services/dng_preview_extractor.dart` shows the helper defined once, and no bare `?? 1` orientation default remains in the file.
 - [ ] Table-driven orientation test covering raw values 0, 1, 8, 9 and null, expecting 1, 1, 8, 1, 1 — built with Task 1's helper.
@@ -409,6 +409,7 @@ Append one row per decision as it is made. This is M7's record; the M6 documents
 |---|---|---|---|---|
 | G-1 | Per-feature cascade stands; five-platform mandate and supersession claim VOID | USER | 2026-08-24 | No governance gate in this plan; Task 6's manifest is three-platform; iOS out |
 | G-2 | Undersized candidate → RAW decode (audit gap 1) | USER | 2026-08-24 | Task 2 wires `minLongEdge: ImageRequestPurpose.preview.targetSize` at the **non-sidebar** call site, for `purpose == preview` only; sidebar and export stay lenient (P-11/P-13); amends the documented fallback rule |
+| A-6 | `minLongEdge` fires only for `.dng` on the preview path, not for every RAW format | This plan (Task 2) | 2026-08-24 | The RAW-decode escape hatch at `dart_image_loader.dart:54` is itself gated on `.dng`, so for `.cr2`/`.nef`/`.arw` a `null` becomes `NativeImageFailure('RAW_NO_EMBEDDED_PREVIEW')` rather than RAW decode — the same capability loss the plan already cites to exclude `export`. G-2 says "undersized candidate → RAW decode"; where no RAW decode exists the rule has nothing to deliver and only removes an image the user currently sees |
 | A-5 | Scope of G-2 is the preview path, not the sidebar | This plan (Task 2) | 2026-08-24 | Reconciled an inconsistent draft that named `requireLongEdge` on the sidebar branch; `minLongEdge` on the preview branch is authoritative |
 | G-3 | Committed fixture corpus declined | USER | 2026-08-24 | Task 1 ships a code-built synthetic-container helper instead |
 | G-4 | Visible-render smoke records declined | USER | 2026-08-24 | No smoke-record task; UI observation stays user-run |
