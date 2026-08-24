@@ -11,7 +11,7 @@
 //     -> otherwise (RAW path only), the P2.5b RAW-decode fallback:
 //          decodeDngSized(path, maxDim: 200)
 //          readOrientation(path) ?? kDefaultExifOrientation
-//          pngFromOrientedPixels(decoded, exifOrientation: orientation)
+//          jpegFromOrientedPixels(decoded, exifOrientation: orientation)
 // This calls the shipped functions directly, not a reimplementation.
 //
 // Runs under `flutter test` (flutter_tester) because dart:ui image decoding
@@ -50,7 +50,7 @@ Future<Uint8List?> cacheBytesFor(String path) async {
     final orientation =
         await DngPreviewExtractor.readOrientation(path) ??
             kDefaultExifOrientation;
-    return pngFromOrientedPixels(decoded, exifOrientation: orientation);
+    return jpegFromOrientedPixels(decoded, exifOrientation: orientation);
   } catch (_) {
     return null;
   }

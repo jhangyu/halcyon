@@ -15,11 +15,19 @@ method is ported **unchanged**:
   forward unmodified from `scripts/tmp/m6-r1-bench/g3second_dart_test.dart`).
   Measures the shipped sidebar pipeline end to end, including the P2.5b
   RAW-decode fallback (`decodeDngSized` → `readOrientation` →
-  `pngFromOrientedPixels`) for bare-CFA DNGs with no embedded preview at any
+  `jpegFromOrientedPixels`) for bare-CFA DNGs with no embedded preview at any
   size. **This is the verdict-bearing measurement.**
 - `verdict_dng_extract.py` — encodes ruling P-13 as executable code.
 - `run_gate.sh` — orchestrates a full gate run and writes a
   pre-registered, provenance-stamped result file.
+
+**2026-08-24 note:** M7 Task 5 renamed the sidebar re-encode function
+`pngFromOrientedPixels` → `jpegFromOrientedPixels` (PNG → JPEG re-encode).
+`g3_sidebar_bench.dart` was updated to call the new name. This changes what
+the RAW-decode-fallback branch of the sidebar bench measures: cache bytes
+are now JPEG-encoded, not PNG-encoded. The measurement *method* (pipeline,
+timing methodology) is unchanged; only the downstream API it calls was
+renamed after the initial port.
 
 ## Invocation
 
