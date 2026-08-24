@@ -16,6 +16,7 @@ import 'photo_source.dart';
 import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
+import 'sidebar_thumbnail_codec.dart';
 
 typedef ImageBytesLoader =
     Future<NativeImageResult> Function(
@@ -1185,7 +1186,7 @@ class ImagePreloadController {
             );
             if (generation != _thumbBatchGeneration) return;
             if (result is NativeImageBytes) {
-              _thumbCache[id] = result.bytes;
+              _thumbCache[id] = await sidebarCacheBytes(result.bytes);
               notifyLoaded();
             } else {
               // Native only ever emits the raw-decode signal for purpose ==
