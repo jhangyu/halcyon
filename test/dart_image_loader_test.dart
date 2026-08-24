@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,5 +95,57 @@ void main() {
     }
     expect(hits, greaterThan(0));
     expect(misses, greaterThan(0));
+  });
+
+  // M6 P3.7 (F-20): oversized-image guard — same 1.5GB decoded-pixel budget
+  // the deleted native guard (AppDelegate.swift renderCGImage) enforced.
+  Uint8List handcraftedOversizedTiff() {
+    // Minimal little-endian TIFF: header + IFD0 with two SHORT tags,
+    // ImageWidth (0x0100) and ImageLength (0x0101), both claiming 40000 —
+    // 40000*40000*4 = 6.4e9 bytes, far past the 1.5e9 budget. No strips.
+    final bytes = ByteData(38);
+    // Header: "II", magic 42, IFD0 offset 8.
+    bytes.setUint8(0, 0x49); // 'I'
+    bytes.setUint8(1, 0x49); // 'I'
+    bytes.setUint16(2, 42, Endian.little);
+    bytes.setUint32(4, 8, Endian.little);
+    // IFD0 @ offset 8: 2 entries.
+    bytes.setUint16(8, 2, Endian.little);
+    // Entry 0: tag 0x0100 (ImageWidth), type 3 (SHORT), count 1, value 40000.
+    bytes.setUint16(10, 0x0100, Endian.little);
+    bytes.setUint16(12, 3, Endian.little);
+    bytes.setUint32(14, 1, Endian.little);
+    bytes.setUint16(18, 40000, Endian.little);
+    // Entry 1: tag 0x0101 (ImageLength), type 3 (SHORT), count 1, value 40000.
+    bytes.setUint16(22, 0x0101, Endian.little);
+    bytes.setUint16(24, 3, Endian.little);
+    bytes.setUint32(26, 1, Endian.little);
+    bytes.setUint16(30, 40000, Endian.little);
+    // Next IFD offset: none.
+    bytes.setUint32(34, 0, Endian.little);
+    return bytes.buffer.asUint8List();
+  }
+
+  test('F-20: a header claiming a 40000x40000 decode is refused, never'
+      ' handed to a raw decode', () async {
+    final dir = await Directory.systemTemp.createTemp('dart_image_loader_oversized');
+    addTearDown(() => dir.delete(recursive: true));
+    final huge = File('${dir.path}/huge.dng');
+    await huge.writeAsBytes(handcraftedOversizedTiff());
+    final result =
+        await dartImageLoad(huge.path, purpose: ImageRequestPurpose.preview);
+    expect(result, isA<NativeImageFailure>());
+    expect((result as NativeImageFailure).code, 'IMAGE_TOO_LARGE');
+  });
+
+  test('F-20: the guard does not fire on real, ordinary-sized samples', () async {
+    expect(dngs(), isNotEmpty);
+    for (final f in dngs()) {
+      final result =
+          await dartImageLoad(f.path, purpose: ImageRequestPurpose.preview);
+      if (result is NativeImageFailure) {
+        expect(result.code, isNot('IMAGE_TOO_LARGE'), reason: f.path);
+      }
+    }
   });
 }

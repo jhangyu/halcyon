@@ -131,6 +131,50 @@ class DngPreviewExtractor {
     }
   }
 
+  /// IFD0 tags 0x0100 (ImageWidth) / 0x0101 (ImageLength) for [path], read
+  /// through the same bounded byte-range walk used by [readOrientation]
+  /// (M6 F-20: the oversized-image guard needs the claimed extent without
+  /// paying for a full decode). SHORT- or LONG-typed values only, matching
+  /// what TIFF/DNG files actually carry for these tags. Never throws.
+  ///
+  /// Returns `null` when the dimensions could not be determined: the file is
+  /// missing, unopenable, shorter than 8 bytes, carries no `II`/`MM` marker,
+  /// has a bad magic, an unreadable/malformed IFD0, or either tag is absent
+  /// or unparseable. Unlike [readOrientation] there is no EXIF default to
+  /// fall back to for a missing width/height, so absence is folded into the
+  /// same `null` "could not read" result.
+  static Future<({int width, int height})?> readImageDimensions(
+    String path, {
+    void Function(int byteCount)? onDiskRead,
+  }) async {
+    RandomAccessFile? raf;
+    try {
+      raf = await File(path).open();
+      final length = await raf.length();
+      if (length < 8) return null;
+      final reader = _readerFor(_FileSource(raf, length, onDiskRead));
+      if (reader == null) return null;
+      final ifd0 = _readIFD0(reader);
+      if (ifd0 == null) return null;
+      final widthEntry = ifd0[0x0100];
+      final heightEntry = ifd0[0x0101];
+      if (widthEntry == null || heightEntry == null) return null;
+      final widthVals = reader.values(widthEntry);
+      final heightVals = reader.values(heightEntry);
+      if (widthVals == null || widthVals.isEmpty) return null;
+      if (heightVals == null || heightVals.isEmpty) return null;
+      return (width: widthVals.first, height: heightVals.first);
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        await raf?.close();
+      } catch (_) {
+        // Closing a handle we already failed on is not actionable.
+      }
+    }
+  }
+
   /// Pure in-memory variant reading the IFD0 Orientation tag (0x0112) without
   /// performing any extraction judgment. Returns 1 (no transform) when the
   /// data cannot be parsed or the tag is absent.

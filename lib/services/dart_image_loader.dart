@@ -23,17 +23,19 @@ Future<NativeImageResult> dartImageLoad(
       lower.endsWith('.jpeg') ||
       lower.endsWith('.png');
   try {
-    if (isEncodedBitstream) {
-      return NativeImageBytes(await File(path).readAsBytes());
-    }
     if (!await File(path).exists()) {
       // Deviation from the plan's verbatim listing (reported to the lead):
       // the walker degrades a missing file to the same "no candidate" null
       // as a genuine no-preview DNG, which would otherwise misclassify a
       // missing file as NeedsRawDecode instead of an explicit failure — the
       // exact case test/dart_image_loader_test.dart's "missing file is a
-      // failure, not a throw" pins.
+      // failure, not a throw" pins. Checked before BOTH branches so a
+      // missing .jpg reports NOT_FOUND too, not DART_LOADER_ERROR
+      // (round-review nit, 2026-08-24).
       return const NativeImageFailure('NOT_FOUND', 'file does not exist');
+    }
+    if (isEncodedBitstream) {
+      return NativeImageBytes(await File(path).readAsBytes());
     }
     if (purpose == ImageRequestPurpose.sidebarThumbnail) {
       // Smallest embedded candidate reaching the sidebar edge (G3 finding:
@@ -50,6 +52,14 @@ Future<NativeImageResult> dartImageLoad(
         await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
     if (full != null) return NativeImageBytes(full);
     if (purpose == ImageRequestPurpose.preview && lower.endsWith('.dng')) {
+      final dims = await DngPreviewExtractor.readImageDimensions(path);
+      if (dims != null && dims.width * dims.height * 4 > 1500000000) {
+        // F-20: same budget the deleted native guard enforced
+        // (formerly AppDelegate.swift renderCGImage). A header claiming an
+        // absurd extent must be an error result, never an OOM.
+        return const NativeImageFailure(
+            'IMAGE_TOO_LARGE', 'decode exceeds the decoded-pixel budget');
+      }
       // Ruling (b): the raw-decode signal is constructed in Dart from an
       // extraction miss + the walker's own orientation read.
       final orientation = await DngPreviewExtractor.readOrientation(path);
