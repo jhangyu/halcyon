@@ -12,8 +12,9 @@ import 'package:halcyon_flutter/perf/perf_log.dart';
 //
 // Proof half 2 (scripts/build_apps.py actually passes a REAL hash on a real
 // build) is necessarily out of this file's reach -- it is a Python subprocess
-// test, evidenced separately in tmp/verify/ (see p2b-handoff.md / the P-2b
-// report to m6-lead-opus).
+// test, evidenced separately: tmp/verify/p2b-build-half2.txt (the emitted
+// --dart-define carrying a real hash) and tmp/verify/p2b-binary-grep2.txt
+// (the hash found inside the compiled App.framework AOT snapshot).
 void main() {
   test(
     'P-2b kHalcyonBuildCommit reflects HALCYON_BUILD_COMMIT at compile time',
@@ -23,11 +24,12 @@ void main() {
         defaultValue: 'unknown',
       );
       // This is exactly how lib/perf/perf_log.dart's kHalcyonBuildCommit is
-      // declared (perf_log.dart:11-14) -- re-declaring the same
-      // String.fromEnvironment call here, rather than asserting against the
-      // library constant directly, is what lets this test prove the
-      // --dart-define reaches DART CODE AT ALL, independent of whether
-      // perf_log.dart's own declaration is wired correctly.
+      // declared (perf_log.dart:11-14). Re-declaring the same
+      // String.fromEnvironment call here, then comparing it against the
+      // LIBRARY constant, checks that perf_log.dart's declaration (the same
+      // key, the same default) is wired correctly -- it would catch a typo'd
+      // key or a changed default there, in addition to confirming the
+      // --dart-define reaches compiled Dart code at all.
       expect(kHalcyonBuildCommit, sentinel);
       if (sentinel == 'unknown') {
         // Bare `flutter test`, no --dart-define passed: the documented
