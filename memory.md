@@ -178,6 +178,18 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **實測**：round-2 的 AC8 量到 kernel max RSS 996,392,960 bytes = 950.2 MiB，低於 pre-M3 基線 1,043,218,432 bytes = 994.9 MiB（使用者採相對判準）。**但那次量測掃的是昂貴樣本組**，也就是九格保證不成立的那一組；便宜樣本組（上限真正據以計算、且每項佔兩個快取項的那一組）**至今未量測**。
 - **對應任務**：M3 round 2（commit `f9869db`）。
 
+### AD-021｜內嵌預覽的「退回最大張」不再無條件：預覽路徑改用 `minLongEdge` 拒絕，側欄與匯出維持寬鬆
+- **日期**：2026-08-24
+- **決策**：`DngPreviewExtractor.extractEmbeddedJpeg` 新增 `int? minLongEdge`（預設 `null`）。它是**選完之後的拒絕**，不是換一個選擇：`_select` 完全沒動，只有在選中的候選 `max(width, height) < minLongEdge` 時改回傳 `null`。兩種選擇模式（`longEdge == null` 全尺寸、`longEdge != null` 側欄）都適用。預設 `null` 等於改動前的行為，所以每一個既有呼叫端都沒有位移。
+- **依據**：M7 使用者裁決 G-2——一張 DNG 的內嵌候選若達不到請求的長邊，應進入真正的 RAW 解碼，而不是被端上一張放不大的縮圖。原本的文件（本檔案舊版與 `dng_preview_extractor.dart` 的說明）把「退回最大張」寫成無條件，現已改寫。
+- **只在有 RAW 解碼可進的地方收緊（Decision Log A-6）**：唯一傳入非 null 的呼叫點是 `dart_image_loader.dart` 的非側欄分支，且守衛是 `purpose == preview && lower.endsWith('.dng')`，比「preview 全體」更窄。理由是 loader 的 RAW 解碼逃生口本身就以 `.dng` 為條件（`dart_image_loader.dart:54`）：
+  - **側欄**維持寬鬆（P-11/P-13），它的 smallest-then-largest 行為未動；
+  - **匯出**維持寬鬆——那條路上沒有 RAW 解碼，收緊只會把「匯出一張略小的圖」變成「匯出失敗」；
+  - **非 DNG RAW**（`.cr2`/`.nef`/`.arw`）維持寬鬆，理由與匯出完全相同：拒絕之後掉進的是 `RAW_NO_EMBEDDED_PREVIEW` 失敗，不是解碼。G-2 是一條 DNG 裁決，就讓它留在 DNG。
+- **實測後果為零位移**：本輪對 `local_data/photo_samples/DNG` 全部 26 個樣本機械分類（`scripts/tmp/m7-t2/newly-routed.txt`），**NEWLY_ROUTED=0**——13 個今天就沒有合格候選（本來就走 RAW），13 個的最大候選本來就超過 2800。也就是說這條規則在現有樣本組上不會把任何檔案新推進解碼，plan 中「重跑 gate」的驗收條件在此樣本組上是空集合。**這也表示現有樣本組無法測到這個行為**，所以驗收測試一律用合成容器（`test/support/synthetic_dng.dart`），不是真實照片。
+- **順帶（M7 裁決 E）**：新增 `_sanitizeOrientation(int?)`，把 IFD0 tag 0x0112 夾到 EXIF 合法的 1..8，超出範圍與 null 都變 1。檔案內四個方位讀取點全部改走它，`?? 1` 已不存在。注意 `readOrientation` 與 `probeContent` 的三態契約（null = 讀不到）**必須保留**——只有「讀到的值」才夾範圍，把 null 一起夾掉會讓「讀不到」和「不旋轉」再度無法區分，那正是 AC12h 當初特意拆開的東西。
+- **對應任務**：M7 Task 2。
+
 ---
 
 ## Gotchas（踩坑紀錄）
@@ -263,6 +275,16 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **解法**：P2.5（decode-time 長邊降尺寸／`instantiateImageCodecWithSize`）+ P2.6 重新用正確進入點跑 G2′/G3′，而不是去改 `dart_image_loader.dart` 的實作去「補上」原本就存在的側欄縮圖路徑。
 - **教訓**：任何 HARD FAIL 或看似整齊的失敗子集，先問「量測腳本打的是不是正確的進入點／API」，再假設實作有洞——尤其當失敗樣本的邊界精確符合某個已知的業務語意分類（此處是「有無內嵌預覽」）時，這通常是儀器打錯路由的指紋，而非巧合的真實 bug 分布。這是 `~/.claude/rules/lessons-learned.md` 2026-08-17「否定結果先驗儀器」條目在 M6 的一次具體重演，值得單獨記錄因為它差點造成方向性誤判（若真去改 P2.1 的核心實作而非量測路由，會是白工且引入不必要複雜度）。
 - **對應任務**：M6 P2.6（`m6-execution-plan.md:30`「G3 HARD FAIL is an instrument-route artifact」段落）。Artifacts：`scripts/tmp/20260824T084906Z-m6-g1.txt`、`…085119Z-m6-g2.txt`、`…085320Z-m6-g3.txt`。
+
+### G-016｜編碼器的體積優劣取決於內容類型；合成 fixture 會把結論反過來
+- **⚠️ 先讀這句**：側欄改用 JPEG q80 的體積優勢是**照片內容的性質**，不是編碼器的普遍性質。**在低熵合成影像（純色塊、條紋、漸層、測試圖卡）上這個結論會反轉，PNG 會贏。** 若你正拿程式產生的測試圖案量這條路徑並看到 JPEG 比較大，那是預期行為，**不是** codec 選錯，也不是實作退步——不要據此改回 PNG，請改用 `local_data/photo_samples/` 的真實照片重量。
+- **嚴重程度**：中（會讓一個正確的改動看起來像退步，或讓一個測試假裝證明了它沒證明的事）
+- **背景**：M7 Task 5 把側欄快取的重新編碼從 PNG 換成 JPEG q80（`sidebar_thumbnail_codec.dart`）。原本的 PNG 選擇不是設計偏好，而是 `dart:ui` 只能編 PNG；`image` 套件在 P3.6（`dd1edcb`）落地後前提消失，M7 兌現這筆 M6 parking-lot。
+- **問題**：既有測試的 fixture `bigPng()` 是 10px 寬的純色直條紋。改成 JPEG 後 `expect(out.length, lessThan(src.length))` 立刻失敗——PNG 5,739 B vs JPEG 14,634 B，**PNG 反而小 2.55 倍**。乍看像是新實作退步了。
+- **根因**：這不是實作缺陷，是 fixture 的內容類型剛好站在 PNG 最有利、JPEG 最不利的一端。大面積平坦色塊是 filter+deflate 的理想輸入；銳利條紋邊緣是 DCT 的最壞輸入（高頻能量）。真實照片內容則相反：8 張真實 DNG 樣本上 PNG/JPEG 比值為 4.15x–6.38x，整體 5.06x（`scripts/tmp/m7-t5/size-comparison.md`）。
+- **解法**：測試裡**不**斷言體積關係（TC-173 明確寫下不斷言的理由），體積主張改由真實樣本 artifact 承擔；測試只驗它該驗的——SOI marker、decode-back 成功、長邊 <= 200。
+- **教訓**：(a) 任何「換編碼器／換壓縮參數」的改動，體積主張必須在**代表真實負載的內容**上量，合成 fixture 只能驗正確性不能驗效益；(b) 遇到合成資料與真實資料結論相反時，先問「這個 fixture 的內容類型是否剛好偏袒某一方」，不要急著改實作，也不要把斷言調鬆到剛好通過——後者是 `judgment-rubrics.md` R4 第 3 點「繞過驗證」的變形；(c) 反面證據要留在 artifact 裡，不是刪掉。
+- **對應任務**：M7 Task 5。Artifacts：`scripts/tmp/m7-t5/size-comparison.md`（含反例欄位）、`scripts/tmp/m7-t5/red.log`。
 
 ### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
 - **嚴重程度**：中

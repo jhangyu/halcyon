@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:image/image.dart' as img;
+
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 
@@ -11,16 +13,20 @@ import 'dng_decode_contract.dart';
 /// original bytes for encoded bitstreams. Payloads at or under
 /// [reencodeThreshold] pass through untouched (embedded DNG candidates are
 /// already thumbnail-sized). Larger ones are decoded ONCE with the long edge
-/// capped at [longEdge] and re-encoded as PNG through dart:ui — no external
-/// codec dependency.
+/// capped at [longEdge] and re-encoded as JPEG at [jpegQuality].
 ///
-/// ponytail: PNG (not JPEG) because dart:ui only encodes PNG; P3.6 adopts the
-/// `image` package for export — if sidebar memory ever matters more, switch
-/// this to JPEG-q80 there.
+/// JPEG, not PNG: this used to encode PNG because `dart:ui` is PNG-only, with
+/// a note to switch once the `image` package landed for export. It has
+/// (P3.6, `dd1edcb`), so M7 cashes that in -- PNG is lossless and several
+/// times larger than q80 JPEG on photographic content, which is all the
+/// sidebar ever holds. The generational loss is irrelevant: these bytes are
+/// display-only thumbnails and are never written back to disk. JPEG cannot
+/// carry alpha, which is likewise fine for photographic sources.
 Future<Uint8List> sidebarCacheBytes(
   Uint8List encoded, {
   int longEdge = 200,
   int reencodeThreshold = 512 * 1024,
+  int jpegQuality = 80,
 }) async {
   if (encoded.length <= reencodeThreshold) return encoded;
   try {
@@ -37,50 +43,67 @@ Future<Uint8List> sidebarCacheBytes(
       },
     );
     final frame = await codec.getNextFrame();
-    final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    final data = await frame.image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    final width = frame.image.width;
+    final height = frame.image.height;
     frame.image.dispose();
     if (data == null) return encoded;
-    return data.buffer.asUint8List();
+    return _encodeJpeg(
+      data.buffer.asUint8List(),
+      width: width,
+      height: height,
+      quality: jpegQuality,
+    );
   } catch (_) {
     // Undecodable input: cache the original rather than dropping the row.
     return encoded;
   }
 }
 
-/// Turns a freshly-decoded RAW frame into sidebar-cache-ready PNG bytes (M6
+/// Turns a freshly-decoded RAW frame into sidebar-cache-ready JPEG bytes (M6
 /// P2.5b, the sidebar RAW-decode fallback for bare-CFA DNGs with no embedded
 /// JPEG at any size). Reuses [decodedRgbaToPixelPayload] for the
 /// orientation-bake + downscale (already exercised by the detail-view
-/// pipeline; not reimplemented here), then encodes the resulting pixels as a
-/// PNG via `dart:ui`'s pixel decoder -- the same primitive
-/// `decoded_rgba_image_provider.dart` already uses to build a [ui.Image]
-/// from raw RGBA8.
-Future<Uint8List> pngFromOrientedPixels(
+/// pipeline; not reimplemented here), then encodes the resulting pixels as
+/// JPEG at [jpegQuality] -- see [sidebarCacheBytes] for why JPEG.
+Future<Uint8List> jpegFromOrientedPixels(
   DecodedRgba decoded, {
   required int exifOrientation,
   int longEdge = 200,
+  int jpegQuality = 80,
 }) async {
   final payload = await decodedRgbaToPixelPayload(
     decoded,
     exifOrientation: exifOrientation,
     longEdge: longEdge,
   );
-  final completer = Completer<ui.Image>();
-  ui.decodeImageFromPixels(
+  return _encodeJpeg(
     payload.rgba,
-    payload.width,
-    payload.height,
-    ui.PixelFormat.rgba8888,
-    completer.complete,
+    width: payload.width,
+    height: payload.height,
+    quality: jpegQuality,
   );
-  final image = await completer.future;
-  try {
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) {
-      throw StateError('could not encode oriented RAW pixels to PNG');
-    }
-    return data.buffer.asUint8List();
-  } finally {
-    image.dispose();
-  }
+}
+
+/// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it. `numChannels: 4`
+/// + [img.ChannelOrder.rgba] match `dart:ui`'s `rawRgba` byte order exactly,
+/// so no channel shuffle happens here; the encoder drops alpha, which JPEG
+/// cannot represent.
+Uint8List _encodeJpeg(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) {
+  final image = img.Image.fromBytes(
+    width: width,
+    height: height,
+    bytes: rgba.buffer,
+    bytesOffset: rgba.offsetInBytes,
+    numChannels: 4,
+    order: img.ChannelOrder.rgba,
+  );
+  return img.encodeJpg(image, quality: quality);
 }

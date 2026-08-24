@@ -1219,14 +1219,14 @@ class ImagePreloadController {
                 final orientation =
                     await DngPreviewExtractor.readOrientation(file.path) ??
                     kDefaultExifOrientation;
-                final png = await pngFromOrientedPixels(
+                final jpeg = await jpegFromOrientedPixels(
                   decoded,
                   exifOrientation: orientation,
                 );
                 // Same stale-generation write guard as the bytes branch
                 // above (round-review blocker, 2026-08-24).
                 if (generation != _thumbBatchGeneration) return;
-                _thumbCache[id] = png;
+                _thumbCache[id] = jpeg;
                 notifyLoaded();
               } catch (_) {
                 // Decode failed too: fall through to the same permanent-miss
