@@ -34,5 +34,14 @@ void main() {
       expect(SupportedPhotoFormats.isSupportedPath('/tmp/notes.txt'), isFalse);
       expect(SupportedPhotoFormats.isRawPath('/tmp/P1000001.rw2'), isTrue);
     });
+
+    test('HEIC is not scanned, and never preferred over a decodable sibling', () {
+      expect(SupportedPhotoFormats.isSupportedPath('/x/a.heic'), isFalse);
+      final files = [File('/x/a.heic'), File('/x/a.arw')];
+      // A HEIC that slipped into an item (pre-removal folder state) must not
+      // win preference — the old list preferred the one file that cannot
+      // decode anywhere (supported_photo_formats.dart:47-56 bug).
+      expect(SupportedPhotoFormats.bestFileToLoad(files)!.path, '/x/a.arw');
+    });
   });
 }

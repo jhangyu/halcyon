@@ -9,7 +9,6 @@ class SupportedPhotoFormats {
     '.arw',
     '.rw2',
     '.dng',
-    '.heic',
     '.png',
     '.cr2',
     '.nef',
@@ -20,7 +19,6 @@ class SupportedPhotoFormats {
     '.jpg',
     '.jpeg',
     '.png',
-    '.heic',
   ];
 
   static const rawExtensions = <String>{
@@ -51,6 +49,13 @@ class SupportedPhotoFormats {
       );
       if (index != -1) return files[index];
     }
+
+    // Fallback: never prefer a file this app cannot decode anywhere (e.g. a
+    // leftover unsupported sibling such as a pre-removal .heic) over a
+    // decodable one. Only fall through to an unsupported file if the whole
+    // group is unsupported.
+    final supported = files.where((file) => isSupportedPath(file.path));
+    if (supported.isNotEmpty) return supported.first;
 
     return files.isNotEmpty ? files.first : null;
   }
