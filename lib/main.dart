@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
+import 'services/cache_budget.dart';
 import 'services/dng_decode_service.dart';
 import 'services/open_with_channel.dart';
 import 'views/main_screen.dart';
@@ -25,7 +26,14 @@ import 'views/main_screen.dart';
 const int imageCacheMaxBytes = 768 << 20;
 
 void configureImageCache() {
-  PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheMaxBytes;
+  // M6 F-25/P5.1: derived from physical memory via imageCacheBudgetBytes,
+  // behind an injectable seam — dart:io has no platform-neutral
+  // total-physical-memory API (ProcessInfo is RSS-only) and Platform.isX
+  // branches are forbidden (C-3), so this passes null (no source) and gets
+  // back the same fixed ceiling as imageCacheMaxBytes above. See
+  // lib/services/cache_budget.dart.
+  PaintingBinding.instance.imageCache.maximumSizeBytes =
+      imageCacheBudgetBytes(physicalMemoryBytes: null);
 }
 
 void main() {
