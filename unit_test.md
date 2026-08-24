@@ -705,7 +705,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | 單元測試（mock `MethodChannel`）|
 | **預期結果** | 1200 個路徑依 `kExifChunkSize`（500）分成 `[500, 500, 200]` 三批呼叫；結果與輸入順序一致 |
 | **驗證方式** | ~~`test/exif_metadata_service_test.dart`~~（已刪除） |
-| **狀態** | ❌ **已刪除**（commit `36dfc37`, F-14：`halcyon/exif` channel 讀取路徑整個刪除，EXIF 讀取改為 isolate-only；本案例釘住的是舊 channel-mock 的分批行為，受測對象消失，屬 C-4 單平台語意斷言）。刪除理由記於 `test/exif_metadata_service_test.dart:46-53` 的原始碼註解；未列入 `baseline-registry.md` 凍結 sha256 清單，故無需 sha 重新登錄儀式。分批行為由 **TC-049**（下方，改寫版）改對真實 isolate 路徑驗證 |
+| **狀態** | ❌ **已刪除**（commit `36dfc37`, F-14：`halcyon/exif` channel 讀取路徑整個刪除，EXIF 讀取改為 isolate-only；本案例釘住的是舊 channel-mock 的分批行為，受測對象消失，屬 C-4 單平台語意斷言）。刪除理由記於 `test/exif_metadata_service_test.dart:46-53` 的原始碼註解；未列入 `baseline-registry.md` 凍結 sha256 清單，故無需 sha 重新登錄儀式。分批行為由 **TC-120**（原誤編 TC-049，P5.2 後由 lead 重編號）改對真實 isolate 路徑驗證 |
 
 ---
 
@@ -718,11 +718,11 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | 單元測試（mock `MethodChannel` 拋 `PlatformException`）|
 | **預期結果** | `readBatch` 回傳與輸入等長、全為 null 的清單，不向上拋出例外 |
 | **驗證方式** | ~~`test/exif_metadata_service_test.dart`~~（已刪除） |
-| **狀態** | ❌ **已刪除**（同 TC-047，commit `36dfc37`, F-14——mock 的是已刪除的 channel 失敗路徑，受測對象消失）。降級為 null 的行為由 TC-049 的「找不到的路徑一律降級為 null」子斷言覆蓋 |
+| **狀態** | ❌ **已刪除**（同 TC-047，commit `36dfc37`, F-14——mock 的是已刪除的 channel 失敗路徑，受測對象消失）。降級為 null 的行為由 TC-120 的「找不到的路徑一律降級為 null」子斷言覆蓋 |
 
 ---
 
-> **⚠️ 測試 ID 衝突（P5.2 audit 發現，2026-08-24，未修復——不在本任務 owned files 範圍）**：下方 TC-049 條目原本描述 `test/app_state_test.dart:386` 的 `renameByExif` 案例。commit `3a7a2b2`（M6 P3.3/C-4）在 `test/exif_metadata_service_test.dart:61` 新增了**另一個**字面同樣叫 `TC-049`（`readBatch never touches a platform channel`）的測試，取代上面被刪除的 TC-047/048。兩個測試檔的 `test(...)` 呼叫字串都硬編了 `'TC-049 ...'`，違反本檔頁首「測試 ID 不可重複」的維護政策。這是**測試原始碼**裡的衝突（不是文件筆誤），P5.2 owned files 不含 `test/`，故此處僅如實記錄、不擅自修復或重新編號兩個測試檔的字面字串。下方矩陣條目維持登錄原本的 `renameByExif` 語意；`readBatch never touches a platform channel` 的完整描述見上方分隔線後的說明文字，需要一位有 `test/` 檔案所有權的成員把其中一個改名（建議改 exif 那個為未使用的下一個 ID，例如 TC-118 之前的空位或往後接續新分配區段）。
+> **測試 ID 衝突（P5.2 audit 發現，2026-08-24；已修復）**：commit `3a7a2b2`（M6 P3.3/C-4）曾在 `test/exif_metadata_service_test.dart` 新增一個與下方 `renameByExif` 案例同名編號 `TC-049` 的測試（`readBatch never touches a platform channel`），違反本檔「測試 ID 不可重複」政策。P5.2 稽核發現後由 lead 將 exif 側重編號為 **TC-120**（見該條目），`test/app_state_test.dart:386` 的 TC-049 維持原語意不動。
 
 ### TC-049｜AppState — renameByExif 重新命名並把星號帶到新 id
 
@@ -1069,6 +1069,20 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **預期結果** | `null` → 768 MiB；32 GiB 物理記憶體 → 仍夾在 768 MiB 上限；2 GiB → 512 MiB（1/4）；512 MiB 物理記憶體 → 256 MiB 下限（低於此值 M5 no-re-decode 保證會失效） |
 | **驗證方式** | `test/cache_budget_test.dart` |
 | **狀態** | ✅ 已通過（`flutter test test/cache_budget_test.dart`，RC=0，2026-08-24 P5.2 audit 重跑確認） |
+
+---
+
+### TC-120｜ExifMetadataService — readBatch 永不觸碰 platform channel（F-14, isolate-only）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-120（原誤編 TC-049，與 `app_state_test.dart` 的 renameByExif 案例衝突，P5.2 稽核後由 lead 重編號） |
+| **名稱** | readBatch never touches a platform channel |
+| **測試類型** | 單元測試（以名稱 mock `MethodChannel('halcyon/exif')` 作探針計數）|
+| **背景** | commit `3a7a2b2`／`36dfc37`（M6 F-14）刪除 `halcyon/exif` channel 路徑後，取代被刪除的 TC-047/048：對真實 isolate 解析路徑驗證分批與失敗容忍，並以 channel 探針證明呼叫數為 0 |
+| **預期結果** | `readBatch` 完成後 channel mock 的呼叫計數為 0；找不到的路徑一律降級為 null；結果與輸入等長且順序一致 |
+| **驗證方式** | `test/exif_metadata_service_test.dart` |
+| **狀態** | ✅ 已通過（重編號後 `flutter test test/exif_metadata_service_test.dart` 重跑確認，2026-08-24） |
 
 ---
 

@@ -47,18 +47,19 @@ void main() {
   // of the now-deleted `halcyon/exif` channel path (chunking observed via a
   // channel mock; degrade-to-null on a mocked PlatformException). Neither
   // assertion is meaningful once `_readChunk` never reaches a channel at
-  // all — replaced below by TC-049, which proves the channel is never
+  // all — replaced below by TC-120, which proves the channel is never
   // touched and pins chunking + failure-tolerance against the real isolate
   // parser instead of a mock. Not present in baseline-registry.md's frozen
   // sha256 list, so no re-registration is required (C-4).
   //
-  // TC-049 mocks the channel by name rather than via
+  // TC-120 (renumbered from a colliding TC-049, P5.2 audit — TC-049 is
+  // app_state_test.dart's renameByExif case) mocks the channel by name via
   // `ExifMetadataService.channel`: that field was deleted along with the
   // production channel call (F-14, C-3-adjacent — no lingering channel
   // handle in lib/), so the AC that `lib/` and `macos/` grep clean for
   // "halcyon/exif" holds; the mock target here is only ever the name string,
   // matching how the platform channel is identified regardless of side.
-  test('TC-049 readBatch never touches a platform channel', () async {
+  test('TC-120 readBatch never touches a platform channel', () async {
     const probeChannel = MethodChannel('halcyon/exif');
     var channelCalls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
