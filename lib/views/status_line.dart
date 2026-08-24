@@ -173,13 +173,21 @@ Future<String?> revealInFileManager(
 }) async {
   final system = os ?? Platform.operatingSystem;
   final run = runProcess ?? (c, a) => Process.run(c, a);
+  final isWindows = system == 'windows';
   final (cmd, args) = switch (system) {
     'macos' => ('open', ['-R', path]), // selects the file
-    'windows' => ('explorer', ['/select,', path]), // selects the file
+    // Single-argument '/select,<path>' form (no space after the comma) is
+    // the form that reliably selects the file in Explorer; trust-on-first-
+    // use, no Windows host available here to verify against a real binary.
+    'windows' => ('explorer', ['/select,$path']),
     _ => ('xdg-open', [File(path).parent.path]), // folder only (ruling)
   };
   try {
     final result = await run(cmd, args);
+    // explorer.exe exits nonzero (commonly 1) even on success — a known
+    // quirk, not a failure signal. Only a thrown ProcessException (binary
+    // missing, spawn failure) counts as failure on Windows.
+    if (isWindows) return null;
     return result.exitCode == 0
         ? null
         : 'Reveal failed: $cmd exited ${result.exitCode}';

@@ -124,9 +124,14 @@ void main() {
     expect(calls.single.$2, ['-R', '/p/photo.jpg']);
     expect(failed, isNotNull); // human-readable failure string
     calls.clear();
-    await revealInFileManager(r'C:\p\photo.jpg', os: 'windows', runProcess: fake);
+    // explorer.exe exits nonzero even on success (known quirk) — the fake
+    // returns exit code 1 same as the other branches, but this must NOT be
+    // surfaced as a failure on Windows.
+    final windowsResult = await revealInFileManager(r'C:\p\photo.jpg',
+        os: 'windows', runProcess: fake);
     expect(calls.single.$1, 'explorer');
-    expect(calls.single.$2, ['/select,', r'C:\p\photo.jpg']);
+    expect(calls.single.$2, [r'/select,C:\p\photo.jpg']);
+    expect(windowsResult, isNull);
     calls.clear();
     await revealInFileManager('/p/photo.jpg', os: 'linux', runProcess: fake);
     expect(calls.single.$1, 'xdg-open');
