@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
 import 'package:halcyon_flutter/views/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
@@ -188,4 +189,81 @@ void main() {
 
     expect(find.byType(RenameDialog), findsOneWidget);
   });
+
+  // M6 P2.4 (F-10 half 1): proof that the sidebar sweep's byte source is the
+  // pure-Dart producer under PRODUCTION defaults (composition root landed in
+  // P2.3 — image_preload_controller.dart:1182 already calls the injected
+  // seam; this test does not add wiring, only coverage). Every prior test in
+  // this file bypasses both the channel and dartImageLoad by injecting a
+  // fixed-bytes fake thumbnailLoader, so none of them exercise this path.
+  // Real DNG samples per repo red line (pattern of test/dng_preview_extractor_test.dart).
+  //
+  // Drives AppState.preloadThumbnails directly rather than through
+  // SidebarView/pumpSidebar: the widget's own itemBuilder-driven trigger
+  // (sidebar_view.dart:96) fires inside flutter_test's ambient FakeAsync
+  // zone, arming a FakeTimer for the controller's 100ms debounce that a
+  // subsequent tester.runAsync() call cannot advance (and an unmatched range
+  // check would make a same-range explicit call a silent no-op on top of
+  // that) — the byte-source route this task proves does not require
+  // rendering the widget at all.
+  testWidgets(
+    'sidebar sweep routes sidebarThumbnail requests through the Dart producer',
+    (tester) async {
+      late AppState state;
+      var loaderCalls = 0;
+      // The same injected seam also serves the detail view's tier-1/tier-2
+      // preview loads (AppState._preloadImages) — only sidebarThumbnail
+      // calls are this test's concern.
+      Future<NativeImageResult> countingLoader(
+        String path, {
+        required ImageRequestPurpose purpose,
+      }) {
+        if (purpose == ImageRequestPurpose.sidebarThumbnail) loaderCalls++;
+        return dartImageLoad(path, purpose: purpose);
+      }
+
+      await tester.runAsync(() async {
+        final sampleDir = Directory('local_data/photo_samples/DNG');
+        // Known preview-bearing samples (cross-checked in
+        // dng_preview_extractor_test.dart) — keeps this test fast and
+        // deterministic rather than sweeping all 14 samples.
+        const previewBearing = [
+          '2026-02-15-19-37-38.dng',
+          '2026-02-15-20-53-24.dng',
+        ];
+        final samples = previewBearing
+            .map((name) => File(p.join(sampleDir.path, name)))
+            .where((f) => f.existsSync())
+            .toList();
+        expect(samples, isNotEmpty,
+            reason: 'missing ${sampleDir.path}; cannot run real-sample test');
+
+        final dir = await Directory.systemTemp.createTemp(
+          'halcyon_sidebar_dartproducer_',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        for (final f in samples) {
+          await f.copy(p.join(dir.path, p.basename(f.path)));
+        }
+
+        state = AppState(thumbnailLoader: countingLoader);
+        await state.loadFolder(dir);
+
+        await state.preloadThumbnails(0, state.items.length - 1);
+        // Let the controller's real 100ms debounce timer fire (this whole
+        // block runs in tester.runAsync's real zone, so it is a real Timer).
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+
+      expect(loaderCalls, greaterThan(0));
+      final anyBytes = state.items.any(
+        (i) => state.getThumbnailBytes(i.id) != null,
+      );
+      expect(
+        anyBytes,
+        isTrue,
+        reason: 'preview-bearing samples must yield sidebar bytes via Dart',
+      );
+    },
+  );
 }
