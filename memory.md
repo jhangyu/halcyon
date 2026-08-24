@@ -317,6 +317,13 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **解法**：升級至 Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21；因 Flutter 3.35.1 的 Gradle plugin 在 AGP 9 new DSL 下會 NPE，目前使用 AGP 9 相容模式。
 - **狀態**：已修復（Task 14）。`./scripts/build.sh android` 使用 JDK 25 成功。
 
+### G-017 文件裡的原生橋接宣稱必須用 grep 對照 AppDelegate.swift
+`CLAUDE.md` 有整整一個里程碑的時間在描述一個已被刪除的 `halcyon/thumbnail`
+channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 行檔案第
+329 行的行號。刪原生程式碼的同一個 commit 必須同步改文件；審查文件對原生層的
+宣稱時，判準是 `grep -n "MethodChannel" macos/Runner/AppDelegate.swift`，不是讀
+起來合不合理。
+
 ---
 
 ## 技術債 (Tech Debt)

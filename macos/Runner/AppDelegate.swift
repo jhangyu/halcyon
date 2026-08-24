@@ -91,16 +91,6 @@ class AppDelegate: FlutterAppDelegate {
       }
     }
   }
-  
-  // PERF-INSTRUMENTATION (permanent, contract: docs/logs/2026-08-16/round-3-implementation-plan.md §3).
-  // Gated on HALCYON_PERF_DIR: unset means perfEnabled is false and every perfLog()
-  // call below is a single bool check, no I/O -- a structural no-op when disabled.
-  // Event names/fields are consumed by scripts/tmp/perf/parse_r2.py -- do not
-  // rename/reshape without checking that parser first.
-  private static let perfEnabled = ProcessInfo.processInfo.environment["HALCYON_PERF_DIR"] != nil
-  private static func perfLog(_ s: String) {
-    if perfEnabled { print("PERFNATIVE|\(Int(ProcessInfo.processInfo.systemUptime * 1_000_000))|\(s)") }
-  }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
