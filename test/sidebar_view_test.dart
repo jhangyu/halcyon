@@ -115,11 +115,11 @@ void main() {
       // for real and is observable via the status line.
       late Directory exportDest;
       const channel = MethodChannel('plugins.flutter.io/file_selector');
-      // AppState's default ThumbnailExportService fetches bytes through the
-      // real 'halcyon/thumbnail' platform channel (it is not wired to the
-      // stateForFolder helper's injected thumbnailLoader, which only feeds
-      // ImagePreloadController) — mock it too so exportStarredThumbnails
-      // actually writes a file instead of recording a failure.
+      // M6 P3.6: AppState's default ThumbnailExportService now fetches bytes
+      // via the pure-Dart exportBytesFor pipeline (decode -> resize ->
+      // encode), not the 'halcyon/thumbnail' channel. Mock the channel to
+      // THROW so a regression back onto it fails this test loudly instead of
+      // silently passing.
       const thumbnailChannel = MethodChannel('halcyon/thumbnail');
       addTearDown(() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -127,8 +127,24 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(thumbnailChannel, null);
       });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(thumbnailChannel, (call) async {
+        throw MissingPluginException(
+          'export must not reach halcyon/thumbnail (M6 P3.6)',
+        );
+      });
 
       final state = await stateForFolder(tester, withSibling: false);
+      // stateForFolder writes a 3-byte placeholder for IMG_0001.jpg, which
+      // is not a decodable image. exportBytesFor reads bytes fresh at export
+      // time (not the cached sidebar thumbnail), so overwrite it here with a
+      // real decodable image — this is the only file touch this test case
+      // owns; the shared helper is untouched.
+      await tester.runAsync(() async {
+        await File(
+          p.join(state.currentDir!.path, 'IMG_0001.jpg'),
+        ).writeAsBytes(_tinyPngBytes);
+      });
       state.markCurrent(PhotoStatus.starred);
       await pumpSidebar(tester, state);
 
@@ -142,13 +158,6 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             if (call.method == 'getDirectoryPath') return exportDest.path;
-            return null;
-          });
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(thumbnailChannel, (call) async {
-            if (call.method == 'getThumbnail') {
-              return Uint8List.fromList(_tinyPngBytes);
-            }
             return null;
           });
 

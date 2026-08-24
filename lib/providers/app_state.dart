@@ -78,7 +78,8 @@ class AppState extends ChangeNotifier {
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
-       _exportService = exportService ?? ThumbnailExportService(),
+       _exportService =
+           exportService ?? ThumbnailExportService(decoder: dngDecoder),
        _preloadController =
            preloadController ??
            ImagePreloadController(

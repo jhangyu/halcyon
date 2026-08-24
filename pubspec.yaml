@@ -47,6 +47,7 @@ dependencies:
     path: ../flutter_dng_decoder/dng_processor_ffi
   # Fallback EXIF reader for platforms without the halcyon/exif native handler.
   exif: ^3.3.0
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:
