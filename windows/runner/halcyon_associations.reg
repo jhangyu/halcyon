@@ -1,0 +1,35 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\Halcyon.Photo]
+@="Halcyon Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\Halcyon.Photo\shell\open\command]
+@="\"%LOCALAPPDATA%\Halcyon\halcyon.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\.arw]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.cr2]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.dng]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.jpeg]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.jpg]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.nef]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.orf]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.png]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.rw2]
+@="Halcyon.Photo"
+

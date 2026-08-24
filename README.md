@@ -152,6 +152,16 @@ Android build 在 macOS 上會優先使用 Temurin JDK 25，找不到時退回 H
 
 ---
 
+## 🪟 Windows 檔案關聯（file association）
+
+Halcyon 目前沒有 Windows 安裝程式/封裝流程，`scripts/build_apps.py` 產出的是一個未封裝的 loose exe，因此檔案關聯採用登錄檔（registry）路線，而非 MSIX 封裝（決策依據見 `docs/logs/2026-08-24/m6-execution-plan.md` P4.4）。
+
+- `windows/runner/halcyon_associations.reg` 由 `scripts/gen_windows_associations.dart` 從 `lib/models/supported_photo_formats.dart` 的 `SupportedPhotoFormats.supportedExtensions` 自動產生，兩者不會漂移；`build_apps.py` 的 windows phase 會在每次建置時重新產生此檔。
+- 匯入方式：建置完成後，於 Windows 上雙擊（或 `reg import`）`windows/runner/halcyon_associations.reg`，會在 `HKEY_CURRENT_USER\Software\Classes` 下註冊 `Halcyon.Photo` ProgID 與所有支援副檔名，指向 `%LOCALAPPDATA%\Halcyon\halcyon.exe`。若安裝路徑不同，先修改 `.reg` 內的 exe 路徑再匯入。
+- 這是每使用者（HKCU）層級的關聯，不需要系統管理員權限；解除只需刪除對應的登錄機碼。
+
+---
+
 ## ⚙️ 設定選項
 
 | 選項 | 說明 | 狀態 |

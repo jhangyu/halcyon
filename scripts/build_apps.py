@@ -1470,6 +1470,16 @@ def build_flutter(target, layout, mode, args, placed_native):
                 "native RAW decode. Re-run with --native always to build it."
             )
 
+        # M6 F-18: regenerate the file-association .reg from
+        # SupportedPhotoFormats.supportedExtensions so it can't drift from the
+        # app's actual supported set (scripts/gen_windows_associations.dart).
+        run_checked(
+            "dart",
+            ["run", "scripts/gen_windows_associations.dart"],
+            layout.halcyon,
+            "generate windows/runner/halcyon_associations.reg",
+        )
+
 
 # --------------------------------------------------------------------------
 # Orchestration
