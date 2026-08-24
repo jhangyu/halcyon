@@ -347,6 +347,25 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，因為它會呼叫
 `saveStatuses`，入鏈會自我死鎖。
 
+### G-020｜`testWidgets` 內真實 `dart:io` 必須包 `tester.runAsync`；view 拆分必須保序兩個陷阱
+
+- **陷阱一（fake-async + 真實 I/O 死結）**：`testWidgets` 的 body 在 flutter_test 的
+  fake-async zone 下執行；若直接 `await` 一段走真實 `dart:io`（目錄掃描、開檔、寫檔）的
+  Future（例如 `AppState.loadFolder`），該 Future 排入 zone 的微任務佇列後不會自動被
+  flush，測試會在近乎零 CPU 的狀態下整個掛住，連 `--timeout` 都可能等不到（逾時 Timer
+  本身也在同一個卡死的 zone 裡）。**識讀方式**：CPU 使用率長時間趨近零、且與換測試檔案
+  內容無關（換任何一個含真實 I/O 的檔案都同樣掛）。**解法**：把含真實 I/O 的那段包進
+  `tester.runAsync(() async { ... })`，讓它跑在真實（非 fake）zone。TC-230
+  (`test/main_detail_view_test.dart`) 三輪 baton 交接才定位到此，早期誤判為「編譯快取損毀」
+  （重跑會複現，不符合快取損毀理論會在第二次冷編譯後消失的預測，因此被推翻）。
+- **陷阱二（view 拆分保序）**：`main_detail_view.dart` 的 `_buildZoomableViewer` 拆分/精簡時
+  兩處順序陷阱必須原封不動：(1) PERF-INSTRUMENTATION 呼叫 `_perfResetForSwitch(currentId)`
+  （每次 build 開頭）與 `_perfSpinner(currentId)`（spinner 分支內）——順序或次數變了會讓
+  效能量測重複計數或漏計；(2) `LayoutBuilder` 內 `widget.zoom.lastKnownCenter = center`
+  是刻意的**非通知性**欄位寫入，改成經由 `setState`/`notifyListeners` 會讓 `LayoutBuilder`
+  在自己的 builder 裡觸發重建，形成無限迴圈。
+- **對應任務**：Task 9（D3/D4，`docs/logs/2026-08-24/Task_refactor_T9_handoff.md`）。
+
 ### G-016｜編碼器的體積優劣取決於內容類型；合成 fixture 會把結論反過來
 - **⚠️ 先讀這句**：側欄改用 JPEG q80 的體積優勢是**照片內容的性質**，不是編碼器的普遍性質。**在低熵合成影像（純色塊、條紋、漸層、測試圖卡）上這個結論會反轉，PNG 會贏。** 若你正拿程式產生的測試圖案量這條路徑並看到 JPEG 比較大，那是預期行為，**不是** codec 選錯，也不是實作退步——不要據此改回 PNG，請改用 `local_data/photo_samples/` 的真實照片重量。
 - **嚴重程度**：中（會讓一個正確的改動看起來像退步，或讓一個測試假裝證明了它沒證明的事）

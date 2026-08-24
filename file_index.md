@@ -75,7 +75,13 @@ Halcyon/
 │   │       ├── photo_action_bar.dart  # 浮動操作列（星號/刪除/回收模式切換按鈕）
 │   │       ├── status_line.dart       # 取代 SnackBar 的自訂狀態列 widget：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除；重點字反相對比配色；支援重新命名 undo/cancel 按鈕
 │   │       ├── batch_delete_feedback.dart  # 批次刪除回饋：成功走 status line，失敗走阻斷式 AlertDialog
-│   │       ├── rename_dialog.dart     # 兩窗格 EXIF 重新命名對話框（preset/自訂規則/變數 chip + 即時預覽）
+│   │       ├── rename_dialog.dart     # 兩窗格 EXIF 重新命名對話框骨架（scaffold/header，222 行；子元件見 rename_dialog/）
+│   │       ├── rename_dialog/
+│   │       │   ├── rule_editor.dart     # RuleEditor：preset 清單、規則模板欄位、插入變數 chip 群組
+│   │       │   ├── preview_list.dart    # RenamePreviewList：重擲控制 + 5 檔即時預覽卡片
+│   │       │   ├── actions.dart         # RenameActions：頁尾檔案數 + 取消/執行按鈕
+│   │       │   └── section_label.dart   # renameSectionLabel()：RuleEditor 與 RenamePreviewList 共用的小型大寫標題
+│   │       ├── theme_tokens.dart      # HalcyonTokens（ThemeExtension）：main.dart ThemeData／舊 rename_dialog _Tokens／sidebar_view 內聯 Colors.* 三套色彩系統的單一來源
 │   │       └── settings_dialog.dart   # Auto-advance + Overwrite-existing 設定
 │   ├── test/
 │   │   ├── app_state_test.dart   # AppState 掃描、狀態、導航、request purpose、唯讀資料夾警告測試
@@ -97,6 +103,8 @@ Halcyon/
 │   │   ├── photo_status_store_test.dart  # PhotoStatusStore 規則持久化與 key remap 測試（TC-041~TC-044）
 │   │   ├── exif_metadata_service_test.dart  # ExifMetadataService batch reader 測試（TC-045~TC-048）
 │   │   ├── rename_dialog_test.dart       # RenameDialog widget 測試（TC-052~TC-054）
+│   │   ├── theme_tokens_test.dart        # HalcyonTokens fallback / lerp 測試（TC-229/TC-229b）
+│   │   ├── main_detail_view_test.dart    # MainDetailView spinner 分支測試（TC-230）
 │   │   ├── main_test.dart        # main() 啟動流程測試
 │   │   └── widget_test.dart      # 有效 widget smoke test
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）

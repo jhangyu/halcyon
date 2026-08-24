@@ -1247,6 +1247,19 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-229~230｜`HalcyonTokens` 主題單一來源、`MainDetailView` spinner 分支（D3/D4，Task 9）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-229（`HalcyonTokens.of(context)` 在沒有註冊 extension 的裸 `MaterialApp` 下退回 `dark`，`test/theme_tokens_test.dart`；壞掉時：`Theme.of(context).extension<HalcyonTokens>()` 回傳 `null` 時沒有 fallback，任何未套用 `HalcyonTokens` 的測試/畫面直接拋 `NoSuchMethodError`）／TC-229b（`lerp` 回傳一個 `HalcyonTokens`，不是 `null`，`test/theme_tokens_test.dart`；壞掉時：`other is! HalcyonTokens` 分支寫錯或忘記覆寫，主題切換動畫中途讀到 `null` 崩潰）／TC-230（`MainDetailView` 在 `bytes` 與 `AppState.displayProvider` 皆為 `null` 時顯示 spinner，`test/main_detail_view_test.dart`；壞掉時：`_buildZoomableViewer` 的空值判斷漏掉其中一個條件，畫面在該狀態下白屏或丟 null-check 例外） |
+| **測試類型** | widget 測試（皆為 `testWidgets`） |
+| **背景** | D3：`_buildZoomableViewer` 改吃 `AppState.displayProvider` 單一 provider 而非分開的 decoded/full-res 兩個參數（詳見 AD-026 系列後續、`docs/logs/2026-08-24/Task_refactor_T9_handoff.md` §2b 的等價性證明）；D4：`main.dart` ThemeData、`rename_dialog.dart` 私有 `_Tokens`、`sidebar_view.dart` 內聯 `Colors.*` 三套色彩系統收斂到 `lib/views/theme_tokens.dart` 的 `HalcyonTokens`（`ThemeExtension`），12 個欄位值逐一從 `_Tokens.dark`/`_Tokens.light` 搬過去，另加一個 `starred` 欄位收斂 `sidebar_view.dart` 原本的 `Colors.amber`（兩種模式同值，因為 `Colors.amber` 本身不隨亮暗改變） |
+| **已知陷阱**（詳見 memory.md G-020） | (1) TC-230 的 `testWidgets` body 內 `AppState.loadFolder` 走真實 `dart:io`（目錄掃描、寫檔），必須包在 `tester.runAsync` 裡——直接 `await` 在 flutter_test 的 fake-async zone 下會整個測試零 CPU 掛死到逾時都不吐堆疊，不是程式碼邏輯錯誤。(2) `_buildZoomableViewer` 的 PERF-INSTRUMENTATION 呼叫（`_perfResetForSwitch`、`_perfSpinner`）與 `LayoutBuilder` 內非通知性欄位寫入（`widget.zoom.lastKnownCenter = center`）在拆分/精簡過程中順序與呼叫次數必須原封不動，否則前者造成效能量測重複計數，後者若改成 `setState` 會讓 `LayoutBuilder` 無限重建 |
+| **狀態** | ✅ 已通過。`flutter test test/theme_tokens_test.dart -j 1`：2 個測試 All tests passed!，RC=0。`flutter test test/main_detail_view_test.dart -j 1`：1 個測試 All tests passed!，RC=0（修好前曾在三輪 baton 交接中反覆掛死，最終定位為上述 fake-async + 真實 I/O 死結，非 widget 邏輯問題）。`flutter analyze`：No issues found!。`git diff --stat test/rename_dialog_test.dart test/sidebar_view_test.dart` 於 D3 落地時為 0（兩檔皆未編輯即通過） |
+| **範圍外** | D4 對 `sidebar_view.dart` 的實際外觀改動（含新 `starred` token 套用）尚未提交，等待使用者對外觀變化的明確簽核；本節只涵蓋 `theme_tokens.dart` 本身與 `MainDetailView` 的行為測試 |
+
+---
+
 ### TC-231~238｜`TierTwoRegistry`：tier-2 就緒性合取與失敗備忘錄（D1）
 
 | 欄位 | 內容 |
