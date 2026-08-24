@@ -950,7 +950,12 @@ void main() {
           notifyLoaded: () {},
         );
         await until(() => controller.isFullSizeReady(items[5].id));
-        final provider = controller.pixelsProviderFor(items[5].id)!;
+        // M5 re-anchor: before M5 a RAW's tier-2 entry WAS its
+        // window-resolution provider (both tiers shared one entry), so this
+        // read used to be `pixelsProviderFor`. M5 gives pixel payloads a real
+        // FULL-RESOLUTION tier-2 entry, and that is the entry whose lifetime
+        // this test is about. Nothing else here changes.
+        final provider = controller.debugTierTwoProviderFor(items[5].id)!;
         expect(
           PaintingBinding.instance.imageCache.containsKey(provider),
           isTrue,

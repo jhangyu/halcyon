@@ -34,11 +34,20 @@ enum SourceCost {
 /// including the legacy fallback failed and the item is a PERMANENT MISS. Fold
 /// those together and a decoder failure becomes a spinner that never resolves
 /// -- the single stranding risk design §3.4 names.
+///
+/// [fullRes] is the M5 piggyback output (design §2.2): full-resolution,
+/// orientation-ALREADY-applied RGBA8 pixels from the SAME FFI decode that
+/// produced [payload], non-null ONLY when a real RAW decode ran in this call
+/// (never for the cheap/encoded paths, and never for the step-3b legacy
+/// fallback). This is a transient handoff -- [PhotoSource] keeps no reference
+/// to the buffer once it returns it; the caller (the tier-2 upload path) owns
+/// disposal/upload from here.
 typedef SourceOutcome = ({
   SourcePayload? payload,
   SourceCost? observedCost,
   bool deferred,
   int? exifOrientation,
+  ({Uint8List rgba, int width, int height})? fullRes,
 });
 
 /// What ONE bounded content probe learned about a file.
@@ -121,6 +130,7 @@ class PhotoSource {
           observedCost: SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
+          fullRes: null,
         );
 
       case NativeImageNeedsRawDecode(:final exifOrientation):
@@ -134,6 +144,7 @@ class PhotoSource {
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
+            fullRes: null,
           );
         }
         if (!allowExpensive) {
@@ -142,6 +153,7 @@ class PhotoSource {
             observedCost: SourceCost.expensive,
             deferred: true,
             exifOrientation: exifOrientation,
+            fullRes: null,
           );
         }
         try {
@@ -151,11 +163,16 @@ class PhotoSource {
             exifOrientation: exifOrientation,
             longEdge: longEdge,
           );
+          final fullRes = await _fullResFrom(
+            decoded,
+            exifOrientation: exifOrientation,
+          );
           return (
             payload: pixels,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
+            fullRes: fullRes,
           );
         } catch (_) {
           // Step 3b. A throwing decoder must degrade to the old slow path,
@@ -166,6 +183,7 @@ class PhotoSource {
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
+            fullRes: null,
           );
         }
 
@@ -179,6 +197,7 @@ class PhotoSource {
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
+          fullRes: null,
         );
     }
   }
@@ -199,6 +218,7 @@ class PhotoSource {
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
+        fullRes: null,
       );
     }
     try {
@@ -208,11 +228,16 @@ class PhotoSource {
         exifOrientation: exifOrientation,
         longEdge: longEdge,
       );
+      final fullRes = await _fullResFrom(
+        decoded,
+        exifOrientation: exifOrientation,
+      );
       return (
         payload: pixels,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
+        fullRes: fullRes,
       );
     } catch (_) {
       return (
@@ -220,8 +245,30 @@ class PhotoSource {
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
+        fullRes: null,
       );
     }
+  }
+
+  /// The M5 piggyback's second output half (design §2.2): the SAME decoded
+  /// RAW frame, oriented but NOT downscaled, reduced to plain RGBA8 bytes.
+  ///
+  /// This does not call [dngDecoder] again -- it re-runs
+  /// `decodedRgbaToPixelPayload` on the buffer already sitting in [decoded],
+  /// with `longEdge: 0` selecting the existing no-upscale/no-downscale path
+  /// (`decoded_rgba_image_provider.dart`'s `longEdge <= 0` branch). The FFI
+  /// decode count this contributes is zero; the only cost is one more
+  /// GPU raster pass over pixels already resident in memory.
+  static Future<({Uint8List rgba, int width, int height})> _fullResFrom(
+    DecodedRgba decoded, {
+    required int exifOrientation,
+  }) async {
+    final fullRes = await decodedRgbaToPixelPayload(
+      decoded,
+      exifOrientation: exifOrientation,
+      longEdge: 0,
+    );
+    return (rgba: fullRes.rgba, width: fullRes.width, height: fullRes.height);
   }
 
   /// Step 3b: re-request with `allowRawDecodeSignal` forced false, which is

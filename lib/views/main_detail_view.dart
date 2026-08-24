@@ -122,6 +122,7 @@ class _MainDetailViewState extends State<MainDetailView>
                   state.currentItemHasFullSize,
                   currentId, // PERF-INSTRUMENTATION
                   state.currentDecodedProvider,
+                  state.currentFullResProvider,
                 ),
         ),
 
@@ -228,6 +229,7 @@ class _MainDetailViewState extends State<MainDetailView>
     bool useFullSize,
     String currentId, // PERF-INSTRUMENTATION
     RawPixelsImage? decodedProvider,
+    ImageProvider? fullResProvider,
   ) {
     _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
     // A raw-decoded DNG has no preview bytes by construction, so "no bytes"
@@ -268,28 +270,43 @@ class _MainDetailViewState extends State<MainDetailView>
         // like the tier-1 branch below, and never triggers (or waits on) a
         // decode on this build/UI path -- the check itself is bookkeeping,
         // not a resolve.
-        // A decoded RAW image is ALREADY full resolution and already
-        // orientation-corrected, and its item has no bytes to fall back to,
-        // so it wins outright over both byte-backed tiers. The provider
-        // object comes from the preload controller (not built here) so the
-        // display path and the controller's eviction share one object
-        // identity, exactly as the two byte-backed factories require.
-        final ImageProvider provider =
-            decodedProvider ??
-            (useFullSize
-                ? fullSizeProviderFor(bytes!)
-                : tierOneProviderFor(
-                    bytes!,
-                    width: targetWidth,
-                    height: targetHeight,
-                  ));
-        final isFullResolution = decodedProvider != null || useFullSize;
+        // A pixel-backed (RAW-decoded) item has no bytes to fall back to, so
+        // it wins outright over both byte-backed tiers. Since M5 it has two
+        // tiers of its own: [fullResProvider] is the FULL-RESOLUTION tier-2
+        // entry, non-null only while it is resident for the item's current
+        // payload, and [decodedProvider] is the window-resolution tier-1
+        // fallback used before the upgrade lands, after it is evicted, or when
+        // the full-res decode failed. Both provider objects come from the
+        // preload controller (not built here) so the display path and the
+        // controller's eviction share one object identity, exactly as the two
+        // byte-backed factories require -- and for the full-res one that is
+        // load-bearing rather than merely tidy: it is one-shot, so only the
+        // controller's own object resolves as a cache hit.
+        final ImageProvider provider = decodedProvider != null
+            ? (fullResProvider ?? decodedProvider)
+            : (useFullSize
+                  ? fullSizeProviderFor(bytes!)
+                  : tierOneProviderFor(
+                      bytes!,
+                      width: targetWidth,
+                      height: targetHeight,
+                    ));
+        // Honest tiering: a pixel item painting its window-resolution provider
+        // IS tier 1, and before M5 it was mislabelled tier 2 here.
+        final isFullResolution = decodedProvider != null
+            ? fullResProvider != null
+            : useFullSize;
 
         // PERF-INSTRUMENTATION
         _perfTrack(context, currentId, provider, isFullResolution ? 2 : 1);
 
+        // `decodedProvider != null` is kept as its own term: a pixel item has
+        // no bytes at all, so the Image.memory fallback below is not merely
+        // suboptimal for it, it would dereference a null.
         final image =
-            (isFullResolution || (targetWidth > 0 && targetHeight > 0))
+            (decodedProvider != null ||
+                isFullResolution ||
+                (targetWidth > 0 && targetHeight > 0))
             ? Image(
                 image: provider,
                 fit: BoxFit.contain,

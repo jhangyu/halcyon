@@ -186,6 +186,15 @@ class AppState extends ChangeNotifier {
   RawPixelsImage? get currentDecodedProvider =>
       _preloadController.pixelsProviderFor(_selectedItemID);
 
+  /// The FULL-RESOLUTION provider for the current pixel-backed item, or null
+  /// when its tier-2 upgrade has not landed (or was evicted). Non-null means a
+  /// resident ImageCache entry for the item's CURRENT payload, so selecting it
+  /// in the view is a cache hit, never a decode on the build path (M5 design
+  /// §2.3). When it is null the view paints the window-resolution provider,
+  /// which is honestly tier 1.
+  ImageProvider? get currentFullResProvider =>
+      _preloadController.fullResProviderFor(_selectedItemID);
+
   /// True when the current item's file could not be read at all (corrupt or
   /// unsupported). The view shows an error instead of a spinner.
   bool get currentItemFailed => _preloadController.hasFailed(_selectedItemID);

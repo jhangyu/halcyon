@@ -978,6 +978,72 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-112..117｜M5 雙窗：RAW 全解析度 tier-2 升級（AC-M5-2..6、AC-M5-9）
+
+契約：`docs/logs/2026-08-24/m5-dual-window-design.md` §3。六個測試名稱為契約凍結逐字文本，不可改名。
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-112 |
+| **名稱** | `M5-DW1 tier-2 keys equal the +/-2 band after settle, for encoded and pixel payloads alike`（AC-M5-2） |
+| **測試類型** | Unit Test |
+| **背景** | Encoded 子案例照既有 TC-097 模式單次 settle 即可覆蓋整個 ±2 帶；Pixel 子案例受 AD-018 限制（RAW 只在曾經進過自己 ±1 的位置才有 payload），核心宣稱用 `[5,7,3,5]` 走位一次滿足（保留窗寬 9 與 ±2 帶寬 5 差距足夠讓五格 payload 同時存活到最終 settle），四個邊界點（-3/+3/+4/+5）改用個別短走位驗證——保留窗寬 9 與所需跨度（-3..+5）恰好相等，任何單一走位不可能同時讓左右兩端 payload 存活，故拆開驗證而非合併，見測試檔內註解 |
+| **預期結果** | `debugTierTwoKeyIds` 恆等於 ±2 的 id 集合（encoded 與 pixel 各驗一次）；-3 與 +3..+5 有 tier-1 key、無 tier-2 key |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-113 |
+| **名稱** | `M5-DW2 a pixel-backed item at distance 0 gets a FULL-resolution tier-2 entry distinct from its window-resolution tier-1 entry`（AC-M5-3） |
+| **測試類型** | Unit Test |
+| **背景** | 沒有凍結的 accessor 可直接讀回已 resolve 的 tier-2 影像尺寸或其 ImageCache key。改用「探針」`RawFullResImage`：以相同的 `payloadIdentity`（controller 的 `PixelPayload`）＋相同尺寸（400x300）建構一個新 provider 實例——`RawFullResImage.operator==` 只比對 `identical(payloadIdentity)+width+height`（`raw_full_res_image.dart`，凍結），resolve 時會命中已存在的 ImageCache 項而非重新解碼，藉此讀回真實尺寸且不需新增 controller API |
+| **預期結果** | tier-2 resolve 影像尺寸 == 400x300；tier-1（`pixelsProviderFor`）== 視窗尺寸 200x150；`isFullSizeReady == true`；tier-1/tier-2 兩個 key 的 runtime type 不同（provider 種類不同，結構上不可能相等） |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-114 |
+| **名稱** | `M5-DW3 payload production and full-res tier-2 for a RAW item inside +/-1 cost exactly ONE decoder call`（AC-M5-4） |
+| **測試類型** | Unit Test |
+| **背景** | 驗證單次解碼雙輸出（piggyback，design §2.2）：payload 生產與全解析度 tier-2 上傳必須共用同一次 FFI 解碼呼叫，不得因為 M5 多解一次 |
+| **預期結果** | 距離 0 的 fake decoder 呼叫計數 == 1 |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-115 |
+| **名稱** | `M5-DW4 leaving +/-2 evicts the full-res entry; re-entering re-upgrades with exactly one extra decoder call and an identical retained payload`（AC-M5-5） |
+| **測試類型** | Unit Test |
+| **背景** | 驗證離窗／回窗的補升級路徑：payload 保留在 -3..+5，全解析度項僅存在於 ±2，離開後由既有簿記驅逐、回窗後由 catch-up 佇列補一次解碼且不替換保留的 payload 物件 |
+| **預期結果** | 距離 3（-3..+5 內、±2 外）時 `debugTierTwoKeyIds` 不含該 id，payload 仍非 null；回到距離 2 後 decoder 呼叫數 +1（總計 2），`identical(payloadFor(id), 原物件) == true` |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-116 |
+| **名稱** | `M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload`（AC-M5-6） |
+| **測試類型** | Unit Test |
+| **背景** | 全解析度升級失敗（design §2.5）與「整個 payload 都產不出」的 permanent miss 是兩件事：前者只影響 tier-2、以「per-payload」記憶失敗不重試；fake decoder 對目標項第一次呼叫（piggyback）成功、第二次起（catch-up 補升級）拋例外 |
+| **預期結果** | `hasFailed == false`；catch-up 失敗嘗試後 `isFullSizeReady == false`（tier-1 顯示不受影響）；再觸發兩次 debounce settle 後目標路徑總呼叫數維持 2（1 次成功 + 1 次失敗，不重試） |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-117 |
+| **名稱** | `M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache`（AC-M5-9） |
+| **測試類型** | Unit Test |
+| **背景** | 全解析度像素只活在 ImageCache（`ui.Image`），來源緩衝一律瞬態（design §2.3）——payload 快取的 `retainedByteCost` 不應因為 tier-2 升級而多算任何位元組 |
+| **預期結果** | 升級前 `retainedByteCost == 0`（尚未解碼）；升級後 `retainedByteCost` 恰等於 ±1 帶內每個 `PixelPayload.byteCost` 的總和，不含任何全解析度緩衝的額外位元組 |
+| **驗證方式** | `test/image_preload_dual_window_m5_test.dart` |
+| **狀態** | ✅ 已通過（`tmp/verify/m5-dw-test-run4.txt`，RC=0） |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令
