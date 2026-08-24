@@ -1,5 +1,5 @@
 ---
-date: 2026-08-20
+date: 2026-08-25
 title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 ---
 
@@ -162,14 +162,6 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **已知限制**：因為昂貴項目只在 ±1 內取得 payload，而 tier-1 預快取只消費 payload、從不生產（`image_preload_controller.dart:707-708` peek 到 null 就跳過），所以**在「無內嵌預覽的 RAW」資料夾上，距離 2..5 的格子兩層快取都是空的**。九格保證只對有預覽的檔案成立。這是拆分的設計後果，不是缺陷。
 - **對應任務**：M3 round 2（commit `f9869db`）。
 
-### AD-020｜M6 契約：影像行為統一於 Dart 核心，三個宣告例外之外禁止平台分歧
-- **日期**：2026-08-24
-- **決策**：Halcyon 的照片行為（哪些檔案能載入、畫面上出現哪些像素、刪除做什麼、匯出產出什麼）只用 Dart 實作一次，在每個支援平台產生相同的可觀察結果；native runner 只保留 app shell、視窗管線，以及三個封閉清單的例外：**F-12 系統 Trash**（macOS/Windows 原生）、**F-16 Open With 傳輸層**（macOS/Windows/Android/iOS，Linux 排除）、**F-18 檔案關聯**（Windows/macOS）。清單封閉——任何新的平台分歧都不得援引這三項為先例。
-- **依據**：`docs/logs/2026-08-24/m6-spec-contract.md` §1 C-2/C-3；`lib/` 內禁止 `Platform.isX`/`kIsWeb`/`defaultTargetPlatform`/條件匯入/shell 出去的平台指令（唯一例外：F-19 reveal-in-file-manager 的一處 `Process.run`，已從 grep 護欄的檔案清單排除）。production `NativeImageLoad` seam 的實作從 `halcyon/thumbnail` MethodChannel 搬到純 Dart producer（`dart_image_loader.dart`，基於 `DngPreviewExtractor`）；seam 本身保留作為測試注入點。
-- **能力損失（U-11/U-12，使用者已裁決，非靜默降級）**：**U-12** 是本輪最大的一次架構轉向——`photo_source.dart` 的 `_legacyBytes` CIRAWFilter 降級路徑整個刪除，一張無內嵌預覽又無可用解碼器的 DNG，現在是**立即、統一、不可恢復**的 permanent miss（不再有「退化到原生 bytes」這條路可走，因為那條路本身就是要刪除的原生橋接）；U-11 是與 F-05（HEIC 移出支援集，見 commit `68308c4`）配套的能力收斂。兩者皆為使用者在 matrix 上明確裁決的結果，寫在 round 報告中而非埋在程式碼裡。
-- **測試面（C-4，見 baseline-registry.md）**：任何斷言單平台語意的既有測試，隨受測 channel/類型一起刪除或改寫，同一 commit 內把理由與（若為凍結檔）新 sha256 記入 `docs/logs/2026-08-24/baseline-registry.md`。Appendix B（`m6-execution-plan.md:1092-1105`）是本輪測試處置的權威清單，P5.2（2026-08-24）稽核過全部 10 列，逐列核對 commit 與 baseline-registry 同步登錄，發現的殘留問題（TC-057 受測檔已刪除但矩陣未標註、TC-049 測試 ID 在兩個測試檔重複）記在 `unit_test.md` 對應條目，未回頭改動 `test/`（P5.2 owned files 不含 `test/`）。
-- **對應任務**：M6 P2–P4（commits `90ca085`…`3a7a2b2`…`c20e0ce`），P5.2 稽核（本條）。
-
 ### AD-019｜兩個快取常數以相反的樣本組計算，不可互相驗算
 - **日期**：2026-08-23
 - **決策**：`imageCacheMaxBytes = 768 << 20`（805,306,368 bytes，`lib/main.dart:25`）；`kPayloadByteBudget = 224 * 1024 * 1024`（234,881,024 bytes，`lib/services/photo_payload_cache.dart:31`）。單位一律 MiB（bytes / 1048576），載重數字一律釘原始位元組。
@@ -177,6 +169,14 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 - **後果**：**任何一方都無法為另一方做健全性檢查。** 想「簡化」這一對常數的人，會靜默弄壞其中一個。
 - **實測**：round-2 的 AC8 量到 kernel max RSS 996,392,960 bytes = 950.2 MiB，低於 pre-M3 基線 1,043,218,432 bytes = 994.9 MiB（使用者採相對判準）。**但那次量測掃的是昂貴樣本組**，也就是九格保證不成立的那一組；便宜樣本組（上限真正據以計算、且每項佔兩個快取項的那一組）**至今未量測**。
 - **對應任務**：M3 round 2（commit `f9869db`）。
+
+### AD-020｜M6 契約：影像行為統一於 Dart 核心，三個宣告例外之外禁止平台分歧
+- **日期**：2026-08-24
+- **決策**：Halcyon 的照片行為（哪些檔案能載入、畫面上出現哪些像素、刪除做什麼、匯出產出什麼）只用 Dart 實作一次，在每個支援平台產生相同的可觀察結果；native runner 只保留 app shell、視窗管線，以及三個封閉清單的例外：**F-12 系統 Trash**（macOS/Windows 原生）、**F-16 Open With 傳輸層**（macOS/Windows/Android/iOS，Linux 排除）、**F-18 檔案關聯**（Windows/macOS）。清單封閉——任何新的平台分歧都不得援引這三項為先例。
+- **依據**：`docs/logs/2026-08-24/m6-spec-contract.md` §1 C-2/C-3；`lib/` 內禁止 `Platform.isX`/`kIsWeb`/`defaultTargetPlatform`/條件匯入/shell 出去的平台指令（唯一例外：F-19 reveal-in-file-manager 的一處 `Process.run`，已從 grep 護欄的檔案清單排除）。production `NativeImageLoad` seam 的實作從 `halcyon/thumbnail` MethodChannel 搬到純 Dart producer（`dart_image_loader.dart`，基於 `DngPreviewExtractor`）；seam 本身保留作為測試注入點。
+- **能力損失（U-11/U-12，使用者已裁決，非靜默降級）**：**U-12** 是本輪最大的一次架構轉向——`photo_source.dart` 的 `_legacyBytes` CIRAWFilter 降級路徑整個刪除，一張無內嵌預覽又無可用解碼器的 DNG，現在是**立即、統一、不可恢復**的 permanent miss（不再有「退化到原生 bytes」這條路可走，因為那條路本身就是要刪除的原生橋接）；U-11 是與 F-05（HEIC 移出支援集，見 commit `68308c4`）配套的能力收斂。兩者皆為使用者在 matrix 上明確裁決的結果，寫在 round 報告中而非埋在程式碼裡。
+- **測試面（C-4，見 baseline-registry.md）**：任何斷言單平台語意的既有測試，隨受測 channel/類型一起刪除或改寫，同一 commit 內把理由與（若為凍結檔）新 sha256 記入 `docs/logs/2026-08-24/baseline-registry.md`。Appendix B（`m6-execution-plan.md:1092-1105`）是本輪測試處置的權威清單，P5.2（2026-08-24）稽核過全部 10 列，逐列核對 commit 與 baseline-registry 同步登錄，發現的殘留問題（TC-057 受測檔已刪除但矩陣未標註、TC-049 測試 ID 在兩個測試檔重複）記在 `unit_test.md` 對應條目，未回頭改動 `test/`（P5.2 owned files 不含 `test/`）。
+- **對應任務**：M6 P2–P4（commits `90ca085`…`3a7a2b2`…`c20e0ce`），P5.2 稽核（本條）。
 
 ### AD-021｜內嵌預覽的「退回最大張」不再無條件：預覽路徑改用 `minLongEdge` 拒絕，側欄與匯出維持寬鬆
 - **日期**：2026-08-24
@@ -280,6 +280,7 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 - **問題**：`lib/services/native_thumbnail_service.dart` 定義了 MethodChannel，但 macOS 原生端（`macos/Runner/AppDelegate.swift`）曾缺少實作。
 - **解法**：已在 `macos/Runner/AppDelegate.swift` 建立 `FlutterMethodChannel` handler，並改為 `ImageRequestPurpose.preview` / `sidebarThumbnail` 語意化分流。
 - **狀態**：已修復（Task 1 / Task 8）。`flutter analyze` / `flutter test` / `flutter build macos` 通過。
+- **歷史備註（2026-08-25）**：本條描述的 `NativeThumbnailService` MethodChannel（`halcyon/thumbnail`）與 `AppDelegate.swift` 側的對應 handler 已於 M6（AD-020）整體移除——影像載入現為純 Dart（`dart_image_loader.dart`），macOS 原生端只剩 `halcyon/trash`、`halcyon/open_with` 兩個 channel。本條保留作為歷史紀錄，不代表目前架構。
 
 ### G-005｜Auto-advance 與 Status Toggle 邏輯（已確認正確，僅缺測試）
 - **嚴重程度**：低（原標記中，本輪核實後降級）
@@ -302,6 +303,25 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 - **問題**：Flutter 主圖與 sidebar 縮圖共用 `NativeThumbnailService.getThumbnail()`，只靠 `targetSize` 區分；若 macOS 原生端對 JPG 大圖請求仍走縮圖路徑，主圖可能只顯示小尺寸 preview。
 - **解法**：macOS 原生端需根據 `targetSize` 分流：小圖保留 `CGImageSourceCreateThumbnailAtIndex`，主圖/高解析請求優先使用原圖輸出並保留方向修正。
 - **狀態**：已修復（Task 6）。非 RAW 且 `targetSize > 4000` 的請求改用 `CGImageSourceCreateImageAtIndex` + CoreImage orientation 修正；實機 JPG 視覺覆核待使用者確認。
+- **歷史備註（2026-08-25）**：本條描述的原生 `targetSize` 分流機制已隨 M6（AD-020）整個移除；主圖/縮圖分流現由純 Dart `dart_image_loader.dart` 依 `ImageRequestPurpose`（`sidebarThumbnail`/`preview`/`export`，見「重要約定」第 3 條）決定，不再有 macOS 原生 MethodChannel 這一層。本條保留作為歷史紀錄。
+
+### G-009｜JDK 25 需要 Gradle 9.1+，且 Flutter Gradle Plugin 暫需 AGP 9 相容模式
+- **嚴重程度**：中
+- **問題**：舊 toolchain（Gradle 8.12 / AGP 8.9.1 / Kotlin 2.1.0）在 Temurin JDK 25 下會於 Gradle Kotlin DSL 階段失敗，錯誤為 `IllegalArgumentException: 25.0.2`。
+- **解法**：升級至 Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21；因 Flutter 3.35.1 的 Gradle plugin 在 AGP 9 new DSL 下會 NPE，目前使用 AGP 9 相容模式。
+- **狀態**：已修復（Task 14）。`./scripts/build.sh android` 使用 JDK 25 成功。
+
+### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
+- **嚴重程度**：中
+- **現況**：`main_detail_view.dart` 有至少 5 處在 widget build/callback 中直接對 `AppState` 的 public 欄位做 setter，破壞單向資料流（原記載 4 處，本輪多發現 1 處）：
+  - `main_detail_view.dart:32`：`_animController` listener 每個動畫 tick 寫入 `context.read<AppState>().transformCtrl.value = _zoomAnimation!.value`（本輪新記錄，頻率高於下列 4 處）
+  - `main_detail_view.dart:99`：`context.read<AppState>().shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
+  - `main_detail_view.dart:220`：`context.read<AppState>().lastKnownCenter = center`（`LayoutBuilder` 每次 rebuild 寫入）
+  - `main_detail_view.dart:282`：`context.read<AppState>().pointerPosition = event.localPosition`（`MouseRegion.onHover`）
+  - `main_detail_view.dart:285`：`context.read<AppState>().pointerPosition = null`（`MouseRegion.onExit`）
+- **根因**：`app_state.dart:113-119` 的 zoom/animation 欄位（`transformCtrl`、`pointerPosition`、`lastKnownCenter`、`targetMatrix`、`shouldAnimateZoom`）屬於純 View 層狀態，不應放在 business provider；`stepZoomIn()`/`stepZoomOut()`/`_zoomBy()`（`app_state.dart:298-334`）目前仍是 `main_screen.dart:99,102` 鍵盤縮放（`↑`/`↓`）的唯一入口。
+- **解法（已實施，方案 B）**：新增 `lib/views/zoom_controller.dart`（`ZoomController extends ChangeNotifier`），持有全部五個欄位與 `stepZoomIn/stepZoomOut/_zoomBy`，並自行建立/釋放 `transformCtrl`。由 `_MainScreenState` 建立與 dispose（**不可**由 `MainDetailView` 持有，否則照片切換時縮放狀態會遺失），以參數注入 `MainDetailView(zoom: _zoom)`。鍵盤 `↑`/`↓` 變成對 controller 的普通方法呼叫，不再經過 provider。
+- **狀態**：✅ 已解決（Task 19）。`AppState` 已無任何 zoom 欄位/方法；`main_detail_view.dart` 僅剩 `openFolder()` 與 `setViewportSize()` 兩處與 zoom 無關的 `AppState` 呼叫。
 
 ### G-011｜`.halcyon_status.json` 以檔名為 key，重新命名必須 remap
 - **嚴重程度**：高
@@ -339,6 +359,30 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 - **教訓**：任何 HARD FAIL 或看似整齊的失敗子集，先問「量測腳本打的是不是正確的進入點／API」，再假設實作有洞——尤其當失敗樣本的邊界精確符合某個已知的業務語意分類（此處是「有無內嵌預覽」）時，這通常是儀器打錯路由的指紋，而非巧合的真實 bug 分布。這是 `~/.claude/rules/lessons-learned.md` 2026-08-17「否定結果先驗儀器」條目在 M6 的一次具體重演，值得單獨記錄因為它差點造成方向性誤判（若真去改 P2.1 的核心實作而非量測路由，會是白工且引入不必要複雜度）。
 - **對應任務**：M6 P2.6（`m6-execution-plan.md:30`「G3 HARD FAIL is an instrument-route artifact」段落）。Artifacts：`scripts/tmp/20260824T084906Z-m6-g1.txt`、`…085119Z-m6-g2.txt`、`…085320Z-m6-g3.txt`。
 
+### G-016｜編碼器的體積優劣取決於內容類型；合成 fixture 會把結論反過來
+- **⚠️ 先讀這句**：側欄改用 JPEG q80 的體積優勢是**照片內容的性質**，不是編碼器的普遍性質。**在低熵合成影像（純色塊、條紋、漸層、測試圖卡）上這個結論會反轉，PNG 會贏。** 若你正拿程式產生的測試圖案量這條路徑並看到 JPEG 比較大，那是預期行為，**不是** codec 選錯，也不是實作退步——不要據此改回 PNG，請改用 `local_data/photo_samples/` 的真實照片重量。
+- **嚴重程度**：中（會讓一個正確的改動看起來像退步，或讓一個測試假裝證明了它沒證明的事）
+- **背景**：M7 Task 5 把側欄快取的重新編碼從 PNG 換成 JPEG q80（`sidebar_thumbnail_codec.dart`）。原本的 PNG 選擇不是設計偏好，而是 `dart:ui` 只能編 PNG；`image` 套件在 P3.6（`dd1edcb`）落地後前提消失，M7 兌現這筆 M6 parking-lot。
+- **問題**：既有測試的 fixture `bigPng()` 是 10px 寬的純色直條紋。改成 JPEG 後 `expect(out.length, lessThan(src.length))` 立刻失敗——PNG 5,739 B vs JPEG 14,634 B，**PNG 反而小 2.55 倍**。乍看像是新實作退步了。
+- **根因**：這不是實作缺陷，是 fixture 的內容類型剛好站在 PNG 最有利、JPEG 最不利的一端。大面積平坦色塊是 filter+deflate 的理想輸入；銳利條紋邊緣是 DCT 的最壞輸入（高頻能量）。真實照片內容則相反：8 張真實 DNG 樣本上 PNG/JPEG 比值為 4.15x–6.38x，整體 5.06x（`scripts/tmp/m7-t5/size-comparison.md`）。
+- **解法**：測試裡**不**斷言體積關係（TC-173 明確寫下不斷言的理由），體積主張改由真實樣本 artifact 承擔；測試只驗它該驗的——SOI marker、decode-back 成功、長邊 <= 200。
+- **教訓**：(a) 任何「換編碼器／換壓縮參數」的改動，體積主張必須在**代表真實負載的內容**上量，合成 fixture 只能驗正確性不能驗效益；(b) 遇到合成資料與真實資料結論相反時，先問「這個 fixture 的內容類型是否剛好偏袒某一方」，不要急著改實作，也不要把斷言調鬆到剛好通過——後者是 `judgment-rubrics.md` R4 第 3 點「繞過驗證」的變形；(c) 反面證據要留在 artifact 裡，不是刪掉。
+- **對應任務**：M7 Task 5。Artifacts：`scripts/tmp/m7-t5/size-comparison.md`（含反例欄位）、`scripts/tmp/m7-t5/red.log`。
+
+### G-017 文件裡的原生橋接宣稱必須用 grep 對照 AppDelegate.swift
+`CLAUDE.md` 有整整一個里程碑的時間在描述一個已被刪除的 `halcyon/thumbnail`
+channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 行檔案第
+329 行的行號。刪原生程式碼的同一個 commit 必須同步改文件；審查文件對原生層的
+宣稱時，判準是 `grep -n "MethodChannel" macos/Runner/AppDelegate.swift`，不是讀
+起來合不合理。
+
+### G-018 一個 Set 不可以同時裝兩種 key 形狀
+`image_preload_controller.dart` 的 `_loadingKeys` 曾經同時裝裸 id 與
+`thumb_$id`，於是縮圖 sweep 進行中時，detail 路徑的 `_loadingKeys.contains(id)`
+永遠答錯（正在跑的是縮圖，答案卻說「detail 也在載入」）。M7 Task 3 拆成
+`_loadingKeys`（detail，裸 id）與 `_thumbLoadingKeys`（sidebar，裸 id），`reset()`
+兩個都要清。TC-218 驗證此行為。
+
 ### G-019 狀態檔寫入必須是原子的，且只能有一條寫入鏈
 `.halcyon_status.json` 由兩個獨立的 debounce timer 讀改寫（`_saveStatusCache`
 與 `_saveLastViewedId`），過去各自 `writeAsString`。兩個後果：拔卡/當機會留下半寫入
@@ -364,50 +408,18 @@ mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，�
   效能量測重複計數或漏計；(2) `LayoutBuilder` 內 `widget.zoom.lastKnownCenter = center`
   是刻意的**非通知性**欄位寫入，改成經由 `setState`/`notifyListeners` 會讓 `LayoutBuilder`
   在自己的 builder 裡觸發重建，形成無限迴圈。
-- **對應任務**：Task 9（D3/D4，`docs/logs/2026-08-24/Task_refactor_T9_handoff.md`）。
+- **陷阱三（計畫草稿與實際程式碼的兩處落差，已用程式碼證據收斂）**：D3 落地時發現計畫文件的 Step 9.3/9.8 程式碼草稿與既有程式碼有兩處對不上，均以「保留舊行為」收斂，不是照抄草稿：(1) `HalcyonTokens` 欄位數——計畫草稿只給 6 個欄位，但既有私有 `_Tokens` 類別實際有 **12** 個（`pane`/`dialog`/`surface`/`input`/`border`/`borderSoft`/`text`/`textDim`/`textFaint`/`accent`/`success`/`danger`），其中數個無 1:1 對應；`HalcyonTokens` 依計畫本身「有欄位無對應就新增，不要丟色」的指示，保留全部 12 個欄位，數值逐字抄自 `_Tokens.dark`/`_Tokens.light`。(2) `_buildZoomableViewer` 的 provider 選擇——計畫草稿只傳 `state.displayProvider`，但 `displayProvider` 對「byte-backed 項目且 tier-2 尚未就緒」的情況恆為 `null`（`currentDecodedProvider` 只對 pixel-decoded 項目非 null），照字面實作會讓這個常見的導覽中間幀（tier-2 debounce 250ms 內）畫面直接不渲染，違反凍結的 tier-1/tier-2 契約。實際保留 `pixelProvider ?? tierOneProviderFor(bytes!, width: targetWidth, height: targetHeight)` 作為 fallback，與舊版 4-分支邏輯逐案證明等價（pixel/tier-2 就緒、pixel/未就緒、byte/tier-2 就緒、byte/未就緒四種情況皆對應）。
+- **對應任務**：Task 9（D3/D4，`docs/logs/2026-08-24/Task_refactor_T9_handoff.md` §2a/§2b）。
 
-### G-016｜編碼器的體積優劣取決於內容類型；合成 fixture 會把結論反過來
-- **⚠️ 先讀這句**：側欄改用 JPEG q80 的體積優勢是**照片內容的性質**，不是編碼器的普遍性質。**在低熵合成影像（純色塊、條紋、漸層、測試圖卡）上這個結論會反轉，PNG 會贏。** 若你正拿程式產生的測試圖案量這條路徑並看到 JPEG 比較大，那是預期行為，**不是** codec 選錯，也不是實作退步——不要據此改回 PNG，請改用 `local_data/photo_samples/` 的真實照片重量。
-- **嚴重程度**：中（會讓一個正確的改動看起來像退步，或讓一個測試假裝證明了它沒證明的事）
-- **背景**：M7 Task 5 把側欄快取的重新編碼從 PNG 換成 JPEG q80（`sidebar_thumbnail_codec.dart`）。原本的 PNG 選擇不是設計偏好，而是 `dart:ui` 只能編 PNG；`image` 套件在 P3.6（`dd1edcb`）落地後前提消失，M7 兌現這筆 M6 parking-lot。
-- **問題**：既有測試的 fixture `bigPng()` 是 10px 寬的純色直條紋。改成 JPEG 後 `expect(out.length, lessThan(src.length))` 立刻失敗——PNG 5,739 B vs JPEG 14,634 B，**PNG 反而小 2.55 倍**。乍看像是新實作退步了。
-- **根因**：這不是實作缺陷，是 fixture 的內容類型剛好站在 PNG 最有利、JPEG 最不利的一端。大面積平坦色塊是 filter+deflate 的理想輸入；銳利條紋邊緣是 DCT 的最壞輸入（高頻能量）。真實照片內容則相反：8 張真實 DNG 樣本上 PNG/JPEG 比值為 4.15x–6.38x，整體 5.06x（`scripts/tmp/m7-t5/size-comparison.md`）。
-- **解法**：測試裡**不**斷言體積關係（TC-173 明確寫下不斷言的理由），體積主張改由真實樣本 artifact 承擔；測試只驗它該驗的——SOI marker、decode-back 成功、長邊 <= 200。
-- **教訓**：(a) 任何「換編碼器／換壓縮參數」的改動，體積主張必須在**代表真實負載的內容**上量，合成 fixture 只能驗正確性不能驗效益；(b) 遇到合成資料與真實資料結論相反時，先問「這個 fixture 的內容類型是否剛好偏袒某一方」，不要急著改實作，也不要把斷言調鬆到剛好通過——後者是 `judgment-rubrics.md` R4 第 3 點「繞過驗證」的變形；(c) 反面證據要留在 artifact 裡，不是刪掉。
-- **對應任務**：M7 Task 5。Artifacts：`scripts/tmp/m7-t5/size-comparison.md`（含反例欄位）、`scripts/tmp/m7-t5/red.log`。
+### G-021｜`flutter test --timeout` 本身也是假時鐘（fake-async）計時器，卡死的 zone 不會讓它觸發
 
-### G-010｜View 層直接寫入 AppState 欄位（反向資料流，✅ 已解決，2026-08-19 Task 19）
-- **嚴重程度**：中
-- **現況**：`main_detail_view.dart` 有至少 5 處在 widget build/callback 中直接對 `AppState` 的 public 欄位做 setter，破壞單向資料流（原記載 4 處，本輪多發現 1 處）：
-  - `main_detail_view.dart:32`：`_animController` listener 每個動畫 tick 寫入 `context.read<AppState>().transformCtrl.value = _zoomAnimation!.value`（本輪新記錄，頻率高於下列 4 處）
-  - `main_detail_view.dart:99`：`context.read<AppState>().shouldAnimateZoom = false`（view 直接關閉 provider 旗標）
-  - `main_detail_view.dart:220`：`context.read<AppState>().lastKnownCenter = center`（`LayoutBuilder` 每次 rebuild 寫入）
-  - `main_detail_view.dart:282`：`context.read<AppState>().pointerPosition = event.localPosition`（`MouseRegion.onHover`）
-  - `main_detail_view.dart:285`：`context.read<AppState>().pointerPosition = null`（`MouseRegion.onExit`）
-- **根因**：`app_state.dart:113-119` 的 zoom/animation 欄位（`transformCtrl`、`pointerPosition`、`lastKnownCenter`、`targetMatrix`、`shouldAnimateZoom`）屬於純 View 層狀態，不應放在 business provider；`stepZoomIn()`/`stepZoomOut()`/`_zoomBy()`（`app_state.dart:298-334`）目前仍是 `main_screen.dart:99,102` 鍵盤縮放（`↑`/`↓`）的唯一入口。
-- **解法（已實施，方案 B）**：新增 `lib/views/zoom_controller.dart`（`ZoomController extends ChangeNotifier`），持有全部五個欄位與 `stepZoomIn/stepZoomOut/_zoomBy`，並自行建立/釋放 `transformCtrl`。由 `_MainScreenState` 建立與 dispose（**不可**由 `MainDetailView` 持有，否則照片切換時縮放狀態會遺失），以參數注入 `MainDetailView(zoom: _zoom)`。鍵盤 `↑`/`↓` 變成對 controller 的普通方法呼叫，不再經過 provider。
-- **狀態**：✅ 已解決（Task 19）。`AppState` 已無任何 zoom 欄位/方法；`main_detail_view.dart` 僅剩 `openFolder()` 與 `setViewportSize()` 兩處與 zoom 無關的 `AppState` 呼叫。
-
-
-### G-009｜JDK 25 需要 Gradle 9.1+，且 Flutter Gradle Plugin 暫需 AGP 9 相容模式
-- **嚴重程度**：中
-- **問題**：舊 toolchain（Gradle 8.12 / AGP 8.9.1 / Kotlin 2.1.0）在 Temurin JDK 25 下會於 Gradle Kotlin DSL 階段失敗，錯誤為 `IllegalArgumentException: 25.0.2`。
-- **解法**：升級至 Gradle 9.1.0、AGP 9.0.1、Kotlin 2.3.21；因 Flutter 3.35.1 的 Gradle plugin 在 AGP 9 new DSL 下會 NPE，目前使用 AGP 9 相容模式。
-- **狀態**：已修復（Task 14）。`./scripts/build.sh android` 使用 JDK 25 成功。
-
-### G-017 文件裡的原生橋接宣稱必須用 grep 對照 AppDelegate.swift
-`CLAUDE.md` 有整整一個里程碑的時間在描述一個已被刪除的 `halcyon/thumbnail`
-channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 行檔案第
-329 行的行號。刪原生程式碼的同一個 commit 必須同步改文件；審查文件對原生層的
-宣稱時，判準是 `grep -n "MethodChannel" macos/Runner/AppDelegate.swift`，不是讀
-起來合不合理。
-
-### G-018 一個 Set 不可以同時裝兩種 key 形狀
-`image_preload_controller.dart` 的 `_loadingKeys` 曾經同時裝裸 id 與
-`thumb_$id`，於是縮圖 sweep 進行中時，detail 路徑的 `_loadingKeys.contains(id)`
-永遠答錯（正在跑的是縮圖，答案卻說「detail 也在載入」）。M7 Task 3 拆成
-`_loadingKeys`（detail，裸 id）與 `_thumbLoadingKeys`（sidebar，裸 id），`reset()`
-兩個都要清。TC-218 驗證此行為。
+- **嚴重程度**：中（會誤導成「這條路徑本來就跑很久」，浪費時間去等一個永遠不會來的逾時訊息）
+- **問題**：`flutter test --timeout <N>` 對 `testWidgets` 設下的逾時，其計時器排程與被測 body 共用同一個 flutter_test fake-async zone。若 body 內直接 `await` 一段真實 `dart:io` future（TC-230：目錄掃描/開檔/寫檔），該 future 卡在 fake zone 的微任務佇列裡不會被自動 flush；此時逾時 Timer 也一樣是這個 zone 排程出來的假時鐘，永遠不會被觸發——測試不是「逾時後回報卡住」，而是**近乎零 CPU、無限期掛住，`--timeout` 形同虛設，不會印出任何堆疊或逾時訊息**。
+- **識讀方式**：加了 `--timeout Ns` 之後仍然不吐堆疊、不回報逾時、CPU 沒有起伏——這是「卡死發生在 fake-async zone 內」的訊號，不是逾時參數設太短。
+- **根因驗證**：`scripts/tmp/tc230-ab-io-outside-runasync.log`（單變數 A/B：唯一變數是真實 `dart:io` 呼叫在不在 `tester.runAsync()` 裡面，其餘程式碼相同）；三棒事故完整過程見 `docs/logs/2026-08-24/Task_refactor_T9_handoff.md`（早期誤判為編譯快取損毀，經此 A/B 排除）。
+- **解法**：見 G-020 陷阱一——把真實 I/O 包進 `tester.runAsync(() async { ... })`，讓它跑在真實（非 fake）zone，逾時計時器才管得到它。
+- **與 G-020 的關係**：G-020 陷阱一已記錄同一根因的修法（一句帶過）；本條補記 `--timeout` 這個逾時保護本身為何在此類卡死下完全失效的機制細節，作為獨立可查條目，供之後遇到「加了 `--timeout` 還是卡住」時直接命中關鍵字。
+- **對應任務**：TC-230（`test/main_detail_view_test.dart`），`unit_test.md` 2026-08-24 列。
 
 ---
 
@@ -417,7 +429,7 @@ channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 �
 |----|------|----------|------|
 | TD-001 | SwiftUI 版本狀態持久化 | 已關閉 | Task 7 退役 SwiftUI，不再實作 |
 | TD-002 | Flutter macOS 原生 MethodChannel | 已關閉 | Task 1 / Task 8 已完成 |
-| TD-003 | 側邊欄縮圖尺寸 / 載入優先順序優化 | 中 | 可根據視窗大小動態調整 targetSize |
+| TD-003 | 側邊欄縮圖尺寸 / 載入優先順序優化 | 中 | 可根據視窗大小動態調整縮圖長邊（現行管線見 AD-020：`ImageRequestPurpose` 固定 `sidebarThumbnail`=200px/`preview`=2800px/`export`=2048px，非原生 `targetSize` 參數） |
 | TD-004 | 刪除操作移到垃圾桶而非永久刪除 | 低（自動化已驗證，實機待補） | Task 12 已改為 `TrashService` + macOS `FileManager.trashItem`，Task 25 在此之上新增資料夾內 `.trash` 回收模式；`flutter test` 已通過對應案例，`flutter analyze` / `flutter build macos` 與實機 Trash / `.trash` 資料夾視覺覆核仍待使用者補做 |
 | TD-005 | `widget_test.dart` 為預設範本，未反映實際 App | 已關閉 | Task 3 已替換為有意義的 smoke test |
 | TD-006 | JPG 主圖與縮圖共用 native API 需明確尺寸契約 | 已關閉 | Task 6 / Task 8 修正 macOS 分流 |
@@ -440,7 +452,7 @@ channel、一個不存在的 `NativeThumbnailService`，以及一個指向 112 �
 
 1. **JSON 狀態檔**：放在照片目錄根目錄，命名為 `.halcyon_status.json`，以 `.` 開頭確保隱藏。
 2. **側邊欄寬度**：預設 270px，可拖曳調整（最小 180px，最大 600px）。
-3. **縮圖目標尺寸**：側邊欄 200px，主圖 10000px（Full Resolution 預覽）；native 端需依 targetSize 分流避免主圖退化為縮圖。
+3. **縮圖/影像目標尺寸**（現行，M6 後為純 Dart 管線，見 AD-020）：`ImageRequestPurpose` 決定請求長邊——`sidebarThumbnail` 200px、`preview` 2800px、`export` 2048px；不再有原生端 `targetSize` 分流（原 `NativeThumbnailService` MethodChannel 已隨 M6 移除，見 G-004/G-008 的歷史背景）。
 4. **鍵盤快捷鍵**（Flutter）：
    - `←` / `→`：上一張 / 下一張
    - `↑` / `↓`：放大 / 縮小
