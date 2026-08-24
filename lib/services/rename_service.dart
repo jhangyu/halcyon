@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/photo_item.dart';
+import 'photo_file_actions.dart';
 import 'rename_rule.dart';
 
 /// One file to move. Both paths are absolute.
@@ -96,8 +97,8 @@ List<RenamePlan> planRenames({
       if (existingNames.contains('._$name')) {
         moves.add(
           RenameMove(
-            from: p.join(file.parent.path, '._$name'),
-            to: p.join(file.parent.path, '._$candidate$ext'),
+            from: sidecarPathFor(file.path),
+            to: sidecarPathFor(p.join(file.parent.path, '$candidate$ext')),
           ),
         );
       }

@@ -8,6 +8,13 @@ import 'trash_service.dart';
 typedef TrashFile = Future<void> Function(File file);
 typedef MoveFile = Future<void> Function(File file, String newPath);
 
+/// `/dir/IMG_0001.JPG` -> `/dir/._IMG_0001.JPG`.
+///
+/// The ONE place the AppleDouble sidecar prefix is built. It used to be
+/// inlined at six call sites across this file and `rename_service.dart`.
+String sidecarPathFor(String filePath) =>
+    p.join(p.dirname(filePath), '._${p.basename(filePath)}');
+
 /// Result of a recycle batch. [failures] entries are
 /// `"<filename>: <error message>"` and MUST be surfaced to the user — a
 /// silently failed delete looks identical to a broken app.
@@ -15,6 +22,16 @@ class RecycleOutcome {
   const RecycleOutcome({required this.movedCount, required this.failures});
 
   final int movedCount;
+  final List<String> failures;
+}
+
+/// Result of a copy/move/delete batch. Mirrors [RecycleOutcome]: a batch NEVER
+/// aborts on the first error, and [failures] entries are
+/// `"<filename>: <error message>"` and MUST be surfaced to the user.
+class BatchFileOutcome {
+  const BatchFileOutcome({required this.processedCount, required this.failures});
+
+  final int processedCount;
   final List<String> failures;
 }
 
@@ -30,59 +47,68 @@ class PhotoFileActions {
     await file.rename(newPath);
   }
 
-  Future<void> processStarred(
+  Future<BatchFileOutcome> processStarred(
     List<PhotoItem> items,
     Directory destination, {
     required bool move,
     required bool overwriteExisting,
   }) async {
-    if (!await destination.exists()) return;
+    if (!await destination.exists()) {
+      return const BatchFileOutcome(processedCount: 0, failures: []);
+    }
 
-    final starredItems = items
-        .where((item) => item.status == PhotoStatus.starred)
-        .toList();
+    var processed = 0;
+    final failures = <String>[];
 
-    for (final item in starredItems) {
+    for (final item in items) {
+      if (item.status != PhotoStatus.starred) continue;
       for (final file in item.files) {
         final newPath = p.join(destination.path, p.basename(file.path));
-        final destSidecarPath = p.join(
-          destination.path,
-          '._${p.basename(file.path)}',
-        );
-        final srcSidecarPath = p.join(
-          file.parent.path,
-          '._${p.basename(file.path)}',
-        );
-
-        if (!overwriteExisting && await File(newPath).exists()) continue;
-
-        if (move) {
-          await file.rename(newPath);
-          await _deleteIfExists(destSidecarPath);
-          await _deleteIfExists(srcSidecarPath);
-        } else {
-          await file.copy(newPath);
-          await _deleteIfExists(destSidecarPath);
+        final destSidecarPath = sidecarPathFor(newPath);
+        final srcSidecarPath = sidecarPathFor(file.path);
+        try {
+          if (!overwriteExisting && await File(newPath).exists()) continue;
+          if (move) {
+            await file.rename(newPath);
+            await _deleteIfExists(destSidecarPath);
+            await _deleteIfExists(srcSidecarPath);
+          } else {
+            await file.copy(newPath);
+            await _deleteIfExists(destSidecarPath);
+          }
+          processed++;
+        } catch (e) {
+          failures.add('${p.basename(file.path)}: $e');
         }
       }
     }
+
+    return BatchFileOutcome(processedCount: processed, failures: failures);
   }
 
-  Future<void> deleteTrashed(List<PhotoItem> items) async {
-    final trashedItems = items
-        .where((item) => item.status == PhotoStatus.trashed)
-        .toList();
+  Future<BatchFileOutcome> deleteTrashed(List<PhotoItem> items) async {
+    var processed = 0;
+    final failures = <String>[];
 
-    for (final item in trashedItems) {
+    for (final item in items) {
+      if (item.status != PhotoStatus.trashed) continue;
       for (final file in item.files) {
-        final srcSidecarPath = p.join(
-          file.parent.path,
-          '._${p.basename(file.path)}',
-        );
-        await _trashFile(file);
-        await _trashIfExists(srcSidecarPath);
+        try {
+          await _trashFile(file);
+          processed++;
+        } catch (e) {
+          failures.add('${p.basename(file.path)}: $e');
+        }
+        final sidecarPath = sidecarPathFor(file.path);
+        try {
+          await _trashIfExists(sidecarPath);
+        } catch (e) {
+          failures.add('${p.basename(sidecarPath)}: $e');
+        }
       }
     }
+
+    return BatchFileOutcome(processedCount: processed, failures: failures);
   }
 
   /// Moves every file of each trashed item — plus its `._` AppleDouble
@@ -104,9 +130,7 @@ class PhotoFileActions {
       if (item.status != PhotoStatus.trashed) continue;
 
       for (final file in item.files) {
-        final sidecar = File(
-          p.join(file.parent.path, '._${p.basename(file.path)}'),
-        );
+        final sidecar = File(sidecarPathFor(file.path));
         // The photo always moves; its AppleDouble sidecar only if present.
         final targets = <File>[
           file,

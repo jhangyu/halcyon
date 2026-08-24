@@ -56,17 +56,45 @@ void main() {
         },
       );
 
-      expect(
-        actions.deleteTrashed([
-          PhotoItem(
-            id: 'IMG_0001',
-            files: [photo],
-            status: PhotoStatus.trashed,
-          ),
-        ]),
-        throwsA(isA<FileSystemException>()),
-      );
+      final outcome = await actions.deleteTrashed([
+        PhotoItem(
+          id: 'IMG_0001',
+          files: [photo],
+          status: PhotoStatus.trashed,
+        ),
+      ]);
+
+      expect(outcome.processedCount, 0);
+      expect(outcome.failures, hasLength(1));
       expect(await photo.exists(), isTrue);
+    });
+
+    test('TC-207 deleteTrashed continues past a failing trash call', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_dt_');
+      addTearDown(() => dir.delete(recursive: true));
+
+      final bad = await _touch(dir, 'IMG_0001.jpg');
+      final good = await _touch(dir, 'IMG_0002.jpg');
+
+      final actions = PhotoFileActions(
+        trashFile: (file) async {
+          if (p.basename(file.path) == 'IMG_0001.jpg') {
+            throw const FileSystemException('trash unavailable');
+          }
+          await file.delete();
+        },
+      );
+
+      final outcome = await actions.deleteTrashed([
+        PhotoItem(id: 'IMG_0001', files: [bad], status: PhotoStatus.trashed),
+        PhotoItem(id: 'IMG_0002', files: [good], status: PhotoStatus.trashed),
+      ]);
+
+      expect(outcome.processedCount, 1);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.failures.single, startsWith('IMG_0001.jpg: '));
+      expect(await bad.exists(), isTrue);
+      expect(await good.exists(), isFalse);
     });
   });
 
@@ -313,6 +341,34 @@ void main() {
 
       expect(await photo.exists(), isTrue);
     });
+
+    test('TC-206 processStarred continues past a failing file', () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_ps_src_');
+      final dest = await Directory.systemTemp.createTemp('halcyon_ps_dest_');
+      addTearDown(() => src.delete(recursive: true));
+      addTearDown(() => dest.delete(recursive: true));
+
+      final bad = await _touch(src, 'IMG_0001.jpg');
+      final good = await _touch(src, 'IMG_0002.jpg');
+      // Make the first destination path unwritable by putting a DIRECTORY there.
+      await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
+
+      final actions = PhotoFileActions();
+      final outcome = await actions.processStarred(
+        [
+          PhotoItem(id: 'IMG_0001', files: [bad], status: PhotoStatus.starred),
+          PhotoItem(id: 'IMG_0002', files: [good], status: PhotoStatus.starred),
+        ],
+        dest,
+        move: false,
+        overwriteExisting: true,
+      );
+
+      expect(outcome.processedCount, 1);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.failures.single, startsWith('IMG_0001.jpg: '));
+      expect(await File(p.join(dest.path, 'IMG_0002.jpg')).exists(), isTrue);
+    });
   });
 
   group('PhotoFileActions.recycleTrashed', () {
@@ -405,6 +461,13 @@ void main() {
       expect(await bad.exists(), isTrue);
       expect(await good.exists(), isFalse);
     });
+  });
+
+  test('TC-212 sidecarPathFor prefixes the basename only', () {
+    expect(
+      sidecarPathFor(p.join('/Volumes/CARD/DCIM', 'IMG_0001.JPG')),
+      p.join('/Volumes/CARD/DCIM', '._IMG_0001.JPG'),
+    );
   });
 }
 
