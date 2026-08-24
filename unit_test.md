@@ -1185,6 +1185,18 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-213~217｜匯出／側欄縮圖／dart:ui EXIF orientation 統一，兩處運算移到 worker isolate（Tech-Debt Task 2）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試 ID** | TC-213（`exifTransformFor` 涵蓋全部 8 個 EXIF 值，`test/exif_orientation_test.dart`；含 TC-213b 未知值退化為 identity）／TC-214（A7：一個 `offsetInBytes` 非零的 `Uint8List` view 匯出結果與零 offset 版本逐位元組相同，`test/thumbnail_export_service_test.dart`；壞掉時：舊的 `img.Image.fromBytes` 呼叫沒帶 `bytesOffset`/`order`，FFI 回傳的 view 會被從 buffer 起點讀錯位置與錯誤 channel 順序）／TC-215（`rgba.length` 與 `width*height*4` 不符時 `exportJpegForTest` 回傳 `null`，不組出錯位影像）／TC-216（`bakeExifOnDecoded` 對全部 8 個方向值與共用表 `exifTransformFor` 一致，`test/thumbnail_export_service_test.dart`）／TC-217（`sidebarCacheBytes` 移到 worker isolate 後仍回傳可解碼 JPEG，`test/sidebar_thumbnail_codec_test.dart`；isolate 搬移前先綠燈留證，搬移後紅燈才有意義） |
+| **測試類型** | 單元測試（`test/exif_orientation_test.dart`、`test/thumbnail_export_service_test.dart`、`test/sidebar_thumbnail_codec_test.dart`，無 platform channel） |
+| **背景** | A7：`thumbnail_export_service.dart` 的 RAW-decode 分支直接把 `decoded.rgba.buffer` 丟給 `img.Image.fromBytes`，沒有 `bytesOffset`/`order`，FFI 解碼器可能回傳非零 offset 的 view；C4：`exportBytesFor` 的 `2048` 與 codec 的 `longEdge = 200` 是與 `ImageRequestPurpose` 重複的字面量；EXIF orientation 的 8-case 對照表在 `package:image` 側與 `dart:ui` 側各自手寫一份，是漂移風險；B1/B2：匯出與側欄縮圖各自的 decode/resize/encode 是 UI isolate 上的同步 CPU 工作。詳見 memory.md AD-024、AD-025 |
+| **預期結果** | 如上逐條；凍結的 `NativeImageResult` 三變體與 tier-1/tier-2 provider identity 不受影響（isolate 搬移是 CPU 位置變更，不是介面變更）；`PhotoPayloadCache._enforceBudget`、`sidebarCacheBytes` 的 `reencodeThreshold` 直通規則與 `catch (_) { return encoded; }` fallback 皆未變 |
+| **狀態** | ✅ 已通過。`test/thumbnail_export_service_test.dart` + `test/sidebar_thumbnail_codec_test.dart` + `test/decoded_rgba_image_provider_test.dart` + `test/exif_orientation_test.dart` 合計 52 個測試 `All tests passed!`，RC=0 自捕；`flutter analyze` 對本任務八個檔案 `No issues found!`。TC-213~216 紅→綠留證：修補前分別是 `No such file or directory`（`exif_orientation.dart` 未建立）與 `Undefined name 'exportJpegForTest'` 編譯錯誤；TC-217 在 isolate 搬移前先確認綠燈（characterisation test）。C4 的 `ImageRequestPurpose.export.targetSize`/`.sidebarThumbnail.targetSize` 在 `const` 參數預設值位置編譯失敗（enum 欄位存取非編譯期常數），改用 `final` 區域變數（匯出）與字面量 + 註解（側欄兩個函式簽章）——採用了計畫載明的替代方案 |
+
+---
+
 ### TC-218~220｜Preload controller in-flight key 分離、retentionWindowIds 參數化（Tech-Debt Task 3）
 
 | 欄位 | 內容 |

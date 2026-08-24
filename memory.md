@@ -212,6 +212,23 @@ title: "Halcyon — 全域知識庫與避坑指南 (Memory)"
 本體未動）；`test/photo_payload_cache_test.dart` 的 TC-061 原本用 `operator []`
 示範 LRU 行為，已改寫為示範 FIFO（讀取不再保護條目不被驅逐）。
 
+### AD-024｜EXIF Orientation 只有一張表
+`exif_orientation.dart` 的 `exifTransformFor` 是全 codebase 唯一的 8 case 對照表；
+`package:image` 側（`thumbnail_export_service.dart` 的 `bakeExifOnDecoded`）與
+`dart:ui` 側（`decoded_rgba_image_provider.dart` 的 `_ExifTransform.forOrientation`）
+都只做「把 `(quarterTurnsCw, mirrored)` 翻譯成該函式庫的操作」。順序固定為先旋
+轉、後水平鏡射；改順序等同改語意。這修掉了 A7：舊的 `img.Image.fromBytes` 呼叫
+沒帶 `bytesOffset`/`order`，FFI 解碼器回傳的 view（非零 `offsetInBytes`）會被從
+buffer 起點讀錯位置——`imageFromDecodedRgba` 現在統一補上這兩個參數，並在
+`decoded.rgba.length` 與 `width*height*4` 不符時回傳 `null` 而非組出錯位影像。
+
+### AD-025｜匯出與側欄縮圖的 package:image 運算跑在 worker isolate
+`Isolate.run` 只能捕捉可傳送值：路徑、`Uint8List`、`int`、`bool`。RAW FFI 解碼
+與 `package:exif` 讀檔留在呼叫端 isolate（前者是 FFI，後者要 mutate 不可傳送的
+`img.Image`）。匯出路徑因此在 isolate 回來後才重新掛 EXIF、re-encode 一次；側
+欄縮圖的 JPEG encode 整段搬進 `Isolate.run`。凍結的 tier-1/tier-2 provider
+identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，不是介面變更。
+
 ---
 
 ## Gotchas（踩坑紀錄）

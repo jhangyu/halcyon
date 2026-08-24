@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -24,7 +25,7 @@ import 'dng_decode_contract.dart';
 /// carry alpha, which is likewise fine for photographic sources.
 Future<Uint8List> sidebarCacheBytes(
   Uint8List encoded, {
-  int longEdge = 200,
+  int longEdge = 200, // = ImageRequestPurpose.sidebarThumbnail.targetSize
   int reencodeThreshold = 512 * 1024,
   int jpegQuality = 80,
 }) async {
@@ -71,7 +72,7 @@ Future<Uint8List> sidebarCacheBytes(
 Future<Uint8List> jpegFromOrientedPixels(
   DecodedRgba decoded, {
   required int exifOrientation,
-  int longEdge = 200,
+  int longEdge = 200, // = ImageRequestPurpose.sidebarThumbnail.targetSize
   int jpegQuality = 80,
 }) async {
   final payload = await decodedRgbaToPixelPayload(
@@ -87,23 +88,29 @@ Future<Uint8List> jpegFromOrientedPixels(
   );
 }
 
-/// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it. `numChannels: 4`
-/// + [img.ChannelOrder.rgba] match `dart:ui`'s `rawRgba` byte order exactly,
-/// so no channel shuffle happens here; the encoder drops alpha, which JPEG
-/// cannot represent.
-Uint8List _encodeJpeg(
+/// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it on a worker
+/// isolate. `numChannels: 4` + [img.ChannelOrder.rgba] match `dart:ui`'s
+/// `rawRgba` byte order exactly, so no channel shuffle happens here; the
+/// encoder drops alpha, which JPEG cannot represent.
+///
+/// `Isolate.run` because a 200px q80 encode is pure CPU on the UI isolate
+/// otherwise, once per sidebar row. Only sendable values cross the boundary:
+/// a `Uint8List` and three ints.
+Future<Uint8List> _encodeJpeg(
   Uint8List rgba, {
   required int width,
   required int height,
   required int quality,
 }) {
-  final image = img.Image.fromBytes(
-    width: width,
-    height: height,
-    bytes: rgba.buffer,
-    bytesOffset: rgba.offsetInBytes,
-    numChannels: 4,
-    order: img.ChannelOrder.rgba,
-  );
-  return img.encodeJpg(image, quality: quality);
+  return Isolate.run(() {
+    final image = img.Image.fromBytes(
+      width: width,
+      height: height,
+      bytes: rgba.buffer,
+      bytesOffset: rgba.offsetInBytes,
+      numChannels: 4,
+      order: img.ChannelOrder.rgba,
+    );
+    return Uint8List.fromList(img.encodeJpg(image, quality: quality));
+  });
 }

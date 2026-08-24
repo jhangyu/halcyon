@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/sidebar_thumbnail_codec.dart';
@@ -164,5 +165,36 @@ void main() {
       jpegQuality: 95,
     );
     expect(low.length, lessThan(high.length));
+  });
+
+  test('TC-217 sidebarCacheBytes still returns decodable JPEG', () async {
+    // A 900x600 PNG is over the 512 KiB passthrough threshold once raw, so
+    // build a large encoded input that forces the decode/re-encode branch.
+    final big = img.Image(width: 900, height: 600, numChannels: 4);
+    // Pseudo-random per-pixel noise: PNG's filter+deflate cannot compress
+    // this away the way flat/striped content would, so the encoded size
+    // reliably clears the 512 KiB passthrough threshold.
+    var seed = 12345;
+    int nextByte() {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      // Low-order bits of a linear congruential generator cycle with a much
+      // shorter period than the generator itself (classic LCG flaw) -- use
+      // the high bits instead, or the "noise" compresses like a repeating
+      // pattern and never clears the threshold.
+      return (seed >> 16) & 0xff;
+    }
+
+    for (final pixel in big) {
+      pixel.setRgba(nextByte(), nextByte(), nextByte(), 255);
+    }
+    final encoded = Uint8List.fromList(img.encodePng(big));
+    expect(encoded.length, greaterThan(512 * 1024));
+
+    final out = await sidebarCacheBytes(encoded);
+
+    expect(out.length, lessThan(encoded.length));
+    final decoded = img.decodeJpg(out);
+    expect(decoded, isNotNull);
+    expect(decoded!.width <= 200 && decoded.height <= 200, isTrue);
   });
 }

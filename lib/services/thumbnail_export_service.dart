@@ -1,9 +1,10 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:exif/exif.dart' as pkg_exif;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:image/image.dart' as img;
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/photo_item.dart';
@@ -55,49 +56,89 @@ class ThumbnailExportService {
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
-    img.Image? frame;
+
+    Uint8List? encodedSource;
+    Uint8List? rgba;
+    var rgbaWidth = 0;
+    var rgbaHeight = 0;
+    var orientation = kDefaultExifOrientation;
+
     if (result is NativeImageBytes) {
-      frame = img.decodeImage(result.bytes);
-      // `image`'s own JPEG decoder already physically bakes EXIF orientation
-      // into pixel layout at decode time and clears the Orientation tag
-      // before this ever runs (verified against image-4.9.2's
-      // bake_orientation.dart early-return path) -- this call is a no-op
-      // safeguard for that case, and the real rotation for any other decoded
-      // format that still carries an Orientation tag.
-      if (frame != null) frame = img.bakeOrientation(frame);
+      encodedSource = result.bytes;
     } else if (result is NativeImageNeedsRawDecode && decoder != null) {
       final decoded = await decoder(path);
-      final wrapped = imageFromDecodedRgba(decoded);
-      if (wrapped == null) return null;
-      // FFI output is unrotated; bake from the signal's orientation.
-      frame = bakeExifOnDecoded(wrapped, result.exifOrientation);
+      if (decoded.rgba.length != decoded.width * decoded.height * 4) {
+        return null;
+      }
+      rgba = decoded.rgba;
+      rgbaWidth = decoded.width;
+      rgbaHeight = decoded.height;
+      orientation = result.exifOrientation;
+    } else {
+      return null;
     }
-    if (frame == null) return null;
-    // Re-attach EXIF read from the ORIGINAL source file (M6 P3 review P-14
-    // ruling): the decoded bytes above never carry it -- an embedded-preview
-    // JPEG stream inside a DNG has no APP1 block of its own, and the FFI RAW
-    // decode output is documented as carrying no EXIF at all. This mirrors
-    // (core tags, not a byte-for-byte block copy) what the deleted native
-    // export branch did by copying `CGImageSourceCopyPropertiesAtIndex` on
-    // the source file. Orientation is always forced to 1: pixels are already
-    // rotated above.
-    await _attachSourceExif(frame, path);
-    frame.exif.imageIfd['Orientation'] = 1;
-    // img.copyResize does NOT propagate source.exif onto the resized output
-    // (verified against image-4.9.2's copy_resize.dart -- it only reads
-    // src.exif for its own orientation-aware sizing math), so the metadata
-    // set above must be re-attached to the resized frame explicitly.
-    final exif = frame.exif;
-    if (frame.width > 2048 || frame.height > 2048) {
-      frame = img.copyResize(
-        frame,
-        width: frame.width >= frame.height ? 2048 : null,
-        height: frame.height > frame.width ? 2048 : null,
-        interpolation: img.Interpolation.linear,
-      );
-      frame.exif = exif;
-    }
-    return Uint8List.fromList(img.encodeJpg(frame, quality: 90));
+
+    final transform = exifTransformFor(orientation);
+    final maxEdge = ImageRequestPurpose.export.targetSize;
+
+    // Everything below is pure CPU on `package:image`, so it runs on a worker
+    // isolate (the pattern `exif_metadata_service.dart:63-70` already uses).
+    // Only sendable values are captured: two nullable Uint8Lists, four ints
+    // and a bool.
+    final quarterTurnsCw = transform.quarterTurnsCw;
+    final mirrored = transform.mirrored;
+    final jpeg = await Isolate.run<Uint8List?>(() {
+      img.Image? frame;
+      if (encodedSource != null) {
+        frame = img.decodeImage(encodedSource);
+        // `image`'s own JPEG decoder already physically bakes EXIF
+        // orientation into pixel layout at decode time and clears the
+        // Orientation tag before this ever runs (verified against
+        // image-4.9.2's bake_orientation.dart early-return path) -- this
+        // call is a no-op safeguard for that case, and the real rotation
+        // for any other decoded format that still carries an Orientation
+        // tag.
+        if (frame != null) frame = img.bakeOrientation(frame);
+      } else {
+        frame = img.Image.fromBytes(
+          width: rgbaWidth,
+          height: rgbaHeight,
+          bytes: rgba!.buffer,
+          bytesOffset: rgba.offsetInBytes,
+          numChannels: 4,
+          order: img.ChannelOrder.rgba,
+        );
+        // FFI output is unrotated; bake from the signal's orientation.
+        if (quarterTurnsCw != 0) {
+          frame = img.copyRotate(frame, angle: quarterTurnsCw * 90);
+        }
+        if (mirrored) frame = img.flipHorizontal(frame);
+      }
+      if (frame == null) return null;
+      if (frame.width > maxEdge || frame.height > maxEdge) {
+        frame = img.copyResize(
+          frame,
+          width: frame.width >= frame.height ? maxEdge : null,
+          height: frame.height > frame.width ? maxEdge : null,
+          interpolation: img.Interpolation.linear,
+        );
+      }
+      return Uint8List.fromList(img.encodeJpg(frame, quality: 90));
+    });
+    if (jpeg == null) return null;
+
+    // EXIF is re-attached AFTER the isolate hop: `_attachSourceExif` reads
+    // the ORIGINAL file with `package:exif` and mutates an img.Image, and an
+    // img.Image is not sendable (M6 P3 review P-14 ruling: core tags, not a
+    // byte-for-byte block copy, mirroring what the deleted native export
+    // branch did by copying `CGImageSourceCopyPropertiesAtIndex` on the
+    // source file). Decode the small (<=2048px) JPEG back, attach, re-encode.
+    // Orientation is forced to 1: pixels are already rotated.
+    final resized = img.decodeJpg(jpeg);
+    if (resized == null) return jpeg;
+    await _attachSourceExif(resized, path);
+    resized.exif.imageIfd['Orientation'] = 1;
+    return Uint8List.fromList(img.encodeJpg(resized, quality: 90));
   }
 
   /// Reads EXIF from [sourcePath] via `package:exif` (the same reader
