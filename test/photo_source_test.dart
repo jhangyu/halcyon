@@ -5,17 +5,20 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/native_thumbnail_service.dart';
+import 'package:halcyon_flutter/services/photo_source.dart';
 
 /// M2: source-selection was moved from an inline check in
 /// `image_preload_controller.dart` into `photo_source.dart`, behind the
-/// existing `ImageBytesLoader` seam. Behavior-preserving, so these tests
-/// deliberately do NOT import `photo_source.dart` or assert on its
-/// internals (design-doc round-1 handoff warning: an observer that moves
-/// with the behavior is a false green). Instead they drive the CONTROLLER
-/// through the same public API/fakes the pre-existing suite uses, and
-/// assert on what the controller hands back — i.e. they observe from
-/// outside the seam, exactly like the 19 pre-existing raw assertions they
-/// sit next to.
+/// existing `ImageBytesLoader` seam. Most of these tests deliberately do NOT
+/// import `photo_source.dart` or assert on its internals (design-doc
+/// round-1 handoff warning: an observer that moves with the behavior is a
+/// false green); they drive the CONTROLLER through the same public
+/// API/fakes the pre-existing suite uses, and assert on what the controller
+/// hands back — i.e. they observe from outside the seam. M6 P2.2 (F-08)
+/// adds one direct `PhotoSource.fallbackAfterNativeFailure` case, matching
+/// the sibling probe test files (photo_source_probe_test.dart et al.) that
+/// already import photo_source.dart directly for a static method's own
+/// contract rather than its wiring.
 ///
 /// Real samples only, per repo convention (see dng_preview_extractor_test.dart):
 /// local_data/photo_samples/DNG/.
@@ -125,19 +128,30 @@ void main() {
     },
   );
 
+  // Rewritten under C-4: this pair used to assert the pre-M6 `.dng`-only
+  // extension gate held through the seam; matrix ruling F-08 deliberately
+  // reverses that (the walker keys on the TIFF magic, never the extension),
+  // so the old single assertion is inverted into a mutation-killer for the
+  // NEW behaviour, keeping the fixture idea that made it a killer assertion
+  // in the first place.
   test(
-    'a non-.dng file that fails the native preview channel does not '
-    'attempt embedded-JPEG recovery (extension gate holds through the seam)',
+    'a real DNG saved under a .jpg extension is recovered through the seam '
+    'once the native preview channel fails (F-08: the walker keys on magic, '
+    'not extension)',
     () async {
-      // Killer assertion: a MUTANT that deletes/bypasses the `.dng`
-      // extension gate in photo_source.dart would happily try to recover
-      // an embedded JPEG from these bytes -- and would SUCCEED, because
-      // this fixture is a real DNG file's raw bytes (which do contain an
+      // Killer assertion (inverted): a MUTANT that reinstates the `.dng`
+      // extension gate in photo_source.dart would fail to recover this --
+      // the fixture is a real DNG file's raw bytes (which do contain an
       // embedded JPEG preview), just saved under a `.jpg` extension. A
-      // fixture pointing at a nonexistent path can't discriminate that:
-      // it fails identically whether the gate holds or not.
+      // fixture pointing at a nonexistent path can't discriminate that: it
+      // fails identically whether the gate holds or not.
       final srcPath = '${sampleDir.path}/$withPreviewSample';
       final dngBytes = await File(srcPath).readAsBytes();
+      final expectedBytes =
+          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+        srcPath,
+      );
+      expect(expectedBytes, isNotNull);
       final tmpDir = await Directory.systemTemp.createTemp(
         'halcyon_photo_source_gate_',
       );
@@ -163,8 +177,72 @@ void main() {
         notifyLoaded: () {},
       );
 
-      expect(controller.imageBytesFor('jpg-1'), isNull);
-      expect(controller.hasFailed('jpg-1'), isTrue);
+      expect(controller.imageBytesFor('jpg-1'), equals(expectedBytes));
+      expect(controller.hasFailed('jpg-1'), isFalse);
+    },
+  );
+
+  test(
+    'non-TIFF garbage saved under a .jpg extension is still a permanent '
+    'miss when the native preview channel fails (proves the magic check, '
+    'not the extension, is what discriminates)',
+    () async {
+      final tmpDir = await Directory.systemTemp.createTemp(
+        'halcyon_photo_source_gate_negative_',
+      );
+      addTearDown(() => tmpDir.delete(recursive: true));
+      final garbageJpgFile = File('${tmpDir.path}/not-an-image.jpg');
+      await garbageJpgFile.writeAsBytes(
+        List<int>.generate(64, (i) => i % 256),
+      );
+
+      final controller = ImagePreloadController(
+        imageLoader: (requestedPath, {required purpose}) async {
+          return const NativeImageFailure(
+            'NULL_RESULT',
+            'simulated native failure',
+          );
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final items = [PhotoItem(id: 'jpg-2', files: [garbageJpgFile])];
+
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: 'jpg-2',
+        notifyLoaded: () {},
+      );
+
+      expect(controller.imageBytesFor('jpg-2'), isNull);
+      expect(controller.hasFailed('jpg-2'), isTrue);
+    },
+  );
+
+  test(
+    'fallbackAfterNativeFailure recovers a non-DNG RAW with an embedded '
+    'preview (extension gate removed)',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('photo_source_f08');
+      addTearDown(() => dir.delete(recursive: true));
+      final samples = Directory('local_data/photo_samples/DNG')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.toLowerCase().endsWith('.dng'));
+      File? withPreview;
+      for (final f in samples) {
+        if (await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+              f.path,
+            ) !=
+            null) {
+          withPreview = f;
+          break;
+        }
+      }
+      expect(withPreview, isNotNull);
+      final asNef = File('${dir.path}/sample.nef');
+      await withPreview!.copy(asNef.path);
+      expect(await PhotoSource.fallbackAfterNativeFailure(asNef.path), isNotNull);
     },
   );
 }

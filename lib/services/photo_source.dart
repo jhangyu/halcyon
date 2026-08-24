@@ -354,15 +354,16 @@ class PhotoSource {
           .cost;
 
   /// Last-resort preview recovery after the native preview channel has already
-  /// failed entirely (`NativeImageFailure`). Only a `.dng` gets a second try,
-  /// via the pure-Dart embedded-JPEG extractor -- additive, and only reachable
-  /// when native extraction already failed, so it never fires on a platform
-  /// where native extraction succeeded (macOS unaffected).
+  /// failed entirely (`NativeImageFailure`), via the pure-Dart embedded-JPEG
+  /// extractor -- additive, and only reachable when native extraction already
+  /// failed, so it never fires on a platform where native extraction
+  /// succeeded (macOS unaffected).
   ///
-  /// Returns the extracted bytes, or null if [path] is not a `.dng` (or
-  /// extraction found nothing).
+  /// Extension gate removed (M6 F-08): the walker keys on the TIFF magic and
+  /// self-rejects anything else, so .arw/.cr2/.nef/.orf/.rw2 embedded
+  /// previews are recoverable on every platform. Non-TIFF input returns
+  /// null exactly as before.
   static Future<Uint8List?> fallbackAfterNativeFailure(String path) async {
-    if (!path.toLowerCase().endsWith('.dng')) return null;
     return DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
   }
 }
