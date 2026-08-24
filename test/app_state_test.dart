@@ -213,6 +213,37 @@ void main() {
       state.previousPhoto();
       expect(state.selectedItemID, 'IMG_0001');
     });
+
+    test('TC-222 currentItem returns null for a selection that is gone',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_cur_gone_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+      await _touch(dir, 'IMG_0002.jpg');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+      state.selectItem('IMG_0001');
+      // Simulate the window where the selection points at a photo the last
+      // scan no longer returned: previously this silently handed back
+      // items.first.
+      state.items.removeWhere((item) => item.id == 'IMG_0001');
+
+      expect(state.currentItem, isNull);
+    });
+
+    test('TC-223 currentItem does not throw on an empty item list', () async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_cur_empty_');
+      addTearDown(() => dir.delete(recursive: true));
+      await _touch(dir, 'IMG_0001.jpg');
+
+      final state = _testState();
+      await state.loadFolder(dir);
+      state.selectItem('IMG_0001');
+      state.items.clear();
+
+      expect(state.currentItem, isNull); // was: StateError from _items.first
+    });
   });
 
   group('AppState.openPhotoAtPath', () {

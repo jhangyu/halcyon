@@ -170,12 +170,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The selected photo, or null when nothing is selected AND when the
+  /// selected id is no longer in [_items].
+  ///
+  /// This used to fall back to `_items.first`, which showed the user a
+  /// different photo than the one their marks were about to be applied to,
+  /// and threw `StateError` outright on an empty folder. Returning null is
+  /// the honest answer; `main_detail_view.dart` already renders a spinner
+  /// for it.
+  ///
+  /// Written as an explicit loop: `package:collection` is not a dependency
+  /// of this project, so `firstWhereOrNull` is unavailable.
   PhotoItem? get currentItem {
-    if (_selectedItemID == null) return null;
-    return _items.firstWhere(
-      (item) => item.id == _selectedItemID,
-      orElse: () => _items.first,
-    );
+    final id = _selectedItemID;
+    if (id == null) return null;
+    for (final item in _items) {
+      if (item.id == id) return item;
+    }
+    return null;
   }
 
   Uint8List? get currentImageBytes =>
