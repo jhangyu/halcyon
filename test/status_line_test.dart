@@ -137,4 +137,26 @@ void main() {
     expect(calls.single.$1, 'xdg-open');
     expect(calls.single.$2, ['/p']); // folder-open only, per ruling
   });
+
+  test('reveal returns null on a successful (exit 0) process run', () async {
+    Future<ProcessResult> fakeOk(String cmd, List<String> args) async =>
+        ProcessResult(1, 0, '', '');
+
+    final result = await revealInFileManager('/p/photo.jpg',
+        os: 'macos', runProcess: fakeOk);
+    expect(result, isNull);
+  });
+
+  test('reveal surfaces a ProcessException (binary missing / spawn failure)',
+      () async {
+    Future<ProcessResult> fakeThrow(String cmd, List<String> args) async {
+      throw const ProcessException('open', ['-R', '/p/photo.jpg'],
+          'No such file or directory');
+    }
+
+    final result = await revealInFileManager('/p/photo.jpg',
+        os: 'macos', runProcess: fakeThrow);
+    expect(result, isNotNull);
+    expect(result, contains('No such file or directory'));
+  });
 }
