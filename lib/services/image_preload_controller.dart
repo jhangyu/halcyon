@@ -20,12 +20,6 @@ import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'sidebar_thumbnail_codec.dart';
 
-typedef ImageBytesLoader =
-    Future<NativeImageResult> Function(
-      String path, {
-      required ImageRequestPurpose purpose,
-    });
-
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
 /// identity and the SAME [width]/[height] — the resulting [ResizeImageKey]
@@ -79,7 +73,7 @@ const int kDefaultPreviewLongEdge = 2800;
 /// invariants I5 and I7).
 class ImagePreloadController {
   ImagePreloadController({
-    required ImageBytesLoader imageLoader,
+    required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     DngSizedDecoder? sidebarRawDecoder,
   }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),

@@ -89,3 +89,17 @@ class NativeImageFailure extends NativeImageResult {
 /// EXIF Orientation value meaning "no transform"; also the fallback used when
 /// the tag is missing or outside the 1..8 range.
 const int kDefaultExifOrientation = 1;
+
+/// The seam through which the image-bytes producer is called.
+///
+/// ONE definition for what used to be three structurally identical typedefs:
+/// `ThumbnailLoader` (app_state.dart), `ImageBytesLoader`
+/// (image_preload_controller.dart) and `NativeImageLoad` (photo_source.dart).
+/// It lives here, in the file that imports nothing but `dart:typed_data`,
+/// which is what resolves the import cycle `photo_source.dart` used to dodge
+/// by re-declaring the type structurally.
+typedef NativeImageLoad =
+    Future<NativeImageResult> Function(
+      String path, {
+      required ImageRequestPurpose purpose,
+    });

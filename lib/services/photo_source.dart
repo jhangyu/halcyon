@@ -69,15 +69,10 @@ typedef SourceOutcome = ({
 /// the decoder already reads, and which must not cost the hot path a walk).
 typedef ProbeResult = ({SourceCost? cost, int? exifOrientation});
 
-/// The seam through which the native (or faked) preview bridge is called.
-/// Written structurally rather than importing `ImagePreloadController`'s
-/// typedef, which would be an import cycle; Dart function types are
-/// structural, so every existing test fake satisfies this unchanged.
-typedef NativeImageLoad =
-    Future<NativeImageResult> Function(
-      String path, {
-      required ImageRequestPurpose purpose,
-    });
+// `NativeImageLoad` is declared in `image_source_types.dart`; it used to be
+// re-declared here structurally to avoid importing the preload controller.
+// That workaround is gone -- the canonical typedef now lives in a file with
+// no dependencies of its own, so there is no cycle to dodge.
 
 /// The ONE place in the Dart pipeline that knows about file types.
 ///

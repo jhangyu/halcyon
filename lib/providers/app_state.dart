@@ -22,12 +22,6 @@ import '../services/rename_rule.dart';
 import '../services/rename_service.dart';
 import '../services/thumbnail_export_service.dart';
 
-typedef ThumbnailLoader =
-    Future<NativeImageResult> Function(
-      String path, {
-      required ImageRequestPurpose purpose,
-    });
-
 /// Outcome of a batch delete, returned to the view layer so feedback lives
 /// in the widgets rather than the provider. Failures are never swallowed.
 class BatchDeleteResult {
@@ -70,7 +64,7 @@ class AppState extends ChangeNotifier {
     PhotoStatusStore? statusStore,
     PhotoFileActions? fileActions,
     ImagePreloadController? preloadController,
-    ThumbnailLoader? thumbnailLoader,
+    NativeImageLoad? thumbnailLoader,
     DngFullDecoder? dngDecoder,
     ThumbnailExportService? exportService,
     ExifBatchReader? exifReader,
