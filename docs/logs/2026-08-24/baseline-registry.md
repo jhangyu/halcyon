@@ -48,7 +48,7 @@
 |---|---|
 | `test/dng_nav_probe_m3_test.dart` | `ab7602e903d4eca1b2a5d6390f73cc85218484144970afe84f69d2ea956bfcf0`（2026-08-24 P3.3 重新登錄，理由見下） |
 | `test/image_preload_controller_m3_amend3_test.dart` | `d624da3ce92e4ee6ad7e8e689a09c29391ddccc224699e8ad4ade121ace5239f`（2026-08-24 P3.3 重新登錄，理由見下） |
-| `scripts/tmp/dng_nav_probe_test.dart`（主樹持有正本） | `9621102d07defa39cb3bd49333a531af7d9f88d98037930dfbe8e3800ebb5ae3`（2026-08-24 P3.3 重新登錄，理由見下） |
+| ~~`scripts/tmp/dng_nav_probe_test.dart`（主樹持有正本）~~ | **2026-08-24 R3 使用者決議刪除**（`git rm`，見下方 R3 附記）——此列凍結 sha 已隨檔案一併作廢，不再代表任何現存檔案 |
 
 #### C-4 封印解除理由（M6 P3.3，2026-08-24）
 - **觸發原因**：三檔皆 `import 'package:halcyon_flutter/services/native_thumbnail_service.dart';` —— 該檔案本輪整檔刪除（型別搬到 `lib/services/image_source_types.dart`，`NativeThumbnailService`/`kNoEmbeddedPreviewCode`/`kAllowRawDecodeSignalArg` 隨通道一併刪除）。三檔皆需改 import 才能編譯，此為 C-4 定義下「衝突案例」，非任意修改。
@@ -60,7 +60,10 @@
 #### P5.2 稽核附記（2026-08-24）
 - Appendix B（`m6-execution-plan.md:1092-1105`）10 列逐列核對：disposition 全數已在對應 commit 執行（`git log --oneline -- <file>`／`git show --stat` 交叉核對），凍結三檔的 sha256 與本檔登錄值逐字元相符（`shasum -a 256`，見 `scripts/tmp/m6-r2-verify/p5-baseline.txt`）。
 - `scripts/tmp/dng_nav_probe_test.dart` 本次重新檢視：內容自 P3.3 登錄後未變（sha 相符），未發現任何斷言單平台語意的新案例，**無需刪除任何 case、無需重新登錄 sha**。`flutter analyze` 對它回報的 `decodedImageFor`/`decodedProviderFor` 未定義方法錯誤（10 處）仍是 P3.3 記載的既有問題（`analysis_options.yaml:17-18` 本就把 `scripts/**` 排除在 `flutter analyze` 護欄外，不影響正式 gate），非本輪改動引入，不在 C-4 範圍內修復。
-- **文件標籤更正**：本檔與 `m6-execution-plan.md` 皆稱 `scripts/tmp/dng_nav_probe_test.dart`「gitignored」，但 `git ls-files scripts/tmp/dng_nav_probe_test.dart` 顯示**此檔實際受版控追蹤**（`.gitignore` 未列出它），且 commit `3a7a2b2` 的 diff 確實包含它的 373 行內容。如實記錄此標籤與事實不符，不擅自修改 `.gitignore` 或移除追蹤（不在 P5.2 owned files 範圍，且會是有風險的行為變更，需使用者/lead 決定是否要讓它保持追蹤或補進 `.gitignore`）。
+- **文件標籤更正（已由 R3 解決，留存歷史記錄）**：本檔與 `m6-execution-plan.md` 曾稱 `scripts/tmp/dng_nav_probe_test.dart`「gitignored」，但 `git ls-files scripts/tmp/dng_nav_probe_test.dart` 顯示**此檔實際受版控追蹤**（`.gitignore` 未列出它），且 commit `3a7a2b2` 的 diff 確實包含它的 373 行內容。P5.2 當時如實記錄此標籤與事實不符，未擅自處置。
+
+#### R3 附記（2026-08-24）：`scripts/tmp/dng_nav_probe_test.dart` 已刪除
+使用者於 M6 P4 review 收尾階段決議直接刪除本檔（`git rm`），理由：明明受版控追蹤卻長期被文件誤稱「gitignored」、內含過期 `decodedImageFor`/`decodedProviderFor` API（M3 後期已刪除的方法）、且不屬於任何 gate（`flutter test` 套件、`flutter analyze` 均排除它）。此舉解決了上一條「文件標籤更正」附記所述的矛盾——不再需要決定是否補進 `.gitignore`，因為檔案本身已不存在。上表凍結 sha 列已標記作廢，不再指向任何現存檔案。
 
 ### JPEG 切換延遲（PerfLog `selectItem.enter`→`image.painted`，release，本機 arm64；定版：原始已登錄 traversal 的分模式重算，n=12／格）
 **判準（round-1 lead 定版）**：`band_mode = max(p95_mode − median_mode, 1.5ms)`；`PASS_mode ⟺ after_median ≤ baseline_median + band`；paced 與 rapid 分開判定、永不混池；四格（2 資料集 × 2 模式）全過才算過。敏感度註記：paced 是載重閘；rapid 的大 band 是模式本質（超越 preloader 本來就會產生偶發即時解碼），只能抓粗退步。
