@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
 import 'support/synthetic_dng.dart';
 

@@ -4,8 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/sidebar_thumbnail_codec.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

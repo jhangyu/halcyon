@@ -31,12 +31,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
-import 'package:halcyon_flutter/services/prefetch_scheduler.dart';
-import 'package:halcyon_flutter/services/raw_full_res_image.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
+import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 
 // A 1x1 image used only to satisfy RawFullResImage's constructor for the
 // PROBE key built in M5-DW2 -- see the comment at that test. The probe's

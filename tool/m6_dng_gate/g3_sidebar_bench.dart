@@ -29,11 +29,11 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
-import 'package:halcyon_flutter/services/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/dng_decode_service.dart';
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
-import 'package:halcyon_flutter/services/sidebar_thumbnail_codec.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
 
 /// The exact shipped pipeline that lands a row in `_thumbCache`, INCLUDING
 /// the P2.5b RAW-decode fallback (image_preload_controller.dart).

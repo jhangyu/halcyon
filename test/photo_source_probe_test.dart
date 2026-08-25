@@ -5,7 +5,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/photo_source.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 void main() {
   final dngDir = Directory('local_data/photo_samples/DNG');

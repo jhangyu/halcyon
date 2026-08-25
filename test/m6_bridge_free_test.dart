@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
-import 'package:halcyon_flutter/services/photo_source.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

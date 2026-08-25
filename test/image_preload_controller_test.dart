@@ -7,10 +7,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 // A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
 // without shipping a binary fixture file.

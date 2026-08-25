@@ -30,12 +30,12 @@ import 'dart:typed_data';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/cache_budget.dart';
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
-import 'package:halcyon_flutter/services/photo_payload_cache.dart';
-import 'package:halcyon_flutter/services/prefetch_scheduler.dart';
+import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
+import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 
 // A minimal valid 1x1 transparent PNG: exercises a REAL engine decode, so the
 // ImageCache assertions below are about entries that actually landed rather

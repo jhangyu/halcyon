@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
-import 'services/cache_budget.dart';
-import 'services/dng_decode_service.dart';
+import 'services/image_pipeline/cache_budget.dart';
+import 'services/image_pipeline/dng_decode_service.dart';
 import 'services/open_with_channel.dart';
 import 'views/main_screen.dart';
 import 'views/theme_tokens.dart';

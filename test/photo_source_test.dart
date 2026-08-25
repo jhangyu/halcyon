@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
-import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
-import 'package:halcyon_flutter/services/photo_source.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 /// M2: source-selection was moved from an inline check in
 /// `image_preload_controller.dart` into `photo_source.dart`, behind the

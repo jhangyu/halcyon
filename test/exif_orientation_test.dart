@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/exif_orientation.dart';
+import 'package:halcyon_flutter/services/image_pipeline/exif_orientation.dart';
 
 void main() {
   test('TC-213 exifTransformFor maps all eight EXIF values', () {

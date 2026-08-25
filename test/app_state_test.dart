@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/photo_library_scanner.dart';
 import 'package:halcyon_flutter/services/rename_rule.dart';

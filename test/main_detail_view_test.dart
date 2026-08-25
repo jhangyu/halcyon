@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/main_detail_view.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';

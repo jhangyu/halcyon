@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
 /// M0 acceptance oracle (round-1-m0-contract.md, W2).
 ///

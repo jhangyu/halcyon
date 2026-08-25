@@ -3,9 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
 import 'support/synthetic_dng.dart';
 

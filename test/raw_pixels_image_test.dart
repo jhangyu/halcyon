@@ -8,8 +8,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
-import 'package:halcyon_flutter/services/raw_pixels_image.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

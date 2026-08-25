@@ -5,10 +5,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
-import 'package:halcyon_flutter/services/tier_two_registry.dart';
-import 'package:halcyon_flutter/services/tier_two_scheduler.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
+import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 // A minimal valid 1x1 transparent PNG, so a real engine decode can be
 // exercised without shipping a binary fixture file. Same bytes as

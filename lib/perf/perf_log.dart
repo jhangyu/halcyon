@@ -15,7 +15,7 @@ import 'dart:io';
 
 import 'package:flutter/painting.dart';
 
-import '../services/photo_payload_cache.dart' show kPayloadByteBudget;
+import '../services/image_pipeline/photo_payload_cache.dart' show kPayloadByteBudget;
 
 // Build-commit stamp (round-1 parking-lot P-2). Injected via
 // `--dart-define=HALCYON_BUILD_COMMIT=$(git rev-parse HEAD)` at build time;

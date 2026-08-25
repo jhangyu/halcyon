@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/cache_budget.dart';
+import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
 
 void main() {
   test('budget derivation: floor 256MiB, ceiling 768MiB, quarter of physical',

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
 /// F3 copy-semantics regression (round-2 F3, user decision 2026-08-23: FIX).
 ///

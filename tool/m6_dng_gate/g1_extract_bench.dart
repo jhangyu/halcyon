@@ -18,7 +18,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
 /// Baseline JPEG SOF0..SOF15 scan; byte-for-byte the same algorithm as the
 /// original scripts/tmp/m6-r1-bench/g1_native.swift `sofDims` and

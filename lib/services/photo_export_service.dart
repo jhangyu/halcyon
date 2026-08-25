@@ -9,10 +9,10 @@ import 'package:path/path.dart' as p;
 
 import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
-import 'dart_image_loader.dart';
-import 'dng_decode_contract.dart';
-import 'exif_orientation.dart';
-import 'image_source_types.dart';
+import 'image_pipeline/dart_image_loader.dart';
+import 'image_pipeline/dng_decode_contract.dart';
+import 'image_pipeline/exif_orientation.dart';
+import 'image_pipeline/image_source_types.dart';
 
 /// Result of a "Thumbnail Starred" export batch. [failures] entries are
 /// `"<filename>: <error message>"`, mirroring [RecycleOutcome]'s shape in

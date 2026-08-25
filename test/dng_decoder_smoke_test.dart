@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:halcyon_flutter/services/dng_decode_service.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart';
 
 /// Round-3b smoke test: proves `decodeDngFull` really decodes a DNG that has
 /// no embedded full-size JPEG preview, through the actual native dylib.

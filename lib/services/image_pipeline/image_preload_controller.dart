@@ -4,9 +4,9 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
-import '../models/photo_item.dart';
-import '../models/supported_photo_formats.dart';
-import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
+import '../../models/photo_item.dart';
+import '../../models/supported_photo_formats.dart';
+import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
-import 'package:halcyon_flutter/services/photo_payload_cache.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 
 void main() {
   // Both kinds at exactly the same byteCost, so any difference in how the

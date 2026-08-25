@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
-import '../models/photo_item.dart';
+import '../../models/photo_item.dart';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'photo_payload.dart';

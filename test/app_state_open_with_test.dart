@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// F-16 "Open With" entry point coverage for [AppState.openPhotoAtPath].

@@ -2,9 +2,9 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/decoded_rgba_image_provider.dart';
-import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 // A 2x3 source image whose every pixel is a distinct marker, so a wrong
 // orientation cannot pass by accident. Shape-only assertions have no

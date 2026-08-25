@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/photo_item.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../providers/app_state.dart';
-import '../services/image_preload_controller.dart';
+import '../services/image_pipeline/image_preload_controller.dart';
 import 'photo_action_bar.dart';
 import 'zoom_controller.dart';
 

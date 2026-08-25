@@ -29,8 +29,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/scheduler.dart';
 
 import '../providers/app_state.dart';
-import '../services/dart_image_loader.dart';
-import '../services/image_source_types.dart';
+import '../services/image_pipeline/dart_image_loader.dart';
+import '../services/image_pipeline/image_source_types.dart';
 import 'perf_log.dart';
 
 class PerfDriver {
