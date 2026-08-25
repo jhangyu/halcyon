@@ -253,6 +253,17 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 - **實作偏差**：D1 計畫草稿假設下一個可用編號是 AD-023，但落地時 AD-023~026 已被其他並行任務（main 整治計畫）佔用；本條實際編號為 AD-027。計畫內的 verbatim 程式碼區塊照抄不受影響，僅文件編號順移。
 - **已知缺口**：`lib/providers/app_state.dart:200-214` 是 `fullResProviderFor` 的唯一消費者，沒有 null-vs-provider 的直接測試。本次重構沒有讓它更糟，但也沒有補上。
 
+### AD-028｜tier-2 排程由 `TierTwoScheduler` 單一持有（2026-08-25, P4a）
+
+- **決策**：D1 計畫刻意延後的 8 個排程符號（`_tierTwoWindowIds`、`_tierTwoQueue`、`_scheduleTierTwoDecode`、`_decodeTierTwoWindow`、`_enqueueTierTwoLoad`、`_enqueueFullResUpgrade`、`_upgradeFullRes`、`_publishPiggybackFullRes`）全部搬出 `ImagePreloadController`，改由 `lib/services/tier_two_scheduler.dart` 的 `TierTwoScheduler` 持有。控制器只保留 payload 生產、tier-1、側邊欄縮圖、方向備忘錄與兩個 provider 工廠。
+- **三個單元，不是兩個**：`TierTwoScheduler` 是**第三個**類別，不是 `TierTwoRegistry` 的擴充。registry 是純狀態（四個容器＋一個查詢 closure，無 async、無 timer）；scheduler 全是相反的東西（timer、視窗、序列化 future chain、FFI 解碼）。把排程狀態併回 registry，等於把 AD-027 好不容易抽離的就緒性合取重新黏回排程狀態上，兩個 BLOCKER 又變回只靠註解守。
+- **`_tierTwoDebounceTimer` 一起搬（8 符號清單的必然補項）**：D1 計畫的清單漏了這個欄位，但它就是 `_scheduleTierTwoDecode` 所武裝的那個 debounce，留在控制器則搬走的方法無從操作它。控制器的 `reset()`／`dispose()` 改呼叫 `TierTwoScheduler.cancelDebounce()`，時機與行為不變。
+- **協作者一律 closure 注入，不持有物件**：`currentPayloadFor`（綁 `PhotoPayloadCache.peek`）、`fullSizeProviderFor`、`ensurePayload`、`dngDecoder` supplier、`exifOrientationFor`。scheduler 不持有 payload cache、photo source、prefetch scheduler 或控制器本身，所以保留策略、來源選擇與 rung 政策各自維持單一擁有者。**`fullSizeProviderFor` 必須是 supplier 而非複製**：tier-1／tier-2 兩個 provider 工廠必須並排留在控制器內，那個並排本身就是「同一 payload 物件 identity ＝ 同一 ImageCache key」（I1）的可見宣告；在 scheduler 內重建 provider 會出現第二個決定 cache key 的地方。（與 AD-027 的 `currentPayloadFor` 注入同一條規則。）
+- **回到控制器的只有兩條薄轉發**：`isInWindow(id)`（payload 生產路徑決定要不要走 piggyback 時問的）與 `publishPiggybackFullRes(...)`（產生那批像素的解碼就跑在控制器的生產路徑上）。`ImagePreloadController` 的公開簽章零變更，`lib/providers/app_state.dart` 零 diff。
+- **`tierTwoNavigationDebounce` 以建構參數注入而非 import**：常數留在 `image_preload_controller.dart`（測試與文件都指向那裡），scheduler 收 `navigationDebounce` 參數，避免兩檔互相 import 形成循環。副作用是單元測試可注入 `Duration.zero`，不必為了測 debounce 付出真實 250ms 牆鐘等待。
+- **關聯**：AD-027（registry 四容器不可再拆，亦不可與排程重新合併）、AD-018（`kTierTwoRadius` 與 `kExpensiveStartupRadius` 仍是兩個常數）。
+- **驗證**：既有 preload 測試檔零編輯全綠（6 檔 54 測試，前後同數同綠）＋新 TC-239~242 四項變異測試留證（`scripts/tmp/p2p4/impl3-mutation.txt`）。
+
 ---
 
 ## Gotchas（踩坑紀錄）

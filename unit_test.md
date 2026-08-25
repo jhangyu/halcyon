@@ -1274,6 +1274,20 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### TC-239~242｜`TierTwoScheduler`：tier-2 排程（debounce／序列佇列／視窗）（P4a）
+
+| 欄位 | 內容 |
+|------|------|
+| **測試檔** | `test/tier_two_scheduler_test.dart` |
+| **測試 ID** | TC-239（debounce 是「取消後重排」：同一輪事件迴圈內連下兩次 `schedule`，只有最後一個位置的視窗被掃）／TC-240（tier-2 佇列串行：同一時刻恰好一筆 load 在途，依索引順序逐一釋放）／TC-241（視窗重檢在「佇列 body 內部」：使用者已導航離開的項目在輪到它時被丟棄而非載入）／TC-242（掃描視窗把 encoded payload 交給 registry 發佈，下一次掃描 evict 掉離開視窗的 id） |
+| **背景** | P4a：D1 計畫刻意延後的 8 個排程符號（`_tierTwoWindowIds`、`_tierTwoQueue`、`_scheduleTierTwoDecode`、`_decodeTierTwoWindow`、`_enqueueTierTwoLoad`、`_enqueueFullResUpgrade`、`_upgradeFullRes`、`_publishPiggybackFullRes`）自 `ImagePreloadController` 搬到新檔 `lib/services/tier_two_scheduler.dart`。詳見 memory.md AD-028 |
+| **測試類型** | 純單元測試，`test()`；協作者全部以 closure 注入，無 controller、無 payload cache、無 photo source、無真實牆鐘等待（`navigationDebounce` 注入 `Duration.zero`，靠 event-loop turn 推進） |
+| **通過門檻** | 4/4 綠，且變異測試留證（判讀規則與預期值在數字產生前先寫入 artifact）：M1 刪 `schedule()` 的 `_debounceTimer?.cancel()` → TC-239 紅；M2 刪 `_enqueueLoad` 開頭的視窗重檢 → TC-241 紅；M3 `_queue.then` 換成 `Future.value().then`（佇列不再串行）→ TC-240 紅（TC-241 連帶紅）；M4 刪 `_decodeWindow` 的 staleIds eviction loop → TC-242 紅。四次皆 RC=1，證據 `scripts/tmp/p2p4/impl3-mutation.txt`，在 scratch worktree `../halcyon-p4a-mutation` 執行後復原並移除 |
+| **狀態** | ✅ 已通過。`flutter test test/tier_two_scheduler_test.dart -j 1`：4 個測試 All tests passed!，RC=0。行為保存的機械證明：既有 preload 測試檔零編輯全綠（`git diff --stat test/` 對既有檔 0 行；6 檔 54 測試前後同數同綠，`scripts/tmp/p2p4/impl3-baseline.txt` 與 `impl3-step2-tests.txt`），`test/image_preload_dual_window_m5_test.dart` 6 測試亦綠（含 M5-DW6，本輪未見間歇紅） |
+| **已知缺口** | `_upgradeFullRes` 的 FFI 解碼路徑與 `publishPiggybackFullRes` 未在本檔單元測試中直接覆蓋——它們仍只由 `test/dng_nav_probe_m3_test.dart` 與 `test/image_preload_dual_window_m5_test.dart` 的控制器層測試守護（測試覆蓋缺口補強為契約明列的 out-of-scope） |
+
+---
+
 ## 執行指令
 
 ### Flutter 測試指令
