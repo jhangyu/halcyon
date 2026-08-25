@@ -407,12 +407,18 @@ mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，�
 - **陷阱一（fake-async + 真實 I/O 死結）**：`testWidgets` 的 body 在 flutter_test 的
   fake-async zone 下執行；若直接 `await` 一段走真實 `dart:io`（目錄掃描、開檔、寫檔）的
   Future（例如 `AppState.loadFolder`），該 Future 排入 zone 的微任務佇列後不會自動被
-  flush，測試會在近乎零 CPU 的狀態下整個掛住，連 `--timeout` 都可能等不到（逾時 Timer
-  本身也在同一個卡死的 zone 裡）。**識讀方式**：CPU 使用率長時間趨近零、且與換測試檔案
-  內容無關（換任何一個含真實 I/O 的檔案都同樣掛）。**解法**：把含真實 I/O 的那段包進
-  `tester.runAsync(() async { ... })`，讓它跑在真實（非 fake）zone。TC-230
+  flush，測試會在近乎零 CPU 的狀態下整個掛住，且 **`--timeout` 形同虛設**（原 G-021，
+  2026-08-25 併入本條）：`flutter test --timeout <N>` 的逾時 Timer 排程在同一個 fake-async
+  zone 裡，也是假時鐘——卡死的 zone 永遠不會讓它觸發，所以不是「逾時後回報卡住」，而是
+  無限期掛住、不印堆疊、不吐逾時訊息。**識讀方式**：CPU 使用率長時間趨近零、與換測試檔案
+  內容無關（換任何一個含真實 I/O 的檔案都同樣掛）、加了 `--timeout Ns` 仍無任何輸出——
+  最後一點是「卡死發生在 fake-async zone 內」的訊號，不是逾時參數設太短。**解法**：把含
+  真實 I/O 的那段包進 `tester.runAsync(() async { ... })`，讓它跑在真實（非 fake）zone，
+  逾時計時器才管得到它。**根因驗證**：`scripts/tmp/tc230-ab-io-outside-runasync.log`
+  （單變數 A/B：唯一變數是真實 `dart:io` 呼叫在不在 `tester.runAsync()` 裡）。TC-230
   (`test/main_detail_view_test.dart`) 三輪 baton 交接才定位到此，早期誤判為「編譯快取損毀」
-  （重跑會複現，不符合快取損毀理論會在第二次冷編譯後消失的預測，因此被推翻）。
+  （重跑會複現，不符合快取損毀理論會在第二次冷編譯後消失的預測，因此被推翻），完整過程見
+  `docs/logs/2026-08-24/Task_refactor_T9_handoff.md`。
 - **陷阱二（view 拆分保序）**：`main_detail_view.dart` 的 `_buildZoomableViewer` 拆分/精簡時
   兩處順序陷阱必須原封不動：(1) PERF-INSTRUMENTATION 呼叫 `_perfResetForSwitch(currentId)`
   （每次 build 開頭）與 `_perfSpinner(currentId)`（spinner 分支內）——順序或次數變了會讓
@@ -422,15 +428,9 @@ mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，�
 - **陷阱三（計畫草稿與實際程式碼的兩處落差，已用程式碼證據收斂）**：D3 落地時發現計畫文件的 Step 9.3/9.8 程式碼草稿與既有程式碼有兩處對不上，均以「保留舊行為」收斂，不是照抄草稿：(1) `HalcyonTokens` 欄位數——計畫草稿只給 6 個欄位，但既有私有 `_Tokens` 類別實際有 **12** 個（`pane`/`dialog`/`surface`/`input`/`border`/`borderSoft`/`text`/`textDim`/`textFaint`/`accent`/`success`/`danger`），其中數個無 1:1 對應；`HalcyonTokens` 依計畫本身「有欄位無對應就新增，不要丟色」的指示，保留全部 12 個欄位，數值逐字抄自 `_Tokens.dark`/`_Tokens.light`。(2) `_buildZoomableViewer` 的 provider 選擇——計畫草稿只傳 `state.displayProvider`，但 `displayProvider` 對「byte-backed 項目且 tier-2 尚未就緒」的情況恆為 `null`（`currentDecodedProvider` 只對 pixel-decoded 項目非 null），照字面實作會讓這個常見的導覽中間幀（tier-2 debounce 250ms 內）畫面直接不渲染，違反凍結的 tier-1/tier-2 契約。實際保留 `pixelProvider ?? tierOneProviderFor(bytes!, width: targetWidth, height: targetHeight)` 作為 fallback，與舊版 4-分支邏輯逐案證明等價（pixel/tier-2 就緒、pixel/未就緒、byte/tier-2 就緒、byte/未就緒四種情況皆對應）。
 - **對應任務**：Task 9（D3/D4，`docs/logs/2026-08-24/Task_refactor_T9_handoff.md` §2a/§2b）。
 
-### G-021｜`flutter test --timeout` 本身也是假時鐘（fake-async）計時器，卡死的 zone 不會讓它觸發
+### G-021｜（已併入 G-020 陷阱一，2026-08-25 使用者裁決合併）
 
-- **嚴重程度**：中（會誤導成「這條路徑本來就跑很久」，浪費時間去等一個永遠不會來的逾時訊息）
-- **問題**：`flutter test --timeout <N>` 對 `testWidgets` 設下的逾時，其計時器排程與被測 body 共用同一個 flutter_test fake-async zone。若 body 內直接 `await` 一段真實 `dart:io` future（TC-230：目錄掃描/開檔/寫檔），該 future 卡在 fake zone 的微任務佇列裡不會被自動 flush；此時逾時 Timer 也一樣是這個 zone 排程出來的假時鐘，永遠不會被觸發——測試不是「逾時後回報卡住」，而是**近乎零 CPU、無限期掛住，`--timeout` 形同虛設，不會印出任何堆疊或逾時訊息**。
-- **識讀方式**：加了 `--timeout Ns` 之後仍然不吐堆疊、不回報逾時、CPU 沒有起伏——這是「卡死發生在 fake-async zone 內」的訊號，不是逾時參數設太短。
-- **根因驗證**：`scripts/tmp/tc230-ab-io-outside-runasync.log`（單變數 A/B：唯一變數是真實 `dart:io` 呼叫在不在 `tester.runAsync()` 裡面，其餘程式碼相同）；三棒事故完整過程見 `docs/logs/2026-08-24/Task_refactor_T9_handoff.md`（早期誤判為編譯快取損毀，經此 A/B 排除）。
-- **解法**：見 G-020 陷阱一——把真實 I/O 包進 `tester.runAsync(() async { ... })`，讓它跑在真實（非 fake）zone，逾時計時器才管得到它。
-- **與 G-020 的關係**：G-020 陷阱一已記錄同一根因的修法（一句帶過）；本條補記 `--timeout` 這個逾時保護本身為何在此類卡死下完全失效的機制細節，作為獨立可查條目，供之後遇到「加了 `--timeout` 還是卡住」時直接命中關鍵字。
-- **對應任務**：TC-230（`test/main_detail_view_test.dart`），`unit_test.md` 2026-08-24 列。
+`flutter test --timeout` 在 fake-async 卡死下完全失效的機制細節，原為獨立條目，內容已全數併入 G-020 陷阱一；本佔位保留編號供既有引用（收斂契約 AC-2、`unit_test.md` 2026-08-24 列）grep 命中。
 
 ### 裁決記錄｜P2（tier-1 視窗保留語意）：調查後未發現放寬，維持現狀不回修
 
