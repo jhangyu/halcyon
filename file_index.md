@@ -62,7 +62,7 @@ Halcyon/
 │   │   │   ├── dng_decode_contract.dart       # DngFullDecoder / DecodedRgba 解碼介面契約
 │   │   │   ├── dng_decode_service.dart        # DNG 全尺寸解碼服務（flutter_dng_decoder 整合）
 │   │   │   ├── open_with_channel.dart         # Finder「開啟方式」冷啟動 MethodChannel
-│   │   │   ├── thumbnail_export_service.dart  # 星號照片批次匯出縮圖（長邊 ≤ 2048px、bounded concurrency 4、EXIF 保留）
+│   │   │   ├── photo_export_service.dart  # 星號照片批次匯出縮圖（長邊 ≤ 2048px、bounded concurrency 4、EXIF 保留）
 │   │   │   ├── rename_rule.dart                # EXIF 檔名模板純函式渲染（ExifMetadata、RenameRule、presets、variableGroups）
 │   │   │   ├── rename_service.dart             # 無碰撞重新命名規劃（planRenames）+ 套用與 JSONL undo journal（applyRenames/undoLastRename）
 │   │   │   ├── exif_metadata_service.dart      # `halcyon/exif` batch reader（macOS 原生優先，`exif` package fallback）
@@ -75,7 +75,7 @@ Halcyon/
 │   │   │   ├── photo_payload_cache.dart        # 保留窗口 cache（`kRetentionBefore`=3／`kRetentionAfter`=5），依 `byteCost` 總量驅逐
 │   │   │   ├── raw_pixels_image.dart           # `RawPixelsImage`：以保留的 RGBA8 像素為後盾的 `ImageProvider`（M3，取代已刪除的 decoded-image provider）
 │   │   │   ├── raw_full_res_image.dart         # `RawFullResImage`：一次性 `ImageProvider`，交出已解碼全尺寸 `ui.Image`（RAW tier-2 對應）
-│   │   │   ├── dng_preview_extractor.dart      # `macos/Runner/DngPreviewExtractor.swift` 的純 Dart 移植；讀取 DNG TIFF SubIFD 內嵌 JPEG 縮圖
+│   │   │   ├── dng_embedded_jpeg_extractor.dart      # `macos/Runner/DngPreviewExtractor.swift` 的純 Dart 移植；讀取 DNG TIFF SubIFD 內嵌 JPEG 縮圖
 │   │   │   ├── exif_orientation.dart           # 全專案唯一 EXIF Orientation 對照表（8 態旋轉/鏡射），供匯出與 RGBA provider 共用
 │   │   │   ├── sidebar_thumbnail_codec.dart    # 側邊欄 byte cache 邊界策略（M6 F-10 half 2，re-encode threshold）
 │   │   │   └── cache_budget.dart               # 依實體記憶體推導 image-cache 預算（M6 F-25/P5.1，256–768 MiB 夾限）
@@ -114,10 +114,10 @@ Halcyon/
 │   │   ├── decoded_rgba_image_provider_test.dart  # RGBA provider 測試
 │   │   ├── dng_decoder_smoke_test.dart   # DNG 解碼 smoke test
 │   │   ├── dng_nav_probe_m3_test.dart    # M3：DNG 導覽 probe 測試
-│   │   ├── dng_preview_extractor_test.dart  # DngPreviewExtractor 基礎行為測試
-│   │   ├── dng_preview_extractor_m0_test.dart  # M0：位元組範圍讀取與候選選取測試
-│   │   ├── dng_preview_extractor_f3_test.dart  # F3：DngPreviewExtractor 追加測試
-│   │   ├── dng_preview_extractor_endian_test.dart  # TIFF endian 處理測試
+│   │   ├── dng_embedded_jpeg_extractor_test.dart  # DngEmbeddedJpegExtractor 基礎行為測試
+│   │   ├── dng_embedded_jpeg_extractor_m0_test.dart  # M0：位元組範圍讀取與候選選取測試
+│   │   ├── dng_embedded_jpeg_extractor_f3_test.dart  # F3：DngEmbeddedJpegExtractor 追加測試
+│   │   ├── dng_embedded_jpeg_extractor_endian_test.dart  # TIFF endian 處理測試
 │   │   ├── dart_image_loader_test.dart   # dartImageLoad 生產實作測試
 │   │   ├── m6_bridge_free_test.dart      # M6：驗證產出無 MethodChannel/native bridge 依賴（C-3）
 │   │   ├── photo_source_test.dart        # PhotoSource.probe 成本量測測試
@@ -129,7 +129,7 @@ Halcyon/
 │   │   ├── exif_orientation_test.dart    # EXIF Orientation 8 態轉換測試
 │   │   ├── open_with_channel_test.dart   # OpenWithChannel push-only 行為測試
 │   │   ├── perf_log_build_stamp_test.dart  # perf_log build stamp 測試
-│   │   ├── thumbnail_export_service_test.dart  # ThumbnailExportService 匯出行為測試（bounded concurrency、EXIF 保留、進度回報）
+│   │   ├── photo_export_service_test.dart  # PhotoExportService 匯出行為測試（bounded concurrency、EXIF 保留、進度回報）
 │   │   ├── rename_rule_test.dart         # RenameRule 模板渲染測試（TC-024~TC-030）
 │   │   ├── rename_service_test.dart      # planRenames/applyRenames/undoLastRename 測試（TC-031~TC-040）
 │   │   ├── rename_coordinator_test.dart  # RenameCoordinator 測試
@@ -223,9 +223,9 @@ Halcyon/
 | `PhotoPayload` / `PhotoPayloadCache` | `lib/services/photo_payload.dart`、`lib/services/photo_payload_cache.dart` | 單張照片可保留的最便宜形式（`byteCost` 為 cache 唯一可見介面）；保留窗口 cache（`kRetentionBefore`=3／`kRetentionAfter`=5） |
 | `RawPixelsImage` / `RawFullResImage` | `lib/services/raw_pixels_image.dart`、`lib/services/raw_full_res_image.dart` | RAW tier-1（保留像素現解）/ tier-2（已解碼全尺寸）兩個 `ImageProvider`（M3） |
 | `CacheBudget` | `lib/services/cache_budget.dart` | 依實體記憶體推導 image-cache 預算，256–768 MiB 夾限（M6 F-25/P5.1） |
-| `DngPreviewExtractor` | `lib/services/dng_preview_extractor.dart` | `DngPreviewExtractor.swift` 的純 Dart 移植，讀取 DNG TIFF SubIFD 內嵌 JPEG 縮圖 |
+| `DngEmbeddedJpegExtractor` | `lib/services/dng_embedded_jpeg_extractor.dart` | `DngPreviewExtractor.swift` 的純 Dart 移植，讀取 DNG TIFF SubIFD 內嵌 JPEG 縮圖 |
 | `ExifOrientation` | `lib/services/exif_orientation.dart` | 全專案唯一 EXIF Orientation 對照表（8 態），匯出與 RGBA provider 共用 |
-| `ThumbnailExportService` | `lib/services/thumbnail_export_service.dart` | 星號照片批次縮圖匯出（長邊 ≤ 2048px、bounded concurrency 4、保留 EXIF、進度回報） |
+| `PhotoExportService` | `lib/services/photo_export_service.dart` | 星號照片批次縮圖匯出（長邊 ≤ 2048px、bounded concurrency 4、保留 EXIF、進度回報） |
 | `SupportedPhotoFormats` | `lib/models/supported_photo_formats.dart` | 支援副檔名與載入優先順序 registry |
 | `DngDecodeService` / `DngDecodeContract` | `lib/services/dng_decode_service.dart`、`lib/services/dng_decode_contract.dart` | DNG 全尺寸解碼服務與介面契約（`flutter_dng_decoder` 整合） |
 | `DecodedRgbaImageProvider` | `lib/services/decoded_rgba_image_provider.dart` | 已解碼 RGBA 緩衝轉 `ui.Image` provider |

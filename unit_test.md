@@ -366,16 +366,16 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-030｜DngPreviewExtractor — 純 Dart DNG 內嵌 JPEG 預覽抽取（Windows/無原生橋接降級路徑）
+### TC-030｜DngEmbeddedJpegExtractor — 純 Dart DNG 內嵌 JPEG 預覽抽取（Windows/無原生橋接降級路徑）
 
 | 欄位 | 內容 |
 |------|------|
 | **測試 ID** | TC-030 |
-| **名稱** | `lib/services/dng_preview_extractor.dart`（純 Dart 移植 `macos/Runner/DngPreviewExtractor.swift` 的 TIFF/IFD byte parsing）從真實 DNG 樣本抽出最大內嵌全尺寸 JPEG 預覽；截斷/非 DNG/malformed 輸入一律回傳 `null`，不 throw；`ImagePreloadController` 在原生縮圖回 `NativeImageFailure` 且副檔名為 `.dng` 時改走此抽取器 |
+| **名稱** | `lib/services/dng_embedded_jpeg_extractor.dart`（純 Dart 移植 `macos/Runner/DngPreviewExtractor.swift` 的 TIFF/IFD byte parsing）從真實 DNG 樣本抽出最大內嵌全尺寸 JPEG 預覽；截斷/非 DNG/malformed 輸入一律回傳 `null`，不 throw；`ImagePreloadController` 在原生縮圖回 `NativeImageFailure` 且副檔名為 `.dng` 時改走此抽取器 |
 | **測試類型** | 單元測試（真實樣本，`local_data/photo_samples/DNG/`）+ 邊界值測試（合成 malformed bytes） |
 | **背景** | Windows 原生橋接對 DNG 一律回 `RAW_UNSUPPORTED`（`windows/runner/halcyon_image.cpp:392-402`）；本抽取器讓任何缺原生縮圖橋接的平台仍能顯示 DNG 內嵌預覽。契約：`docs/logs/2026-08-21/windows-raw-r1r2-contract.md` §2 AC1-AC5 |
-| **驗證方式** | `test/dng_preview_extractor_test.dart`（24 個案例：13 個真實樣本抽出可解碼 SOI/EOI JPEG、1 個無預覽樣本回傳 null、1 個 EXIF orientation=6 注入驗證、9 個 malformed/truncated/non-DNG 邊界案例） |
-| **鑑別力證據** | 紅→綠：先以永遠回傳 `null`/`1` 的 stub 取代抽取器實作跑該測試檔，14 個案例轉紅（`scripts/tmp/verify/dng_preview_extractor_red.txt`）；還原實作後同批全綠（`scripts/tmp/verify/dng_preview_extractor_green.txt`）。另以獨立編譯的 Swift 參考實作對全部 14 個真實樣本逐一比對抽出 bytes 長度與 orientation，結果完全一致（`scripts/tmp/verify/dng_preview_extractor_dart_vs_swift.txt`） |
+| **驗證方式** | `test/dng_embedded_jpeg_extractor_test.dart`（24 個案例：13 個真實樣本抽出可解碼 SOI/EOI JPEG、1 個無預覽樣本回傳 null、1 個 EXIF orientation=6 注入驗證、9 個 malformed/truncated/non-DNG 邊界案例） |
+| **鑑別力證據** | 紅→綠：先以永遠回傳 `null`/`1` 的 stub 取代抽取器實作跑該測試檔，14 個案例轉紅（`scripts/tmp/verify/dng_embedded_jpeg_extractor_red.txt`）；還原實作後同批全綠（`scripts/tmp/verify/dng_embedded_jpeg_extractor_green.txt`）。另以獨立編譯的 Swift 參考實作對全部 14 個真實樣本逐一比對抽出 bytes 長度與 orientation，結果完全一致（`scripts/tmp/verify/dng_embedded_jpeg_extractor_dart_vs_swift.txt`） |
 | **效能（AC3b，2026-08-21 使用者增補）** | `scripts/tmp/bench_dng_extract.dart`（Stopwatch）對全部 14 個真實樣本各跑 1 次 cold + 5 次 warm，逐檔逐次數字見 `scripts/tmp/verify/dng_perf_bench_raw.txt`。以「每檔 5 次 warm 的中位數」再取跨檔中位數 = 3.79ms；70 個 warm 樣本點的最大值 = 8.56ms（`IMG_20251112_092839.dng`，25MB、無內嵌預覽仍掃描全檔）；cold-run（本 process 對該檔首次觸碰，非強制清 OS page cache）最大 12.51ms。皆遠低於 55ms 中位數目標與 1s 硬上限，AC3b PASS。現行實作（`File.readAsBytes()` 整檔讀入後純記憶體 IFD walk）已達標，未進行 `RandomAccessFile` byte-range 讀取優化 |
 | **狀態** | ✅ 已通過 |
 
@@ -1116,7 +1116,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
-### TC-164~171｜DngPreviewExtractor — big-endian（MM）讀取路徑差分覆蓋（M7 Task 1）
+### TC-164~171｜DngEmbeddedJpegExtractor — big-endian（MM）讀取路徑差分覆蓋（M7 Task 1）
 
 | 欄位 | 內容 |
 |------|------|
@@ -1124,8 +1124,8 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | 單元測試（8 案例，容器由 `test/support/synthetic_dng.dart` 在記憶體中組出後寫入暫存目錄，無 committed binary fixture） |
 | **背景** | 稽核發現 `_detectByteOrder`／`_readerFor` 宣稱支援 big-endian，但 `test/` 下沒有任何 `MM` 輸入，整條大端分支從未被執行過。刻意採**差分**設計：同一個邏輯容器分別以 `bigEndian: false` 與 `true` 各建一份，斷言兩者結果相同——若改斷言絕對值，一個「錯得前後一致」的 reader 也會通過 |
 | **預期結果** | 兩種位元組序在四個面向完全一致：longEdge:200 的選中尺寸、longEdge:null 的選中尺寸、取出的 JPEG bytes（`Uint8List` 完全相等）、orientation |
-| **驗證方式** | `flutter test -j 1 test/dng_preview_extractor_endian_test.dart`（宣告 8 == 實跑 +8，RC=0 自捕） |
-| **狀態** | ✅ 已通過，且**未發現位元組序缺陷**——`lib/services/dng_preview_extractor.dart` 未被修改。此否定結果由突變測試背書而非目視：把 `_TIFFReader.u32` 的大端分支（`:757`）改成小端寫法後，5 條涉及 MM 的斷言全紅、3 條只走 II 的維持綠（`scripts/tmp/m7-t1/red-m1.txt`），突變已還原 |
+| **驗證方式** | `flutter test -j 1 test/dng_embedded_jpeg_extractor_endian_test.dart`（宣告 8 == 實跑 +8，RC=0 自捕） |
+| **狀態** | ✅ 已通過，且**未發現位元組序缺陷**——`lib/services/dng_embedded_jpeg_extractor.dart` 未被修改。此否定結果由突變測試背書而非目視：把 `_TIFFReader.u32` 的大端分支（`:757`）改成小端寫法後，5 條涉及 MM 的斷言全紅、3 條只走 II 的維持綠（`scripts/tmp/m7-t1/red-m1.txt`），突變已還原 |
 
 > Task 3 注意：TC-171 斷言的是**目前**對 `corruptOffsets: true` 容器的行為（兩種位元組序皆自 `extractEmbeddedJpeg` 得到 `null`）。malformed 偵測改以 `probeEmbeddedJpeg` 新增 API 交付時，只要 `extractEmbeddedJpeg` 的簽章與回傳契約真的沒變，這條期望就仍成立。若發現非改這行不可，代表 API 是被遷移而非新增，應回報 lead 而非逕行修改。
 
@@ -1136,7 +1136,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | 欄位 | 內容 |
 |------|------|
 | **測試 ID** | 方向值夾限 TC-180（原始值 0→1）／TC-181（1→1，下界保留）／TC-182（8→8，上界保留）／TC-183（9→1）／TC-184（無法判定時 `readDngOrientation` 折成 1、`readOrientation` 保留 null）；`minLongEdge` 規則 TC-185（`longEdge:null`）／TC-186（`longEdge:200`，證明兩種選取模式都套用）／TC-187（是拒絕而非改選：有合格候選時仍取最大者）／TC-188（預設 null，顯式 null 與寬鬆包裝函式結果一致）；載入器行為 TC-189（尺寸不足的 `.dng` + 預覽用途 → 進 RAW 解碼）／TC-190（同檔 + 側欄縮圖 → 仍直接給 bytes，P-11/P-13 維持寬鬆）／TC-191（同檔 + 匯出 → 仍直接給 bytes）／TC-192（尺寸不足的**非 DNG** RAW + 預覽用途 → 仍給 bytes，不是失敗）／TC-193（預覽圖已達 2800 的 `.dng` 不受影響） |
-| **測試類型** | 單元測試（14 案例，跨 `test/dng_preview_extractor_test.dart` 與 `test/dart_image_loader_test.dart`，容器由 Task 1 的合成產生器建出） |
+| **測試類型** | 單元測試（14 案例，跨 `test/dng_embedded_jpeg_extractor_test.dart` 與 `test/dart_image_loader_test.dart`，容器由 Task 1 的合成產生器建出） |
 | **背景** | 使用者裁決 G-2：內嵌預覽圖沒有任何一張達到要求尺寸時，該檔改走 RAW 解碼，而不是拿一張過小的預覽圖充數。作用範圍經 A-5／A-6 兩次收斂：只套用在**預覽路徑且限 `.dng`**。側欄維持寬鬆（P-11/P-13）；匯出維持寬鬆（該路徑沒有 RAW 解碼可退，嚴格化會把「匯出一張略小的圖」變成「匯出失敗」）；非 DNG 的 RAW 同理，因為載入器的 RAW 解碼逃生口本身就只對 `.dng` 開放。方向值部分：原本只做 null 預設，任何超出 EXIF 合法範圍 1..8 的值都會原封不動流進下游的方向烘焙 |
 | **預期結果** | 如上逐條 |
 | **狀態** | ✅ 已通過（`+46: All tests passed!`，RC=0 自捕，`scripts/tmp/m7-t2/green-both.txt`）。四次突變驗證各自只讓對應斷言轉紅：拿掉範圍檢查只紅 0 與 9 兩列、1 與 8 維持綠；拿掉尺寸拒絕只紅兩條 `minLongEdge` 斷言；拿掉載入器接線只紅 TC-189；把守衛改成不限 `.dng` 只紅 TC-192，實得 `NativeImageFailure`——這一條把 A-6 從紙上論證變成實測結果。突變全部還原 |
@@ -1189,11 +1189,11 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 | 欄位 | 內容 |
 |------|------|
-| **測試 ID** | TC-213（`exifTransformFor` 涵蓋全部 8 個 EXIF 值，`test/exif_orientation_test.dart`；含 TC-213b 未知值退化為 identity）／TC-214（A7：一個 `offsetInBytes` 非零的 `Uint8List` view 匯出結果與零 offset 版本逐位元組相同，`test/thumbnail_export_service_test.dart`；壞掉時：舊的 `img.Image.fromBytes` 呼叫沒帶 `bytesOffset`/`order`，FFI 回傳的 view 會被從 buffer 起點讀錯位置與錯誤 channel 順序）／TC-215（`rgba.length` 與 `width*height*4` 不符時 `exportJpegForTest` 回傳 `null`，不組出錯位影像）／TC-216（`bakeExifOnDecoded` 對全部 8 個方向值與共用表 `exifTransformFor` 一致，`test/thumbnail_export_service_test.dart`）／TC-217（`sidebarCacheBytes` 移到 worker isolate 後仍回傳可解碼 JPEG，`test/sidebar_thumbnail_codec_test.dart`；isolate 搬移前先綠燈留證，搬移後紅燈才有意義） |
-| **測試類型** | 單元測試（`test/exif_orientation_test.dart`、`test/thumbnail_export_service_test.dart`、`test/sidebar_thumbnail_codec_test.dart`，無 platform channel） |
-| **背景** | A7：`thumbnail_export_service.dart` 的 RAW-decode 分支直接把 `decoded.rgba.buffer` 丟給 `img.Image.fromBytes`，沒有 `bytesOffset`/`order`，FFI 解碼器可能回傳非零 offset 的 view；C4：`exportBytesFor` 的 `2048` 與 codec 的 `longEdge = 200` 是與 `ImageRequestPurpose` 重複的字面量；EXIF orientation 的 8-case 對照表在 `package:image` 側與 `dart:ui` 側各自手寫一份，是漂移風險；B1/B2：匯出與側欄縮圖各自的 decode/resize/encode 是 UI isolate 上的同步 CPU 工作。詳見 memory.md AD-024、AD-025 |
+| **測試 ID** | TC-213（`exifTransformFor` 涵蓋全部 8 個 EXIF 值，`test/exif_orientation_test.dart`；含 TC-213b 未知值退化為 identity）／TC-214（A7：一個 `offsetInBytes` 非零的 `Uint8List` view 匯出結果與零 offset 版本逐位元組相同，`test/photo_export_service_test.dart`；壞掉時：舊的 `img.Image.fromBytes` 呼叫沒帶 `bytesOffset`/`order`，FFI 回傳的 view 會被從 buffer 起點讀錯位置與錯誤 channel 順序）／TC-215（`rgba.length` 與 `width*height*4` 不符時 `exportJpegForTest` 回傳 `null`，不組出錯位影像）／TC-216（`bakeExifOnDecoded` 對全部 8 個方向值與共用表 `exifTransformFor` 一致，`test/photo_export_service_test.dart`）／TC-217（`sidebarCacheBytes` 移到 worker isolate 後仍回傳可解碼 JPEG，`test/sidebar_thumbnail_codec_test.dart`；isolate 搬移前先綠燈留證，搬移後紅燈才有意義） |
+| **測試類型** | 單元測試（`test/exif_orientation_test.dart`、`test/photo_export_service_test.dart`、`test/sidebar_thumbnail_codec_test.dart`，無 platform channel） |
+| **背景** | A7：`photo_export_service.dart` 的 RAW-decode 分支直接把 `decoded.rgba.buffer` 丟給 `img.Image.fromBytes`，沒有 `bytesOffset`/`order`，FFI 解碼器可能回傳非零 offset 的 view；C4：`exportBytesFor` 的 `2048` 與 codec 的 `longEdge = 200` 是與 `ImageRequestPurpose` 重複的字面量；EXIF orientation 的 8-case 對照表在 `package:image` 側與 `dart:ui` 側各自手寫一份，是漂移風險；B1/B2：匯出與側欄縮圖各自的 decode/resize/encode 是 UI isolate 上的同步 CPU 工作。詳見 memory.md AD-024、AD-025 |
 | **預期結果** | 如上逐條；凍結的 `NativeImageResult` 三變體與 tier-1/tier-2 provider identity 不受影響（isolate 搬移是 CPU 位置變更，不是介面變更）；`PhotoPayloadCache._enforceBudget`、`sidebarCacheBytes` 的 `reencodeThreshold` 直通規則與 `catch (_) { return encoded; }` fallback 皆未變 |
-| **狀態** | ✅ 已通過。`test/thumbnail_export_service_test.dart` + `test/sidebar_thumbnail_codec_test.dart` + `test/decoded_rgba_image_provider_test.dart` + `test/exif_orientation_test.dart` 合計 52 個測試 `All tests passed!`，RC=0 自捕；`flutter analyze` 對本任務八個檔案 `No issues found!`。TC-213~216 紅→綠留證：修補前分別是 `No such file or directory`（`exif_orientation.dart` 未建立）與 `Undefined name 'exportJpegForTest'` 編譯錯誤；TC-217 在 isolate 搬移前先確認綠燈（characterisation test）。C4 的 `ImageRequestPurpose.export.targetSize`/`.sidebarThumbnail.targetSize` 在 `const` 參數預設值位置編譯失敗（enum 欄位存取非編譯期常數），改用 `final` 區域變數（匯出）與字面量 + 註解（側欄兩個函式簽章）——採用了計畫載明的替代方案 |
+| **狀態** | ✅ 已通過。`test/photo_export_service_test.dart` + `test/sidebar_thumbnail_codec_test.dart` + `test/decoded_rgba_image_provider_test.dart` + `test/exif_orientation_test.dart` 合計 52 個測試 `All tests passed!`，RC=0 自捕；`flutter analyze` 對本任務八個檔案 `No issues found!`。TC-213~216 紅→綠留證：修補前分別是 `No such file or directory`（`exif_orientation.dart` 未建立）與 `Undefined name 'exportJpegForTest'` 編譯錯誤；TC-217 在 isolate 搬移前先確認綠燈（characterisation test）。C4 的 `ImageRequestPurpose.export.targetSize`/`.sidebarThumbnail.targetSize` 在 `const` 參數預設值位置編譯失敗（enum 欄位存取非編譯期常數），改用 `final` 區域變數（匯出）與字面量 + 註解（側欄兩個函式簽章）——採用了計畫載明的替代方案 |
 
 ---
 
@@ -1205,7 +1205,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | 單元測試（`test/image_preload_controller_test.dart`、`test/photo_payload_cache_test.dart`，無 platform channel） |
 | **背景** | C12：`_loadingKeys` 一個 Set 同時裝兩種 key 形狀（裸 id / `thumb_$id`），是檔案自己在檔頭警告過的 collision class；C6：tier-2 解碼視窗（`_decodeTierTwoWindow`）與 tier-1 precache 視窗（`_precacheTierOneWindow`）各自重複同一段 clamp 算式，`retentionWindowIds` 已有相同算式；C10：`PhotoPayloadCache.operator []` 是唯一會更新使用順序的讀取介面，`lib/` 內零呼叫者，判定為死碼；C13：`prefetch_scheduler.dart` 的 `costOf`/`isKnown`/`allowsStartup` 在 `lib/`、`test/` 皆零呼叫者。詳見 memory.md AD-023、G-018 |
 | **預期結果** | 如上逐條；`operator []` 刪除後 `_enforceBudget` 行為零變更（FIFO-within-window，本來就是實際行為，因為 `operator []` 從未被 production code 呼叫過） |
-| **狀態** | ✅ 已通過。全套 `flutter test -j 1`：333 個測試 `All tests passed!`，RC=0 自捕（Task 2 落地 const-eval 修補後重跑）；`test/image_preload_controller_test.dart` + `test/photo_payload_cache_test.dart` 單獨執行 31/31 綠燈。`flutter analyze`：僅剩 1 個 info 等級提示在 `lib/services/thumbnail_export_service.dart:7`（`meta` 套件依賴未宣告），屬於 Task 2 檔案所有權範圍，非本任務改動造成，本任務六個檔案本身零 issue |
+| **狀態** | ✅ 已通過。全套 `flutter test -j 1`：333 個測試 `All tests passed!`，RC=0 自捕（Task 2 落地 const-eval 修補後重跑）；`test/image_preload_controller_test.dart` + `test/photo_payload_cache_test.dart` 單獨執行 31/31 綠燈。`flutter analyze`：僅剩 1 個 info 等級提示在 `lib/services/photo_export_service.dart:7`（`meta` 套件依賴未宣告），屬於 Task 2 檔案所有權範圍，非本任務改動造成，本任務六個檔案本身零 issue |
 
 ---
 

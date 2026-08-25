@@ -266,6 +266,16 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 
 ---
 
+### AD-029｜命名重構：Preview/Thumbnail 前綴改為描述實際行為（2026-08-25）
+
+- **決策**：三組識別碼改名，行為零變動：`DngPreviewExtractor`→`DngEmbeddedJpegExtractor`、`DngPreviewProbe`→`DngEmbeddedJpegProbe`（檔案 `dng_preview_extractor.dart`→`dng_embedded_jpeg_extractor.dart`，含四個測試檔）；`ThumbnailExportService`→`PhotoExportService`、`ThumbnailExportOutcome`→`PhotoExportOutcome`（檔案 `thumbnail_export_service.dart`→`photo_export_service.dart`）；`AppState` 建構子參數 `thumbnailLoader`→`imageLoader`。
+- **依據**：三份命名稽核報告（`docs/logs/2026-08-25/naming-audit-*.md`）。「preview」在此 codebase 同時指 `ImageRequestPurpose.preview`（2800px 顯示層級）、DNG 內嵌 JPEG 抽取、以及改名對話框的預覽清單，三者無關；`ThumbnailExportService` 產出的是長邊 ≤2048px 的匯出圖，不是 200px 縮圖；`thumbnailLoader` 這個 seam 實際服務全部三種 `ImageRequestPurpose`。
+- **本檔既有條目不改寫**：AD/G 是當時決策的歷史紀錄，舊名稱保留原文；讀到舊名稱時以本條的對照表換算。
+- **未改動（parking-lot）**：`readDngOrientation` 死碼、`tierTwo`/`fullSize` 雙軌術語（刻意保留，見 CLAUDE.md 架構段）、測試檔的里程碑後綴（m0/f3/m3/m4/m5/m6/endian）、`dng_decode_contract.dart:8` 的 `ImageBytesLoader` 註解。
+- **上游 Swift 檔的歷史引用**：`lib/` 與 `test/` 內兩處引用已改寫為不含舊類別名的敘述（AC3 的 grep 範圍涵蓋 `lib test CLAUDE.md`，使用者裁決不留例外）；`unit_test.md:374`、`file_index.md:78,226` 三處在 AC3 範圍外，維持原文引用 `macos/Runner/DngPreviewExtractor.swift`，因為那是已被上游移除的檔案，改寫只會損失出處資訊。
+
+---
+
 ## Gotchas（踩坑紀錄）
 
 ### G-001｜側邊欄 Scroll Debounce（觸發機制已由 AD-014 取代，debounce 本身仍在）
