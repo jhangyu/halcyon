@@ -153,7 +153,7 @@ void main() {
 
         final calls = <ImageRequestPurpose>[];
         final state = AppState(
-          thumbnailLoader: (path, {required purpose}) async {
+          imageLoader: (path, {required purpose}) async {
             calls.add(purpose);
             return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
           },
@@ -277,7 +277,7 @@ void main() {
 
       final state = AppState(
         scanner: _ThrowingScanner(const FileSystemException('unreadable')),
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -305,7 +305,7 @@ void main() {
             ),
           ),
         ),
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
         exifReader: (paths, {onProgress}) async {
@@ -421,7 +421,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -453,7 +453,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -485,7 +485,7 @@ void main() {
 
     AppState buildState() {
       return AppState(
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
         exifReader: (paths, {onProgress}) async => [
@@ -576,7 +576,7 @@ Future<void> _touch(Directory dir, String name) {
 
 AppState _testState() {
   return AppState(
-    thumbnailLoader: (path, {required purpose}) async {
+    imageLoader: (path, {required purpose}) async {
       return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
     },
   );

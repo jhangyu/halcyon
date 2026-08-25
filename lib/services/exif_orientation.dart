@@ -1,6 +1,6 @@
 /// The ONE EXIF Orientation table in this codebase.
 ///
-/// It used to exist twice: once in `thumbnail_export_service.dart` as
+/// It used to exist twice: once in `photo_export_service.dart` as
 /// `package:image` operations, once in `decoded_rgba_image_provider.dart` as
 /// a quarter-turn + mirror pair for `dart:ui`. Two hand-written 8-case
 /// switches that must agree forever is a drift bug waiting to happen, so both

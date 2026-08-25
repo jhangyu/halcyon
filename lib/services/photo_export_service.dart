@@ -18,8 +18,8 @@ import 'image_source_types.dart';
 /// `"<filename>: <error message>"`, mirroring [RecycleOutcome]'s shape in
 /// `photo_file_actions.dart`, and MUST be surfaced to the user — a silently
 /// failed export looks identical to a broken app.
-class ThumbnailExportOutcome {
-  const ThumbnailExportOutcome({
+class PhotoExportOutcome {
+  const PhotoExportOutcome({
     required this.exportedCount,
     required this.failures,
   });
@@ -34,8 +34,8 @@ class ThumbnailExportOutcome {
 /// touches a real decode/encode pipeline.
 typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
 
-class ThumbnailExportService {
-  ThumbnailExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder})
+class PhotoExportService {
+  PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder})
     : _fetchBytes = fetchBytes ?? ((path) => exportBytesFor(path, decoder: decoder));
 
   final ExportBytesFetch _fetchBytes;
@@ -227,20 +227,20 @@ class ThumbnailExportService {
   /// overwriting any existing file at that path.
   ///
   /// A failure fetching or writing one item is recorded in
-  /// [ThumbnailExportOutcome.failures] and does not abort the batch.
+  /// [PhotoExportOutcome.failures] and does not abort the batch.
   /// [onProgress], if given, fires once per completed item with a
   /// monotonically increasing `done` count and the fixed `total`; because
   /// work is concurrent, completion order is not source order, so callers
   /// must report counts, not filenames.
   ///
   /// If [dest] does not exist, returns an empty outcome without throwing.
-  Future<ThumbnailExportOutcome> exportStarred(
+  Future<PhotoExportOutcome> exportStarred(
     List<PhotoItem> items,
     Directory dest, {
     void Function(int done, int total)? onProgress,
   }) async {
     if (!await dest.exists()) {
-      return const ThumbnailExportOutcome(exportedCount: 0, failures: []);
+      return const PhotoExportOutcome(exportedCount: 0, failures: []);
     }
 
     final starredItems = items
@@ -287,7 +287,7 @@ class ThumbnailExportService {
     final workerCount = total < _maxConcurrent ? total : _maxConcurrent;
     await Future.wait(List.generate(workerCount, (_) => worker()));
 
-    return ThumbnailExportOutcome(
+    return PhotoExportOutcome(
       exportedCount: exportedCount,
       failures: failures,
     );
@@ -318,7 +318,7 @@ img.Image? imageFromDecodedRgba(DecodedRgba decoded) {
   );
 }
 
-/// Test seam for the RAW-decode half of [ThumbnailExportService.exportBytesFor]
+/// Test seam for the RAW-decode half of [PhotoExportService.exportBytesFor]
 /// -- the export path without needing a real file on disk.
 @visibleForTesting
 Future<Uint8List?> exportJpegForTest(

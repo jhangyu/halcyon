@@ -97,7 +97,7 @@ Future<void> _touch(Directory dir, String name) {
 
 AppState _testState() {
   return AppState(
-    thumbnailLoader: (path, {required purpose}) async {
+    imageLoader: (path, {required purpose}) async {
       return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
     },
   );

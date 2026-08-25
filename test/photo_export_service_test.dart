@@ -7,7 +7,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/exif_orientation.dart';
-import 'package:halcyon_flutter/services/thumbnail_export_service.dart';
+import 'package:halcyon_flutter/services/photo_export_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
@@ -62,7 +62,7 @@ void main() {
       unstarred('c', ['c.jpg'], PhotoStatus.trashed),
     ];
 
-    final service = ThumbnailExportService(
+    final service = PhotoExportService(
       fetchBytes: (path) async => _fakeJpeg(p.basename(path)),
     );
 
@@ -87,7 +87,7 @@ void main() {
         starred('IMG_0001', ['IMG_0001.dng', 'IMG_0001.jpg']),
       ];
 
-      final service = ThumbnailExportService(
+      final service = PhotoExportService(
         fetchBytes: (path) async {
           requestedPaths.add(path);
           return _fakeJpeg(p.basename(path));
@@ -114,7 +114,7 @@ void main() {
     final items = [
       starred('a', ['a.jpg']),
     ];
-    final service = ThumbnailExportService(
+    final service = PhotoExportService(
       fetchBytes: (path) async => _fakeJpeg('new'),
     );
 
@@ -137,7 +137,7 @@ void main() {
         starred('c', ['c.jpg']),
       ];
 
-      final service = ThumbnailExportService(
+      final service = PhotoExportService(
         fetchBytes: (path) async {
           if (path.endsWith('a.jpg')) return null;
           if (path.endsWith('b.jpg')) {
@@ -169,7 +169,7 @@ void main() {
         (i) => starred('item$i', ['item$i.jpg']),
       );
 
-      final service = ThumbnailExportService(
+      final service = PhotoExportService(
         fetchBytes: (path) async => _fakeJpeg(path),
       );
 
@@ -200,7 +200,7 @@ void main() {
     final items = [
       starred('a', ['a.jpg']),
     ];
-    final service = ThumbnailExportService(
+    final service = PhotoExportService(
       fetchBytes: (path) async => _fakeJpeg('x'),
     );
 
@@ -265,7 +265,7 @@ void main() {
           ),
         ];
 
-        final service = ThumbnailExportService();
+        final service = PhotoExportService();
         final outcome = await service.exportStarred(items, destDir);
 
         expect(outcome.failures, isEmpty);
@@ -331,7 +331,7 @@ void main() {
           return DecodedRgba(rgba: rgba, width: width, height: height);
         }
 
-        final service = ThumbnailExportService(decoder: fakeDecoder);
+        final service = PhotoExportService(decoder: fakeDecoder);
         final outcome = await service.exportStarred(items, destDir);
 
         expect(outcome.failures, isEmpty);
@@ -374,7 +374,7 @@ void main() {
           ),
         ];
 
-        final service = ThumbnailExportService();
+        final service = PhotoExportService();
         final outcome = await service.exportStarred(items, destDir);
 
         expect(outcome.exportedCount, 0);
@@ -420,7 +420,7 @@ void main() {
         );
 
         final exported =
-            await ThumbnailExportService.exportBytesFor(withExif!.path);
+            await PhotoExportService.exportBytesFor(withExif!.path);
         expect(exported, isNotNull);
 
         final outImage = img.decodeJpg(exported!);

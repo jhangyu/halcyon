@@ -23,8 +23,8 @@ enum ImageRequestPurpose {
   // file and carried over, with Orientation forced to 1 (pixels are already
   // rotated). This is a best-effort re-read of a fixed tag set, not a
   // byte-for-byte copy of the source's full EXIF block (no maker notes) --
-  // see `ThumbnailExportService._attachSourceExif` (M6 P3 review P-14
-  // ruling). Handled in Dart by `thumbnail_export_service.dart`'s
+  // see `PhotoExportService._attachSourceExif` (M6 P3 review P-14
+  // ruling). Handled in Dart by `photo_export_service.dart`'s
   // `exportBytesFor` (M6 F-11): decode -> resize -> encode, replacing the
   // native export branch AppDelegate.swift used to run.
   export(targetSize: 2048, platformValue: 'export');
@@ -64,7 +64,7 @@ class NativeImageBytes extends NativeImageResult {
 ///
 /// [exifOrientation] is the IFD0 Orientation tag value, in the range 1..8; it
 /// is [kDefaultExifOrientation] when the tag is absent or unparseable. It is
-/// read in Dart via `DngPreviewExtractor.readOrientation`, a bounded
+/// read in Dart via `DngEmbeddedJpegExtractor.readOrientation`, a bounded
 /// byte-range IFD0 walk that works on exactly this case -- a DNG with no
 /// embedded preview; it returns null when the orientation could not be
 /// determined, which is why this field falls back to
@@ -92,9 +92,9 @@ const int kDefaultExifOrientation = 1;
 
 /// The seam through which the image-bytes producer is called.
 ///
-/// ONE definition for what used to be three structurally identical typedefs:
-/// `ThumbnailLoader` (app_state.dart), `ImageBytesLoader`
-/// (image_preload_controller.dart) and `NativeImageLoad` (photo_source.dart).
+/// ONE definition for what used to be three structurally identical typedefs,
+/// declared separately in app_state.dart, image_preload_controller.dart and
+/// photo_source.dart; all three call sites now share this `NativeImageLoad`.
 /// It lives here, in the file that imports nothing but `dart:typed_data`,
 /// which is what resolves the import cycle `photo_source.dart` used to dodge
 /// by re-declaring the type structurally.

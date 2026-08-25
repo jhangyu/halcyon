@@ -69,7 +69,7 @@ void main() {
         await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes([1, 2, 3]);
       }
       state = AppState(
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
         },
       );
@@ -115,7 +115,7 @@ void main() {
       // for real and is observable via the status line.
       late Directory exportDest;
       const channel = MethodChannel('plugins.flutter.io/file_selector');
-      // M6 P3.6: AppState's default ThumbnailExportService now fetches bytes
+      // M6 P3.6: AppState's default PhotoExportService now fetches bytes
       // via the pure-Dart exportBytesFor pipeline (decode -> resize ->
       // encode), not the 'halcyon/thumbnail' channel. Mock the channel to
       // THROW so a regression back onto it fails this test loudly instead of
@@ -207,8 +207,8 @@ void main() {
   // P2.3 — image_preload_controller.dart:1182 already calls the injected
   // seam; this test does not add wiring, only coverage). Every prior test in
   // this file bypasses both the channel and dartImageLoad by injecting a
-  // fixed-bytes fake thumbnailLoader, so none of them exercise this path.
-  // Real DNG samples per repo red line (pattern of test/dng_preview_extractor_test.dart).
+  // fixed-bytes fake imageLoader, so none of them exercise this path.
+  // Real DNG samples per repo red line (pattern of test/dng_embedded_jpeg_extractor_test.dart).
   //
   // Drives AppState.preloadThumbnails directly rather than through
   // SidebarView/pumpSidebar: the widget's own itemBuilder-driven trigger
@@ -237,7 +237,7 @@ void main() {
       await tester.runAsync(() async {
         final sampleDir = Directory('local_data/photo_samples/DNG');
         // Known preview-bearing samples (cross-checked in
-        // dng_preview_extractor_test.dart) — keeps this test fast and
+        // dng_embedded_jpeg_extractor_test.dart) — keeps this test fast and
         // deterministic rather than sweeping all 14 samples.
         const previewBearing = [
           '2026-02-15-19-37-38.dng',
@@ -258,7 +258,7 @@ void main() {
           await f.copy(p.join(dir.path, p.basename(f.path)));
         }
 
-        state = AppState(thumbnailLoader: countingLoader);
+        state = AppState(imageLoader: countingLoader);
         await state.loadFolder(dir);
 
         await state.preloadThumbnails(0, state.items.length - 1);

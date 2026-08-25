@@ -35,7 +35,7 @@ void main() {
       // for the whole test, so the null/null case under test cannot be
       // raced away by a real decode landing mid-run.
       state = AppState(
-        thumbnailLoader: (path, {required purpose}) =>
+        imageLoader: (path, {required purpose}) =>
             Completer<NativeImageResult>().future,
       );
       addTearDown(state.dispose);

@@ -43,7 +43,7 @@ void main() {
       addTearDown(() => dir.delete(recursive: true));
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       state = AppState(
-        thumbnailLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );

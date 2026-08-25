@@ -116,7 +116,7 @@ void main() {
       await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes(<int>[1, 2, 3]);
 
       final state = AppState(
-        thumbnailLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => DecodedRgba(
           rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),

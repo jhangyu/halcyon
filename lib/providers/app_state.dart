@@ -19,7 +19,7 @@ import '../services/photo_library_scanner.dart';
 import '../services/photo_status_store.dart';
 import '../services/raw_pixels_image.dart';
 import '../services/rename_rule.dart';
-import '../services/thumbnail_export_service.dart';
+import '../services/photo_export_service.dart';
 import 'rename_coordinator.dart';
 
 /// Outcome of a batch delete, returned to the view layer so feedback lives
@@ -64,20 +64,20 @@ class AppState extends ChangeNotifier {
     PhotoStatusStore? statusStore,
     PhotoFileActions? fileActions,
     ImagePreloadController? preloadController,
-    NativeImageLoad? thumbnailLoader,
+    NativeImageLoad? imageLoader,
     DngFullDecoder? dngDecoder,
-    ThumbnailExportService? exportService,
+    PhotoExportService? exportService,
     ExifBatchReader? exifReader,
   }) : _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
        _exportService =
-           exportService ?? ThumbnailExportService(decoder: dngDecoder),
+           exportService ?? PhotoExportService(decoder: dngDecoder),
        _preloadController =
            preloadController ??
            ImagePreloadController(
-             imageLoader: thumbnailLoader ?? dartImageLoad,
+             imageLoader: imageLoader ?? dartImageLoad,
              // Null until the app's composition root injects the pkg squad's
              // adapter. While null, a DNG with no embedded preview is a
              // permanent miss (M6 U-12) -- there is no legacy channel path
@@ -107,7 +107,7 @@ class AppState extends ChangeNotifier {
   final PhotoStatusStore _statusStore;
   final PhotoFileActions _fileActions;
   final ImagePreloadController _preloadController;
-  final ThumbnailExportService _exportService;
+  final PhotoExportService _exportService;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;
 
