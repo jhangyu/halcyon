@@ -363,7 +363,7 @@ class _SidebarViewState extends State<SidebarView> {
           (i) => i.status == PhotoStatus.trashed,
         );
 
-        final actionTextColor = _iconColor(context);
+        final iconColor = _iconColor(context);
 
         return [
           PopupMenuItem(
@@ -371,7 +371,7 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasStarred,
             child: Text(
               'Copy Starred...',
-              style: TextStyle(color: actionTextColor),
+              style: TextStyle(color: iconColor),
             ),
           ),
           PopupMenuItem(
@@ -379,7 +379,7 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasStarred,
             child: Text(
               'Move Starred...',
-              style: TextStyle(color: actionTextColor),
+              style: TextStyle(color: iconColor),
             ),
           ),
           PopupMenuItem(
@@ -387,7 +387,7 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: hasStarred,
             child: Text(
               'Thumbnail Starred...',
-              style: TextStyle(color: actionTextColor),
+              style: TextStyle(color: iconColor),
             ),
           ),
           PopupMenuItem(
@@ -395,7 +395,7 @@ class _SidebarViewState extends State<SidebarView> {
             enabled: state.items.isNotEmpty,
             child: Text(
               'Rename by EXIF...',
-              style: TextStyle(color: actionTextColor),
+              style: TextStyle(color: iconColor),
             ),
           ),
           const PopupMenuDivider(),
@@ -412,9 +412,9 @@ class _SidebarViewState extends State<SidebarView> {
             value: kSettingsMenuValue,
             child: Row(
               children: [
-                Icon(Icons.settings, size: 18, color: actionTextColor),
+                Icon(Icons.settings, size: 18, color: iconColor),
                 const SizedBox(width: 8),
-                Text('Options...', style: TextStyle(color: actionTextColor)),
+                Text('Options...', style: TextStyle(color: iconColor)),
               ],
             ),
           ),

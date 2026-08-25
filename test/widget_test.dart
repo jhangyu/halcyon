@@ -12,7 +12,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('PhotoSelectorApp renders empty-folder prompt', (
+  testWidgets('HalcyonApp renders empty-folder prompt', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(1440, 900);
