@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +37,7 @@ List<PhotoItem> _items(int count) => List.generate(
 /// the test releases by hand, which is what makes "one decode in flight, FIFO"
 /// observable without a wall-clock wait.
 class _Harness {
-  _Harness({Duration debounce = Duration.zero}) {
+  _Harness() {
     registry = TierTwoRegistry(currentPayloadFor: (id) => payloads[id]);
     scheduler = TierTwoScheduler(
       registry: registry,
@@ -59,7 +58,9 @@ class _Harness {
           },
       dngDecoder: () => null,
       exifOrientationFor: (id) => null,
-      navigationDebounce: debounce,
+      // Zero, so the debounce fires on the next event-loop turn instead of
+      // costing the suite a real 250ms wall-clock wait per test.
+      navigationDebounce: Duration.zero,
     );
   }
 
