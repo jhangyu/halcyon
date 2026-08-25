@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:exif/exif.dart' as pkg;
 import 'package:flutter/foundation.dart';
 
-import 'rename_rule.dart';
+import '../../models/rename_rule.dart';
 
 /// Injection seam for reading EXIF for a batch of paths, mirroring the
 /// `DngFullDecoder` typedef pattern so `AppState` can be tested without a

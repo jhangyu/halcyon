@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/exif_metadata_service.dart';
+import 'package:halcyon_flutter/services/rename/exif_metadata_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/rename_rule.dart';
-import 'package:halcyon_flutter/services/rename_service.dart';
+import 'package:halcyon_flutter/models/rename_rule.dart';
+import 'package:halcyon_flutter/services/rename/rename_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

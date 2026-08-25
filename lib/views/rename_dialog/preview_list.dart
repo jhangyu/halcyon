@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../models/photo_item.dart';
-import '../../services/rename_rule.dart';
+import '../../models/rename_rule.dart';
 import '../theme_tokens.dart';
 import 'section_label.dart';
 

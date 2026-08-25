@@ -11,16 +11,16 @@ import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/dng_decode_contract.dart';
 import '../services/image_pipeline/dng_decode_service.dart';
-import '../services/exif_metadata_service.dart';
+import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
 import '../services/library/photo_file_actions.dart';
 import '../services/library/photo_library_scanner.dart';
 import '../services/library/photo_status_store.dart';
 import '../services/image_pipeline/raw_pixels_image.dart';
-import '../services/rename_rule.dart';
+import '../models/rename_rule.dart';
 import '../services/library/photo_export_service.dart';
-import 'rename_coordinator.dart';
+import '../services/rename/rename_coordinator.dart';
 
 /// Outcome of a batch delete, returned to the view layer so feedback lives
 /// in the widgets rather than the provider. Failures are never swallowed.

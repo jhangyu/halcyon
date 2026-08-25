@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/photo_item.dart';
 import '../providers/app_state.dart';
-import '../services/rename_rule.dart';
+import '../models/rename_rule.dart';
 import 'rename_dialog/actions.dart';
 import 'rename_dialog/preview_list.dart';
 import 'rename_dialog/rule_editor.dart';

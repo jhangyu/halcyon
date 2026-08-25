@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/providers/rename_coordinator.dart';
+import 'package:halcyon_flutter/services/rename/rename_coordinator.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/library/photo_status_store.dart';
-import 'package:halcyon_flutter/services/rename_rule.dart';
+import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../services/rename_rule.dart';
+import '../../models/rename_rule.dart';
 import '../theme_tokens.dart';
 import 'section_label.dart';
 

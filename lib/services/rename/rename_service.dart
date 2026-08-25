@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../models/photo_item.dart';
-import 'library/photo_file_actions.dart';
-import 'rename_rule.dart';
+import '../../models/photo_item.dart';
+import '../library/photo_file_actions.dart';
+import '../../models/rename_rule.dart';
 
 /// One file to move. Both paths are absolute.
 class RenameMove {
