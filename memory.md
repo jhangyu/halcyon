@@ -276,6 +276,51 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 
 ---
 
+### AD-030｜`lib/services/` 拆成四個目的分類子資料夾，`rename_rule` 重新歸類為 model（2026-08-25，structure refactor）
+
+- **決策**：`lib/services/` 27 個檔案依用途拆成四個子資料夾（純 `git mv` + import 路徑改寫，零邏輯變更）：
+  - `services/image_pipeline/`（18 檔）：tier-1/tier-2 sliding preload、DNG 解碼、cache 記帳全家（含 `dng_decode_contract.dart`、`image_source_types.dart`、`image_preload_controller.dart`、`tier_two_registry.dart`、`tier_two_scheduler.dart` 等）。
+  - `services/library/`（4 檔）：`photo_library_scanner.dart`、`photo_status_store.dart`、`photo_file_actions.dart`、`photo_export_service.dart`。
+  - `services/rename/`（3 檔）：`rename_service.dart`、`exif_metadata_service.dart`，以及從 `providers/` 移入的 `rename_coordinator.dart`。
+  - `services/platform/`（2 檔）：`open_with_channel.dart`、`trash_service.dart`。
+  另外 `rename_rule.dart` 從 `services/` 重新歸類為 `models/rename_rule.dart`（純函式渲染，無 I/O，符合 `models/` 定位而非 `services/`）；`views/rename_dialog.dart` 移入自己的 feature folder，成為 `views/rename_dialog/rename_dialog.dart`（與既有 `rename_dialog/` 子元件同層，消解了檔案與資料夾同名的衝突）；`test/` 鏡射整個新 `lib/` 樹狀（46 檔）。
+- **依據**：`docs/logs/2026-08-25/structure-audit-*.md` 三份稽核 + `docs/logs/2026-08-25/structure-refactor-plan.md`（planner-opus）。`lib/services/` 原本 27 個檔案零分類地平鋪在同一層，混雜四種不相關關注點（影像管線效能、資料夾/檔案 I/O、EXIF 重新命名、macOS 平台橋接），提高誤讀依賴關係與新檔案落錯位置的風險。
+- **不可再合併**：四個子資料夾邊界對應四種不同關注點，合併任兩個等於重新製造「一層平鋪、無法從路徑判斷用途」的原始問題。`rename_rule.dart` 不可搬回 `services/`——它是純函式渲染，沒有 I/O，屬於 `models/` 的定位。
+- **凍結整合縫合處路徑變動，內容不變**：`dng_decode_contract.dart`（`DngFullDecoder`/`DecodedRgba`）與 `image_source_types.dart`（`NativeImageResult` 3 變體，AD-010/AD-011）搬進 `services/image_pipeline/`，**只有路徑變了，位元組內容零變化**（`git diff -M` 驗證為純 rename）。
+- **舊→新路徑對照表**（供舊 AD/G 條目換算；舊條目本文不改寫，見下方「本檔既有條目不改寫」）：
+
+  | 舊路徑 | 新路徑 |
+  |---|---|
+  | `lib/services/dart_image_loader.dart` | `lib/services/image_pipeline/dart_image_loader.dart` |
+  | `lib/services/dng_decode_contract.dart` | `lib/services/image_pipeline/dng_decode_contract.dart` |
+  | `lib/services/dng_decode_service.dart` | `lib/services/image_pipeline/dng_decode_service.dart` |
+  | `lib/services/dng_embedded_jpeg_extractor.dart` | `lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart` |
+  | `lib/services/image_preload_controller.dart` | `lib/services/image_pipeline/image_preload_controller.dart` |
+  | `lib/services/image_source_types.dart` | `lib/services/image_pipeline/image_source_types.dart` |
+  | `lib/services/cache_budget.dart` | `lib/services/image_pipeline/cache_budget.dart` |
+  | `lib/services/decoded_rgba_image_provider.dart` | `lib/services/image_pipeline/decoded_rgba_image_provider.dart` |
+  | `lib/services/exif_orientation.dart` | `lib/services/image_pipeline/exif_orientation.dart` |
+  | `lib/services/photo_payload.dart`、`photo_payload_cache.dart` | `lib/services/image_pipeline/…` |
+  | `lib/services/photo_source.dart`、`prefetch_scheduler.dart` | `lib/services/image_pipeline/…` |
+  | `lib/services/raw_pixels_image.dart`、`raw_full_res_image.dart` | `lib/services/image_pipeline/…` |
+  | `lib/services/sidebar_thumbnail_codec.dart` | `lib/services/image_pipeline/sidebar_thumbnail_codec.dart` |
+  | `lib/services/tier_two_registry.dart` | `lib/services/image_pipeline/tier_two_registry.dart`（AD-027） |
+  | `lib/services/tier_two_scheduler.dart` | `lib/services/image_pipeline/tier_two_scheduler.dart`（AD-028） |
+  | `lib/services/photo_library_scanner.dart`、`photo_status_store.dart` | `lib/services/library/…` |
+  | `lib/services/photo_file_actions.dart` | `lib/services/library/photo_file_actions.dart` |
+  | `lib/services/photo_export_service.dart` | `lib/services/library/photo_export_service.dart` |
+  | `lib/services/rename_service.dart`、`exif_metadata_service.dart` | `lib/services/rename/…` |
+  | `lib/providers/rename_coordinator.dart` | `lib/services/rename/rename_coordinator.dart`（AD-026 本文仍寫舊路徑） |
+  | `lib/services/rename_rule.dart` | `lib/models/rename_rule.dart` |
+  | `lib/services/open_with_channel.dart`、`trash_service.dart` | `lib/services/platform/…` |
+  | `lib/views/rename_dialog.dart` | `lib/views/rename_dialog/rename_dialog.dart` |
+  | `test/<name>_test.dart`（27 服務對應測試 + 相關 views/models/providers 測試，共 46 檔） | `test/services/{image_pipeline,library,rename,platform}/…`、`test/models/…`、`test/providers/…`、`test/views/…`、`test/perf/…`（詳見 `file_index.md`；`main_test.dart`／`m6_bridge_free_test.dart`／`widget_test.dart` 留在 `test/` 根層，`test/support/synthetic_dng.dart` 路徑不變） |
+
+- **本檔既有條目不改寫**：AD-010/011/026/027/028 等歷史條目本文仍寫舊路徑（例如 AD-026 寫 `lib/providers/rename_coordinator.dart`、AD-027/028 寫 `lib/services/tier_two_registry.dart`／`tier_two_scheduler.dart`）——那是決策當時的事實記錄，不回填新路徑；讀到舊路徑時用本條的對照表換算。
+- **關聯**：AD-029（命名重構，改的是識別碼名稱而非路徑，兩者互不重疊）；`CLAUDE.md`「Architecture」段、`file_index.md`、`unit_test.md` 已同步改寫為新路徑（同一提交）。
+
+---
+
 ## Gotchas（踩坑紀錄）
 
 ### G-001｜側邊欄 Scroll Debounce（觸發機制已由 AD-014 取代，debounce 本身仍在）

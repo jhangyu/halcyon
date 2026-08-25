@@ -64,6 +64,12 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 
 ---
 
+### `test/` 樹狀重構（2026-08-25）
+
+`test/` 已鏡射 `lib/` 新的 `services/{image_pipeline,library,rename,platform}/` 四分類結構（46 個測試檔搬移，見 `file_index.md` 目錄樹、`memory.md` AD-030 的舊→新路徑對照表）。本檔矩陣內既有的裸檔名引用（例如 `test/image_preload_controller_test.dart`）維持原文不重寫——那是歷史測試案例紀錄的一部分；實際路徑一律以 `file_index.md` 為準。`main_test.dart`／`m6_bridge_free_test.dart`／`widget_test.dart` 留在 `test/` 根層，`test/support/synthetic_dng.dart` 路徑不變。
+
+---
+
 ## Feature Matrix（功能矩陣）
 
 | 功能 | Flutter 主線 | 備註 |
@@ -88,8 +94,8 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | 唯讀資料夾警告 | ✅ | `PhotoStatusStore.isWritable()` 建立/刪除 probe 檔案偵測；`loadFolder()` 推送 status line 警告 |
 | Status line（取代 SnackBar）| ✅ | `lib/views/status_line.dart`；`test/status_line_test.dart` 覆蓋時序與 emphasis 配色 |
 | DNG 全尺寸解碼 | ✅ | `dng_processor` 整合，無內嵌預覽時真正解碼而非降級縮圖；`test/dng_decoder_smoke_test.dart` / `test/dng_extractor_swift_test.dart` / `test/decoded_rgba_image_provider_test.dart` 覆蓋 |
-| 影像切換 tier-1/tier-2 sliding preload | ✅ | `lib/services/image_preload_controller.dart`；`test/image_preload_controller_test.dart`（22 案例）覆蓋 |
-| Finder「開啟方式」冷啟動 | ✅（macOS）| `lib/services/open_with_channel.dart`；Windows/Android 原生轉發未實作 |
+| 影像切換 tier-1/tier-2 sliding preload | ✅ | `lib/services/image_pipeline/image_preload_controller.dart`；`test/image_preload_controller_test.dart`（22 案例）覆蓋 |
+| Finder「開啟方式」冷啟動 | ✅（macOS）| `lib/services/platform/open_with_channel.dart`；Windows/Android 原生轉發未實作 |
 | Sidebar 縮圖預載改為 itemBuilder 驅動 | ✅ | 取代 scroll listener 觸發模式；`test/sidebar_view_test.dart` 覆蓋資料夾重載迴歸案例 |
 | EXIF 重新命名（批次、可 undo）| ✅ | 模板渲染＋碰撞規劃為純函式、JSONL undo journal、macOS `halcyon/exif` 原生 batch channel、兩窗格對話框、status line undo/cancel；Windows/Android 只有 `exif` package fallback，實機視覺覆核待補（見 `memory.md` TD-015） |
 
@@ -371,7 +377,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | 欄位 | 內容 |
 |------|------|
 | **測試 ID** | TC-030 |
-| **名稱** | `lib/services/dng_embedded_jpeg_extractor.dart`（純 Dart 移植 `macos/Runner/DngPreviewExtractor.swift` 的 TIFF/IFD byte parsing）從真實 DNG 樣本抽出最大內嵌全尺寸 JPEG 預覽；截斷/非 DNG/malformed 輸入一律回傳 `null`，不 throw；`ImagePreloadController` 在原生縮圖回 `NativeImageFailure` 且副檔名為 `.dng` 時改走此抽取器 |
+| **名稱** | `lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart`（純 Dart 移植 `macos/Runner/DngPreviewExtractor.swift` 的 TIFF/IFD byte parsing）從真實 DNG 樣本抽出最大內嵌全尺寸 JPEG 預覽；截斷/非 DNG/malformed 輸入一律回傳 `null`，不 throw；`ImagePreloadController` 在原生縮圖回 `NativeImageFailure` 且副檔名為 `.dng` 時改走此抽取器 |
 | **測試類型** | 單元測試（真實樣本，`local_data/photo_samples/DNG/`）+ 邊界值測試（合成 malformed bytes） |
 | **背景** | Windows 原生橋接對 DNG 一律回 `RAW_UNSUPPORTED`（`windows/runner/halcyon_image.cpp:392-402`）；本抽取器讓任何缺原生縮圖橋接的平台仍能顯示 DNG 內嵌預覽。契約：`docs/logs/2026-08-21/windows-raw-r1r2-contract.md` §2 AC1-AC5 |
 | **驗證方式** | `test/dng_embedded_jpeg_extractor_test.dart`（24 個案例：13 個真實樣本抽出可解碼 SOI/EOI JPEG、1 個無預覽樣本回傳 null、1 個 EXIF orientation=6 注入驗證、9 個 malformed/truncated/non-DNG 邊界案例） |
@@ -1125,7 +1131,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **背景** | 稽核發現 `_detectByteOrder`／`_readerFor` 宣稱支援 big-endian，但 `test/` 下沒有任何 `MM` 輸入，整條大端分支從未被執行過。刻意採**差分**設計：同一個邏輯容器分別以 `bigEndian: false` 與 `true` 各建一份，斷言兩者結果相同——若改斷言絕對值，一個「錯得前後一致」的 reader 也會通過 |
 | **預期結果** | 兩種位元組序在四個面向完全一致：longEdge:200 的選中尺寸、longEdge:null 的選中尺寸、取出的 JPEG bytes（`Uint8List` 完全相等）、orientation |
 | **驗證方式** | `flutter test -j 1 test/dng_embedded_jpeg_extractor_endian_test.dart`（宣告 8 == 實跑 +8，RC=0 自捕） |
-| **狀態** | ✅ 已通過，且**未發現位元組序缺陷**——`lib/services/dng_embedded_jpeg_extractor.dart` 未被修改。此否定結果由突變測試背書而非目視：把 `_TIFFReader.u32` 的大端分支（`:757`）改成小端寫法後，5 條涉及 MM 的斷言全紅、3 條只走 II 的維持綠（`scripts/tmp/m7-t1/red-m1.txt`），突變已還原 |
+| **狀態** | ✅ 已通過，且**未發現位元組序缺陷**——`lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart` 未被修改。此否定結果由突變測試背書而非目視：把 `_TIFFReader.u32` 的大端分支（`:757`）改成小端寫法後，5 條涉及 MM 的斷言全紅、3 條只走 II 的維持綠（`scripts/tmp/m7-t1/red-m1.txt`），突變已還原 |
 
 > Task 3 注意：TC-171 斷言的是**目前**對 `corruptOffsets: true` 容器的行為（兩種位元組序皆自 `extractEmbeddedJpeg` 得到 `null`）。malformed 偵測改以 `probeEmbeddedJpeg` 新增 API 交付時，只要 `extractEmbeddedJpeg` 的簽章與回傳契約真的沒變，這條期望就仍成立。若發現非改這行不可，代表 API 是被遷移而非新增，應回報 lead 而非逕行修改。
 
@@ -1205,7 +1211,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 | **測試類型** | 單元測試（`test/image_preload_controller_test.dart`、`test/photo_payload_cache_test.dart`，無 platform channel） |
 | **背景** | C12：`_loadingKeys` 一個 Set 同時裝兩種 key 形狀（裸 id / `thumb_$id`），是檔案自己在檔頭警告過的 collision class；C6：tier-2 解碼視窗（`_decodeTierTwoWindow`）與 tier-1 precache 視窗（`_precacheTierOneWindow`）各自重複同一段 clamp 算式，`retentionWindowIds` 已有相同算式；C10：`PhotoPayloadCache.operator []` 是唯一會更新使用順序的讀取介面，`lib/` 內零呼叫者，判定為死碼；C13：`prefetch_scheduler.dart` 的 `costOf`/`isKnown`/`allowsStartup` 在 `lib/`、`test/` 皆零呼叫者。詳見 memory.md AD-023、G-018 |
 | **預期結果** | 如上逐條；`operator []` 刪除後 `_enforceBudget` 行為零變更（FIFO-within-window，本來就是實際行為，因為 `operator []` 從未被 production code 呼叫過） |
-| **狀態** | ✅ 已通過。全套 `flutter test -j 1`：333 個測試 `All tests passed!`，RC=0 自捕（Task 2 落地 const-eval 修補後重跑）；`test/image_preload_controller_test.dart` + `test/photo_payload_cache_test.dart` 單獨執行 31/31 綠燈。`flutter analyze`：僅剩 1 個 info 等級提示在 `lib/services/photo_export_service.dart:7`（`meta` 套件依賴未宣告），屬於 Task 2 檔案所有權範圍，非本任務改動造成，本任務六個檔案本身零 issue |
+| **狀態** | ✅ 已通過。全套 `flutter test -j 1`：333 個測試 `All tests passed!`，RC=0 自捕（Task 2 落地 const-eval 修補後重跑）；`test/image_preload_controller_test.dart` + `test/photo_payload_cache_test.dart` 單獨執行 31/31 綠燈。`flutter analyze`：僅剩 1 個 info 等級提示在 `lib/services/library/photo_export_service.dart:7`（`meta` 套件依賴未宣告），屬於 Task 2 檔案所有權範圍，非本任務改動造成，本任務六個檔案本身零 issue |
 
 ---
 
@@ -1241,7 +1247,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 |------|------|
 | **測試 ID** | TC-227（一個沒有任何檔案需要改名的批次不會清掉前一批留下的 undo map，直接對 `RenameCoordinator` 斷言，`test/rename_coordinator_test.dart`；壞掉時：早退發生在指派新 map 之後，或協調器複製了建構當下的 `_items`/`_currentDir` 快照而非透過 supplier 讀最新值）／TC-228（`AppState.displayProvider` 在 tier-2 全尺寸解碼落地後回傳與 `currentFullResProvider` 相同物件，落地前回傳與 `currentDecodedProvider` 相同物件，`test/rename_coordinator_test.dart`；壞掉時：getter 自己組出一個新 provider，破壞 tier-1/tier-2 cache-key identity 規則） |
 | **測試類型** | 單元測試（TC-227，直接建構 `RenameCoordinator` 搭配 fake callback）／widget 測試（TC-228，需要 `TestWidgetsFlutterBinding` 跑真實 tier-2 解碼與 250ms debounce，用輪詢取代固定 sleep） |
-| **背景** | D2：`renameByExif`/`undoRename`/`loadSavedRenameRule`/`isRenaming`/`cancelRename` 與其私有狀態搬到新檔 `lib/providers/rename_coordinator.dart`；`AppState` 保留同簽章 thin forwarder。詳見 memory.md AD-026 |
+| **背景** | D2：`renameByExif`/`undoRename`/`loadSavedRenameRule`/`isRenaming`/`cancelRename` 與其私有狀態搬到新檔 `lib/providers/rename_coordinator.dart`（2026-08-25 structure refactor 起移至 `lib/services/rename/rename_coordinator.dart`，見 memory.md AD-030）；`AppState` 保留同簽章 thin forwarder。詳見 memory.md AD-026 |
 | **預期結果** | `test/app_state_test.dart` 既有的 TC-049~051 零編輯全綠；`RenameCoordinator` 的 supplier callback 規則與 `_lastRenameIdMap` 早退順序原樣保留 |
 | **狀態** | ✅ 已通過（`test/rename_coordinator_test.dart` 2 個測試 All tests passed!，RC=0；`test/app_state_test.dart` 零編輯，全套 `flutter test -j 1` 341 個測試 All tests passed!，RC=0；`flutter analyze` No issues found!）。`lib/providers/app_state.dart` 從 693 行降到 584 行（-109 行），未達計畫要求的 ≥120 行門檻，差 11 行——已抽出的內容（rename 狀態欄位、`renameByExif`/`undoRename` 全部邏輯）與計畫規格完全一致，`grep -n "_lastRenameIdMap\|_isRenaming\|_renameCancelled" lib/providers/app_state.dart` 為 0 命中；剩餘缺口需要刪減與本任務無關的既有註解才能湊到，未做（見任務回報，交由 lead 裁決是否接受） |
 
@@ -1266,7 +1272,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 |------|------|
 | **測試檔** | `test/tier_two_registry_test.dart` |
 | **測試 ID** | TC-231（未註冊任何條目 → `isReady` 為 false，`keyIds` 為空）／TC-232（條目仍 PENDING → `containsKey` 為 true 但 `isReady` 為 false，BLOCKER 3 單獨隔離）／TC-233（listener 觸發後四項合取全成立 → true）／TC-234（`currentPayloadFor` 換成另一個 payload 物件 → 立刻 false，BLOCKER 1 只需一行 closure 置換）／TC-235（ImageCache 條目被外部 evict → false，就緒性是讀取時重新推導而非快取旗標）／TC-236（`hasFullResEntryFor` 在 ready 旗標翻真「之前」就為 true——AC-M5-4 的「恰好一次解碼」靠的就是這個區別）／TC-237（失敗備忘錄綁 payload 物件：同物件 true、換物件 false、換 id false）／TC-238（`evict` 只清一個 id 並連帶 evict ImageCache 條目，`clear` 清光全部） |
-| **背景** | D1：`_tierTwoKeys`/`_tierTwoSources`/`_tierTwoReadyIds`/`_fullResFailures` 四個容器與 `isFullSizeReady` 的四項合取，從 `ImagePreloadController` 搬到新檔 `lib/services/tier_two_registry.dart` 的 `TierTwoRegistry`；控制器只保留排程（±2 視窗、250ms debounce、序列化佇列）。詳見 memory.md AD-027 |
+| **背景** | D1：`_tierTwoKeys`/`_tierTwoSources`/`_tierTwoReadyIds`/`_fullResFailures` 四個容器與 `isFullSizeReady` 的四項合取，從 `ImagePreloadController` 搬到新檔 `lib/services/image_pipeline/tier_two_registry.dart` 的 `TierTwoRegistry`；控制器只保留排程（±2 視窗、250ms debounce、序列化佇列）。詳見 memory.md AD-027 |
 | **測試類型** | 純單元測試，`test()`（非 `testWidgets()`，發布路徑會 await 真實引擎 future），無 controller、無 payload cache、無假 photo source |
 | **通過門檻** | 8/8 綠，且變異測試留證：刪 `identical(decodedFor, current)` 項 → TC-234 與控制器層對應測試轉紅；刪 `_readyIds.contains(id)` 項 → TC-232 與控制器層對應測試轉紅（`scripts/tmp/d1-mutation.txt`，皆在 scratch worktree `../halcyon-d1-mutation` 執行後復原並移除） |
 | **狀態** | ✅ 已通過。`flutter test test/tier_two_registry_test.dart -j 1`：8 個測試 All tests passed!，RC=0（首次執行即綠，characterisation test；紅色一半由變異測試補齊）。全套 `flutter test -j 1`：352 個測試 All tests passed!，RC=0；`flutter analyze`：No issues found!，RC=0。Step 3.10 的 `alreadyDecoded` 兩項內聯檢查改用 `_tierTwo.isReady(item.id)` 取代，計畫規定的主要形式（非 `hasEntryFor` 後備形式）一次通過閘門測試套件，未需要後備方案。基準測試套件執行數在本任務開工時從計畫預期的 39 修正為 63（main 整治計畫 TC-206~230 已先落地），已依 team-lead 裁決以 63 為新基準重新比對，逐檔計數見 `scripts/tmp/d1-baseline-counts.txt` |
@@ -1280,7 +1286,7 @@ Red/green 證據檔（`tmp/verify/*.txt` 等）**必須自帶它實際跑在哪�
 |------|------|
 | **測試檔** | `test/tier_two_scheduler_test.dart` |
 | **測試 ID** | TC-239（debounce 是「取消後重排」：同一輪事件迴圈內連下兩次 `schedule`，只有最後一個位置的視窗被掃）／TC-240（tier-2 佇列串行：同一時刻恰好一筆 load 在途，依索引順序逐一釋放）／TC-241（視窗重檢在「佇列 body 內部」：使用者已導航離開的項目在輪到它時被丟棄而非載入）／TC-242（掃描視窗把 encoded payload 交給 registry 發佈，下一次掃描 evict 掉離開視窗的 id） |
-| **背景** | P4a：D1 計畫刻意延後的 8 個排程符號（`_tierTwoWindowIds`、`_tierTwoQueue`、`_scheduleTierTwoDecode`、`_decodeTierTwoWindow`、`_enqueueTierTwoLoad`、`_enqueueFullResUpgrade`、`_upgradeFullRes`、`_publishPiggybackFullRes`）自 `ImagePreloadController` 搬到新檔 `lib/services/tier_two_scheduler.dart`。詳見 memory.md AD-028 |
+| **背景** | P4a：D1 計畫刻意延後的 8 個排程符號（`_tierTwoWindowIds`、`_tierTwoQueue`、`_scheduleTierTwoDecode`、`_decodeTierTwoWindow`、`_enqueueTierTwoLoad`、`_enqueueFullResUpgrade`、`_upgradeFullRes`、`_publishPiggybackFullRes`）自 `ImagePreloadController` 搬到新檔 `lib/services/image_pipeline/tier_two_scheduler.dart`。詳見 memory.md AD-028 |
 | **測試類型** | 純單元測試，`test()`；協作者全部以 closure 注入，無 controller、無 payload cache、無 photo source、無真實牆鐘等待（`navigationDebounce` 注入 `Duration.zero`，靠 event-loop turn 推進） |
 | **通過門檻** | 4/4 綠，且變異測試留證（判讀規則與預期值在數字產生前先寫入 artifact）：M1 刪 `schedule()` 的 `_debounceTimer?.cancel()` → TC-239 紅；M2 刪 `_enqueueLoad` 開頭的視窗重檢 → TC-241 紅；M3 `_queue.then` 換成 `Future.value().then`（佇列不再串行）→ TC-240 紅（TC-241 連帶紅）；M4 刪 `_decodeWindow` 的 staleIds eviction loop → TC-242 紅。四次皆 RC=1，證據 `scripts/tmp/p2p4/impl3-mutation.txt`，在 scratch worktree `../halcyon-p4a-mutation` 執行後復原並移除 |
 | **狀態** | ✅ 已通過。`flutter test test/tier_two_scheduler_test.dart -j 1`：4 個測試 All tests passed!，RC=0。行為保存的機械證明：既有 preload 測試檔零編輯全綠（`git diff --stat test/` 對既有檔 0 行；6 檔 54 測試前後同數同綠，`scripts/tmp/p2p4/impl3-baseline.txt` 與 `impl3-step2-tests.txt`），`test/image_preload_dual_window_m5_test.dart` 6 測試亦綠（含 M5-DW6，本輪未見間歇紅）。全域閘（AC-5，由 test-runner 於 HEAD=341cfd0 執行）：`flutter analyze` No issues found!、RC=0；`flutter test -j 1` 356 個測試 All tests passed!、宣告數==執行數、artifact 內自捕 RC=0、`[E]` 標記 0 個，證據 `scripts/tmp/p2p4/gate-p4a-analyze.txt` 與 `gate-p4a-fullsuite.txt` |

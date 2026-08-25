@@ -13,7 +13,7 @@ flutter pub get                       # install deps
 flutter run -d macos                  # run (also: -d iphone, -d chrome)
 flutter analyze                       # lint — must be 0 issues before considering work done
 flutter test                          # full suite
-flutter test test/app_state_test.dart # single file
+flutter test test/providers/app_state_test.dart # single file
 flutter test --coverage
 
 python3 scripts/build_apps.py              # macOS release build (default)
@@ -33,20 +33,20 @@ There is a companion native package `dng_processor` referenced via a relative pa
 
 ## Architecture
 
-**Layering**: `views/` (UI, keyboard shortcuts) → `providers/app_state.dart` (`AppState extends ChangeNotifier`, the single coordination point for all app logic) → `services/` (scanning, persistence, native bridges) → `models/` (`PhotoItem`, format registry).
+**Layering**: `views/` (UI, keyboard shortcuts) → `providers/app_state.dart` (`AppState extends ChangeNotifier`, the single coordination point for all app logic) → `services/` (scanning, persistence, native bridges — split into `image_pipeline/`, `library/`, `rename/`, `platform/` purpose-named subfolders) → `models/` (`PhotoItem`, format registry, `RenameRule`).
 
 `AppState` composes its collaborators via constructor injection (`PhotoLibraryScanner`, `PhotoStatusStore`, `PhotoFileActions`, `ImagePreloadController`, a `NativeImageLoad` image-loading function, an optional `DngFullDecoder`), which is what makes it testable without touching the filesystem or platform channels — tests substitute fakes for these params.
 
-**Image pipeline (tier-1/tier-2 sliding preload)** — the core perf-sensitive subsystem, in `services/image_preload_controller.dart`:
+**Image pipeline (tier-1/tier-2 sliding preload)** — the core perf-sensitive subsystem, in `services/image_pipeline/image_preload_controller.dart`:
 - Tier-1: window-resolution `ResizeImage` decode, used for immediate display while navigating.
 - Tier-2: full-size `MemoryImage` decode, only triggered after `tierTwoNavigationDebounce` (250ms) of navigation quiet, so rapid arrow-key browsing never bursts full-frame decodes.
 - Both tiers MUST be constructed with the same `bytes` object identity and same width/height args (`tierOneProviderFor` / `fullSizeProviderFor`) — the `ImageProvider` cache key is only a hit when all three match; mismatches cause silent duplicate decodes.
 - Sidebar thumbnails are driven by `itemBuilder` (visible-range-driven), not scroll listeners — this replaced an older scroll-debounce approach (see AD-014/G-001 in `memory.md`).
 
-**DNG full-size decode** — DNGs with no embedded JPEG preview go through the `dng_processor` native package via the `DngFullDecoder` typedef in `services/dng_decode_contract.dart`. This is a frozen integration seam (`NativeImageResult` sealed class has exactly 3 variants — don't add a 4th without checking `memory.md` AD-010/AD-011) so the pipeline can be unit-tested with a fake decoder instead of loading the real native dylib.
+**DNG full-size decode** — DNGs with no embedded JPEG preview go through the `dng_processor` native package via the `DngFullDecoder` typedef in `services/image_pipeline/dng_decode_contract.dart`. This is a frozen integration seam (`NativeImageResult` sealed class has exactly 3 variants — don't add a 4th without checking `memory.md` AD-010/AD-011) so the pipeline can be unit-tested with a fake decoder instead of loading the real native dylib.
 
 **Native bridges (macOS, in `macos/Runner/AppDelegate.swift`)**, each a separate `MethodChannel`:
-**Image loading is pure Dart.** There is no native thumbnail channel: `dartImageLoad` (`lib/services/dart_image_loader.dart`) is the sole producer of image bytes on every platform, returning one of the three `NativeImageResult` variants in `lib/services/image_source_types.dart`. `ImageRequestPurpose` carries the requested long edge (`sidebarThumbnail` @200px, `preview` @2800px, `export` @2048px); the export path — decode → resize → re-encode JPEG q90 with core EXIF re-read from the original file — lives in `lib/services/photo_export_service.dart`, not in `AppDelegate.swift`. `AppDelegate.swift` registers exactly two channels:
+**Image loading is pure Dart.** There is no native thumbnail channel: `dartImageLoad` (`lib/services/image_pipeline/dart_image_loader.dart`) is the sole producer of image bytes on every platform, returning one of the three `NativeImageResult` variants in `lib/services/image_pipeline/image_source_types.dart`. `ImageRequestPurpose` carries the requested long edge (`sidebarThumbnail` @200px, `preview` @2800px, `export` @2048px); the export path — decode → resize → re-encode JPEG q90 with core EXIF re-read from the original file — lives in `lib/services/library/photo_export_service.dart`, not in `AppDelegate.swift`. `AppDelegate.swift` registers exactly two channels:
 - `halcyon/trash` — `TrashService`, moves files to macOS Trash instead of permanent delete.
 - `halcyon/open_with` — `OpenWithChannel`, push-only (native → Dart) by design: at cold start the Flutter engine isn't ready to receive a Dart→native call yet, but Flutter buffers channel messages sent the other direction, so "Open With" file paths always arrive once the Dart handler registers. Windows/Android forwarding is not implemented.
 
