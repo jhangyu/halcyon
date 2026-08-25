@@ -85,7 +85,7 @@
 | 優先 | 狀態 | 議題 | 下一動作 | 完成條件 |
 |---|---|---|---|---|
 | P1 | [D] | **M5-DW6 間歇失敗**：同 HEAD `5c4a9c9` 全套件紅 1 次、隔離紅 1 次綠 1 次、pre-D3 worktree 綠；兩提交點間該測試 import 鏈 diff 為空→非回歸。斷言「全尺寸升級零增量 payload cache 位元組」可能掩蓋真實記帳競態 | 使用者裁決後：同檔連跑 20 次計紅率，紅時比對位元組計數來源 | 判定 flake（修測試）或真競態（修產品碼），紅率歸零 |
-| P2 | [D] | tier-1 視窗保留語意輕微放寬（Batch 1 S4 依計畫片段實作，被評為 harmless 但與「byte-identical」約束矛盾） | 使用者裁決接受或回修 | 裁決記錄入 memory.md |
+| P2 | **已解決（調查結案，2026-08-25）** | ~~tier-1 視窗保留語意輕微放寬~~——調查後推翻：`ac64146` 未觸碰 `image_preload_controller.dart`；`photo_payload_cache.dart` 的 `retentionWindowIds` 參數化預設值與舊常數相同，tier-1 呼叫點逐位元組不變；本列原敘述為文件錯誤（疑似與 M5 時期一個被否決的提案混淆，見 `m5-implementation-handover.md:96`），非程式碼問題 | 無（不回修） | 裁決記錄見 `memory.md`「裁決記錄｜P2」；證據 `scripts/tmp/p2p4/impl1-task2-p2-investigation.txt` |
 | P3 | [D] | `--timeout` 是 fake-async 計時器的 gotcha 尚未入 memory.md G 條目 | 一段 G-021 寫入 | grep 可見 |
 | P4 | [D] | TierTwoScheduler 後續抽取（D1 計畫 §3.3 刻意遞延）；`PhotoSource.probe()` hash 凍結測試債；podium file-ownership 協議補 commit pathspec 規則 | 各自立票 | 使用者裁決 |
 

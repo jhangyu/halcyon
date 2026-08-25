@@ -421,6 +421,15 @@ mutator 串成一條。讀取路徑（`applySavedStatuses`）刻意不入鏈，�
 - **與 G-020 的關係**：G-020 陷阱一已記錄同一根因的修法（一句帶過）；本條補記 `--timeout` 這個逾時保護本身為何在此類卡死下完全失效的機制細節，作為獨立可查條目，供之後遇到「加了 `--timeout` 還是卡住」時直接命中關鍵字。
 - **對應任務**：TC-230（`test/main_detail_view_test.dart`），`unit_test.md` 2026-08-24 列。
 
+### 裁決記錄｜P2（tier-1 視窗保留語意）：調查後未發現放寬，維持現狀不回修
+
+- **日期**：2026-08-25
+- **背景**：`docs/logs/2026-08-25/refactor-campaign-handover.md` §8 P2 列宣稱 `ac64146`（"parameterise the retention window"）把 tier-1 視窗保留語意輕微放寬，與計畫 `Task_refactor_plan_main.md:151`「產出的視窗必須與現行 byte-identical」的約束矛盾，需使用者裁決是否回修。
+- **調查結果**：逐一機械核對 `ac64146^` 與 `ac64146` 的完整 diff，`lib/services/image_preload_controller.dart` 完全未被該 commit 觸碰；`lib/services/photo_payload_cache.dart` 的 `retentionWindowIds` 唯一改動是把 `kRetentionBefore`/`kRetentionAfter` 兩個寫死常數換成同名預設值的具名參數（`{int before = kRetentionBefore, int after = kRetentionAfter}`），常數本身（3／5）前後不變；`image_preload_controller.dart` 現存三處呼叫點裡，tier-1 的兩處（`:376`、`:977`）皆用全預設 3-arg 形式（與回修前 clamp 算式逐位元組相同），唯一帶顯式 `before/after` 的那處（`:496`）是 tier-2 專用、刻意採用不同半徑 `kTierTwoRadius`，這正是計畫本身 C6 amendment（`Task_refactor_plan_main.md:158`）要求的行為，不是對 tier-1 的放寬。`ac64146` 之後到 HEAD 之間所有觸碰這兩個檔案的 commit（`ef7afd4`／`81f9306`／`b2e0966`）逐一核對，`clamp`/`Retention`/`Radius` 字樣皆無異動。
+- **裁決**：使用者裁決——`refactor-campaign-handover.md` §8 P2 該列是文件錯誤（很可能把 M5 時期一個被否決的提案與最終落地的程式碼混淆，見 `m5-implementation-handover.md:96`），不是程式碼問題；**維持現狀，不執行回修**。收斂契約 AC-1 已據此修訂。
+- **證據**：`scripts/tmp/p2p4/impl1-task2-p2-investigation.txt`（完整 diff/grep 逐項輸出）。
+- **對應任務**：P2–P4 殘留議題修復任務 #2（`docs/logs/2026-08-25/p2-p4-remediation-contract.md`）。
+
 ---
 
 ## 技術債 (Tech Debt)

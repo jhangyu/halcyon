@@ -1,5 +1,5 @@
 ---
-date: 2026-08-20
+date: 2026-08-25
 title: "Halcyon — 測試策略與品質門檻 (Unit Test)"
 ---
 
@@ -1297,6 +1297,7 @@ flutter test --coverage
 |------|------|-------------|--------------|
 | 測試案例總數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 | ≥ 16（含 TC-011~TC-014，已達成）| ≥ 18（已達成）|
 | 測試案例總數（EXIF 重新命名新增，commit `58fe681`）| +33（TC-024~TC-056，各檔逐一 `grep -c "test(\|testWidgets("` 核對過與計畫聲稱數一致）| — | — |
+| 測試案例總數（全庫技術債清償收尾，`flutter test -j 1` 實跑，2026-08-24，commit `5c4a9c9`）| 352（`scripts/tmp/final-gate.txt`：`01:10 +352: All tests passed!`，`RC=0`）| — | — |
 | TC-001 ~ TC-022 通過率 | 全數 ✅ 已通過，僅 TC-014 仍待建立（行為已確認正確，純缺 regression test，見 Task 16）| TC-011~TC-013 通過 | TC-014 通過 |
 | `flutter analyze` | 0 issues | 0 errors, 0 warnings | 0 errors, 0 warnings |
 | 覆蓋率門檻 | — | > 60%（行覆蓋）| > 70% |
@@ -1352,6 +1353,12 @@ flutter test --coverage
 | 2026-08-19 | Sidebar itemBuilder 驅動預載（Task 26）+ 文件全面重寫 | `flutter test` | ✅ 通過，85 個測試（exit code 0，commit `d0eb855`） |
 | 2026-08-19 | 文件全面重寫（本輪） | `flutter analyze lib test` | ✅ 通過，0 issues |
 | 2026-08-20 | EXIF 重新命名（Task 1-9，commit `58fe681`）| — | 本輪僅補文件（Task 10），無執行環境可重跑 `flutter test`/`flutter analyze`；各新增測試檔的 TC 數已用 `grep -c` 逐檔核對與計畫聲稱一致（見上方測試案例矩陣），但整套綠燈狀態沿用各任務自身 commit 訊息與 review 紀錄，未在本輪重新實跑，待下一次有執行環境的 session 或使用者確認 |
+| 2026-08-24 | D1（`TierTwoRegistry` 抽取，TC-231~238）| `flutter test test/tier_two_registry_test.dart test/image_preload_controller_test.dart`（隔離 worktree `halcyon-d1-mutation`）| ✅ 變異測試紅→綠鑑別力證明：對 `isReady` 移除 `identical(decodedFor, current)` 這項合取（round-2 BLOCKER 1 對應的 stale-readiness 檢查）注入 mutation 後，TC-234 如預期轉紅（`+3 -1`，`does not report stale readiness` FAILS）；還原實作後同批全綠。原始輸出見 `scripts/tmp/d1-mutation.txt` |
+| 2026-08-24 | TC-230（`MainDetailView` spinner）掛死根因修復 | `flutter test test/main_detail_view_test.dart --timeout 30s`（A/B 對照） | ✅ 根因＝testWidgets 的 fake-async zone 內直接 await 真實 `dart:io`（`Directory.createTemp`）導致微任務永不排空；修法為將真實 I/O 包進 `tester.runAsync()`＋never-completing loader 釘住空狀態（`test/main_detail_view_test.dart:29`）。單變數 A/B 證明見 `scripts/tmp/tc230-ab-io-outside-runasync.log`；經兩次獨立 opus review 確認根因與修法 |
+| 2026-08-24 | 全庫技術債清償收尾（30 項 A1-A8/B1-B2/C1-C13/D1-D4，commit `5c4a9c9`）| `flutter test -j 1` | ✅ 通過，352 個測試全綠（`01:10 +352: All tests passed!`，`RC=0` 於同一 artifact 內自捕），artifact `scripts/tmp/final-gate.txt` |
+| 2026-08-24 | 全庫技術債清償收尾（同上，commit `5c4a9c9`）| `flutter analyze` | ✅ 通過，0 issues |
+| 2026-08-25 | D4（sidebar 色彩 token 化，commit `7a2b190`）| `test/sidebar_view_test.dart` | ✅ 通過，sidebar 8 個測試綠；外觀變更由使用者親自驗收（非 agent UI 量測，依專案規則） |
+| 2026-08-25 | P4b | `test/dng_nav_probe_m3_test.dart` and `test/photo_source_probe_test.dart` re-anchored | all `PhotoSource.probe()` call sites rewritten to `PhotoSource.probeSource(...).cost` (equivalent rewrite, user-authorized per p2-p4-remediation-contract.md AC-4). New sha256 in baseline-registry.md. No TC numbers changed or added; existing TC-072/073/074/075/076/088 assertions unchanged in substance. |
 
 **已知限制**：TC-019 ~ TC-022 為本輪新增，覆蓋 sidebar 重載迴歸、tier-1/tier-2 preload、DNG 解碼、回收模式，但仍是每個測試檔一條摘要 TC，未逐一案例對應（例如 `image_preload_controller_test.dart` 22 個案例只對應 TC-020 一條）。`flutter build macos` 與 macOS 實機視覺覆核（Trash、`.trash` 回收、Finder 開啟方式冷啟動、DNG 大圖顯示）本輪未重跑，沿用先前紀錄。
 
