@@ -7,7 +7,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/exif_orientation.dart';
-import 'package:halcyon_flutter/services/photo_export_service.dart';
+import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 

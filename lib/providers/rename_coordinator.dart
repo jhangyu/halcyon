@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import '../models/photo_item.dart';
-import '../services/photo_status_store.dart';
+import '../services/library/photo_status_store.dart';
 import '../services/rename_rule.dart';
 import '../services/rename_service.dart';
 import 'app_state.dart' show StatusMessage;

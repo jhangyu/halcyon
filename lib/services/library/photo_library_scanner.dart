@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import '../models/photo_item.dart';
-import '../models/supported_photo_formats.dart';
+import '../../models/photo_item.dart';
+import '../../models/supported_photo_formats.dart';
 
 class PhotoLibraryScanner {
   Future<List<PhotoItem>> scan(Directory dir) async {

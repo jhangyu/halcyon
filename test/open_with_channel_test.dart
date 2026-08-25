@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/open_with_channel.dart';
+import 'package:halcyon_flutter/services/platform/open_with_channel.dart';
 
 // M6 P4.5 (F-16): Open With is now wired for Android/iOS too (manifest /
 // Info.plist declarations + native push senders), but the channel contract

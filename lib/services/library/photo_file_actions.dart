@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../models/photo_item.dart';
-import 'trash_service.dart';
+import '../../models/photo_item.dart';
+import '../platform/trash_service.dart';
 
 typedef TrashFile = Future<void> Function(File file);
 typedef MoveFile = Future<void> Function(File file, String newPath);

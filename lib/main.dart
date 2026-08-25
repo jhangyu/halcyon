@@ -4,7 +4,7 @@ import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/dng_decode_service.dart';
-import 'services/open_with_channel.dart';
+import 'services/platform/open_with_channel.dart';
 import 'views/main_screen.dart';
 import 'views/theme_tokens.dart';
 
@@ -18,7 +18,7 @@ void configureImageCache() {
   // total-physical-memory API (ProcessInfo is RSS-only) and Platform.isX
   // branches are forbidden (C-3), so this passes null (no source) and gets
   // back the same fixed ceiling as imageCacheBudgetBytes's own `ceiling`. See
-  // lib/services/cache_budget.dart for the sizing rationale.
+  // lib/services/image_pipeline/cache_budget.dart for the sizing rationale.
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       imageCacheBudgetBytes(physicalMemoryBytes: null);
 }

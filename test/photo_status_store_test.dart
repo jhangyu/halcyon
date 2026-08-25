@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/photo_status_store.dart';
+import 'package:halcyon_flutter/services/library/photo_status_store.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

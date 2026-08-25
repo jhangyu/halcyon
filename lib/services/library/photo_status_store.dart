@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../models/photo_item.dart';
+import '../../models/photo_item.dart';
 
 class PhotoStatusSnapshot {
   const PhotoStatusSnapshot({this.lastViewedId});
