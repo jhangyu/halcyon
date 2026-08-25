@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -8,7 +7,6 @@ import 'package:flutter/painting.dart';
 import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
-import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_preview_extractor.dart';
 import 'image_source_types.dart';
@@ -20,6 +18,7 @@ import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
+import 'tier_two_scheduler.dart';
 
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
@@ -116,31 +115,33 @@ class ImagePreloadController {
   int? _tierOneHeight;
   final Map<String, Object> _tierOneKeys = {};
 
-  // Tier-2 (full size) decode precache bookkeeping. Own window (+/-1), own key
-  // namespace (distinct from tier-1's ResizeImageKey) and own eviction, so the
-  // two tiers coexist without either clobbering the other's ImageCache entry
-  // for the same item id.
+  // Tier-2 (full size) decode precache. Own window (+/-2), own key namespace
+  // (distinct from tier-1's ResizeImageKey) and own eviction, so the two tiers
+  // coexist without either clobbering the other's ImageCache entry for the
+  // same item id.
   //
-  // These maps are id-keyed, but the ImageCache entry they describe is keyed by
-  // PAYLOAD OBJECT IDENTITY. When an item leaves the retention window and later
-  // returns, it gets a NEW payload, so a stale id-keyed "ready" flag would
-  // point at an ImageCache entry for a payload that is no longer current --
-  // readiness must be re-derived at read time against the CURRENT payload
-  // (round-2 review BLOCKER 1).
-  Timer? _tierTwoDebounceTimer;
-  // The ids the MOST RECENT tier-2 sweep was for. A source started by that
-  // sweep finishes asynchronously, and by then the window may have moved; this
-  // is what its completion re-checks itself against.
-  Set<String> _tierTwoWindowIds = {};
-  // Serialises the debounced +/-1 loads. See [_enqueueTierTwoLoad].
-  Future<void> _tierTwoQueue = Future<void>.value();
   // All tier-2 bookkeeping -- which id holds an entry, for which payload
   // object, has its decode finished, did its upgrade already fail -- lives in
-  // [TierTwoRegistry]. Scheduling (the window above, the debounce timer, this
-  // queue) stays here. `_cache` is final and initialised inline at :94, so
-  // binding `peek` as a tear-off here is safe.
+  // [TierTwoRegistry]; all tier-2 SCHEDULING -- the +/-2 window, the 250ms
+  // navigation debounce, the sequential decode queue, the full-res upgrade and
+  // the piggyback publish -- lives in [TierTwoScheduler]. They are two units
+  // and not one: the readiness conjunction was extracted away from scheduling
+  // state on purpose (AD-027) and must not be re-joined to it.
+  //
+  // `_cache` and `_source` are final and initialised in the initialiser list,
+  // so binding `peek` as a tear-off and reading `_source.dngDecoder` from these
+  // field initialisers is safe.
   late final TierTwoRegistry _tierTwo = TierTwoRegistry(
     currentPayloadFor: _cache.peek,
+  );
+  late final TierTwoScheduler _tierTwoScheduler = TierTwoScheduler(
+    registry: _tierTwo,
+    currentPayloadFor: _cache.peek,
+    fullSizeProviderFor: _fullSizeProviderForPayload,
+    ensurePayload: _ensurePayload,
+    dngDecoder: () => _source.dngDecoder,
+    exifOrientationFor: (id) => _exifOrientations[id],
+    navigationDebounce: tierTwoNavigationDebounce,
   );
 
   // Items no source could produce anything for (corrupt/truncated/unsupported,
@@ -304,7 +305,7 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _retentionIds = {};
     _tierOneKeys.clear();
-    _tierTwoDebounceTimer?.cancel();
+    _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
     _permanentMisses.clear();
@@ -329,7 +330,7 @@ class ImagePreloadController {
 
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
-    _tierTwoDebounceTimer?.cancel();
+    _tierTwoScheduler.cancelDebounce();
     for (final key in _tierOneKeys.values) {
       PaintingBinding.instance.imageCache.evict(key);
     }
@@ -429,219 +430,17 @@ class ImagePreloadController {
     PerfLog.log('preload.window.end|$selectedItemId'); // PERF-INSTRUMENTATION
 
     // Same check, after the window's awaits. This is the load-bearing one:
-    // _scheduleTierTwoDecode CANCELS the debounce timer before rescheduling,
+    // TierTwoScheduler.schedule CANCELS the debounce timer before rescheduling,
     // so a stale resume here does not merely add work for an abandoned
     // window -- it takes the full-size decode away from the item the user is
     // actually looking at.
     if (generation != _previewGeneration) return;
 
     _precacheTierOneWindow(items, currentIndex);
-    _scheduleTierTwoDecode(items, currentIndex, notifyLoaded);
+    _tierTwoScheduler.schedule(items, currentIndex, notifyLoaded);
   }
 
   String? _selectedIdForPerf; // PERF-INSTRUMENTATION
-
-  // Tier-2 debounce: every navigation event cancels and reschedules this
-  // timer, so only the FINAL position after a burst of navigation ever starts
-  // a full-size decode or an expensive source -- items merely passed through
-  // are never queued, because their scheduling attempt is cancelled before it
-  // fires.
-  //
-  // Unlike before M3, this timer carries NO image-lifetime responsibility. It
-  // is a pure performance device now: shortening or removing it can cost
-  // decodes, but it can no longer dispose something out from under the display,
-  // because nothing is disposed at all (design §4, invariant I7).
-  void _scheduleTierTwoDecode(
-    List<PhotoItem> items,
-    int currentIndex,
-    VoidCallback notifyLoaded,
-  ) {
-    _tierTwoDebounceTimer?.cancel();
-    _tierTwoDebounceTimer = Timer(tierTwoNavigationDebounce, () {
-      _decodeTierTwoWindow(items, currentIndex, notifyLoaded);
-    });
-  }
-
-  // Tier-2 precache: decode current +/-kTierTwoRadius at full size once
-  // navigation has paused, and start the expensive sources that the immediate
-  // pass deferred. Both tiers coexist: this only evicts its own window's
-  // ImageCache entries and never touches _tierOneKeys or the payload cache --
-  // payload retention is the -3..+5 rule and belongs to preloadImages alone.
-  //
-  // The span here is kTierTwoRadius (2), NOT kExpensiveStartupRadius (1). They
-  // were one constant before round 2, and separating them is what lets the
-  // full-size window widen WITHOUT widening how far an expensive RAW source may
-  // be started -- the loop below still asks the scheduler that question per
-  // item, so a no-preview RAW at distance 2 is enqueued, refused, and left
-  // without a payload rather than added to the sequential decode queue.
-  void _decodeTierTwoWindow(
-    List<PhotoItem> items,
-    int currentIndex,
-    VoidCallback notifyLoaded,
-  ) {
-    final tierStart = (currentIndex - kTierTwoRadius).clamp(
-      0,
-      items.length - 1,
-    );
-    final tierEnd = (currentIndex + kTierTwoRadius).clamp(
-      0,
-      items.length - 1,
-    );
-    // The iteration bounds above and the id set below are recomputed from the
-    // same constants rather than one derived from the other, so the ordered
-    // loop range and the (unordered) neededIds set cannot disagree. The loop
-    // below still walks tierStart..tierEnd (not neededIds) because iterating
-    // an unordered Set here would change the tier-2 decode ORDER, which is
-    // load-bearing for the sequential queue.
-    final neededIds = retentionWindowIds<PhotoItem>(
-      items,
-      currentIndex,
-      (item) => item.id,
-      before: kTierTwoRadius,
-      after: kTierTwoRadius,
-    );
-    _tierTwoWindowIds = neededIds;
-
-    final pendingUpgrades =
-        <({PhotoItem item, PixelPayload payload, int distance})>[];
-
-    for (var i = tierStart; i <= tierEnd; i++) {
-      final item = items[i];
-      final payload = _cache.peek(item.id);
-      if (payload == null) {
-        // Either not fetched yet, or measured expensive and deferred by the
-        // immediate pass. This is the ONLY place an expensive source runs, and
-        // it is reached only after 250ms of navigation quiet -- verbatim
-        // today's RAW startup behaviour.
-        //
-        // Its tier-2 decode has to be chained onto the load rather than left
-        // for "the next pass": if the user stops navigating here, there IS no
-        // next pass, and readiness would never flip -- the payload would be
-        // retained and the view would keep showing a spinner. The window
-        // re-check is what keeps a late arrival from decoding for a position
-        // the user has already left.
-        _enqueueTierTwoLoad(
-          item,
-          distance: (i - currentIndex).abs(),
-          notifyLoaded: notifyLoaded,
-        );
-        continue;
-      }
-      // Only skip if the ready flag was set for THIS payload -- if the item's
-      // payload was replaced since the last decode (e.g. it briefly left the
-      // retention window), the flag is stale and the decode must be redone
-      // against the current object (round-2 review BLOCKER 1).
-      final alreadyDecoded = _tierTwo.isReady(item.id);
-      if (alreadyDecoded) continue;
-      switch (payload) {
-        case EncodedPayload():
-          // Verbatim today's behaviour. The cheap path is the floor: M5 adds
-          // nothing to it and takes nothing away.
-          _tierTwo.publishEncoded(
-            item.id,
-            payload,
-            _fullSizeProviderForPayload(payload),
-            notifyLoaded,
-          );
-        case PixelPayload():
-          // The CATCH-UP upgrade (design §2.2): this item already has its
-          // window-resolution payload but no full-resolution entry -- it slid
-          // into the +/-2 band, or left and came back after its entry was
-          // evicted. Unlike the piggyback path there is no decode in flight to
-          // ride along on, so it costs one FFI decode, taken on the SAME
-          // sequential queue as payload production (no new concurrency, D2
-          // untouched) and behind the same window re-check.
-          //
-          // Collected rather than enqueued here, so the queue order is the one
-          // the user ruled on (open question 4): payload production -- the
-          // blank slots the user can SEE -- goes in first, in index order,
-          // then upgrades by distance 0, +/-1, +/-2.
-          pendingUpgrades.add((
-            item: item,
-            payload: payload,
-            distance: (i - currentIndex).abs(),
-          ));
-      }
-    }
-
-    pendingUpgrades.sort((a, b) => a.distance.compareTo(b.distance));
-    for (final upgrade in pendingUpgrades) {
-      _enqueueFullResUpgrade(upgrade.item, upgrade.payload, notifyLoaded);
-    }
-
-    final staleIds = _tierTwo.keyIds
-        .where((id) => !neededIds.contains(id))
-        .toList();
-    for (final id in staleIds) {
-      _tierTwo.evict(id);
-    }
-  }
-
-  /// Runs the debounced +/-1 loads ONE AT A TIME.
-  ///
-  /// All three +/-1 items become eligible at the same instant when the frozen
-  /// 250ms debounce fires. Starting them concurrently -- which is what an
-  /// `unawaited(...)` per loop iteration did -- puts up to three native RAW
-  /// decodes in flight at once, and a RAW decode saturates cores rather than
-  /// waiting on IO, so three in parallel is slower per image AND makes the
-  /// selected item (the one the user is actually looking at) contend with its
-  /// two neighbours.
-  ///
-  /// NOTE, deliberately not a no-op refactor: serialising these changes
-  /// LATENCY. The neighbours now land after the selected item instead of
-  /// alongside it, so the +1 item's worst case is roughly the sum of the queue
-  /// ahead of it rather than the max. That is the intended trade (user
-  /// clarification: "no embedded JPEG -> sequential RAW decode"), and it is a
-  /// stated behaviour change for the acceptance battery, not an equivalence.
-  ///
-  /// The debounce itself is untouched (Amendment 3 clause 3).
-  void _enqueueTierTwoLoad(
-    PhotoItem item, {
-    required int distance,
-    required VoidCallback notifyLoaded,
-  }) {
-    _tierTwoQueue = _tierTwoQueue.then((_) async {
-      // Re-checked HERE, not only at enqueue time: by the time this item's turn
-      // comes the user may have navigated away, and decoding for a position
-      // nobody is looking at is exactly what the queue exists to prevent.
-      if (!_tierTwoWindowIds.contains(item.id)) return;
-      await _ensurePayload(
-        item,
-        distance: distance,
-        notifyLoaded: notifyLoaded,
-        allowExpensive: true,
-      );
-      // The tier-2 decode is chained onto the load rather than left for "the
-      // next pass": if the user stops navigating here there IS no next pass,
-      // and readiness would never flip -- the payload would be retained and
-      // the view would keep showing a spinner.
-      final landed = _cache.peek(item.id);
-      if (landed == null || !_tierTwoWindowIds.contains(item.id)) return;
-      if (landed is PixelPayload) {
-        // The load above ran the FFI decode and, on success, ALREADY published
-        // the full-resolution entry by piggyback (design §2.2) -- that is what
-        // makes the pair "payload + full-res tier-2" cost exactly one decoder
-        // call. Anything left to do here is the catch-up case (the payload was
-        // already cached, so no decode ran), and it is run INLINE because this
-        // is already the sequential queue.
-        if (_tierTwo.hasFullResEntryFor(item.id, landed)) return;
-        await _upgradeFullRes(item, landed, notifyLoaded);
-        return;
-      }
-      assert(landed is EncodedPayload);
-      _tierTwo.publishEncoded(
-        item.id,
-        landed,
-        _fullSizeProviderForPayload(landed),
-        notifyLoaded,
-      );
-    }).catchError((Object _) {
-      // One item's failure must not wedge the queue for the rest of the
-      // session. _ensurePayload already records real failures as permanent
-      // misses; this only keeps the chain runnable.
-    });
-    unawaited(_tierTwoQueue);
-  }
 
   /// Produces and retains [item]'s payload if it is not retained already.
   ///
@@ -793,9 +592,14 @@ class ImagePreloadController {
       if (fullRes != null &&
           payload is PixelPayload &&
           identical(_cache.peek(id), payload) &&
-          _tierTwoWindowIds.contains(id) &&
+          _tierTwoScheduler.isInWindow(id) &&
           !_tierTwo.hasFullResEntryFor(id, payload)) {
-        await _publishPiggybackFullRes(id, payload, fullRes, notifyLoaded);
+        await _tierTwoScheduler.publishPiggybackFullRes(
+          id,
+          payload,
+          fullRes,
+          notifyLoaded,
+        );
       }
     } catch (_) {
       // A source threw (e.g. a PlatformException the native side did not
@@ -839,104 +643,6 @@ class ImagePreloadController {
       },
     );
     stream.addListener(listener);
-  }
-
-  // Queues a catch-up full-resolution upgrade on the SAME sequential queue the
-  // expensive payload loads use. The window re-check is inside the queued body
-  // (not at enqueue time) for the same reason it is in [_enqueueTierTwoLoad]:
-  // by the time this item's turn comes the user may have navigated away.
-  void _enqueueFullResUpgrade(
-    PhotoItem item,
-    PixelPayload payload,
-    VoidCallback notifyLoaded,
-  ) {
-    _tierTwoQueue = _tierTwoQueue.then((_) async {
-      if (!_tierTwoWindowIds.contains(item.id)) return;
-      if (!identical(_cache.peek(item.id), payload)) return;
-      if (_tierTwo.hasFullResEntryFor(item.id, payload)) return;
-      await _upgradeFullRes(item, payload, notifyLoaded);
-    }).catchError((Object _) {
-      // Same rule as the load queue: one item's failure must not wedge the
-      // chain. Real failures are already memoised per payload below.
-    });
-    unawaited(_tierTwoQueue);
-  }
-
-  // One FFI decode -> full-resolution oriented image -> ImageCache. The
-  // window-resolution byproduct is NOT produced and the retained payload object
-  // is NEVER replaced: replacing it would invalidate the tier-1 ImageCache key
-  // and the identity assertions the frozen navigation probes rest on.
-  Future<void> _upgradeFullRes(
-    PhotoItem item,
-    PixelPayload payload,
-    VoidCallback notifyLoaded,
-  ) async {
-    final id = item.id;
-    // Failed once for THIS payload: do not re-buy a 61-406ms decode on every
-    // settle. The memo dies with the payload (design §2.5).
-    if (_tierTwo.hasFullResFailure(id, payload)) return;
-    final decoder = _source.dngDecoder;
-    final file = item.bestFileToLoad;
-    // Orientation comes from the memo the probe already filled (invariant I6):
-    // no bridge round trip is bought to rotate a frame.
-    final orientation = _exifOrientations[id];
-    if (decoder == null || file == null || orientation == null) {
-      _tierTwo.markFullResFailure(id, payload);
-      return;
-    }
-
-    ui.Image image;
-    try {
-      final decoded = await decoder(file.path);
-      image = await decodedRgbaToImage(decoded, exifOrientation: orientation);
-    } catch (_) {
-      // Tier-1 display is untouched and this is NOT a permanent miss: the
-      // item has a payload and is on screen (design §2.5).
-      _tierTwo.markFullResFailure(id, payload);
-      return;
-    }
-
-    // Re-checked after the await, per invariant I4: the window may have moved
-    // or the payload been replaced while the decode ran, in which case the
-    // image is released HERE rather than stored anywhere.
-    if (!_tierTwoWindowIds.contains(id) ||
-        !identical(_cache.peek(id), payload)) {
-      image.dispose();
-      return;
-    }
-    _tierTwo.publishFullRes(id, payload, image, notifyLoaded);
-  }
-
-  // The PIGGYBACK half of design §2.2: the pixels handed back alongside the
-  // window-resolution payload by the single decode that just ran. They are
-  // already oriented and full-resolution, so all that is left is one GPU
-  // upload. The buffer is a parameter and a local only -- it is never stored
-  // in a field, so nothing outlives this call except the ImageCache entry.
-  Future<void> _publishPiggybackFullRes(
-    String id,
-    PixelPayload payload,
-    ({Uint8List rgba, int width, int height}) fullRes,
-    VoidCallback? notifyLoaded,
-  ) async {
-    if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
-      return;
-    }
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      fullRes.rgba,
-      fullRes.width,
-      fullRes.height,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    final image = await completer.future;
-    // Same post-await re-check as the catch-up path; releases in place.
-    if (!_tierTwoWindowIds.contains(id) ||
-        !identical(_cache.peek(id), payload)) {
-      image.dispose();
-      return;
-    }
-    _tierTwo.publishFullRes(id, payload, image, notifyLoaded ?? () {});
   }
 
   // Tier-1 precache: decode the WHOLE -3..+5 retention window at window
