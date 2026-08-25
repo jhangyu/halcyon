@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/exif_orientation.dart';
 import 'package:halcyon_flutter/services/thumbnail_export_service.dart';
 import 'package:image/image.dart' as img;
@@ -241,7 +241,7 @@ void main() {
         final samples = _dngs();
         File? withPreview;
         for (final f in samples) {
-          if (await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+          if (await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
                 f.path,
               ) !=
               null) {
@@ -291,7 +291,7 @@ void main() {
         final samples = _dngs();
         File? noPreview;
         for (final f in samples) {
-          if (await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+          if (await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
                 f.path,
               ) ==
               null) {
@@ -354,7 +354,7 @@ void main() {
         final samples = _dngs();
         File? noPreview;
         for (final f in samples) {
-          if (await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+          if (await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
                 f.path,
               ) ==
               null) {

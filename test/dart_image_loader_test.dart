@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 
 import 'support/synthetic_dng.dart';
@@ -34,7 +34,7 @@ void main() {
     var covered = 0;
     for (final f in dngs()) {
       final expected =
-          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
       if (expected == null) continue;
       covered++;
       final result = await dartImageLoad(
@@ -57,7 +57,7 @@ void main() {
       var covered = 0;
       for (final f in dngs()) {
         final full =
-            await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
               f.path,
             );
         if (full != null) continue;
@@ -67,7 +67,7 @@ void main() {
           purpose: ImageRequestPurpose.preview,
         );
         expect(result, isA<NativeImageNeedsRawDecode>(), reason: f.path);
-        final walked = await DngPreviewExtractor.readOrientation(f.path);
+        final walked = await DngEmbeddedJpegExtractor.readOrientation(f.path);
         expect(
           (result as NativeImageNeedsRawDecode).exifOrientation,
           walked ?? kDefaultExifOrientation,
@@ -107,7 +107,7 @@ void main() {
     var hits = 0, misses = 0;
     for (final f in dngs()) {
       final full =
-          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
       final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
       await f.copy(asArw.path);
       final result = await dartImageLoad(
@@ -342,7 +342,7 @@ void main() {
       var covered = 0;
       for (final f in dngs()) {
         final full =
-            await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
               f.path,
             );
         if (full != null) continue;
@@ -369,7 +369,7 @@ void main() {
         dir: tmp,
         name: 'small.dng',
       );
-      final probe = await DngPreviewExtractor.probeEmbeddedJpeg(
+      final probe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
         smallPath,
         longEdge: null,
         minLongEdge: ImageRequestPurpose.preview.targetSize,
@@ -380,7 +380,7 @@ void main() {
 
     test('probe: a corrupt container reports malformed, an intact one does '
         'not, and a non-TIFF file is not malformed either', () async {
-      final corrupt = await DngPreviewExtractor.probeEmbeddedJpeg(corruptPath);
+      final corrupt = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(corruptPath);
       expect(corrupt.jpeg, isNull);
       expect(corrupt.malformed, isTrue);
 
@@ -391,7 +391,7 @@ void main() {
         dir: tmp,
         name: 'intact.dng',
       );
-      final intact = await DngPreviewExtractor.probeEmbeddedJpeg(intactPath);
+      final intact = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(intactPath);
       expect(intact.jpeg, isNotNull);
       expect(intact.malformed, isFalse);
 
@@ -399,7 +399,7 @@ void main() {
       // explicitly NOT malformed-with-candidates.
       final junk = File('${tmp.path}/junk.dng');
       await junk.writeAsBytes(Uint8List.fromList(List<int>.filled(64, 0x5A)));
-      final notTiff = await DngPreviewExtractor.probeEmbeddedJpeg(junk.path);
+      final notTiff = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(junk.path);
       expect(notTiff.jpeg, isNull);
       expect(notTiff.malformed, isFalse);
     });
@@ -407,11 +407,11 @@ void main() {
     test('extractEmbeddedJpeg keeps its contract on the same corrupt input '
         '(added API, not a migration)', () async {
       expect(
-        await DngPreviewExtractor.extractEmbeddedJpeg(corruptPath),
+        await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(corruptPath),
         isNull,
       );
       expect(
-        await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
           corruptPath,
         ),
         isNull,

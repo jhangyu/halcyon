@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/photo_source.dart';
 
 void main() {
@@ -26,7 +26,7 @@ void main() {
   Future<File?> sample({required bool withPreview}) async {
     for (final f in sampleDir.listSync().whereType<File>()) {
       if (!f.path.toLowerCase().endsWith('.dng')) continue;
-      final full = await DngPreviewExtractor
+      final full = await DngEmbeddedJpegExtractor
           .extractFullSizeEmbeddedJpegFromFile(f.path);
       if ((full != null) == withPreview) return f;
     }

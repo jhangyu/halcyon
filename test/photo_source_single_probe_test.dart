@@ -22,7 +22,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_source.dart';
@@ -130,7 +130,7 @@ void main() {
             file.path,
             longEdge: windowLongEdge,
           )).exifOrientation,
-          await DngPreviewExtractor.readOrientation(file.path),
+          await DngEmbeddedJpegExtractor.readOrientation(file.path),
           reason: file.path,
         );
       }

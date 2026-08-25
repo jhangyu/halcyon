@@ -7,7 +7,7 @@ gitignored `scripts/tmp/` — not re-runnable from a clean checkout"). The
 method is ported **unchanged**:
 
 - `g1_extract_bench.dart` — port of `scripts/tmp/m6-r1-bench/g1_dart.dart`.
-  Measures `DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path)`
+  Measures `DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path)`
   directly (informational; not verdict-bearing here since this tool ships
   with no native-side comparison binary).
 - `g3_sidebar_bench.dart` — port of

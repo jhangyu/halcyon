@@ -1,6 +1,6 @@
 // M7 Task 7 -- tracked port of scripts/tmp/m6-r1-bench/g1_dart.dart.
-// Under test: lib/services/dng_preview_extractor.dart
-// `DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path)`.
+// Under test: lib/services/dng_embedded_jpeg_extractor.dart
+// `DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path)`.
 //
 // Method PORTED UNCHANGED from the gitignored M6 harness (audit gap 9):
 //   mode v1 = same-isolate call (the extractor runs on the calling isolate)
@@ -18,7 +18,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 
 /// Baseline JPEG SOF0..SOF15 scan; byte-for-byte the same algorithm as the
 /// original scripts/tmp/m6-r1-bench/g1_native.swift `sofDims` and
@@ -55,10 +55,10 @@ String sofDims(Uint8List d) {
 }
 
 Future<Uint8List?> callV1(String path) =>
-    DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
+    DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path);
 
 Future<Uint8List?> callV2(String path) => Isolate.run(
-      () => DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path),
+      () => DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path),
     );
 
 Future<void> main(List<String> args) async {

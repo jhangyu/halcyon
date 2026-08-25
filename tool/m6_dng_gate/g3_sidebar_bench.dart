@@ -31,7 +31,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 import 'package:halcyon_flutter/services/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/dng_decode_service.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/sidebar_thumbnail_codec.dart';
 
@@ -48,7 +48,7 @@ Future<Uint8List?> cacheBytesFor(String path) async {
   try {
     final decoded = await decodeDngSized(path, maxDim: 200);
     final orientation =
-        await DngPreviewExtractor.readOrientation(path) ??
+        await DngEmbeddedJpegExtractor.readOrientation(path) ??
             kDefaultExifOrientation;
     return jpegFromOrientedPixels(decoded, exifOrientation: orientation);
   } catch (_) {

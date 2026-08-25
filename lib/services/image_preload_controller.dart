@@ -8,7 +8,7 @@ import '../models/photo_item.dart';
 import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
-import 'dng_preview_extractor.dart';
+import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -850,7 +850,7 @@ class ImagePreloadController {
                 );
                 if (generation != _thumbBatchGeneration) return;
                 final orientation =
-                    await DngPreviewExtractor.readOrientation(file.path) ??
+                    await DngEmbeddedJpegExtractor.readOrientation(file.path) ??
                     kDefaultExifOrientation;
                 final jpeg = await jpegFromOrientedPixels(
                   decoded,

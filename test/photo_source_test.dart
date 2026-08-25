@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/dng_preview_extractor.dart';
+import 'package:halcyon_flutter/services/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_source_types.dart';
 import 'package:halcyon_flutter/services/photo_source.dart';
@@ -20,7 +20,7 @@ import 'package:halcyon_flutter/services/photo_source.dart';
 /// already import photo_source.dart directly for a static method's own
 /// contract rather than its wiring.
 ///
-/// Real samples only, per repo convention (see dng_preview_extractor_test.dart):
+/// Real samples only, per repo convention (see dng_embedded_jpeg_extractor_test.dart):
 /// local_data/photo_samples/DNG/.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -47,7 +47,7 @@ void main() {
     () async {
       final path = '${sampleDir.path}/$withPreviewSample';
       final expectedBytes =
-          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path);
       expect(
         expectedBytes,
         isNotNull,
@@ -148,7 +148,7 @@ void main() {
       final srcPath = '${sampleDir.path}/$withPreviewSample';
       final dngBytes = await File(srcPath).readAsBytes();
       final expectedBytes =
-          await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
         srcPath,
       );
       expect(expectedBytes, isNotNull);
@@ -231,7 +231,7 @@ void main() {
           .where((f) => f.path.toLowerCase().endsWith('.dng'));
       File? withPreview;
       for (final f in samples) {
-        if (await DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(
+        if (await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
               f.path,
             ) !=
             null) {

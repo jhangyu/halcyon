@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'dng_preview_extractor.dart';
+import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
 
 /// Pure-Dart production implementation of the `NativeImageLoad` seam
@@ -41,7 +41,7 @@ Future<NativeImageResult> dartImageLoad(
     if (purpose == ImageRequestPurpose.sidebarThumbnail) {
       // Smallest embedded candidate reaching the sidebar edge (G3 finding:
       // the full-size entry point wrongly refuses small-thumbnail DNGs).
-      final candidate = await DngPreviewExtractor.extractEmbeddedJpeg(
+      final candidate = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
         path,
         longEdge: purpose.targetSize,
       );
@@ -68,7 +68,7 @@ Future<NativeImageResult> dartImageLoad(
     //    (M7 Decision Log A-6). G-2 is a DNG ruling and stays one.
     final strictPreview =
         purpose == ImageRequestPurpose.preview && lower.endsWith('.dng');
-    final probe = await DngPreviewExtractor.probeEmbeddedJpeg(
+    final probe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
       path,
       longEdge: null,
       minLongEdge: strictPreview
@@ -94,7 +94,7 @@ Future<NativeImageResult> dartImageLoad(
       );
     }
     if (purpose == ImageRequestPurpose.preview && lower.endsWith('.dng')) {
-      final dims = await DngPreviewExtractor.readImageDimensions(path);
+      final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
       if (dims != null && dims.width * dims.height * 4 > 1500000000) {
         // F-20: same budget the deleted native guard enforced
         // (formerly AppDelegate.swift renderCGImage). A header claiming an
@@ -106,7 +106,7 @@ Future<NativeImageResult> dartImageLoad(
       }
       // Ruling (b): the raw-decode signal is constructed in Dart from an
       // extraction miss + the walker's own orientation read.
-      final orientation = await DngPreviewExtractor.readOrientation(path);
+      final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
       return NativeImageNeedsRawDecode(
         exifOrientation: orientation ?? kDefaultExifOrientation,
       );

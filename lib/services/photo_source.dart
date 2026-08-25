@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
-import 'dng_preview_extractor.dart';
+import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
 import 'photo_payload.dart';
 
@@ -300,7 +300,7 @@ class PhotoSource {
     //
     // Every read goes through [onDiskRead], so the AC14 budget covers the
     // combined probe rather than only its cost half.
-    final content = await DngPreviewExtractor.probeContent(
+    final content = await DngEmbeddedJpegExtractor.probeContent(
       path,
       onDiskRead: onDiskRead,
     );
@@ -327,6 +327,6 @@ class PhotoSource {
   /// previews are recoverable on every platform. Non-TIFF input returns
   /// null exactly as before.
   static Future<Uint8List?> fallbackAfterNativeFailure(String path) async {
-    return DngPreviewExtractor.extractFullSizeEmbeddedJpegFromFile(path);
+    return DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path);
   }
 }
