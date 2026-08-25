@@ -1,5 +1,5 @@
 ---
-date: 2026-08-19
+date: 2026-08-25
 title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 ---
 
@@ -276,6 +276,26 @@ title: "Halcyon — 中長期里程碑與路線圖 (Plan)"
 
 ---
 
+## Phase 12 — 全庫技術債清償（4-reviewer 掃描 → 30 項修繕）✅ 已完成（2026-08-25）
+
+**目標**：消除 4 名獨立 reviewer（2×sonnet + 2×opus）掃出的資料遺失風險、靜默失敗、重複實作與結構債；把核心不變量從註解約束變成可單測。
+
+**主要交付物**（詳見 `docs/logs/2026-08-24/Task_refactor_plan_main.md` 逐項覆核表、`docs/logs/2026-08-25/refactor-campaign-handover.md` 完整交接）：
+- A1-A8：行為缺陷修繕——批次操作靜默失敗改為逐檔 try/catch + `BatchFileOutcome` 回報、原子寫入、JSON 讀取損壞降級、undo journal 韌性、`currentItem` null 化等
+- B1-B2：匯出/側欄編碼移出 UI isolate（效能）
+- C1-C13：sidecar/EXIF 方向/夾取/typedef 去重、FIFO 重新命名、死碼清理
+- D1：`TierTwoRegistry` 抽取（`lib/services/tier_two_registry.dart`，變異證明紅→綠，回滾點 tag `refactor/d1-base`）
+- D2：`RenameCoordinator` 抽取（`lib/providers/rename_coordinator.dart`，既有 rename 測試零改動全綠＝行為保存證明）
+- D3：`displayProvider` 統一 + `rename_dialog` 拆分 + `theme_tokens.dart`
+- D4：sidebar 色彩改用 `HalcyonTokens`（使用者已外觀驗收）
+- E1-E2：`CLAUDE.md` 原生橋接段重寫
+
+**驗證結果**：`flutter test -j 1` 352 個測試通過（exit code 0）；`flutter analyze` 0 issues（gate artifact `scripts/tmp/final-gate.txt` @ commit `5c4a9c9`）。D4 追加 sidebar 8 測試綠。
+
+**殘留待決**（見交接檔 §8，非本 Phase 範圍）：M5-DW6 flaky 測試調查（待使用者裁決是否開工）；tier-1 視窗保留語意輕微放寬的裁決；G-021（`--timeout` 為 fake-async 計時器）尚未寫入 `memory.md`；`TierTwoScheduler` 後續抽取等已立票項目。
+
+---
+
 ## 路線圖總覽
 
 ```
@@ -288,8 +308,9 @@ Phase 0 ✅ ──────────────────────�
                                 └── Phase 8 ✅
                                       └── Phase 9 ✅ Android toolchain
                                             └── Phase 11 ✅ 影像切換延遲與 DNG 解碼整合
-                                                  └── Phase 5 🔲 ←───── 當前焦點
-                                                        └── Phase 10 🔲 技術債清償
+                                                  └── Phase 12 ✅ 全庫技術債清償（30 項）
+                                                        └── Phase 5 🔲 ←───── 當前焦點
+                                                              └── Phase 10 🔲 技術債清償
 ```
 
 ---

@@ -1,5 +1,5 @@
 ---
-date: 2026-08-20
+date: 2026-08-25
 title: "Halcyon — 任務真實狀態來源 (Task)"
 ---
 
@@ -189,6 +189,40 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
+### Task 13｜專案資料夾結構整理 ✅ 已完成
+
+**目標**：整理根目錄與 Flutter app 位置，讓正式程式碼、本機資料、封存產物與文件責任更清楚。
+
+**子任務**：
+- [x] 13.1 將 Flutter 主線整併至專案根目錄
+- [x] 13.2 將專案層級圖示移至 `assets/icons/`
+- [x] 13.3 將本機照片樣本移至 `local_data/photo_samples/`（git ignored）
+- [x] 13.4 將封存與退役 build cache 移至 `artifacts/`（git ignored）
+- [x] 13.5 更新 `README.md`、`file_index.md`、`handover.md`、`plan.md`、`memory.md`、`unit_test.md` 與 Task logs 中的路徑
+- [x] 13.6 驗證 `flutter test`、`flutter analyze`、`flutter build macos`
+
+**驗收標準**：根目錄只保留核心入口文件與清楚分類的一級目錄；Flutter app 可在新路徑完成測試、分析與 macOS build。
+
+---
+
+### Task 14｜Android Toolchain JDK 25 升級 ✅ 已完成
+
+**目標**：升級 Android build toolchain，使專案可使用 Temurin JDK 25 編譯 Android APK。
+
+**Log File**：[Task_14_Android_Toolchain_JDK25.md](docs/logs/2026-05-01/Task_14_Android_Toolchain_JDK25.md)
+
+**子任務**：
+- [x] 14.1 升級 Gradle wrapper 至 9.1.0
+- [x] 14.2 升級 Android Gradle Plugin 至 9.0.1
+- [x] 14.3 升級 Kotlin Gradle Plugin 至 2.3.21，並使用 AGP 9 相容模式
+- [x] 14.4 補齊 `android/app/proguard-rules.pro` 與 NDK 28.2.13676358 設定
+- [x] 14.5 更新 `scripts/build.sh`，Android build 優先使用 Temurin JDK 25
+- [x] 14.6 驗證 `./scripts/build.sh android` 與 `flutter test`
+
+**驗收標準**：`./scripts/build.sh android` 使用 JDK 25 成功產出 `build/app/outputs/flutter-apk/app-release.apk`；`flutter test` 全數通過。
+
+---
+
 ### Task 15｜PhotoFileActions 單元測試補強 🔲 待辦
 
 **目標**：補上 `PhotoFileActions` copy/move/delete 的單元測試，消除資料操作無測試保護的風險（TD-010）。
@@ -305,6 +339,24 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
+### Task 21｜唯讀資料夾警告 + StatusLine ✅ 已完成
+
+**目標**：修正記憶卡防寫鎖/唯讀掛載下標記狀態靜默遺失的問題，並以自訂 `StatusLine` widget 取代時序不可調整、配色與 app 表面對比不足的 SnackBar。
+
+**子任務**：
+- [x] 21.1 `PhotoStatusStore.isWritable(Directory)`：建立再刪除 `.halcyon_write_probe` 探測可寫性
+- [x] 21.2 `AppState` 新增 `StatusMessage` 模型、`showStatus()`、`status`、`statusSeq`；`loadFolder()` 偵測唯讀時推送警告
+- [x] 21.3 新增 `lib/views/status_line.dart`：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除，反相對比配色
+- [x] 21.4 `lib/views/batch_delete_feedback.dart` 成功訊息改走 status line，失敗維持 `AlertDialog`
+- [x] 21.5 補齊先前未 commit 的 `lib/services/trash_service.dart`
+- [x] 21.6 新增/更新測試：`test/status_line_test.dart`（新）、`test/batch_delete_feedback_test.dart`（重寫）、`test/app_state_test.dart`、`test/sidebar_view_test.dart`
+
+**驗收標準**：唯讀資料夾開啟時顯示含「唯讀」字樣的警告；SnackBar 呼叫點清零，改用 `StatusLine`；`flutter test` 全數通過。
+
+**驗證結果**：`flutter test` 84 個測試通過（exit code 0，commit `123727b` 當時）；`flutter analyze` / `flutter build macos` 該輪未重跑。Task 26 落地後（含新增的 sidebar reload 迴歸測試）重跑為 85 個測試通過。
+
+---
+
 ### Task 22｜DNG 全尺寸解碼整合（`flutter_dng_decoder`）✅ 已完成
 
 **目標**：為沒有內嵌可用全尺寸 JPEG 預覽的 DNG 檔案提供真正的全尺寸 RAW 解碼路徑，取代降級顯示縮圖。
@@ -386,58 +438,6 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ---
 
-### Task 13｜專案資料夾結構整理 ✅ 已完成
-
-**目標**：整理根目錄與 Flutter app 位置，讓正式程式碼、本機資料、封存產物與文件責任更清楚。
-
-**子任務**：
-- [x] 13.1 將 Flutter 主線整併至專案根目錄
-- [x] 13.2 將專案層級圖示移至 `assets/icons/`
-- [x] 13.3 將本機照片樣本移至 `local_data/photo_samples/`（git ignored）
-- [x] 13.4 將封存與退役 build cache 移至 `artifacts/`（git ignored）
-- [x] 13.5 更新 `README.md`、`file_index.md`、`handover.md`、`plan.md`、`memory.md`、`unit_test.md` 與 Task logs 中的路徑
-- [x] 13.6 驗證 `flutter test`、`flutter analyze`、`flutter build macos`
-
-**驗收標準**：根目錄只保留核心入口文件與清楚分類的一級目錄；Flutter app 可在新路徑完成測試、分析與 macOS build。
-
----
-
-### Task 14｜Android Toolchain JDK 25 升級 ✅ 已完成
-
-**目標**：升級 Android build toolchain，使專案可使用 Temurin JDK 25 編譯 Android APK。
-
-**Log File**：[Task_14_Android_Toolchain_JDK25.md](docs/logs/2026-05-01/Task_14_Android_Toolchain_JDK25.md)
-
-**子任務**：
-- [x] 14.1 升級 Gradle wrapper 至 9.1.0
-- [x] 14.2 升級 Android Gradle Plugin 至 9.0.1
-- [x] 14.3 升級 Kotlin Gradle Plugin 至 2.3.21，並使用 AGP 9 相容模式
-- [x] 14.4 補齊 `android/app/proguard-rules.pro` 與 NDK 28.2.13676358 設定
-- [x] 14.5 更新 `scripts/build.sh`，Android build 優先使用 Temurin JDK 25
-- [x] 14.6 驗證 `./scripts/build.sh android` 與 `flutter test`
-
-**驗收標準**：`./scripts/build.sh android` 使用 JDK 25 成功產出 `build/app/outputs/flutter-apk/app-release.apk`；`flutter test` 全數通過。
-
----
-
-### Task 21｜唯讀資料夾警告 + StatusLine ✅ 已完成
-
-**目標**：修正記憶卡防寫鎖/唯讀掛載下標記狀態靜默遺失的問題，並以自訂 `StatusLine` widget 取代時序不可調整、配色與 app 表面對比不足的 SnackBar。
-
-**子任務**：
-- [x] 21.1 `PhotoStatusStore.isWritable(Directory)`：建立再刪除 `.halcyon_write_probe` 探測可寫性
-- [x] 21.2 `AppState` 新增 `StatusMessage` 模型、`showStatus()`、`status`、`statusSeq`；`loadFolder()` 偵測唯讀時推送警告
-- [x] 21.3 新增 `lib/views/status_line.dart`：2.5s 全不透明 → 0.5s 淡出 → 3.0s 移除，反相對比配色
-- [x] 21.4 `lib/views/batch_delete_feedback.dart` 成功訊息改走 status line，失敗維持 `AlertDialog`
-- [x] 21.5 補齊先前未 commit 的 `lib/services/trash_service.dart`
-- [x] 21.6 新增/更新測試：`test/status_line_test.dart`（新）、`test/batch_delete_feedback_test.dart`（重寫）、`test/app_state_test.dart`、`test/sidebar_view_test.dart`
-
-**驗收標準**：唯讀資料夾開啟時顯示含「唯讀」字樣的警告；SnackBar 呼叫點清零，改用 `StatusLine`；`flutter test` 全數通過。
-
-**驗證結果**：`flutter test` 84 個測試通過（exit code 0，commit `123727b` 當時）；`flutter analyze` / `flutter build macos` 該輪未重跑。Task 26 落地後（含新增的 sidebar reload 迴歸測試）重跑為 85 個測試通過。
-
----
-
 ### Task 27｜EXIF 重新命名（批次、可 undo）✅ 已完成
 
 **目標**：從 EXIF metadata（或 preset/自訂模板）批次重新命名資料夾內所有照片，10,000 檔規模下可用，且可完整 undo。
@@ -489,7 +489,8 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 | 指標 | 數值 |
 |------|------|
-| 現有測試數（`flutter test` 實跑，2026-08-19，commit `d0eb855`）| 85 |
+| 現有測試數（`flutter test` 實跑，2026-08-25，commit `5c4a9c9`，Phase 12 全庫技術債清償最終 gate）| 352（gate artifact `scripts/tmp/final-gate.txt`） |
+| 現有測試數（`flutter test` 實跑，2026-08-19，commit `d0eb855`，歷史值）| 85 |
 | 新增測試數（EXIF 重新命名，TC-024~TC-056，commit `58fe681`）| +33（各檔以 `grep -c` 核對數量與計畫聲稱一致；**本輪未重跑** `flutter test` 確認整套綠燈，見上方 Task 27「已知限制」） |
 | 目標測試數（Task 15/16 完成後）| 18+（已達成）|
 | 測試覆蓋缺口 | Task 16（G-005 toggle-off 行為）尚無對應測試；DNG 解碼/回收模式/perf 相關測試檔已於本輪登錄對應 Task（22/23/25），仍未逐條列入 `unit_test.md` TC 矩陣（該檔的已知限制節有記錄）；EXIF 重新命名的已知測試缺口見 `memory.md` TD-017/TD-018 |

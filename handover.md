@@ -1,5 +1,5 @@
 ---
-date: 2026-08-20
+date: 2026-08-25
 title: "Halcyon — 短期交接摘要 (Handover)"
 ---
 
@@ -94,6 +94,8 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 下一步
 
+**現行待辦請以本檔最上方「當前任務」節（2026-08-25 全庫技術債清償）為準**：M5-DW6 flaky 調查（待使用者裁決）、parking-lot 逐項裁決（見 `docs/logs/2026-08-25/refactor-campaign-handover.md` §8）。以下為 2026-08-24 M6 收尾輪遺留清單，供歷史脈絡參考，未逐項核實是否已被後續輪次處理：
+
 **M6 R2 收尾（2026-08-24，tree @ `8418c7e`）**：M6 全契約（C-1…C-8）完成——P4 OS 整合五項＋P5 收尾三項落地，套件 280/280、雙平台 release 建置綠、G″″ 回歸 gate 33/33 PASS。與 ACTIVE 一致的待辦：(a) 使用者關閉 P5.3 票；(b) P-2（Linux FFI `.so`）仍開放；(c) Windows 端 `.reg` 匯入與 `explorer /select,` 為 trust-on-first-use，建議首次真機驗證；(d) 手機端 Open With 僅接線，端到端流程 parked 於 F-02（資料夾掃描）。第 4 點「重跑整套測試」已由本輪 P5.3 完成（280/280，`scripts/tmp/m6-r2-verify/p5-3-verify.txt`）。
 
 **已確認完成、原列於此處的舊項目**：Task 12（Trash MethodChannel，`flutter test` 已通過含 trash 案例）、Task 15（`test/photo_file_actions_test.dart` 已存在於 `git ls-files`）、Task 19（Zoom 狀態下沉，已驗收關閉）。以下為本次同步時仍待辦或需人工核實的項目：
@@ -146,5 +148,5 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 - 支援副檔名：`jpg`、`jpeg`、`arw`、`rw2`、`dng`、`heic`、`png`
 - 狀態訊息一律走 `AppState.showStatus()` + `StatusLine`，不再使用 SnackBar
 - 側邊欄縮圖預載觸發來源：`ListView.builder` 的 `itemBuilder`（不再是 scroll listener），prefetch margin 由 `ImagePreloadController.thumbnailPrefetchMargin` 決定
-- `flutter test` 最新一次「實跑並確認」全套執行結果：85 個測試通過（exit code 0，2026-08-19，commit `d0eb855`）；`flutter analyze lib test`：0 issues。EXIF 重新命名（commit `58fe681`）新增 33 個測試（TC-024~TC-056），各任務自身 commit 時皆回報通過，但 Task 10 文件收尾 worker 無執行環境重跑整套，待下次確認
+- `flutter test` 最新一次「實跑並確認」全套執行結果：352 個測試通過（exit code 0，2026-08-25，commit `5c4a9c9`，gate artifact `scripts/tmp/final-gate.txt`）；`flutter analyze`：0 issues。此為全庫技術債清償收尾的驗證錨點，取代先前 85 測試（2026-08-19，commit `d0eb855`）與 EXIF 重新命名新增 33 測試（TC-024~TC-056，commit `58fe681`）時各自回報的結果
 - EXIF 重新命名 undo journal：`{folder}/.halcyon_rename_log.jsonl`（JSON Lines、append-only）；重新命名一律呼叫 `PhotoStatusStore.remapKeys` 搬移標記，否則星號/垃圾桶標記會被靜默孤立（`memory.md` G-011）
