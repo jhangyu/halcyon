@@ -32,7 +32,14 @@ coverage/
 *.iml
 .vscode/
 
-# Scratch verification output (repo root only; scripts/tmp/ is tracked tooling)
+# Scratch verification output — never committed (CLAUDE.md scratch-lane rule).
+# NOTE: 42 files under scripts/tmp/ were tracked before this rule was added
+# (perf harness, DNG fixtures, mutation/gate runner scripts); gitignore does not
+# untrack existing files, so those stay tracked until a separate decision is made.
 /tmp/
 __pycache__/
-scripts/tmp/r2_backup/
+scripts/tmp/
+# Agent-tooling state (not project source)
+.claude/
+.codex
+.pi/
