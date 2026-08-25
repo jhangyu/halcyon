@@ -11,7 +11,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
-import 'package:halcyon_flutter/views/rename_dialog.dart';
+import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';

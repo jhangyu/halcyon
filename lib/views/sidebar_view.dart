@@ -4,7 +4,7 @@ import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import 'package:file_selector/file_selector.dart';
 import 'batch_delete_feedback.dart';
-import 'rename_dialog.dart';
+import 'rename_dialog/rename_dialog.dart';
 import 'settings_dialog.dart';
 import 'theme_tokens.dart';
 

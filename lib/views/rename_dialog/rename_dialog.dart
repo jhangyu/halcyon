@@ -3,13 +3,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/photo_item.dart';
-import '../providers/app_state.dart';
-import '../models/rename_rule.dart';
-import 'rename_dialog/actions.dart';
-import 'rename_dialog/preview_list.dart';
-import 'rename_dialog/rule_editor.dart';
-import 'theme_tokens.dart';
+import '../../models/photo_item.dart';
+import '../../providers/app_state.dart';
+import '../../models/rename_rule.dart';
+import 'actions.dart';
+import 'preview_list.dart';
+import 'rule_editor.dart';
+import '../theme_tokens.dart';
 
 /// Menu value for the sidebar action menu. Shared by the widget and its test
 /// so a typo cannot make the entry silently dead (memory.md: menu value /

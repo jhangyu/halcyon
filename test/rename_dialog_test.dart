@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
-import 'package:halcyon_flutter/views/rename_dialog.dart';
+import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 import 'package:provider/provider.dart';
 
 void main() {
