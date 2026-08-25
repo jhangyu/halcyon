@@ -7,7 +7,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
-import 'support/synthetic_dng.dart';
+import '../../support/synthetic_dng.dart';
 
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');

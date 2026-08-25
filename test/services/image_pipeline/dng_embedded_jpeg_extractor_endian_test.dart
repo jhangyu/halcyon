@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
-import 'support/synthetic_dng.dart';
+import '../../support/synthetic_dng.dart';
 
 // M7 Task 1 (audit gap 5). `_detectByteOrder` / `_readerFor` claim big-endian
 // support, but before this file no `MM` input existed anywhere in test/ -- the

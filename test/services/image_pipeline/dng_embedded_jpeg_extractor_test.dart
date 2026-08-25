@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
-import 'support/synthetic_dng.dart';
+import '../../support/synthetic_dng.dart';
 
 /// Task #1 (dng-dart-preview, AC1/AC2): pure-Dart port of the upstream macOS
 /// Swift extractor that used to live under macos/Runner/ (removed upstream).
