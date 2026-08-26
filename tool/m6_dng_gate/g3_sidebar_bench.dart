@@ -43,8 +43,11 @@ Future<Uint8List?> cacheBytesFor(String path) async {
   if (result is NativeImageBytes) {
     return sidebarCacheBytes(result.bytes);
   }
-  // P2.5b fallback: only for RAW paths, mirroring the sweep's guard exactly.
-  if (!SupportedPhotoFormats.isRawPath(path)) return null;
+  // P2.5b fallback: only for engine-decodable RAW paths, mirroring the
+  // sweep's guard exactly (image_preload_controller.dart's isDecodablePath
+  // gate, not isRawPath -- a D2 browse-only RAW, e.g. .cr2/.iiq/.mrw, has no
+  // decode route and must not reach decodeDngSized).
+  if (!SupportedPhotoFormats.isDecodablePath(path)) return null;
   try {
     final decoded = await decodeDngSized(path, maxDim: 200);
     final orientation =
