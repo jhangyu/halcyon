@@ -1,19 +1,29 @@
 import 'dart:io';
 
+import 'package:ceyx/ceyx.dart' show kSupportedDecodeExtensions;
 import 'package:path/path.dart' as p;
 
 class SupportedPhotoFormats {
-  static const supportedExtensions = <String>{
-    '.jpg',
-    '.jpeg',
-    '.arw',
-    '.rw2',
-    '.dng',
-    '.png',
+  /// Extensions the Ceyx engine can actually decode, derived from
+  /// `kSupportedDecodeExtensions` rather than restated, so a future engine
+  /// addition cannot silently desync (contract: docs/logs/2026-08-26/raw-support-contract.md).
+  static final Set<String> decodableExtensions = kSupportedDecodeExtensions
+      .map((ext) => '.${ext.toLowerCase()}')
+      .toSet();
+
+  /// D2 — formats the engine cannot decode but stay browsable via embedded
+  /// preview only (Canon CR2, Phase One IIQ, Minolta MRW).
+  static const Set<String> browseOnlyRawExtensions = {
     '.cr2',
-    '.nef',
-    '.orf',
+    '.iiq',
+    '.mrw',
   };
+
+  static Set<String> get rawExtensions =>
+      decodableExtensions.union(browseOnlyRawExtensions);
+
+  static Set<String> get supportedExtensions =>
+      {'.jpg', '.jpeg', '.png'}.union(rawExtensions);
 
   static const preferredLoadExtensions = <String>[
     '.jpg',
@@ -21,21 +31,16 @@ class SupportedPhotoFormats {
     '.png',
   ];
 
-  static const rawExtensions = <String>{
-    '.arw',
-    '.rw2',
-    '.dng',
-    '.cr2',
-    '.nef',
-    '.orf',
-  };
-
   static bool isSupportedPath(String path) {
     return supportedExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static bool isRawPath(String path) {
     return rawExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  static bool isDecodablePath(String path) {
+    return decodableExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static String photoIdFor(File file) {
