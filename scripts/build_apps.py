@@ -1234,6 +1234,15 @@ def build_native(target, layout, args):
     if not placed.exists():
         fail(f"copy to {dest_dir} did not produce {spec['artifact']}")
     ok(f"placed: {placed}")
+    if nt == "macos":
+        # macOS's CMake POST_BUILD step (native/cmake/pipeline.cmake) vendors
+        # any Homebrew-path deps next to the built dylib so the bundle is
+        # self-contained -- carry those sibling .dylib files along too.
+        for sibling in build_dir.glob("*.dylib"):
+            if sibling.name == spec["artifact"]:
+                continue
+            shutil.copy2(sibling, dest_dir / sibling.name)
+            ok(f"placed: {dest_dir / sibling.name}")
     if layout.packaged:
         step("This extracted tree is not a git checkout, so the runbook S4 git commit step")
         step("cannot run here. Copy the library back into the ceyx repo and")
