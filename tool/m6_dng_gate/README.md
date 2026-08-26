@@ -77,10 +77,6 @@ failed — the summary line's `skipped_samples` count makes that visible.
    by default, override with `DNG_DYLIB=<path>`), grepped for
    `dng_decode_and_process_sized` — the symbol the sidebar RAW fallback
    depends on — plus `shasum -a 256` of that file.
-3. A pass of `flutter test test/dart_image_loader_test.dart` immediately
-   before the bench run, run from source (JIT), proving the current-tree
-   `lib/` is what `flutter_tester` actually loads for the bench that
-   follows — not a possibly-stale compiled artifact.
 
 This exists because a past round measured a dylib that did not contain the
 symbol under test and produced confident, wrong numbers (see

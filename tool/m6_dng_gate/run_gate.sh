@@ -113,14 +113,6 @@ fi
 
 {
   echo ""
-  echo "## 2. Current-tree marker: one existing dart_image_loader test run BEFORE the bench"
-  echo "-- flutter test test/dart_image_loader_test.dart"
-} >> "$OUT"
-flutter test test/dart_image_loader_test.dart >> "$OUT" 2>&1
-RC=$?; echo "MARKER_TEST_RC=$RC" >> "$OUT"
-
-{
-  echo ""
   echo "## 3. G1 extraction bench (informational; embedded-JPEG extraction path only)"
   echo "-- dart run tool/m6_dng_gate/g1_extract_bench.dart v1 <\$SAMPLE_COUNT files>"
 } >> "$OUT"
