@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/serial_decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
@@ -41,6 +42,11 @@ class _Harness {
     registry = TierTwoRegistry(currentPayloadFor: (id) => payloads[id]);
     scheduler = TierTwoScheduler(
       registry: registry,
+      // The scheduler no longer owns a queue: it shares the pipeline's ONE
+      // serial decode lane with payload production (user ruling 2026-08-26).
+      // The single-flight and re-ordering properties asserted below are now
+      // properties of that lane, driven through the scheduler.
+      lane: lane,
       currentPayloadFor: (id) => payloads[id],
       fullSizeProviderFor: (payload) => switch (payload) {
         EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
@@ -51,7 +57,7 @@ class _Harness {
             item, {
             required int distance,
             required VoidCallback? notifyLoaded,
-            bool allowExpensive = false,
+            bool onSerialLane = false,
           }) {
             loadOrder.add(item.id);
             return (inFlight[item.id] ??= Completer<void>()).future;
@@ -64,6 +70,7 @@ class _Harness {
     );
   }
 
+  final SerialDecodeLane lane = SerialDecodeLane();
   late final TierTwoRegistry registry;
   late final TierTwoScheduler scheduler;
   final Map<String, SourcePayload> payloads = {};
@@ -100,8 +107,13 @@ void main() {
       h.scheduler.schedule(items, 7, () {});
       await h.pump();
 
-      // Window is +/-kTierTwoRadius (2) around index 7.
-      expect(h.loadOrder, contains('a5'));
+      // Window is +/-kTierTwoRadius (2) around index 7, and the lane starts
+      // at its centre: index 7 itself is the one load that may have begun.
+      // (Until 2026-08-26 this asserted `contains('a5')` -- true only because
+      // the old queue started at the window's low index. a5 is now the LAST
+      // of the five, still queued behind a7, which is the intended order:
+      // nearest to the selection first.)
+      expect(h.loadOrder, ['a7']);
       expect(h.loadOrder, isNot(contains('a0')));
       expect(h.loadOrder, isNot(contains('a1')));
       expect(h.loadOrder, isNot(contains('a2')));
@@ -110,7 +122,7 @@ void main() {
 
   test(
     'TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at '
-    'a time, released in index order',
+    'a time, released in near-to-far order',
     () async {
       final h = _Harness();
       final items = _items(5);
@@ -120,18 +132,24 @@ void main() {
 
       // All five slots are in the +/-2 window and none has a payload, so all
       // five are enqueued -- but only the first may have STARTED.
-      expect(h.loadOrder, ['a0']);
-
-      await h.release('a0');
-      expect(h.loadOrder, ['a0', 'a1']);
-
-      await h.release('a1');
-      expect(h.loadOrder, ['a0', 'a1', 'a2']);
+      //
+      // "Index order" until 2026-08-26; the shared serial lane orders by
+      // distance from the selection instead (0, +1, -1, +2, -2), so a
+      // window centred on index 2 starts a2 and finishes with a0. The
+      // SEQUENTIALITY this test pins is unchanged -- one at a time, and the
+      // next one only starts when the previous is released.
+      expect(h.loadOrder, ['a2']);
 
       await h.release('a2');
+      expect(h.loadOrder, ['a2', 'a3']);
+
       await h.release('a3');
+      expect(h.loadOrder, ['a2', 'a3', 'a1']);
+
+      await h.release('a1');
       await h.release('a4');
-      expect(h.loadOrder, ['a0', 'a1', 'a2', 'a3', 'a4']);
+      await h.release('a0');
+      expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4', 'a0']);
     },
   );
 
@@ -153,16 +171,20 @@ void main() {
       await h.pump();
       await h.release('a0');
 
+      // The FIRST load after the in-flight one completes is the new
+      // selection itself -- the lane re-ranked its pending entries around
+      // index 7 instead of draining the queue built for index 0.
+      expect(h.loadOrder, ['a0', 'a7']);
+
+      // Drain the rest of the second sweep. a1 and a2 are still pending from
+      // the first sweep and get their turn in here; their bodies must skip
+      // themselves on the window re-check rather than load.
+      for (final id in ['a7', 'a8', 'a6', 'a9', 'a5']) {
+        await h.release(id);
+      }
+      expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6', 'a9', 'a5']);
       expect(h.loadOrder, isNot(contains('a1')));
       expect(h.loadOrder, isNot(contains('a2')));
-      expect(h.loadOrder, contains('a5'));
-
-      // Drain what the second sweep queued, so no load is left parked.
-      for (final id in ['a5', 'a6', 'a7', 'a8', 'a9']) {
-        if (h.inFlight.containsKey(id) && !h.inFlight[id]!.isCompleted) {
-          await h.release(id);
-        }
-      }
     },
   );
 

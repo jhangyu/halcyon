@@ -59,21 +59,58 @@ void main() {
       },
     );
 
-    test('TC-061 eviction is FIFO by insertion order -- reading an entry '
-        'does not protect it', () {
+    test('TC-061 eviction with priority set evicts the FARTHEST item, not '
+        'the oldest (user ruling 2026-08-27)', () {
       final cache = PhotoPayloadCache(byteBudget: cost * 3);
       cache.put('a', encoded());
       cache.put('b', pixels());
       cache.put('c', encoded());
-      // Reading 'a' (via peek, the only reader operator [] left behind) must
-      // NOT change eviction order: this cache is FIFO-within-window, not
-      // LRU (C10 -- see the architecture decision note on this).
-      expect(cache.peek('a'), isNotNull);
+      // 'a' is the NEAREST (selected), 'c' is the farthest.
+      cache.setEvictionPriority(['a', 'b', 'c']);
       cache.put('d', pixels());
 
-      expect(cache.contains('a'), isFalse, reason: 'a was the oldest entry');
-      expect(cache.contains('b'), isTrue, reason: 'reading a did not save it');
-      expect(cache.ids.toList(), ['b', 'c', 'd']);
+      expect(cache.contains('c'), isFalse,
+          reason: 'c was the farthest entry and should be evicted first');
+      expect(cache.contains('a'), isTrue,
+          reason: 'a is the selected item (nearest) and must survive');
+      expect(cache.ids.toList(), ['a', 'b', 'd']);
+    });
+
+    test('TC-300 over-budget put evicts the farthest id, not the oldest', () {
+      // Budget for 3 entries; priority order: selected=a (nearest), then b, c.
+      // Insert a, b, c, then d (triggers eviction). Victim must be 'c'
+      // (farthest), not 'a' (oldest).
+      final cache = PhotoPayloadCache(byteBudget: cost * 3);
+      cache.put('a', encoded());
+      cache.put('b', pixels());
+      cache.put('c', encoded());
+      cache.setEvictionPriority(['a', 'b', 'c']);
+      cache.put('d', pixels());
+
+      expect(cache.contains('c'), isFalse,
+          reason: 'c is farthest from selection and must be evicted');
+      expect(cache.contains('a'), isTrue,
+          reason: 'a is the selected item (nearest) and survives');
+      expect(cache.contains('b'), isTrue);
+      expect(cache.contains('d'), isTrue);
+    });
+
+    test('TC-301 selected (first-priority) item survives even when it is '
+        'the oldest entry', () {
+      // 'sel' is put first (oldest) but is nearest in priority.
+      final cache = PhotoPayloadCache(byteBudget: cost * 2);
+      cache.put('sel', encoded());
+      cache.put('far1', pixels());
+      cache.setEvictionPriority(['sel', 'far1']);
+      // Trigger eviction by putting a third entry that exceeds budget.
+      cache.put('far2', encoded());
+
+      expect(cache.contains('sel'), isTrue,
+          reason: 'the selected item must survive even though it is the oldest');
+      expect(cache.contains('far1'), isFalse,
+          reason: 'far1 is farthest and should be evicted');
+      expect(cache.contains('far2'), isTrue,
+          reason: 'far2 was just written and is the most recent');
     });
 
     test('TC-062 peek does not count as a use', () {

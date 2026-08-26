@@ -2,53 +2,35 @@ import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
 
-/// How far from the selected item an EXPENSIVE source may be started.
-///
-/// Verbatim today's RAW behaviour: +/-1, behind the navigation debounce. Nine
-/// concurrent FFI decodes on an 8-core machine is not a theoretical worry --
-/// it is what a full-window rung would do on arrival, and it would break the
-/// instant back/forward navigation that is this app's whole selling point
-/// (user decision D2).
-const int kExpensiveStartupRadius = 1;
-
 /// How far from the selected item a FULL-SIZE (tier-2) decode is precached.
 ///
-/// **This is deliberately NOT [kExpensiveStartupRadius], and merging the two
-/// back into one constant is a silent regression.** Until round 2 a single
-/// constant served both meanings, which made "widen the full-size window to
-/// +/-2" look like a one-character change. It is not: widening the shared
-/// constant would also widen expensive-RAW startup eligibility, putting FIVE
-/// items on the sequential RAW rung instead of three -- about 42 s of cold
-/// settle instead of 25 s on a no-preview folder, at the measured 8.5 s per
-/// expensive settle -- while appearing to implement exactly what was asked.
-///
-/// The split is required to satisfy two standing rules at once: `+/-1` governs
-/// expensive RAW STARTUP eligibility only (never a retention boundary), and
-/// sequential RAW decode is unchanged. `test/image_preload_window_test.dart`
-/// TC-098 fails if they are ever merged.
-///
-/// Retention is a third, wider thing again (`-3..+5`): this radius decides only
-/// which slots are decoded at FULL size, not which are kept.
+/// Retention is a wider thing again (`-3..+5`): this radius decides only which
+/// slots are decoded at FULL size, not which are kept -- and, since the
+/// 2026-08-26 serial-lane ruling, it decides nothing at all about which slots
+/// may START an expensive decode. Every slot of the retention window may;
+/// expensive ones simply queue on `SerialDecodeLane` instead of running in
+/// parallel.
 const int kTierTwoRadius = 2;
 
-/// Decides WHEN, and in what order, sources are started. The only layer that
-/// knows about cost (design §3.3).
+/// Decides WHICH LANE a source runs on. The only layer that knows about cost
+/// (design §3.3).
 ///
 /// Two rungs, keyed on MEASURED CONTENT:
 ///
-/// | rung        | startup window | debounced |
-/// |-------------|----------------|-----------|
-/// | `cheap`     | the whole -3..+5 retention window | no  |
-/// | `expensive` | +/-1                              | yes |
+/// | rung        | window                            | concurrency |
+/// |-------------|-----------------------------------|-------------|
+/// | `cheap`     | the whole -3..+5 retention window | parallel    |
+/// | `expensive` | the whole -3..+5 retention window | serial      |
 ///
 /// This is not the old type branch under a new name. The old rule picked the
 /// rung from the file extension and was wrong 13 times in 14; measuring the
 /// content moves those 13 onto the cheap rung and shrinks `expensive` from
 /// "every DNG" to "files with no usable embedded JPEG at all".
 ///
-/// **Startup is not retention.** An expensive item outside +/-1 but inside
-/// -3..+5 keeps its payload; only STARTING one is restricted. That separation
-/// is what turns a two-step round trip from two decodes into one.
+/// **Cost is not a window.** User ruling 2026-08-26 (AD-018 overturned, see
+/// `memory.md`): an expensive item is eligible everywhere a cheap one is, at
+/// the same distances, behind the same retention rule. The measured cost picks
+/// the LANE and nothing else.
 class PrefetchScheduler {
   /// id -> measured cost. Written at most once per item and cleared only by
   /// [reset] (i.e. a folder reload), so a file is asked about once per folder
@@ -104,14 +86,6 @@ class PrefetchScheduler {
     observe(id, probed.cost);
     return probed;
   }
-
-  /// Whether an expensive decode may actually run for an item [distance] away.
-  ///
-  /// Deliberately independent of the memo: it gates the WORK, not the item, so
-  /// an item whose cost is still unknown cannot smuggle a 400ms FFI decode
-  /// into the immediate (undebounced) pass.
-  bool allowsExpensiveWork({required int distance}) =>
-      distance <= kExpensiveStartupRadius;
 
   void reset() => _cost.clear();
 }

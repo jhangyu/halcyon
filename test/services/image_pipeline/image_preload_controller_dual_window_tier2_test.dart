@@ -14,13 +14,15 @@
 //     identical(payloadIdentity) + width + height, never holds a retained
 //     buffer (AC-M5-9).
 //
-// A pixel-backed (expensive/RAW) item only ever gets a payload within
-// +/-kExpensiveStartupRadius (1) of SOME selection it has passed through
-// (AD-018, unaffected by M5). To observe the full +/-kTierTwoRadius (2) band
-// populated for a pixel payload, the pixel sub-case below walks the selection
-// through neighbouring positions before settling, exactly as
-// image_preload_controller_probe_first_navigation_test.dart's P2/P4 do -- this is not a workaround, it
-// is what "for pixel payloads alike" actually requires given AD-018.
+// Historical note: a pixel-backed (expensive/RAW) item used to get a payload
+// only within +/-1 of SOME selection it had passed through (AD-018), so the
+// pixel sub-case below walks the selection through neighbouring positions
+// before settling in order to see the full +/-kTierTwoRadius (2) band
+// populated. AD-018 was OVERTURNED on 2026-08-26 (memory.md AD-033: expensive
+// items now fill the same -3..+5 window as cheap ones, serially), which makes
+// that walk unnecessary rather than wrong -- it is kept because what it
+// asserts at the end is still exactly the property under test, and a settled
+// walk is a strictly harder case than a cold settle.
 
 import 'dart:async';
 import 'dart:convert';
@@ -170,12 +172,12 @@ void main() {
       }
 
       // --- pixel (expensive/RAW) sub-case: walk through neighbouring
-      // selections first so every id in -2..+2 has, at some point, been
-      // within +/-kExpensiveStartupRadius of a selection and therefore
-      // acquired a payload (AD-018) -- then settle on the middle position.
-      // --- core claim: the +/-2 band, once every id in it has passed
-      // through its own +/-kExpensiveStartupRadius window at some point,
-      // ends up with EXACTLY that band in debugTierTwoKeyIds.
+      // selections first, then settle on the middle position. The walk was
+      // REQUIRED under AD-018 (a payload only existed within +/-1 of some
+      // visited selection); since AD-033 it is merely a harder starting
+      // state than a cold settle.
+      // --- core claim: the +/-2 band ends up with EXACTLY that band in
+      // debugTierTwoKeyIds.
       //
       // Retention (-3..+5, width 9) and the target band (-2..+2, width 5)
       // are close enough in width that this walk can hold every band id's
@@ -630,17 +632,27 @@ void main() {
     );
     await until(() => controller.isFullSizeReady(items[5].id));
 
-    // The +/-kExpensiveStartupRadius band (4, 5, 6) is the only one that can
-    // hold a payload at this point (AD-018). retainedByteCost must equal
-    // EXACTLY the sum of those payloads' own byteCost -- if the full-res
-    // upgrade added its ~payload-sized buffer to the payload cache instead of
-    // going straight to the ImageCache-owned ui.Image, this sum would be
-    // short of the real total.
+    // Since the 2026-08-26 ruling an expensive item fills the SAME -3..+5
+    // window a cheap one does (it just queues), so the band that can hold a
+    // payload here is the whole retention window, not the old +/-1 trio.
+    // retainedByteCost must equal EXACTLY the sum of those payloads' own
+    // byteCost -- if the full-res upgrade added its ~payload-sized buffer to
+    // the payload cache instead of going straight to the ImageCache-owned
+    // ui.Image, this sum would be short of the real total.
+    await until(
+      () => List.generate(9, (i) => items[2 + i].id).every(
+        (id) => controller.payloadFor(id) != null,
+      ),
+      reason: 'the whole -3..+5 window to land',
+    );
     var expectedTotal = 0;
-    for (final i in [4, 5, 6]) {
+    for (var i = 2; i <= 10; i++) {
       final payload = controller.payloadFor(items[i].id);
-      expect(payload, isNotNull, reason: 'distance <=1 items must have a '
-          'retained payload');
+      expect(
+        payload,
+        isNotNull,
+        reason: 'every -3..+5 item must have a retained payload',
+      );
       expectedTotal += payload!.byteCost;
     }
     expect(

@@ -11,6 +11,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 
 // A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
 // without shipping a binary fixture file.
@@ -822,7 +823,7 @@ void main() {
       );
       await until(
         () => controller.payloadFor(items[5].id) != null,
-        reason: 'the expensive source runs from the debounced +/-1 pass',
+        reason: 'the expensive source runs on the shared serial decode lane',
       );
 
       // Pixels, not bytes: this item has no encoded form at all, so the same
@@ -840,9 +841,16 @@ void main() {
         isTrue,
       );
 
-      // One source call per item, not one per tier; the +/-1 window is 3.
-      expect(decodeCalls.length, 3);
-      expect(decodeCalls.toSet().length, 3);
+      // One source call per item, not one per tier. The count is the whole
+      // -3..+5 retention window (9) since the 2026-08-26 ruling, not the old
+      // +/-1 trio: an expensive item is eligible wherever a cheap one is. The
+      // load-bearing half of this assertion is the SECOND line -- one decode
+      // per item, so the piggyback still pays for both tiers with one call.
+      await until(
+        () => decodeCalls.length == kRetentionBefore + kRetentionAfter + 1,
+        reason: 'the whole window to be decoded off the serial lane',
+      );
+      expect(decodeCalls.toSet().length, kRetentionBefore + kRetentionAfter + 1);
 
       // Re-running the same window must not re-source anything.
       await controller.preloadImages(
@@ -851,7 +859,11 @@ void main() {
         notifyLoaded: () {},
       );
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      expect(decodeCalls.length, 3, reason: 'a second pass re-sourced');
+      expect(
+        decodeCalls.length,
+        kRetentionBefore + kRetentionAfter + 1,
+        reason: 'a second pass re-sourced',
+      );
     });
 
     // Successor to "AC B4: leaving the preload window disposes the ui.Image".

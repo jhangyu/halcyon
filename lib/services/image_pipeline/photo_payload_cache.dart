@@ -51,18 +51,35 @@ class PhotoPayloadCache {
 
   final int byteBudget;
 
-  // Insertion-ordered. Nothing re-inserts on read (the only LRU-touching
-  // reader -- an indexing operator -- had zero callers and was deleted in
-  // M7), so iteration order is INSERTION order and eviction is FIFO within the
-  // retention window -- not LRU. That is deliberate and adequate: the `-3..+5`
-  // sweep in `retainOnly` already drops everything outside the window, so the
-  // budget path only ever chooses among entries the user is plausibly about to
-  // look at, where arrival order is as good a victim as recency.
+  // Distance-ordered eviction (user ruling 2026-08-27, replacing the FIFO
+  // rule that preceded the serial-lane unification). The controller calls
+  // [setEvictionPriority] with ids near-to-far from the current selection on
+  // every navigation event; [_enforceBudget] evicts from the FAR end of that
+  // order, so the selected item is structurally last in line.
+  //
+  // Ids not in the priority list (possible during a brief window between `put`
+  // and the next `setEvictionPriority` call) are evicted first, oldest-first
+  // among themselves -- the safe fallback, since an unknown id is definitionally
+  // not near the selection.
   final LinkedHashMap<String, SourcePayload> _entries =
       LinkedHashMap<String, SourcePayload>();
 
-  /// Read, for bookkeeping and assertions. Does not affect eviction order --
-  /// see the FIFO note on [_entries].
+  // Near-to-far priority order, set by the controller's preloadImages pass.
+  // Index 0 = nearest (selected item), last = farthest. Empty until the first
+  // call to [setEvictionPriority].
+  List<String> _evictionPriority = [];
+
+  /// Sets the eviction priority order: [idsNearToFar] lists retained ids from
+  /// nearest (index 0 = selected item) to farthest. [_enforceBudget] evicts
+  /// from the far end first, so the selected item is the last victim.
+  ///
+  /// Called by the controller's preloadImages pass, which already computes
+  /// the near-to-far walk order.
+  void setEvictionPriority(List<String> idsNearToFar) {
+    _evictionPriority = idsNearToFar;
+  }
+
+  /// Read, for bookkeeping and assertions. Does not affect eviction order.
   SourcePayload? peek(String? id) => id == null ? null : _entries[id];
 
   bool contains(String id) => _entries.containsKey(id);
@@ -111,11 +128,48 @@ class PhotoPayloadCache {
 
   void _enforceBudget() {
     var total = totalByteCost;
+    // The just-written entry is the last key in `_entries` (LinkedHashMap
+    // insertion order). It must never be evicted in the same `put` call —
+    // writing a payload and immediately dropping it strands the user on a
+    // spinner that can never resolve.
+    final justWritten = _entries.keys.last;
     while (total > byteBudget && _entries.length > 1) {
-      final lruId = _entries.keys.first;
-      final evicted = _entries.remove(lruId)!;
+      final victim = _pickVictim(exclude: justWritten);
+      final evicted = _entries.remove(victim)!;
       total -= evicted.byteCost;
     }
+  }
+
+  /// Picks the eviction victim: the retained id FARTHEST from the current
+  /// selection according to [_evictionPriority]. Ids not in the priority list
+  /// are evicted first (oldest first among them). Among ids in the list, the
+  /// one at the highest index (farthest) goes first. [exclude] is never
+  /// returned (the just-written entry).
+  String _pickVictim({required String exclude}) {
+    if (_evictionPriority.isEmpty) {
+      // No priority set yet: fall back to oldest entry (FIFO), skipping
+      // the excluded id.
+      for (final id in _entries.keys) {
+        if (id != exclude) return id;
+      }
+      return _entries.keys.first; // unreachable when length > 1
+    }
+    String? bestUnknown; // oldest entry not in priority list
+    String? farthestKnown; // entry with highest priority index
+    int farthestIndex = -1;
+    for (final id in _entries.keys) {
+      if (id == exclude) continue;
+      final idx = _evictionPriority.indexOf(id);
+      if (idx == -1) {
+        // Not in priority list: evict this before any known id.
+        // Take the first one found (oldest, since _entries is insertion-ordered).
+        bestUnknown ??= id;
+      } else if (idx > farthestIndex) {
+        farthestIndex = idx;
+        farthestKnown = id;
+      }
+    }
+    return bestUnknown ?? farthestKnown ?? _entries.keys.first;
   }
 }
 

@@ -10,6 +10,7 @@ import 'dng_decode_contract.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'prefetch_scheduler.dart';
+import 'serial_decode_lane.dart';
 import 'tier_two_registry.dart';
 
 /// Produces and retains an item's payload if it is not retained already --
@@ -23,7 +24,7 @@ typedef EnsurePayload =
       PhotoItem item, {
       required int distance,
       required VoidCallback? notifyLoaded,
-      bool allowExpensive,
+      bool onSerialLane,
     });
 
 /// Builds the tier-2 (full size, unresized) provider for a payload -- bound to
@@ -58,6 +59,7 @@ typedef FullSizeProviderFor = ImageProvider Function(SourcePayload payload);
 class TierTwoScheduler {
   TierTwoScheduler({
     required TierTwoRegistry registry,
+    required SerialDecodeLane lane,
     required SourcePayload? Function(String id) currentPayloadFor,
     required FullSizeProviderFor fullSizeProviderFor,
     required EnsurePayload ensurePayload,
@@ -65,6 +67,7 @@ class TierTwoScheduler {
     required int? Function(String id) exifOrientationFor,
     required Duration navigationDebounce,
   }) : _registry = registry,
+       _lane = lane,
        _currentPayloadFor = currentPayloadFor,
        _fullSizeProviderForPayload = fullSizeProviderFor,
        _ensurePayload = ensurePayload,
@@ -73,6 +76,13 @@ class TierTwoScheduler {
        _navigationDebounce = navigationDebounce;
 
   final TierTwoRegistry _registry;
+
+  /// The pipeline's ONE serial decode lane, shared with the controller's
+  /// payload production (user ruling 2026-08-26). It used to be a private
+  /// `Future _queue` field here, which made "one RAW decode in flight" a
+  /// property of THIS class only -- once payload production got a serial lane
+  /// of its own, two private queues would have meant two concurrent decodes.
+  final SerialDecodeLane _lane;
   final SourcePayload? Function(String id) _currentPayloadFor;
   final FullSizeProviderFor _fullSizeProviderForPayload;
   final EnsurePayload _ensurePayload;
@@ -97,13 +107,35 @@ class TierTwoScheduler {
   // is what its completion re-checks itself against.
   Set<String> _windowIds = {};
 
-  // Serialises the debounced +/-1 loads. See [_enqueueLoad].
-  Future<void> _queue = Future<void>.value();
-
   /// Whether [id] is in the window the most recent sweep was for. The
   /// controller's payload-production path asks this before riding the piggyback
   /// route, which is the one tier-2 decision taken outside this class.
   bool isInWindow(String id) => _windowIds.contains(id);
+
+  /// Publishes the +/-[kTierTwoRadius] id set for [currentIndex] IMMEDIATELY,
+  /// without arming or disturbing the debounce.
+  ///
+  /// Called by the controller at the top of every navigation pass, and it has
+  /// to be: since the 2026-08-26 ruling an expensive decode can land at any
+  /// moment on the serial lane, including well before the 250ms debounce
+  /// fires, and the piggyback publish asks [isInWindow] to decide whether the
+  /// full-resolution byproduct it is holding is worth keeping. While that set
+  /// was only written when the debounce FIRED, a decode that finished first
+  /// saw an empty/stale window, dropped free full-resolution pixels, and the
+  /// catch-up upgrade then bought a SECOND FFI decode for them -- the exact
+  /// "exactly one decoder call" guarantee AC-M5-4 pins.
+  ///
+  /// Only the id set moves earlier. WHEN full-size decodes run is still the
+  /// debounce's business, and the +/-2 radius is unchanged.
+  void updateWindow(List<PhotoItem> items, int currentIndex) {
+    _windowIds = retentionWindowIds<PhotoItem>(
+      items,
+      currentIndex,
+      (item) => item.id,
+      before: kTierTwoRadius,
+      after: kTierTwoRadius,
+    );
+  }
 
   /// Cancels a pending debounce. The tier-2 slice of both `reset()` and
   /// `dispose()`; the registry's own `clear()` stays a separate call, because
@@ -139,12 +171,14 @@ class TierTwoScheduler {
   // ImageCache entries and never touches the tier-1 keys or the payload cache --
   // payload retention is the -3..+5 rule and belongs to preloadImages alone.
   //
-  // The span here is kTierTwoRadius (2), NOT kExpensiveStartupRadius (1). They
-  // were one constant before round 2, and separating them is what lets the
-  // full-size window widen WITHOUT widening how far an expensive RAW source may
-  // be started -- the loop below still asks the scheduler that question per
-  // item, so a no-preview RAW at distance 2 is enqueued, refused, and left
-  // without a payload rather than added to the sequential decode queue.
+  // The span here is kTierTwoRadius (2) and it governs FULL-SIZE decodes only.
+  // Since the 2026-08-26 ruling it no longer has anything to say about where an
+  // expensive source may be STARTED: the window pass in the controller already
+  // queues every missing payload in the -3..+5 retention window on the shared
+  // serial lane. What this loop still owns is the catch-up case -- a slot that
+  // is inside the +/-2 band and still has no payload when the debounce fires
+  // gets (re-)queued here WITH its tier-2 decode chained on, because if the
+  // user has stopped navigating there is no later pass to flip readiness.
   void _decodeWindow(
     List<PhotoItem> items,
     int currentIndex,
@@ -180,20 +214,16 @@ class TierTwoScheduler {
       final item = items[i];
       final payload = _currentPayloadFor(item.id);
       if (payload == null) {
-        // Either not fetched yet, or measured expensive and deferred by the
-        // immediate pass. This is the ONLY place an expensive source runs, and
-        // it is reached only after 250ms of navigation quiet -- verbatim
-        // today's RAW startup behaviour.
-        //
-        // Its tier-2 decode has to be chained onto the load rather than left
-        // for "the next pass": if the user stops navigating here, there IS no
-        // next pass, and readiness would never flip -- the payload would be
-        // retained and the view would keep showing a spinner. The window
-        // re-check is what keeps a late arrival from decoding for a position
-        // the user has already left.
+        // Not fetched yet: either still queued on the serial lane, or a cheap
+        // load that has not landed. Its tier-2 decode has to be chained onto
+        // the load rather than left for "the next pass": if the user stops
+        // navigating here, there IS no next pass, and readiness would never
+        // flip -- the payload would be retained and the view would keep showing
+        // a spinner. The window re-check is what keeps a late arrival from
+        // decoding for a position the user has already left.
         _enqueueLoad(
           item,
-          distance: (i - currentIndex).abs(),
+          distance: i - currentIndex,
           notifyLoaded: notifyLoaded,
         );
         continue;
@@ -219,25 +249,33 @@ class TierTwoScheduler {
           // window-resolution payload but no full-resolution entry -- it slid
           // into the +/-2 band, or left and came back after its entry was
           // evicted. Unlike the piggyback path there is no decode in flight to
-          // ride along on, so it costs one FFI decode, taken on the SAME
-          // sequential queue as payload production (no new concurrency, D2
-          // untouched) and behind the same window re-check.
+          // ride along on, so it costs one FFI decode, taken on the SAME serial
+          // lane as payload production (no new concurrency) and behind the same
+          // window re-check.
           //
-          // Collected rather than enqueued here, so the queue order is the one
+          // Collected rather than enqueued here, so the lane order is the one
           // the user ruled on (open question 4): payload production -- the
-          // blank slots the user can SEE -- goes in first, in index order,
-          // then upgrades by distance 0, +/-1, +/-2.
+          // blank slots the user can SEE -- goes in first, then upgrades
+          // near-to-far. [kFullResPriorityBase] is what makes that ordering
+          // hold even against a payload task queued after this loop ran.
           pendingUpgrades.add((
             item: item,
             payload: payload,
-            distance: (i - currentIndex).abs(),
+            distance: i - currentIndex,
           ));
       }
     }
 
-    pendingUpgrades.sort((a, b) => a.distance.compareTo(b.distance));
+    pendingUpgrades.sort(
+      (a, b) => laneRankFor(a.distance).compareTo(laneRankFor(b.distance)),
+    );
     for (final upgrade in pendingUpgrades) {
-      _enqueueFullResUpgrade(upgrade.item, upgrade.payload, notifyLoaded);
+      _enqueueFullResUpgrade(
+        upgrade.item,
+        upgrade.payload,
+        upgrade.distance,
+        notifyLoaded,
+      );
     }
 
     final staleIds = _registry.keyIds
@@ -248,22 +286,18 @@ class TierTwoScheduler {
     }
   }
 
-  /// Runs the debounced +/-1 loads ONE AT A TIME.
+  /// Queues a tier-2 CATCH-UP load on the shared serial lane: produce the
+  /// payload, then chain its full-size decode onto the same task.
   ///
-  /// All three +/-1 items become eligible at the same instant when the frozen
-  /// 250ms debounce fires. Starting them concurrently -- which is what an
-  /// `unawaited(...)` per loop iteration did -- puts up to three native RAW
-  /// decodes in flight at once, and a RAW decode saturates cores rather than
-  /// waiting on IO, so three in parallel is slower per image AND makes the
-  /// selected item (the one the user is actually looking at) contend with its
-  /// two neighbours.
+  /// Runs ONE AT A TIME because the lane runs one at a time. A RAW decode
+  /// saturates cores rather than waiting on IO, so N in parallel is slower per
+  /// image AND makes the selected item contend with its neighbours. The
+  /// latency trade is the intended one (user clarification: "no embedded JPEG
+  /// -> sequential RAW decode").
   ///
-  /// NOTE, deliberately not a no-op refactor: serialising these changes
-  /// LATENCY. The neighbours now land after the selected item instead of
-  /// alongside it, so the +1 item's worst case is roughly the sum of the queue
-  /// ahead of it rather than the max. That is the intended trade (user
-  /// clarification: "no embedded JPEG -> sequential RAW decode"), and it is a
-  /// stated behaviour change for the acceptance battery, not an equivalence.
+  /// It shares the lane KEY SPACE with the controller's payload production, so
+  /// an item already queued there is re-ranked and given this richer body
+  /// rather than decoded twice.
   ///
   /// The debounce itself is untouched (Amendment 3 clause 3).
   void _enqueueLoad(
@@ -271,68 +305,79 @@ class TierTwoScheduler {
     required int distance,
     required VoidCallback notifyLoaded,
   }) {
-    _queue = _queue.then((_) async {
-      // Re-checked HERE, not only at enqueue time: by the time this item's turn
-      // comes the user may have navigated away, and decoding for a position
-      // nobody is looking at is exactly what the queue exists to prevent.
-      if (!_windowIds.contains(item.id)) return;
-      await _ensurePayload(
-        item,
-        distance: distance,
-        notifyLoaded: notifyLoaded,
-        allowExpensive: true,
-      );
-      // The tier-2 decode is chained onto the load rather than left for "the
-      // next pass": if the user stops navigating here there IS no next pass,
-      // and readiness would never flip -- the payload would be retained and
-      // the view would keep showing a spinner.
-      final landed = _currentPayloadFor(item.id);
-      if (landed == null || !_windowIds.contains(item.id)) return;
-      if (landed is PixelPayload) {
-        // The load above ran the FFI decode and, on success, ALREADY published
-        // the full-resolution entry by piggyback (design §2.2) -- that is what
-        // makes the pair "payload + full-res tier-2" cost exactly one decoder
-        // call. Anything left to do here is the catch-up case (the payload was
-        // already cached, so no decode ran), and it is run INLINE because this
-        // is already the sequential queue.
-        if (_registry.hasFullResEntryFor(item.id, landed)) return;
-        await _upgradeFullRes(item, landed, notifyLoaded);
-        return;
-      }
-      assert(landed is EncodedPayload);
-      _registry.publishEncoded(
-        item.id,
-        landed,
-        _fullSizeProviderForPayload(landed),
-        notifyLoaded,
-      );
-    }).catchError((Object _) {
-      // One item's failure must not wedge the queue for the rest of the
-      // session. _ensurePayload already records real failures as permanent
-      // misses; this only keeps the chain runnable.
-    });
-    unawaited(_queue);
+    _lane.enqueue(
+      (LaneTaskKind.payload, item.id),
+      priority: laneRankFor(distance),
+      body: () => _runLoadAndChainTierTwo(item, distance, notifyLoaded),
+    );
   }
 
-  // Queues a catch-up full-resolution upgrade on the SAME sequential queue the
-  // expensive payload loads use. The window re-check is inside the queued body
-  // (not at enqueue time) for the same reason it is in [_enqueueLoad]: by the
-  // time this item's turn comes the user may have navigated away.
+  Future<void> _runLoadAndChainTierTwo(
+    PhotoItem item,
+    int distance,
+    VoidCallback notifyLoaded,
+  ) async {
+    // Re-checked HERE, not only at enqueue time: by the time this item's turn
+    // comes the user may have navigated away, and decoding for a position
+    // nobody is looking at is exactly what the lane exists to prevent.
+    if (!_windowIds.contains(item.id)) return;
+    await _ensurePayload(
+      item,
+      distance: distance,
+      notifyLoaded: notifyLoaded,
+      onSerialLane: true,
+    );
+    // The tier-2 decode is chained onto the load rather than left for "the
+    // next pass": if the user stops navigating here there IS no next pass,
+    // and readiness would never flip -- the payload would be retained and
+    // the view would keep showing a spinner.
+    final landed = _currentPayloadFor(item.id);
+    if (landed == null || !_windowIds.contains(item.id)) return;
+    if (landed is PixelPayload) {
+      // The load above ran the FFI decode and, on success, ALREADY published
+      // the full-resolution entry by piggyback (design §2.2) -- that is what
+      // makes the pair "payload + full-res tier-2" cost exactly one decoder
+      // call. Anything left to do here is the catch-up case (the payload was
+      // already cached, so no decode ran), and it is run INLINE because this
+      // is already the serial lane's task body.
+      if (_registry.hasFullResEntryFor(item.id, landed)) return;
+      await _upgradeFullRes(item, landed, notifyLoaded);
+      return;
+    }
+    assert(landed is EncodedPayload);
+    _registry.publishEncoded(
+      item.id,
+      landed,
+      _fullSizeProviderForPayload(landed),
+      notifyLoaded,
+    );
+  }
+
+  // Queues a catch-up full-resolution upgrade on the SAME serial lane the
+  // expensive payload loads use, under the fullRes key kind so it cannot
+  // collide with (or supersede) the payload task for the same item. Its
+  // priority sits behind every pending payload task: the blank slots the user
+  // can SEE go first (user ruling, open question 4).
+  //
+  // The window re-check is inside the queued body (not at enqueue time) for the
+  // same reason it is in [_enqueueLoad]: by the time this item's turn comes the
+  // user may have navigated away.
   void _enqueueFullResUpgrade(
     PhotoItem item,
     PixelPayload payload,
+    int distance,
     VoidCallback notifyLoaded,
   ) {
-    _queue = _queue.then((_) async {
-      if (!_windowIds.contains(item.id)) return;
-      if (!identical(_currentPayloadFor(item.id), payload)) return;
-      if (_registry.hasFullResEntryFor(item.id, payload)) return;
-      await _upgradeFullRes(item, payload, notifyLoaded);
-    }).catchError((Object _) {
-      // Same rule as the load queue: one item's failure must not wedge the
-      // chain. Real failures are already memoised per payload below.
-    });
-    unawaited(_queue);
+    _lane.enqueue(
+      (LaneTaskKind.fullRes, item.id),
+      priority: kFullResPriorityBase + laneRankFor(distance),
+      body: () async {
+        if (!_windowIds.contains(item.id)) return;
+        if (!identical(_currentPayloadFor(item.id), payload)) return;
+        if (_registry.hasFullResEntryFor(item.id, payload)) return;
+        await _upgradeFullRes(item, payload, notifyLoaded);
+      },
+    );
   }
 
   // One FFI decode -> full-resolution oriented image -> ImageCache. The

@@ -16,6 +16,7 @@ import 'photo_source.dart';
 import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
+import 'serial_decode_lane.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
@@ -88,6 +89,13 @@ class ImagePreloadController {
   final PhotoPayloadCache _cache = PhotoPayloadCache();
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
+  /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
+  /// production here and by the tier-2 catch-up loads and full-resolution
+  /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most one RAW
+  /// decode in flight" a property of the pipeline rather than of one scheduler
+  /// (user ruling 2026-08-26).
+  final SerialDecodeLane _serialLane = SerialDecodeLane();
+
   final Map<String, Uint8List> _thumbCache = {};
 
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
@@ -136,6 +144,7 @@ class ImagePreloadController {
   );
   late final TierTwoScheduler _tierTwoScheduler = TierTwoScheduler(
     registry: _tierTwo,
+    lane: _serialLane,
     currentPayloadFor: _cache.peek,
     fullSizeProviderFor: _fullSizeProviderForPayload,
     ensurePayload: _ensurePayload,
@@ -180,9 +189,9 @@ class ImagePreloadController {
   // id -> EXIF orientation, written by the content probe (and, only for files
   // the probe could not measure, by the bridge's rung-2 answer).
   //
-  // This is what lets the debounced +/-1 pass hand `loadExpensive` an
-  // orientation without a single further bridge or loader call: the same walk
-  // that decided the rung already read IFD0 (invariant I6). Like the cost memo
+  // This is what lets a serial-lane task hand `loadExpensive` an orientation
+  // without a single further bridge or loader call: the same walk that decided
+  // the lane already read IFD0 (invariant I6). Like the cost memo
   // it lives for the whole folder -- an item evicted from the retention window
   // and navigated back to must not have to buy its orientation twice -- so it
   // is cleared only by [reset].
@@ -329,6 +338,7 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _retentionIds = {};
     _tierOneKeys.clear();
+    _serialLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
@@ -355,6 +365,7 @@ class ImagePreloadController {
 
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
+    _serialLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     for (final key in _tierOneKeys.values) {
       PaintingBinding.instance.imageCache.evict(key);
@@ -408,6 +419,12 @@ class ImagePreloadController {
     for (final id in _cache.retainOnly(neededIds)) {
       _tierTwo.evict(id);
     }
+    // The tier-2 id set moves NOW, not when the debounce fires: a serial decode
+    // can land at any moment and its piggyback publish needs a truthful answer
+    // to "is this item in the full-size window" (see
+    // [TierTwoScheduler.updateWindow]). Nothing about WHEN tier-2 decodes run
+    // changes -- that is still [TierTwoScheduler.schedule]'s debounce.
+    _tierTwoScheduler.updateWindow(items, currentIndex);
     _selectedIdForPerf = selectedItemId; // PERF-INSTRUMENTATION
 
     // PERF-INSTRUMENTATION
@@ -441,12 +458,31 @@ class ImagePreloadController {
       items.length - 1,
     );
     final endIdx = (currentIndex + kRetentionAfter).clamp(0, items.length - 1);
+    // NEAR-TO-FAR, not start-to-end: an expensive item does not load here, it
+    // is ENQUEUED on the serial lane, and the lane's start order is the order
+    // this loop hands it (0, +1, -1, +2, -2, +3, -3, +4, +5 -- user ruling
+    // 2026-08-26). Cheap items are order-insensitive because they all start in
+    // parallel anyway, so one loop serves both kinds.
+    //
+    // The awaits below therefore complete as soon as every cheap load has
+    // landed and every expensive one has been QUEUED. That is deliberate:
+    // tier-2 scheduling must not wait for the lane to drain, or a nine-slot
+    // RAW window would push the full-size decode of the item the user is
+    // looking at behind eight decodes it does not need yet.
+    final nearToFarOrder = _nearToFarIndices(currentIndex, startIdx, endIdx)
+        .toList();
+    // Tell the cache which ids are near vs far from the selection, so
+    // budget eviction drops the farthest item rather than the oldest
+    // (user ruling 2026-08-27, review F-2 fix).
+    _cache.setEvictionPriority([
+      for (final i in nearToFarOrder) items[i].id,
+    ]);
     final pendingLoads = <Future<void>>[];
-    for (var i = startIdx; i <= endIdx; i++) {
+    for (final i in nearToFarOrder) {
       pendingLoads.add(
         _ensurePayload(
           items[i],
-          distance: (i - currentIndex).abs(),
+          distance: i - currentIndex,
           notifyLoaded: null,
         ),
       );
@@ -467,16 +503,59 @@ class ImagePreloadController {
 
   String? _selectedIdForPerf; // PERF-INSTRUMENTATION
 
+  /// [startIdx]..[endIdx] walked outwards from [currentIndex]: the selected
+  /// slot, then +1, -1, +2, -2, ... skipping whatever the clamp cut off.
+  ///
+  /// This IS the serial lane's start order (contract criterion 4), so it lives
+  /// next to the pass that feeds the lane rather than inside it: the lane
+  /// orders by the rank it is handed, and the rank comes from the same signed
+  /// distance this walk uses ([laneRankFor]).
+  static Iterable<int> _nearToFarIndices(
+    int currentIndex,
+    int startIdx,
+    int endIdx,
+  ) sync* {
+    if (currentIndex >= startIdx && currentIndex <= endIdx) yield currentIndex;
+    final maxDistance = math.max(
+      currentIndex - startIdx,
+      endIdx - currentIndex,
+    );
+    for (var d = 1; d <= maxDistance; d++) {
+      if (currentIndex + d <= endIdx) yield currentIndex + d;
+      if (currentIndex - d >= startIdx) yield currentIndex - d;
+    }
+  }
+
+  /// Flushes the callbacks parked by callers who selected [id] while somebody
+  /// else's load for it was already in flight or queued.
+  ///
+  /// Reached from EVERY resolution path, including the early returns: an item
+  /// that was queued on the serial lane and then landed by another route (a
+  /// tier-2 catch-up load, say) still has to release its spinner. Before the
+  /// lane existed the only producer was the load itself, so the early returns
+  /// could not strand anyone; now they can.
+  void _flushPendingNotifies(String id) {
+    final pending = _pendingPreviewNotifies.remove(id);
+    for (final cb in pending ?? const <VoidCallback>[]) {
+      cb();
+    }
+  }
+
   /// Produces and retains [item]'s payload if it is not retained already.
   ///
-  /// [distance] is how many items away from the selection this is; it decides
-  /// which rung applies. [allowExpensive] is false on the immediate pass and
-  /// true only from the debounced +/-1 sweep.
+  /// [distance] is the SIGNED offset from the selection (negative = before it).
+  /// It no longer decides whether the item may be loaded at all -- since the
+  /// 2026-08-26 ruling every retained slot is eligible -- only the near-to-far
+  /// rank an expensive item gets on the serial lane.
+  ///
+  /// [onSerialLane] is true only when this call IS the lane's task body. That
+  /// is the one context in which a real RAW decode may run; every other caller
+  /// that meets an expensive item enqueues it and returns.
   Future<void> _ensurePayload(
     PhotoItem item, {
     required int distance,
     required VoidCallback? notifyLoaded,
-    bool allowExpensive = false,
+    bool onSerialLane = false,
   }) async {
     final id = item.id;
     if (_cache.contains(id)) {
@@ -485,12 +564,18 @@ class ImagePreloadController {
         'loadPreview.skip|$id|cached=true|inFlight=false'
         '|isSelected=${id == _selectedIdForPerf}',
       );
+      // No notifyLoaded call here: the payload was already there when this
+      // caller asked, so there is nothing new to repaint for IT. Parked
+      // callbacks are a different matter -- they are waiting for the item to
+      // become available at all, and it now is.
+      _flushPendingNotifies(id);
       return;
     }
 
     // An answer that cannot change: do not re-ask any source for it.
     if (_permanentMisses.contains(id)) {
       notifyLoaded?.call();
+      _flushPendingNotifies(id);
       return;
     }
 
@@ -514,21 +599,16 @@ class ImagePreloadController {
     if (file == null) return;
 
     // CONTENT PROBE FIRST, for every item at every distance (user Amendment 3
-    // clause 2). The probe is what decides the rung, so anything it does not
+    // clause 2). The probe is what decides the LANE, so anything it does not
     // see gets scheduled on the bridge's say-so instead -- and the bridge is
-    // reached by making the very call the rung exists to avoid.
+    // reached by making the very call the probe exists to anticipate.
     //
     // An earlier revision skipped the probe for the selected item and its
     // immediate neighbours, on the grounds that they were about to ask the
     // bridge anyway and the JPEG hot path must cost no Dart CPU. That is the
-    // location-dependent classification the user rejected verbatim, and it was
-    // the mechanical cause of a no-preview DNG at distance 0 or 1 burning a
-    // bridge round trip before its rung was known. The price of the correction
-    // is one bounded open (2 bytes for a JPEG, design §5's hot path intact).
-    //
-    // The rung gate below is unchanged: an item MEASURED expensive and outside
-    // +/-1 is not touched at all -- no decode, no bridge round trip. That is
-    // where the exactly-once guarantee lives (invariant I6).
+    // location-dependent classification the user rejected verbatim. The price
+    // of the correction is one bounded open (2 bytes for a JPEG, design §5's
+    // hot path intact).
     final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
     final cost = probed.cost;
     // First writer wins, and after the change above the probe is the first
@@ -539,20 +619,24 @@ class ImagePreloadController {
     if (probedOrientation != null) {
       _exifOrientations.putIfAbsent(id, () => probedOrientation);
     }
-    if (cost == SourceCost.expensive &&
-        !(allowExpensive &&
-            _scheduler.allowsExpensiveWork(distance: distance))) {
-      // Already measured expensive, and this pass is not allowed to do
-      // expensive work: asking the bridge again would be a channel round trip
-      // for an answer that cannot change (invariant I6).
+    // LANE ROUTING (user ruling 2026-08-26, replacing the ±1 rung refusal).
+    // A measured-expensive item is not refused any more, at any distance: the
+    // WHOLE load is handed to the serial lane, which runs it near-to-far with
+    // one decode in flight. Everything else about it -- retention, tier-1
+    // precache, tier-2 eligibility -- is identical to a cheap item's.
+    if (cost == SourceCost.expensive && !onSerialLane) {
+      _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
 
     _loadingKeys.add(id);
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
     try {
-      final canDoExpensive =
-          allowExpensive && _scheduler.allowsExpensiveWork(distance: distance);
+      // Only the lane's own task body may run a real RAW decode. Everywhere
+      // else `allowExpensive: false` is what makes the bridge answer
+      // NeedsRawDecode instead of decoding inline -- which is how an item the
+      // probe could not measure gets discovered and handed to the lane below.
+      final canDoExpensive = onSerialLane;
       final knownOrientation = _exifOrientations[id];
       final outcome = canDoExpensive && knownOrientation != null
           ? await _source.loadExpensive(
@@ -584,8 +668,24 @@ class ImagePreloadController {
         // a property of the file, not of this attempt; dropping it here would
         // make an item that leaves the retention window and comes back buy it
         // again from the bridge, which is the round trip I6 forbids.
-        if (!_retentionIds.contains(id)) return;
+        if (!_retentionIds.contains(id)) {
+          // Left the window while the load was in flight. Release parked
+          // callbacks (review F-3 fix, 2026-08-27) -- same pattern as the
+          // lane body's window refusal.
+          _flushPendingNotifies(id);
+          return;
+        }
         _cache.put(id, payload);
+        if (onSerialLane) {
+          // A serially landed payload gets its tier-1 ImageCache entry HERE,
+          // not on "the next navigation pass": when the user has stopped
+          // navigating there is no next pass, and the item would sit retained
+          // with nothing decoded for it -- the very stall this ruling exists
+          // to remove. Cheap items keep taking the batched route in
+          // [_precacheTierOneWindow], which runs microseconds after their
+          // parallel loads land anyway.
+          _precacheTierOneFor(id, payload);
+        }
       } else if (!outcome.deferred) {
         // Every source failed, including the legacy fallback. Mark it so the
         // view can say "unreadable" instead of spinning forever, and so no
@@ -603,17 +703,29 @@ class ImagePreloadController {
           _noNativeDecoderMisses.add(id);
         }
       }
-      // A deferred item is the one case with nothing to report yet: the
-      // debounced +/-1 pass owns it and will notify when its payload lands.
-      // That spinner is bounded by tierTwoNavigationDebounce, which is today's
-      // measured behaviour for a preview-less DNG (invariant T1).
+      // LANE HANDOFF. A deferred outcome means the probe could not measure the
+      // file and the BRIDGE was the one to answer "this needs a real RAW
+      // decode" (photo_source.dart's `allowExpensive: false` arm). Such an item
+      // must be re-enqueued on the serial lane, never left for a debounced pass
+      // to pick up: since the 2026-08-26 ruling the lane is the only producer
+      // of expensive payloads, so "wait for the next sweep" would be a spinner
+      // with no owner. The bridge's orientation was memoised a few lines above,
+      // so the lane's retry uses `loadExpensive` and buys no second round trip
+      // (invariant I6).
+      if (outcome.deferred && !onSerialLane) {
+        _enqueueSerialLoad(
+          item,
+          distance: distance,
+          notifyLoaded: notifyLoaded,
+        );
+      }
+      // A deferred item is the one case with nothing to report yet, and its
+      // parked callbacks must SURVIVE this call -- they belong to the lane task
+      // that will actually produce the payload.
       final resolved = payload != null || _permanentMisses.contains(id);
-      final pending = _pendingPreviewNotifies.remove(id);
       if (resolved) {
         notifyLoaded?.call();
-        for (final cb in pending ?? const <VoidCallback>[]) {
-          cb();
-        }
+        _flushPendingNotifies(id);
       }
 
       // PIGGYBACK (design §2.2). The source hands back full-resolution oriented
@@ -656,6 +768,68 @@ class ImagePreloadController {
     }
   }
 
+  /// Hands [item]'s whole load to the serial lane at its near-to-far rank.
+  ///
+  /// The lane body -- not this method -- re-checks the retention window, so a
+  /// queued item the user has navigated past starts no decode at all: the check
+  /// has to happen when the item's TURN comes, not when it is queued (invariant
+  /// I4). A later pass that re-enqueues the same id simply re-ranks the pending
+  /// entry, which is how "navigate mid-queue and the next decode is the new
+  /// position's nearest missing item" holds without cancelling anything.
+  void _enqueueSerialLoad(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback? notifyLoaded,
+  }) {
+    final id = item.id;
+    // Parked rather than carried on the closure: a re-enqueue REPLACES the
+    // pending body, so a callback living only inside the old body would be
+    // silently dropped and its spinner would never resolve.
+    if (notifyLoaded != null) {
+      _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
+    }
+    _serialLane.enqueue(
+      (LaneTaskKind.payload, id),
+      priority: laneRankFor(distance),
+      // `distance` is captured at enqueue time and becomes stale after
+      // navigation. This is harmless: a navigation re-enqueue REPLACES this
+      // body with a fresh distance, so stale distance only survives when the
+      // item stays queued from its original enqueue — and the only consumer
+      // of `distance` inside the body is _ensurePayload's deferred
+      // re-enqueue rank, which the next navigation pass overwrites anyway.
+      body: () async {
+        if (!_retentionIds.contains(id)) {
+          // Out of the window by the time its turn came: no decode, no bridge
+          // call. Release any parked callbacks so they do not accumulate
+          // unboundedly (review F-3 fix, 2026-08-27). A navigation back to
+          // the item re-enqueues and re-parks if needed.
+          _flushPendingNotifies(id);
+          return;
+        }
+        await _ensurePayload(
+          item,
+          distance: distance,
+          notifyLoaded: null,
+          onSerialLane: true,
+        );
+      },
+    );
+  }
+
+  /// Decodes ONE item's tier-1 entry, for a payload that has just landed off
+  /// the serial lane. The batched sibling is [_precacheTierOneWindow].
+  void _precacheTierOneFor(String id, SourcePayload payload) {
+    final width = _tierOneWidth;
+    final height = _tierOneHeight;
+    if (width == null || height == null) return;
+    if (!_retentionIds.contains(id)) return;
+    if (!identical(_cache.peek(id), payload)) return;
+    _decodeIntoImageCache(
+      id,
+      _tierOneProviderForPayload(payload, width: width, height: height),
+    );
+  }
+
   // resolve -> one-shot listener -> removeListener, the dance written three
   // times in this file. The CALLER keeps all bookkeeping: the three sites
   // differ in when they register tier-2 keys and what they do on error, and
@@ -693,9 +867,9 @@ class ImagePreloadController {
   // so stepping onto one re-decoded despite the payload being right there.
   //
   // This is a CONSUMER of payloads, never a producer -- it skips a slot with no
-  // payload instead of fetching one. That is what keeps the widened span from
-  // smuggling an expensive RAW decode outside the +/-1 startup radius (the
-  // scheduler, not this loop, decides what may be started).
+  // payload instead of fetching one. That separation is why widening this span
+  // can never add a decode: production is the window pass's and the serial
+  // lane's business, and this loop only ever decodes what is already retained.
   void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
     final width = _tierOneWidth;
     final height = _tierOneHeight;

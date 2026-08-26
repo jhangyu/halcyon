@@ -20,17 +20,19 @@ enum SourceCost {
   cheap,
 
   /// No usable embedded JPEG -- producing pixels means a real RAW decode
-  /// (measured 61-406ms, and it saturates cores). Confined to +/-1 behind the
-  /// navigation debounce.
+  /// (measured 61-406ms, and it saturates cores). Eligible across the whole
+  /// retention window exactly like a cheap item, but produced ONE AT A TIME on
+  /// the shared serial decode lane (user ruling 2026-08-26).
   expensive,
 }
 
 /// What one attempt to produce a payload actually observed.
 ///
 /// [deferred] separates the two ways a payload can come back null, which the
-/// caller MUST NOT confuse: `deferred: true` means "measured as expensive and
-/// intentionally not done yet, come back from the +/-1 pass" (a bounded
-/// spinner), while `deferred: false` with a null payload means every source
+/// caller MUST NOT confuse: `deferred: true` means "the bridge says this needs
+/// a real RAW decode and this call was not allowed to run one -- re-enqueue it
+/// on the serial decode lane" (a bounded spinner, and a LANE HANDOFF, never a
+/// radius), while `deferred: false` with a null payload means every source
 /// including the legacy fallback failed and the item is a PERMANENT MISS. Fold
 /// those together and a decoder failure becomes a spinner that never resolves
 /// -- the single stranding risk design §3.4 names.
@@ -119,10 +121,12 @@ class PhotoSource {
   /// is how the cost is learned at all, and is the same single round trip the
   /// pre-M3 code made for every item in the window), but no RAW decode and no
   /// legacy fallback runs. The caller gets `observedCost: expensive` with a
-  /// null payload and re-enters later from the debounced +/-1 pass. Without
-  /// this split, discovering an item's cost would itself perform the work the
-  /// cost gate exists to defer, and a 9-step navigation burst would fire nine
-  /// FFI decodes -- the exact D2 violation.
+  /// null payload and re-enqueues the item on the serial decode lane, whose
+  /// task body is the only caller that passes true. Without this split, a
+  /// probe-unmeasurable file would perform its FFI decode inline on whichever
+  /// parallel window load happened to discover it, and a 9-step navigation
+  /// burst would fire nine concurrent decodes -- which is what the lane, not a
+  /// radius, now prevents.
   Future<SourceOutcome> load(
     String path, {
     required int longEdge,
@@ -238,10 +242,10 @@ class PhotoSource {
     }
   }
 
-  /// Runs the expensive half after an earlier immediate pass already received
+  /// Runs the expensive half after an earlier pass already received
   /// `NativeImageNeedsRawDecode` and carried [exifOrientation] forward. This
-  /// is the I6-preserving path: the debounced pass must not re-ask the native
-  /// bridge for the same answer just to get the orientation back.
+  /// is the I6-preserving path: the serial lane's retry must not re-ask the
+  /// native bridge for the same answer just to get the orientation back.
   Future<SourceOutcome> loadExpensive(
     String path, {
     required int longEdge,
@@ -353,6 +357,11 @@ class PhotoSource {
     if (content.jpegBitstream) {
       return (cost: SourceCost.cheap, exifOrientation: null);
     }
+    // FROZEN threshold (user ruling 2026-08-27, recorded in memory.md AD-033):
+    // any embedded preview smaller than the viewport's physical pixels means a
+    // full RAW decode. This must never be loosened — no tolerance factor, no
+    // "close enough". A sub-viewport preview scaled up is visibly blurry;
+    // waiting for the decode is better.
     return (
       cost: content.largestLongEdge >= longEdge
           ? SourceCost.cheap

@@ -69,7 +69,15 @@ class ExifMetadataService {
     try {
       return await Isolate.run(() => _parseWithPackage(path));
     } catch (e) {
-      debugPrint('EXIF package read failed for $path: $e');
+      // Only print in debug builds when the file actually exists on disk —
+      // tests with fake paths (e.g. /nonexistent/...) would otherwise spam
+      // the log with hundreds of lines per gate run.
+      assert(() {
+        if (File(path).existsSync()) {
+          debugPrint('EXIF package read failed for $path: $e');
+        }
+        return true;
+      }());
       return null;
     }
   }

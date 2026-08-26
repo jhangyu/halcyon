@@ -77,7 +77,7 @@ void main() {
   });
 
   test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
-      'cold arrival has no pixel payload yet', () async {
+      'cold arrival fills the same window, one decode at a time', () async {
     final cheap = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
@@ -114,10 +114,26 @@ void main() {
 
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
+    // The expensive half, RENEGOTIATED to the 2026-08-26 ruling. It used to
+    // assert `payloadFor(selected) == null` and an EMPTY ImageCache right after
+    // arrival, which encoded the old law: an expensive item was refused outside
+    // +/-1 and even at distance 0 had to wait out the 250ms debounce. Both
+    // clauses are now wrong AND untestable as written -- what happens "right
+    // after arrival" is a race with the serial lane, not a design rule. The
+    // rule that replaced them is asserted instead: the same -3..+5 window a
+    // cheap item gets, filled one decode at a time.
+    var inFlight = 0;
+    var maxInFlight = 0;
     final expensive = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
-      dngDecoder: (path) async => fakeDecoded(),
+      dngDecoder: (path) async {
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        inFlight--;
+        return fakeDecoded();
+      },
     );
     addTearDown(expensive.dispose);
     expensive.updateTargetSize(800, 600);
@@ -127,8 +143,13 @@ void main() {
       selectedItemId: expensiveItems[5].id,
       notifyLoaded: () {},
     );
-    expect(expensive.payloadFor(expensiveItems[5].id), isNull);
-    expect(PaintingBinding.instance.imageCache.currentSize, 0);
+    await until(
+      () => List.generate(9, (i) => expensiveItems[2 + i].id).every(
+        (id) => expensive.payloadFor(id) is PixelPayload,
+      ),
+      reason: 'the whole -3..+5 expensive window to land',
+    );
+    expect(maxInFlight, 1, reason: 'expensive production stays single-flight');
   });
 
   // Each assertion names its POSITION, so location-dependent bridge-first
@@ -183,14 +204,28 @@ void main() {
   // TC-089 deleted (M6 P3.3, Appendix B, C-4): see baseline-registry.md for
   // the disposition reason; TC-088 above stays.
 
-  test('P2 translated: navigation bursts start ZERO expensive decodes, while '
-      'cheap DNGs/JPEGs prefetch during the same burst', () async {
+  test('P2 translated: navigation bursts never exceed one expensive decode in '
+      'flight and never decode out-of-window items, while cheap DNGs/JPEGs '
+      'prefetch during the same burst', () async {
+    // RENEGOTIATED (user ruling 2026-08-26). The frozen probe asserted ZERO
+    // expensive decodes during a sub-debounce burst, which was the old law's
+    // consequence: expensive work existed only behind the debounce. Under the
+    // new law a burst MAY start decodes -- that is the point, RAW navigation is
+    // to behave like JPEG -- so what is pinned instead is what must still never
+    // happen: two decodes at once, a decode for an item outside the current
+    // retention window, or a second decode of an item already decoded.
     final decodeCalls = <String>[];
+    var inFlight = 0;
+    var maxInFlight = 0;
     final expensive = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         decodeCalls.add(path);
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        inFlight--;
         return fakeDecoded();
       },
     );
@@ -205,8 +240,22 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 60));
     }
-    expect(decodeCalls, isEmpty);
-    expect(expensive.payloadFor(raws[5].id), isNull);
+    expect(maxInFlight, 1, reason: 'the burst may never put two RAW decodes in '
+        'flight at once');
+    // Deliberately NOT "no path appears twice": this burst walks 5->9->5, so
+    // index 5 leaves the -3..+5 window at position 9, loses its payload to the
+    // one retention rule every kind shares, and legitimately re-decodes on the
+    // way back. Re-decode-free navigation WITHIN the window is what P3/P4 pin.
+    // What must hold here is that a decode is only ever bought for an item
+    // some visited position actually wanted (2..14 across this burst).
+    // Every decoded path must belong to some item that was inside the -3..+5
+    // window of one of the visited positions (2..14 across the burst).
+    final everInWindow = raws
+        .sublist(2, 15)
+        .map((item) => item.files.single.path)
+        .toSet();
+    expect(decodeCalls.where((p) => !everInWindow.contains(p)), isEmpty);
+    expect(expensive.payloadFor(raws[5].id), isNotNull);
 
     final cheap = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>
