@@ -16,6 +16,13 @@ import 'dart:typed_data';
 // IFD structures actually walked and finally the single selected JPEG strip
 // are read through a small paged random-access reader.
 //
+// Two container flavours are understood, and only two (2026-08-26 RAW-support
+// contract, item 3): the standard TIFF/DNG one (version word 42) and the
+// Panasonic RW2 one (version word 85), which is an ordinary IFD chain with
+// vendor tag numbering for its previews. Containers that are not TIFF at all --
+// Fujifilm RAF, Sigma X3F, Canon CR3 -- are deliberately NOT handled here; they
+// reach the RAW decoder instead.
+//
 // Deliberately free of dart:ffi, MethodChannel and platform-branching
 // checks, so it can run on any platform/isolate that has no native
 // thumbnail bridge.
@@ -249,7 +256,13 @@ class DngEmbeddedJpegExtractor {
       if (ifd0 == null) return null;
       final widthEntry = ifd0[0x0100];
       final heightEntry = ifd0[0x0101];
-      if (widthEntry == null || heightEntry == null) return null;
+      if (widthEntry == null || heightEntry == null) {
+        // A Panasonic container carries neither 0x0100 nor 0x0101; its extent
+        // lives in vendor tags. Without this the decoded-pixel budget guard
+        // (F-20) would measure every RW2 as "unknown" and wave it through.
+        if (reader.isPanasonic) return _panasonicExtent(reader, ifd0);
+        return null;
+      }
       final widthVals = reader.values(widthEntry);
       final heightVals = reader.values(heightEntry);
       if (widthVals == null || widthVals.isEmpty) return null;
@@ -298,13 +311,33 @@ class DngEmbeddedJpegExtractor {
   // The single walk
   // ---------------------------------------------------------------------
 
+  /// TIFF version word of a standard Adobe DNG / TIFF container.
+  static const int _tiffVersionStandard = 42;
+
+  /// TIFF version word of the Panasonic RW2 container: its header is
+  /// `49 49 55 00`, i.e. little-endian `II` followed by 85 (0x0055). Everything
+  /// after those two bytes is an ordinary TIFF IFD chain -- verified against
+  /// `/Users/jhangyu/project/ceyx/image_samples/raw_corpus/2026-08-10-17-47-27.rw2`,
+  /// whose IFD0 sits at offset 24 and parses entry-for-entry with the reader
+  /// below (`scripts/tmp/rw2_ifd_probe.py`). What is NOT ordinary is the tag
+  /// numbering: RW2 IFD0 carries no Compression (0x0103), no
+  /// PhotometricInterpretation (0x0106), no StripOffsets/StripByteCounts and no
+  /// SubIFDs (0x014A) at all, so accepting this version word on its own finds
+  /// nothing. See [_panasonicPreviewTags].
+  static const int _tiffVersionPanasonic = 85;
+
   static _TIFFReader? _readerFor(_ByteSource source) {
     final littleEndian = _detectByteOrder(source);
     if (littleEndian == null) return null;
-    final reader = _TIFFReader(source, littleEndian);
-    final magic = reader.u16(2);
-    if (magic != 42) return null;
-    return reader;
+    // The version word is read through a throwaway reader because the real one
+    // is constructed WITH that version -- the container flavour decides which
+    // candidate tags the gather step is allowed to look at, and nothing else.
+    final version = _TIFFReader(source, littleEndian, 0).u16(2);
+    if (version == null) return null;
+    if (version != _tiffVersionStandard && version != _tiffVersionPanasonic) {
+      return null;
+    }
+    return _TIFFReader(source, littleEndian, version);
   }
 
   static Map<int, _IFDEntry>? _readIFD0(_TIFFReader reader) {
@@ -604,6 +637,13 @@ class DngEmbeddedJpegExtractor {
           ? defaultCrop.$1
           : defaultCrop.$2;
     }
+    // A Panasonic container has no DefaultCropSize (0xC620) at all, so without
+    // this the full-size request below would bail before looking at a single
+    // candidate. Its own width/height tags stand in for the same quantity: the
+    // sensor extent the full-size floor is measured against.
+    if (cropMax <= 0 && reader.isPanasonic) {
+      cropMax = _panasonicSensorMax(reader, ifd0);
+    }
     // The 0.90 * cropMax floor only guards the full-size request; without a
     // usable DefaultCropSize that request cannot be judged at all.
     if (longEdge == null && cropMax <= 0) return null;
@@ -673,8 +713,217 @@ class DngEmbeddedJpegExtractor {
       );
     }
 
+    if (reader.isPanasonic) {
+      _gatherPanasonicCandidates(
+        reader,
+        source,
+        ifd0,
+        longEdge,
+        cropMax,
+        candidates,
+        () => unreadable++,
+      );
+    }
+
     return _CandidateScan(candidates: candidates, unreadable: unreadable);
   }
+
+  /// IFD0 tags holding a whole JPEG bitstream in a Panasonic RW2, in the order
+  /// they appear in the file. Both are UNDEFINED-typed blobs whose `count` IS
+  /// the byte length -- there is no StripOffsets/StripByteCounts pair, and no
+  /// SubIFD, so the loop above cannot see them:
+  ///
+  ///  - 0x002E "JpgFromRaw": the small rendition (1920x1280 in the reference
+  ///    sample, 446,960 bytes at offset 6144).
+  ///  - 0x0127 "JpgFromRaw2": the full-size rendition (6000x4000, 3,593,728
+  ///    bytes at offset 453,120).
+  ///
+  /// Measured with `scripts/tmp/rw2_ifd_probe.py` /
+  /// `scripts/tmp/rw2_blob_dims.py`; output kept under `tmp/verify/`.
+  static const List<int> _panasonicPreviewTags = <int>[0x002E, 0x0127];
+
+  /// Panasonic IFD0 extent tags, most specific first: (width, height) pairs of
+  /// image size (0x0007/0x0006) then sensor size (0x0002/0x0003).
+  static const List<(int, int)> _panasonicExtentTags = <(int, int)>[
+    (0x0007, 0x0006),
+    (0x0002, 0x0003),
+  ];
+
+  /// Ceiling on how far into a Panasonic blob the frame-header walk may read
+  /// before giving up. A JPEG's SOFn sits within the first few kilobytes in
+  /// practice; the cap is what keeps a hostile bitstream from turning candidate
+  /// gathering into a full-file scan.
+  static const int _jpegFrameScanLimit = 64 * 1024;
+  static const int _jpegFrameScanMaxSegments = 64;
+
+  /// Appends the Panasonic blob candidates found in [ifd0].
+  ///
+  /// The bounds checks are the same ones the strip path applies, in the same
+  /// order, and a blob that fails them counts as unreadable via [onUnreadable]
+  /// -- the container declared a preview it cannot deliver (AD-022). Two
+  /// rejections are deliberately NOT unreadable: a tag whose type is not a byte
+  /// blob is "not a candidate" (absence, exactly like a missing Compression
+  /// tag), and a blob whose SOI is present but whose frame header is not found
+  /// within [_jpegFrameScanLimit] is dropped as unmeasurable rather than
+  /// declared broken -- that is a limit of this bounded reader, not proven
+  /// damage, and reporting it as damage would replace a working RAW decode with
+  /// a broken-file error.
+  static void _gatherPanasonicCandidates(
+    _TIFFReader reader,
+    _ByteSource source,
+    Map<int, _IFDEntry> ifd0,
+    int? longEdge,
+    int cropMax,
+    List<_Candidate> candidates,
+    void Function() onUnreadable,
+  ) {
+    for (final tag in _panasonicPreviewTags) {
+      final entry = ifd0[tag];
+      if (entry == null) continue;
+      // UNDEFINED / BYTE only: one element per byte, so `count` is the length.
+      if (entry.type != 7 && entry.type != 1) continue;
+      final byteCount = entry.count;
+      if (byteCount <= 0) continue;
+
+      // Same inline-vs-out-of-line rule `values()` uses: a value field holds up
+      // to 4 bytes, anything longer is an offset.
+      int offset;
+      if (byteCount <= 4) {
+        offset = entry.valueFieldOffset;
+      } else {
+        final resolved = reader.u32(entry.valueFieldOffset);
+        if (resolved == null) {
+          onUnreadable();
+          continue;
+        }
+        offset = resolved;
+      }
+
+      if (offset < 0 ||
+          offset >= source.length ||
+          offset + byteCount > source.length) {
+        onUnreadable();
+        continue;
+      }
+
+      final soi = source.read(offset, 2);
+      if (soi == null || soi.length < 2 || soi[0] != 0xFF || soi[1] != 0xD8) {
+        onUnreadable();
+        continue;
+      }
+
+      // Panasonic states the preview's extent nowhere in the IFD, so the only
+      // honest source for it is the bitstream's own frame header.
+      final size = _jpegFrameSize(source, offset, byteCount);
+      if (size == null) continue;
+      final width = size.$1;
+      final height = size.$2;
+
+      final maxDim = width > height ? width : height;
+      if (longEdge == null && maxDim < 0.90 * cropMax) continue;
+
+      candidates.add(
+        _Candidate(
+          width: width,
+          height: height,
+          offset: offset,
+          byteCount: byteCount,
+        ),
+      );
+    }
+  }
+
+  /// Largest edge Panasonic IFD0 claims for the frame, or 0 when neither tag
+  /// pair is readable. Stands in for DefaultCropSize's role in the full-size
+  /// `0.90 * cropMax` floor.
+  static int _panasonicSensorMax(
+    _TIFFReader reader,
+    Map<int, _IFDEntry> ifd0,
+  ) {
+    final extent = _panasonicExtent(reader, ifd0);
+    if (extent == null) return 0;
+    return extent.width > extent.height ? extent.width : extent.height;
+  }
+
+  /// Panasonic IFD0's own width/height, or `null` when neither pair is present
+  /// and readable.
+  static ({int width, int height})? _panasonicExtent(
+    _TIFFReader reader,
+    Map<int, _IFDEntry> ifd0,
+  ) {
+    for (final pair in _panasonicExtentTags) {
+      final widthEntry = ifd0[pair.$1];
+      final heightEntry = ifd0[pair.$2];
+      if (widthEntry == null || heightEntry == null) continue;
+      final widthVals = reader.values(widthEntry);
+      final heightVals = reader.values(heightEntry);
+      if (widthVals == null || widthVals.isEmpty) continue;
+      if (heightVals == null || heightVals.isEmpty) continue;
+      final width = widthVals.first;
+      final height = heightVals.first;
+      if (width <= 0 || height <= 0) continue;
+      return (width: width, height: height);
+    }
+    return null;
+  }
+
+  /// `(width, height)` from the first SOFn frame header inside the JPEG that
+  /// starts at [offset], or `null` when no frame header is reachable within the
+  /// scan limits. Assumes the SOI marker has already been verified.
+  ///
+  /// Every read goes through the bounds-checked [source]; a segment length that
+  /// would walk past the blob simply ends the scan.
+  static (int, int)? _jpegFrameSize(
+    _ByteSource source,
+    int offset,
+    int byteCount,
+  ) {
+    final limit = byteCount < _jpegFrameScanLimit
+        ? byteCount
+        : _jpegFrameScanLimit;
+    var pos = 2; // just past SOI
+    var segments = 0;
+    while (pos + 4 <= limit && segments < _jpegFrameScanMaxSegments) {
+      final head = source.read(offset + pos, 4);
+      if (head == null) return null;
+      if (head[0] != 0xFF) return null;
+      final marker = head[1];
+      if (marker == 0xFF) {
+        pos += 1; // fill byte before the real marker
+        continue;
+      }
+      if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+        pos += 2; // standalone marker, no length field
+        segments++;
+        continue;
+      }
+      if (marker == 0xD9 || marker == 0xDA) return null; // EOI / SOS
+      final segLen = (head[2] << 8) | head[3];
+      if (segLen < 2) return null;
+      if (_isStartOfFrame(marker)) {
+        // SOFn payload: precision(1) height(2) width(2).
+        if (segLen < 7) return null;
+        final frame = source.read(offset + pos + 4, 5);
+        if (frame == null || frame.length < 5) return null;
+        final height = (frame[1] << 8) | frame[2];
+        final width = (frame[3] << 8) | frame[4];
+        if (width <= 0 || height <= 0) return null;
+        return (width, height);
+      }
+      pos += 2 + segLen;
+      segments++;
+    }
+    return null;
+  }
+
+  /// True for the SOFn markers that carry a frame header. 0xC4 (DHT), 0xC8
+  /// (JPG extension) and 0xCC (DAC) share the range but are not frame headers.
+  static bool _isStartOfFrame(int marker) =>
+      marker >= 0xC0 &&
+      marker <= 0xCF &&
+      marker != 0xC4 &&
+      marker != 0xC8 &&
+      marker != 0xCC;
 
   /// Candidate selection. `longEdge == null` keeps today's rule (largest area
   /// wins, first one wins ties). Otherwise the smallest candidate reaching
@@ -953,10 +1202,18 @@ class _FileSource implements _ByteSource {
 /// bounds-checked against the source length and returns `null` rather than
 /// throwing.
 class _TIFFReader {
-  _TIFFReader(this.source, this.littleEndian);
+  _TIFFReader(this.source, this.littleEndian, this.version);
 
   final _ByteSource source;
   final bool littleEndian;
+
+  /// The container's TIFF version word (byte offset 2), carried so the
+  /// candidate gather can tell an Adobe-tagged container from a Panasonic one
+  /// without re-reading the header. Never used for anything else.
+  final int version;
+
+  bool get isPanasonic =>
+      version == DngEmbeddedJpegExtractor._tiffVersionPanasonic;
 
   int? u16(int offset) {
     final b = source.read(offset, 2);
