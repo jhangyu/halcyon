@@ -73,10 +73,34 @@ class NativeImageBytes extends NativeImageResult {
 /// determined, which is why this field falls back to
 /// [kDefaultExifOrientation] rather than trusting a bare 1. The decoder does
 /// not apply EXIF orientation, so Halcyon must.
+/// [declaredPreviewsUnreadable] is the AD-022 "malformed" finding, carried
+/// forward rather than acted on. It is true when the walker parsed the
+/// container and found EVERY declared preview candidate unreadable. Until
+/// 2026-08-26 that finding short-circuited into an immediate broken-file
+/// failure inside the loader; the user overrode that pre-empt after measuring
+/// a container whose previews are unreadable but whose sensor data decodes
+/// fine in 383ms. Such a file now routes to the decoder like any other
+/// preview-less RAW, and is reported broken ONLY if the decode also fails.
+///
+/// The flag exists so that post-decode verdict remains possible: the loader
+/// knows the previews were unreadable but never decodes, while the layer that
+/// owns the decoder seam (`photo_source.dart`) knows the decode outcome but
+/// has not parsed the container. Neither can form the verdict alone. It
+/// defaults to false so that "container declares no preview" — the ordinary
+/// miss — stays the zero-configuration case, and so that every existing
+/// construction site keeps compiling unchanged.
 class NativeImageNeedsRawDecode extends NativeImageResult {
-  const NativeImageNeedsRawDecode({required this.exifOrientation});
+  const NativeImageNeedsRawDecode({
+    required this.exifOrientation,
+    this.declaredPreviewsUnreadable = false,
+  });
 
   final int exifOrientation;
+
+  /// True when the container declared preview candidates and all of them were
+  /// unreadable (AD-022 `malformed`). Not a failure by itself — see the class
+  /// doc; it only selects the failure code if the RAW decode ALSO fails.
+  final bool declaredPreviewsUnreadable;
 }
 
 /// A genuine failure (unreadable file, decode failure, unsupported format).

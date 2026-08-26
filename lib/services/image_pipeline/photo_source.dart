@@ -140,7 +140,10 @@ class PhotoSource {
           failureCode: null,
         );
 
-      case NativeImageNeedsRawDecode(:final exifOrientation):
+      case NativeImageNeedsRawDecode(
+        :final exifOrientation,
+        :final declaredPreviewsUnreadable,
+      ):
         final decoder = dngDecoder;
         if (decoder == null) {
           // D3 (docs/logs/2026-08-26/raw-support-contract.md): a missing
@@ -195,13 +198,27 @@ class PhotoSource {
           // null-payload miss (oracle-protected at
           // test/image_preload_controller_test.dart, the "no decoder"/
           // "throwing decoder" cases).
+          //
+          // This is the point where the AD-022 verdict is finally FORMED
+          // (user ruling 2026-08-26). The loader no longer pre-empts a
+          // container whose declared previews are all unreadable; it routes it
+          // here and carries the finding on `declaredPreviewsUnreadable`. Only
+          // now, with the decode outcome known, can the two states be told
+          // apart:
+          //   - previews unreadable AND the decode also failed -> the
+          //     container really is broken: DNG_PARSE_FAILED.
+          //   - anything else that failed to decode -> the uniform miss, code
+          //     null, exactly as before.
+          // A file whose previews are unreadable but whose sensor data decodes
+          // never reaches this catch at all, which is the whole point of the
+          // override: it renders instead of being called broken.
           return (
             payload: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
             fullRes: null,
-            failureCode: null,
+            failureCode: declaredPreviewsUnreadable ? 'DNG_PARSE_FAILED' : null,
           );
         }
 

@@ -440,18 +440,34 @@ void main() {
       );
     });
 
+    // ACCEPTANCE #1 (user ruling 2026-08-26). This test previously asserted the
+    // OPPOSITE — a fail-fast DNG_PARSE_FAILED — and it was not weakened to make
+    // new behaviour pass: the user overrode the pre-empt it pinned, after
+    // measuring a container with unreadable previews and intact sensor data
+    // that decodes in 383ms while being reported broken. The assertion is
+    // inverted deliberately and on the record, not relaxed.
     test('(a) preview on a container whose every declared candidate is '
-        'unreadable fails fast instead of entering RAW decode', () async {
+        'unreadable now REACHES the decoder instead of failing fast', () async {
       final result = await dartImageLoad(
         corruptPath,
         purpose: ImageRequestPurpose.preview,
       );
       expect(
         result,
-        isA<NativeImageFailure>(),
-        reason: 'previously this returned NativeImageNeedsRawDecode',
+        isA<NativeImageNeedsRawDecode>(),
+        reason:
+            'the pre-empt is gone: unreadable previews must not pre-judge the '
+            'sensor data, which may decode perfectly well',
       );
-      expect((result as NativeImageFailure).code, 'DNG_PARSE_FAILED');
+      // The finding is carried, not lost — this is the mechanism that keeps
+      // the two "no preview" states tellable apart after the decode. The
+      // requirement itself (two DIFFERENT failure codes surfacing) is pinned
+      // in photo_source_test.dart's "the two no-preview states stay
+      // distinguishable" group, where the decode outcome is known.
+      expect(
+        (result as NativeImageNeedsRawDecode).declaredPreviewsUnreadable,
+        isTrue,
+      );
     });
 
     test('(c) the sidebar branch is unchanged: still NO_THUMBNAIL', () async {
@@ -483,6 +499,41 @@ void main() {
         covered,
         greaterThan(0),
         reason: 'sample set must exercise the valid-miss path',
+      );
+    });
+
+    // ACCEPTANCE #3. The override moved the malformed case; it must not have
+    // moved this one. A container that declares NO preview at all still routes
+    // to the decoder exactly as before, and — the part that keeps the two
+    // states from collapsing — carries the flag FALSE, so a later decode
+    // failure surfaces the uniform miss rather than calling the file broken.
+    test('a container that declares no preview at all is unchanged: '
+        'NeedsRawDecode with declaredPreviewsUnreadable false', () async {
+      var covered = 0;
+      for (final f in dngs()) {
+        final full =
+            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
+              f.path,
+            );
+        if (full != null) continue;
+        covered++;
+        final result = await dartImageLoad(
+          f.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        expect(result, isA<NativeImageNeedsRawDecode>(), reason: f.path);
+        expect(
+          (result as NativeImageNeedsRawDecode).declaredPreviewsUnreadable,
+          isFalse,
+          reason:
+              'a genuinely preview-less container declared nothing, so nothing '
+              'was unreadable: ${f.path}',
+        );
+      }
+      expect(
+        covered,
+        greaterThan(0),
+        reason: 'sample set must exercise the no-preview-declared path',
       );
     });
 
@@ -530,21 +581,25 @@ void main() {
       expect(notTiff.malformed, isFalse);
     });
 
-    // --- 2026-08-26 contract: the malformed verdict widened with the decode
-    // escape hatch it mirrors. AD-022's two states must stay distinguishable
-    // for engine-decodable non-DNG RAW too, and browse-only RAW must keep the
-    // uniform RAW_NO_EMBEDDED_PREVIEW state (matrix F-08).
+    // --- 2026-08-26 contract, as amended by the user ruling the same day. The
+    // generalisation from `.dng` to every engine-decodable extension survives;
+    // what changed is WHAT happens to a malformed container — it routes to the
+    // decoder rather than being pre-judged broken. Same inversion as (a) above,
+    // for the same reason: the assertion was overridden, not relaxed.
     test('AD-022 generalised: an engine-decodable non-DNG RAW whose every '
-        'declared candidate is unreadable is BROKEN, not preview-less',
-        () async {
+        'declared candidate is unreadable also reaches the decoder, carrying '
+        'the finding', () async {
       final asArw = File('${tmp.path}/corrupt.arw');
       await File(corruptPath).copy(asArw.path);
       final result = await dartImageLoad(
         asArw.path,
         purpose: ImageRequestPurpose.preview,
       );
-      expect(result, isA<NativeImageFailure>());
-      expect((result as NativeImageFailure).code, 'DNG_PARSE_FAILED');
+      expect(result, isA<NativeImageNeedsRawDecode>());
+      expect(
+        (result as NativeImageNeedsRawDecode).declaredPreviewsUnreadable,
+        isTrue,
+      );
     });
 
     test('AD-022 NOT generalised to browse-only RAW: a corrupt .cr2 keeps the '

@@ -135,33 +135,39 @@ Future<NativeImageResult> dartImageLoad(
     );
     final full = probe.jpeg?.bytes;
     if (full != null) return NativeImageBytes(full);
-    // M7 Task 3 (audit gaps 2+3): a container that PARSED but declares only
-    // unreadable candidates is broken, not preview-less. Before this it fell
-    // through to NeedsRawDecode below and failed slowly inside the RAW decoder
-    // with a generic error. The valid-miss path — a genuinely preview-less DNG,
-    // and an undersized-candidate rejection under G-2 — reports
-    // `malformed == false` and is deliberately untouched.
+    // USER RULING 2026-08-26 — the malformed PRE-EMPT is gone.
     //
-    // Kept in lock-step with the RAW-decode escape hatch below, which is the
-    // reason the old gate said `.dng`: this branch exists to stop a
-    // structurally damaged container from being handed to the decoder to fail
-    // slowly, so it is only meaningful where a decode would otherwise happen.
-    // Widened with the hatch to every engine-decodable extension; browse-only
-    // RAW (D2) has no decode to pre-empt and keeps its uniform
-    // RAW_NO_EMBEDDED_PREVIEW state (matrix F-08).
+    // M7 Task 3 used to return a `DNG_PARSE_FAILED` failure right here when
+    // `probe.malformed` was true on an engine-decodable path: a container that
+    // PARSED but declares only unreadable candidates was called broken before
+    // any decode was attempted. Measurement retired that: a container with
+    // unreadable previews but intact sensor data was being reported broken
+    // while the engine decodes the very same file in 383ms. The user therefore
+    // overrode AD-022's pre-empt — unreadable previews route to the full
+    // decoder FIRST, and the file is only reported broken if that decode ALSO
+    // fails.
     //
-    // Note `probe.malformed` can only be true when the walker actually parsed
-    // the container and found every DECLARED candidate unreadable (AD-022); a
-    // non-TIFF RAW (CR3/RAF/X3F) bails before IFD0 and reports
-    // `malformed == false`, so widening the gate cannot misclassify those as
-    // broken. The code string stays `DNG_PARSE_FAILED` because it is consumed
-    // outside this file; renaming the seam vocabulary is contract parking-lot.
-    if (probe.malformed && SupportedPhotoFormats.isDecodablePath(path)) {
-      return const NativeImageFailure(
-        'DNG_PARSE_FAILED',
-        'every embedded preview the container declares is unreadable',
-      );
-    }
+    // What the override did NOT do: AD-022's requirement that the two "no
+    // preview" end states stay TELLABLE APART still holds. What it removed is
+    // the pre-empt, not the distinction. The distinction is carried forward on
+    // [NativeImageNeedsRawDecode.declaredPreviewsUnreadable] and re-formed
+    // after the decode by the layer that owns the decoder seam
+    // (`photo_source.dart`) — which is the only layer that knows whether the
+    // decode failed. This loader never performs a decode, so it cannot and
+    // must not form that verdict itself.
+    //
+    // `probe.malformed` can only be true when the walker actually parsed the
+    // container and found every DECLARED candidate unreadable (AD-022). Three
+    // things are deliberately NOT malformed and therefore keep flowing through
+    // with the flag false: a genuinely preview-less container, a G-2 undersized
+    // but intact candidate, and a non-TIFF RAW (CR3/RAF/X3F) that bails before
+    // IFD0 is readable.
+    //
+    // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) is unaffected in both
+    // directions: it never reached the pre-empt (that gate was already
+    // `isDecodablePath`-gated) and it still falls through to the uniform
+    // RAW_NO_EMBEDDED_PREVIEW state below, because there is no decode for it to
+    // be routed to (matrix F-08).
     if (purpose == ImageRequestPurpose.preview &&
         SupportedPhotoFormats.isDecodablePath(path)) {
       final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
@@ -179,6 +185,12 @@ Future<NativeImageResult> dartImageLoad(
       final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
       return NativeImageNeedsRawDecode(
         exifOrientation: orientation ?? kDefaultExifOrientation,
+        // Carried, not acted on. False here is the ordinary miss ("this
+        // container declares no preview"); true is "it declared previews and
+        // none were readable". Both route to the decoder identically — the
+        // only thing this changes is which failure code surfaces if that
+        // decode fails.
+        declaredPreviewsUnreadable: probe.malformed,
       );
     }
     // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) with no embedded preview, and

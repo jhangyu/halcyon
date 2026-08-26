@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -245,4 +247,86 @@ void main() {
       expect(await PhotoSource.fallbackAfterNativeFailure(asNef.path), isNotNull);
     },
   );
+
+  // -------------------------------------------------------------------
+  // ACCEPTANCE #2 (user ruling 2026-08-26). The loader no longer pre-empts a
+  // container whose declared previews are all unreadable — it routes it to the
+  // decoder. AD-022's requirement that the two "no preview" end states stay
+  // TELLABLE APART survives that override, and THIS is where it is proven:
+  // at the point the failure surfaces, with the decode outcome known.
+  //
+  // Asserted on the surfaced failure CODES, not on the loader's flag. The flag
+  // is the mechanism; two different codes reaching the caller is the
+  // requirement. A test that only checked the flag would still pass if this
+  // layer dropped it on the floor.
+  //
+  // Direct against PhotoSource.load with fakes, deliberately: driving a real
+  // decode failure through the controller would need a genuinely broken
+  // container AND a real decoder, and would prove less.
+  // -------------------------------------------------------------------
+  group('AD-022 after the pre-empt override: the two no-preview states stay '
+      'distinguishable once the decode outcome is known', () {
+    Future<String?> failureCodeWhenDecodeFails({
+      required bool declaredPreviewsUnreadable,
+    }) async {
+      final source = PhotoSource(
+        loader: (path, {required purpose}) async => NativeImageNeedsRawDecode(
+          exifOrientation: kDefaultExifOrientation,
+          declaredPreviewsUnreadable: declaredPreviewsUnreadable,
+        ),
+        dngDecoder: (path) async => throw StateError('decode failed'),
+      );
+      final outcome = await source.load('/fake/x.dng', longEdge: 2800);
+      expect(outcome.payload, isNull);
+      return outcome.failureCode;
+    }
+
+    test('previews declared but unreadable AND the decode also failed '
+        'surfaces the broken-file code', () async {
+      expect(
+        await failureCodeWhenDecodeFails(declaredPreviewsUnreadable: true),
+        'DNG_PARSE_FAILED',
+      );
+    });
+
+    test('no preview declared and the decode failed stays the uniform miss, '
+        'NOT the broken-file code', () async {
+      expect(
+        await failureCodeWhenDecodeFails(declaredPreviewsUnreadable: false),
+        isNull,
+      );
+    });
+
+    test('the two codes actually differ — the states are not collapsed',
+        () async {
+      final broken =
+          await failureCodeWhenDecodeFails(declaredPreviewsUnreadable: true);
+      final ordinary =
+          await failureCodeWhenDecodeFails(declaredPreviewsUnreadable: false);
+      expect(broken, isNot(ordinary));
+    });
+
+    test('a container with unreadable previews whose decode SUCCEEDS is not '
+        'reported broken at all — the point of the override', () async {
+      final source = PhotoSource(
+        loader: (path, {required purpose}) async => const
+            NativeImageNeedsRawDecode(
+          exifOrientation: kDefaultExifOrientation,
+          declaredPreviewsUnreadable: true,
+        ),
+        dngDecoder: (path) async => DecodedRgba(
+          rgba: Uint8List(4 * 4 * 4),
+          width: 4,
+          height: 4,
+        ),
+      );
+      final outcome = await source.load('/fake/x.dng', longEdge: 2800);
+      expect(outcome.failureCode, isNull);
+      expect(outcome.payload, isNotNull);
+    });
+
+    test('the broken-file code is NOT the D3 no-native-decoder state', () {
+      expect('DNG_PARSE_FAILED', isNot(kNoNativeDecoderCode));
+    });
+  });
 }
