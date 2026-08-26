@@ -17,6 +17,37 @@ void main() {
       .where((f) => f.path.toLowerCase().endsWith('.dng'))
       .toList();
 
+  // AC3: `NativeImageResult` still has exactly three variants (AD-010/AD-011).
+  // The switch is exhaustive over the sealed class WITHOUT a default clause,
+  // so adding a fourth variant makes this file stop compiling — the assertion
+  // is enforced by the analyzer, and the counter proves all three arms are
+  // live rather than the switch being vacuously satisfiable.
+  test('AC3: NativeImageResult has exactly three variants and the D3 platform '
+      'state is a failure CODE, not a fourth variant', () {
+    final results = <NativeImageResult>[
+      NativeImageBytes(Uint8List(0)),
+      const NativeImageNeedsRawDecode(
+        exifOrientation: kDefaultExifOrientation,
+      ),
+      const NativeImageFailure(kNoNativeDecoderCode, 'no native decoder'),
+    ];
+    final seen = <String>{};
+    for (final r in results) {
+      switch (r) {
+        case NativeImageBytes():
+          seen.add('bytes');
+        case NativeImageNeedsRawDecode():
+          seen.add('needsRawDecode');
+        case NativeImageFailure():
+          seen.add('failure');
+      }
+    }
+    expect(seen, {'bytes', 'needsRawDecode', 'failure'});
+    // D3 rides on the failure arm, distinct from RAW_NO_EMBEDDED_PREVIEW.
+    expect(kNoNativeDecoderCode, 'NO_NATIVE_DECODER');
+    expect(kNoNativeDecoderCode, isNot('RAW_NO_EMBEDDED_PREVIEW'));
+  });
+
   test('jpeg returns its exact bytes without decoding', () async {
     final dir = await Directory.systemTemp.createTemp('dart_image_loader');
     addTearDown(() => dir.delete(recursive: true));
@@ -100,9 +131,42 @@ void main() {
     expect(result, isA<NativeImageFailure>());
   });
 
-  test('non-DNG RAW: embedded preview is served, no-preview is an explicit'
-      ' unsupported state (never the raw-decode signal)', () async {
+  // Was one test using `.arw` as the stand-in for "a RAW with no decode escape
+  // hatch". The 2026-08-26 RAW-coverage contract moved `.arw` OUT of that class
+  // (it is in the engine's capability list), so the stand-in became factually
+  // wrong while the assertion stayed correct. The assertion therefore moves to
+  // `.cr2`, where the original premise still holds, and the `.arw` twin below
+  // pins the new behaviour. Nothing was relaxed to make the change pass.
+  test('browse-only RAW (.cr2): embedded preview is served, no-preview is an'
+      ' explicit unsupported state (never the raw-decode signal)', () async {
     final dir = await Directory.systemTemp.createTemp('dart_image_loader_raw');
+    addTearDown(() => dir.delete(recursive: true));
+    var hits = 0, misses = 0;
+    for (final f in dngs()) {
+      final full =
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+      final asCr2 = File('${dir.path}/${f.uri.pathSegments.last}.cr2');
+      await f.copy(asCr2.path);
+      final result = await dartImageLoad(
+        asCr2.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      if (full != null) {
+        hits++;
+        expect(result, isA<NativeImageBytes>(), reason: asCr2.path);
+      } else {
+        misses++;
+        expect(result, isA<NativeImageFailure>(), reason: asCr2.path);
+        expect((result as NativeImageFailure).code, 'RAW_NO_EMBEDDED_PREVIEW');
+      }
+    }
+    expect(hits, greaterThan(0));
+    expect(misses, greaterThan(0));
+  });
+
+  test('engine-decodable non-DNG RAW (.arw): embedded preview is served,'
+      ' no-preview now routes to RAW decode', () async {
+    final dir = await Directory.systemTemp.createTemp('dart_image_loader_arw');
     addTearDown(() => dir.delete(recursive: true));
     var hits = 0, misses = 0;
     for (final f in dngs()) {
@@ -119,12 +183,41 @@ void main() {
         expect(result, isA<NativeImageBytes>(), reason: asArw.path);
       } else {
         misses++;
-        expect(result, isA<NativeImageFailure>(), reason: asArw.path);
-        expect((result as NativeImageFailure).code, 'RAW_NO_EMBEDDED_PREVIEW');
+        expect(
+          result,
+          isA<NativeImageNeedsRawDecode>(),
+          reason:
+              'before the contract this was RAW_NO_EMBEDDED_PREVIEW; the '
+              'engine can decode .arw, so it must reach the decoder: '
+              '${asArw.path}',
+        );
       }
     }
     expect(hits, greaterThan(0));
     expect(misses, greaterThan(0));
+  });
+
+  test('the sidebar still never returns the raw-decode signal for an'
+      ' engine-decodable non-DNG RAW', () async {
+    // The permanent-miss logic in image_preload_controller depends on this;
+    // generalising the preview route must not leak into the sidebar branch.
+    final dir = await Directory.systemTemp.createTemp('dart_image_loader_sb');
+    addTearDown(() => dir.delete(recursive: true));
+    for (final f in dngs()) {
+      final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
+      await f.copy(asArw.path);
+      for (final purpose in const [
+        ImageRequestPurpose.sidebarThumbnail,
+        ImageRequestPurpose.export,
+      ]) {
+        final result = await dartImageLoad(asArw.path, purpose: purpose);
+        expect(
+          result is! NativeImageNeedsRawDecode,
+          isTrue,
+          reason: '${asArw.path} @ ${purpose.name}',
+        );
+      }
+    }
   });
 
   // M6 P3.7 (F-20): oversized-image guard — same 1.5GB decoded-pixel budget
@@ -252,13 +345,18 @@ void main() {
       expect((result as NativeImageBytes).bytes, isNotEmpty);
     });
 
-    test('A-6: non-DNG RAW stays lenient — the .dng-gated RAW-decode escape '
-        'hatch does not exist for it, so strictness would only delete an '
-        'image the user can currently see', () async {
-      final asArw = File('${tmp.path}/undersized.arw');
-      await File(dngPath).copy(asArw.path);
+    // Was asserted on `.arw`. A-6's principle is "stay lenient where a
+    // rejection lands in a failure rather than a decode"; `.arw` left that
+    // class when the contract made it engine-decodable, so the assertion moves
+    // to `.cr2`, which is still in it (contract decision D2 — browse-only).
+    // The principle is unchanged; only its example moved.
+    test('A-6: browse-only RAW (.cr2) stays lenient — the engine cannot decode '
+        'it, so strictness would only delete an image the user can '
+        'currently see', () async {
+      final asCr2 = File('${tmp.path}/undersized.cr2');
+      await File(dngPath).copy(asCr2.path);
       final result = await dartImageLoad(
-        asArw.path,
+        asCr2.path,
         purpose: ImageRequestPurpose.preview,
       );
       expect(
@@ -267,6 +365,24 @@ void main() {
         reason:
             'a rejection here would fall through to '
             'RAW_NO_EMBEDDED_PREVIEW, not to a decode',
+      );
+    });
+
+    test('A-6 re-derived: an undersized candidate in an engine-decodable '
+        'non-DNG RAW (.arw) now enters RAW decode, because the escape hatch '
+        'is no longer .dng-gated', () async {
+      final asArw = File('${tmp.path}/undersized.arw');
+      await File(dngPath).copy(asArw.path);
+      final result = await dartImageLoad(
+        asArw.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(
+        result,
+        isA<NativeImageNeedsRawDecode>(),
+        reason:
+            'strictness is now correct here: the rejection lands in a real '
+            'decode instead of deleting the image',
       );
     });
 
@@ -402,6 +518,65 @@ void main() {
       final notTiff = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(junk.path);
       expect(notTiff.jpeg, isNull);
       expect(notTiff.malformed, isFalse);
+    });
+
+    // --- 2026-08-26 contract: the malformed verdict widened with the decode
+    // escape hatch it mirrors. AD-022's two states must stay distinguishable
+    // for engine-decodable non-DNG RAW too, and browse-only RAW must keep the
+    // uniform RAW_NO_EMBEDDED_PREVIEW state (matrix F-08).
+    test('AD-022 generalised: an engine-decodable non-DNG RAW whose every '
+        'declared candidate is unreadable is BROKEN, not preview-less',
+        () async {
+      final asArw = File('${tmp.path}/corrupt.arw');
+      await File(corruptPath).copy(asArw.path);
+      final result = await dartImageLoad(
+        asArw.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'DNG_PARSE_FAILED');
+    });
+
+    test('AD-022 NOT generalised to browse-only RAW: a corrupt .cr2 keeps the '
+        'uniform unsupported state, because there is no decode to pre-empt',
+        () async {
+      final asCr2 = File('${tmp.path}/corrupt.cr2');
+      await File(corruptPath).copy(asCr2.path);
+      final result = await dartImageLoad(
+        asCr2.path,
+        purpose: ImageRequestPurpose.preview,
+      );
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'RAW_NO_EMBEDDED_PREVIEW');
+    });
+
+    // LOAD-BEARING: widening the malformed gate is only safe because a
+    // container the walker cannot parse at all reports `malformed == false`
+    // (AD-022, memory.md:200) and therefore falls through to the decoder
+    // rather than being reported as a broken file. If the walker ever starts
+    // parsing these containers, that argument expires and this test is where
+    // it must be re-examined — do not "fix" it by widening the expectation.
+    test('a non-TIFF engine-decodable RAW (.cr3/.raf/.x3f) is never reported '
+        'as a parse failure; it reaches the decoder', () async {
+      final junk = Uint8List.fromList(List<int>.filled(4096, 0x5A));
+      for (final ext in const ['.cr3', '.raf', '.x3f']) {
+        final f = File('${tmp.path}/nontiff$ext');
+        await f.writeAsBytes(junk);
+
+        final probe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(f.path);
+        expect(probe.jpeg, isNull, reason: ext);
+        expect(
+          probe.malformed,
+          isFalse,
+          reason: 'the safety argument for the widened gate rests on this: $ext',
+        );
+
+        final result = await dartImageLoad(
+          f.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        expect(result, isA<NativeImageNeedsRawDecode>(), reason: ext);
+      }
     });
 
     test('extractEmbeddedJpeg keeps its contract on the same corrupt input '

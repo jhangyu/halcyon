@@ -58,9 +58,12 @@ class NativeImageBytes extends NativeImageResult {
   final Uint8List bytes;
 }
 
-/// The file is a DNG that carries no embedded full-size JPEG preview, so the
-/// caller must run a real RAW decode (see `DngFullDecoder` in
-/// `dng_decode_contract.dart`). This is NOT a failure.
+/// The file is a RAW container the engine can decode
+/// (`SupportedPhotoFormats.isDecodablePath`) that carries no reachable
+/// embedded full-size JPEG preview, so the caller must run a real RAW decode
+/// (see `DngFullDecoder` in `dng_decode_contract.dart`). This is NOT a
+/// failure. It was `.dng`-only until the 2026-08-26 RAW-coverage contract
+/// generalised the route to every engine-decodable extension.
 ///
 /// [exifOrientation] is the IFD0 Orientation tag value, in the range 1..8; it
 /// is [kDefaultExifOrientation] when the tag is absent or unparseable. It is
@@ -89,6 +92,20 @@ class NativeImageFailure extends NativeImageResult {
 /// EXIF Orientation value meaning "no transform"; also the fallback used when
 /// the tag is missing or outside the 1..8 range.
 const int kDefaultExifOrientation = 1;
+
+/// [NativeImageFailure.code] for contract decision D3: this build has no
+/// native RAW decoder (iOS, Linux, web), so a RAW container that needs a real
+/// decode cannot be rendered HERE — the file itself is fine and stays
+/// browsable. It is deliberately NOT a fourth [NativeImageResult] variant
+/// (AD-010/AD-011 freeze the sealed class at three), and deliberately NOT
+/// conflated with `RAW_NO_EMBEDDED_PREVIEW`, which means "this container has
+/// no preview and no decoder exists for its format anywhere".
+///
+/// `dartImageLoad` never emits this: it is free of `Platform` checks by
+/// construction, so it reports [NativeImageNeedsRawDecode] and the layer that
+/// owns the `DngFullDecoder` seam substitutes this code when no decoder is
+/// available. Interface contract — do not rename.
+const String kNoNativeDecoderCode = 'NO_NATIVE_DECODER';
 
 /// The seam through which the image-bytes producer is called.
 ///
