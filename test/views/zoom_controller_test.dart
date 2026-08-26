@@ -4,7 +4,8 @@ import 'package:halcyon_flutter/views/zoom_controller.dart';
 
 /// Plain `test()` only -- no `testWidgets`. These assertions need no widget
 /// tree, and this repo has been bitten by FakeAsync hangs when real async work
-/// runs inside a `testWidgets` body (memory.md / flutter-popupmenu-fakeasync).
+/// runs inside a `testWidgets` body (see the architecture decision on
+/// flutter-popupmenu-fakeasync).
 ///
 /// The controller is instantiated directly here, which is also the proof that
 /// it is constructible without `AppState` (contract AC5).

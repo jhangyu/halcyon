@@ -67,7 +67,7 @@ void main() {
       cache.put('c', encoded());
       // Reading 'a' (via peek, the only reader operator [] left behind) must
       // NOT change eviction order: this cache is FIFO-within-window, not
-      // LRU (C10 -- see the AD note on this in memory.md).
+      // LRU (C10 -- see the architecture decision note on this).
       expect(cache.peek('a'), isNotNull);
       cache.put('d', pixels());
 

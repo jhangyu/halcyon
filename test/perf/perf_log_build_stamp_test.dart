@@ -34,7 +34,7 @@ void main() {
       if (sentinel == 'unknown') {
         // Bare `flutter test`, no --dart-define passed: the documented
         // default. If this ever silently changes, the "unknown must
-        // invalidate the run" operating rule (unit_test.md) would too.
+        // invalidate the run" documented operating rule would too.
         expect(kHalcyonBuildCommit, 'unknown');
       } else {
         // Run with --dart-define=HALCYON_BUILD_COMMIT=<sentinel>: the value

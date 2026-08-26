@@ -143,7 +143,7 @@ class AppState extends ChangeNotifier {
 
   // Zoom/animation state deliberately does NOT live here: it is pure view
   // state, owned by ZoomController (lib/views/zoom_controller.dart), which
-  // MainScreen creates. See memory.md G-010 / Task 19.
+  // MainScreen creates. See gotcha G-010 / Task 19.
 
   List<PhotoItem> get items => _items;
   String? get selectedItemID => _selectedItemID;

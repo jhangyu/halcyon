@@ -79,8 +79,9 @@ failed — the summary line's `skipped_samples` count makes that visible.
    depends on — plus `shasum -a 256` of that file.
 
 This exists because a past round measured a dylib that did not contain the
-symbol under test and produced confident, wrong numbers (see
-`memory.md`/`docs/logs/2026-08-23` provenance gotcha). If the vendored dylib
+symbol under test and produced confident, wrong numbers (see the architecture
+decision log's provenance gotcha, also documented in `docs/logs/2026-08-23`).
+If the vendored dylib
 is absent on the current host, `run_gate.sh` records `DYLIB_MISSING` and
 reports the symbol check as skipped — it never silently treats that as a
 pass.

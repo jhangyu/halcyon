@@ -12,8 +12,8 @@ import '../../providers/app_state.dart' show StatusMessage;
 /// remembered rule. It reads the app's live item list/selection/directory
 /// through supplier callbacks (never copies) because [renameByExif] triggers
 /// a mid-flight [reloadFolder] that replaces the whole item list, and
-/// [undoRename] must run against post-reload state. See memory.md AD entry
-/// for this extraction.
+/// [undoRename] must run against post-reload state. See the architecture
+/// decision entry for this extraction.
 class RenameCoordinator {
   RenameCoordinator({
     required PhotoStatusStore statusStore,

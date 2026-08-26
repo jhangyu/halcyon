@@ -12,8 +12,8 @@ import 'rule_editor.dart';
 import '../theme_tokens.dart';
 
 /// Menu value for the sidebar action menu. Shared by the widget and its test
-/// so a typo cannot make the entry silently dead (memory.md: menu value /
-/// onSelected string mismatch class of bug).
+/// so a typo cannot make the entry silently dead (see the gotcha on menu
+/// value / onSelected string mismatch bugs).
 const String kRenameMenuValue = 'rename';
 
 /// Label of the pseudo-preset that means "the rule below is hand-written".

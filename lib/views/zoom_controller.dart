@@ -12,7 +12,8 @@ import 'package:flutter/widgets.dart';
 /// `MainDetailView`. `MainDetailView` is rebuilt on photo switches, so a
 /// controller owned by it would lose the zoom level every time the user
 /// pressed left/right — zoom retention across photo switches is existing
-/// behaviour that must survive (see memory.md G-010 / handover §11).
+/// behaviour that must survive (see gotcha G-010 and the related handover
+/// notes).
 ///
 /// Notification contract: [notifyListeners] fires ONLY from [_zoomBy], i.e.
 /// only when a new animation target has been produced. [lastKnownCenter] and
