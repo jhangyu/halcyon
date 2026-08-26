@@ -22,6 +22,9 @@ Usage:
 
 Exit code: 0 if every expected:true platform's artifact is present and its
 symbol check (when the tool is available) passes; 1 otherwise.
+
+This is a manually-run cross-platform FFI artifact/ABI check, not an
+automated build gate.
 """
 
 from __future__ import annotations

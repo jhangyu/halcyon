@@ -1,6 +1,7 @@
-// Post-M3 in-suite translation of scripts/tmp/dng_nav_probe_test.dart.
-// The original probe remains byte-untouched and is the frozen spec. This file
-// applies the approved translation table from m3-contract.md A-C1:
+// In-suite translation of an earlier one-off scratch probe script. The
+// original probe's behavior remains the frozen spec this file was derived
+// from. This file applies the approved translation table from
+// m3-contract.md A-C1:
 //   decodedImageFor(x) != null    -> payloadFor(x) is PixelPayload
 //   debugDisposed                 -> payloadFor(x) == null
 //   decodedProviderFor(x) != null -> cache holds a payload for x

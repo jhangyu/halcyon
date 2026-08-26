@@ -1,5 +1,5 @@
 ---
-date: 2026-08-25
+date: 2026-08-26
 title: "Halcyon — 短期交接摘要 (Handover)"
 ---
 
@@ -21,7 +21,26 @@ title: "Halcyon — 短期交接摘要 (Handover)"
 
 ## 當前任務
 
-**本輪（2026-08-25）｜全庫技術債清償（30 項，HEAD `5c48c68`）**
+**本輪（2026-08-26）｜結構落塵清理**
+
+AD-030 的 structure refactor 只動了 `lib/`／`test/`；本輪清掉輔助檔案的落網之魚。稽核 `docs/logs/2026-08-26/structure-audit2-{dart,docs,infra}.md`，契約 `docs/logs/2026-08-26/cleanup-convergence-contract.md`（18 條驗收條件＋四項偏差裁決），決策全文 `memory.md` AD-031。
+
+已落地：
+- `scripts/tmp/` 42 個追蹤檔全數移除。其中 9 個 Swift 探針／突變腳本與 6 個合成 DNG 素材的受測目標 `macos/Runner/DngPreviewExtractor.swift` 已於 2026-08-24 隨 DNG 解碼轉純 Dart 而刪除，1 個腳本驗證的 `AppDelegate.swift` `EXPORT-CORE` 區塊亦不存在——是無法編譯的死檔，不是可重用的暫存。`.gitignore` 早已宣告該目錄，此後宣告與現實一致。
+- `assets/icons/` 整個子目錄刪除（`icon.png` 與 `assets/icon.png` 位元組相同，`icon.svg` 是內容不同的舊版）；保留 `assets/icon.svg` 為唯一向量母檔。**AD-006 寫的「圖示放在 `assets/icons/`」自此失效。**
+- 文件：陳舊的 `docs/flutter_app_README.md`（引用早已刪除的舊建置腳本、同步路徑指向不存在的目錄）與落單的 `.txt` 日誌刪除；新增 `docs/logs/INDEX.md`，覆蓋全部 120 個歷史日誌，每檔一行用途取自各檔檔頭。
+- 測試：8 個帶里程碑代號（m0/f3/m3/m3_amend3/m4/m5/m6/m1）的檔名改為描述受測主題；`test/widget_test.dart`（範本預設檔名）唯一案例併入 `test/main_test.dart`。
+- 建置與分析入口：CI 的 macOS 建置改呼叫 `python3 scripts/build_apps.py`（原先直接 `flutter build` 會靜默跳過強制色彩閘）；`analysis_options.yaml` 排除範圍由 `scripts/**` 收窄為 `scripts/tmp/**`，讓仍在服役的 `gen_windows_associations.dart` 重回靜態分析涵蓋（產出 `.reg` 位元組不變）；`windows/runner/halcyon_associations.reg` 脫離追蹤並加入忽略清單。
+- 保留（使用者裁決）：`scripts/check_dng_ffi_artifacts.py` 是 M7 的手動驗收關卡，檢查相鄰 `../ceyx/` 各平台動態庫是否匯出 `dng_decode_and_process_sized`——相鄰套件改名／重建時唯一會示警的機制，已在檔頭補上定位說明。
+- 驗證：`flutter analyze` `No issues found!` RC=0；`flutter test -j 1` `+356: All tests passed!` RC=0（artifact 內自捕），`[E]` 標記 0。**磁碟上 45 個測試檔在 log 中全數出現，零靜默跳過**；測試數與清理前一致（`widget_test.dart` 移除 1 案例、`main_test.dart` 增加 1 案例，淨零）。
+
+**下一步**：
+1. M5-DW6 flaky 調查（同 HEAD 一紅一綠；斷言「全尺寸升級零增量」可能掩蓋真實快取記帳競態）——待使用者裁決。
+2. parking-lot 逐項裁決（見 `docs/logs/2026-08-25/refactor-campaign-handover.md` §8）。
+
+---
+
+**上一輪（2026-08-25）｜全庫技術債清償（30 項，HEAD `5c48c68`）**
 
 已落地（計畫：`docs/logs/2026-08-24/Task_refactor_plan_main.md` + `Task_refactor_plan_D1.md`；完整交接：`docs/logs/2026-08-25/refactor-campaign-handover.md`）：
 - 行為缺陷 8 項：批次複製/搬移/刪除逐檔容錯並回報失敗、狀態檔原子寫入＋單槽寫入鏈、損壞 JSON 降級不崩潰、rename undo journal 容錯＋逐批 flush、`currentItem` 失配回 null 不再默選第一張、掃描失敗顯示狀態列。

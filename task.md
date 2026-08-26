@@ -1,5 +1,5 @@
 ---
-date: 2026-08-25
+date: 2026-08-26
 title: "Halcyon — 任務真實狀態來源 (Task)"
 ---
 
@@ -23,7 +23,13 @@ title: "Halcyon — 任務真實狀態來源 (Task)"
 
 ## 🔴 現在進行中 (ACTIVE)
 
-- **Task**: 全庫技術債清償（Phase 12；4-reviewer 掃描 → 30 項修繕，計畫 `docs/logs/2026-08-24/Task_refactor_plan_main.md` + `Task_refactor_plan_D1.md`）✅ **全部 30 項完成**（D4 收尾 @ `5c48c68`，2026-08-25）
+- **Task**: 結構落塵清理（2026-08-26；三份跟催稽核 → 使用者逐項裁決 → 執行）✅ **完成**，契約 `docs/logs/2026-08-26/cleanup-convergence-contract.md` 18 條驗收條件逐條過
+- **中斷點與交接 (Handover)**: AD-030 的 structure refactor 只動 `lib/`／`test/`，本輪清掉輔助檔案的落網之魚。已落地：`scripts/tmp/` 42 個追蹤檔全數移除（其受測目標已隨 DNG 轉純 Dart 而刪除，屬無法編譯的死檔）；`assets/icons/` 重複圖示目錄刪除，保留 `assets/icon.svg` 為唯一向量母檔；陳舊的 `docs/flutter_app_README.md` 與落單 `.txt` 刪除；新增 `docs/logs/INDEX.md`（120 檔全覆蓋，每檔一行用途取自檔頭）；8 個帶里程碑代號的測試檔改名、`widget_test.dart` 併入 `main_test.dart`；CI 建置改走 `build_apps.py` 單一入口；靜態分析排除範圍由 `scripts/**` 收窄為 `scripts/tmp/**`；`windows/runner/halcyon_associations.reg` 脫離追蹤。決策全文見 `memory.md` AD-031，四項偏差裁決記於契約檔。**驗證**：`flutter analyze` `No issues found!` RC=0；`flutter test -j 1` `+356: All tests passed!` RC=0（artifact 內自捕），`[E]` 標記 0，磁碟上 45 個測試檔在 log 中全數出現（零靜默跳過），測試數與清理前一致。
+- **下一個子步驟**: M5-DW6 flaky 測試調查（同 HEAD 一紅一綠，可能掩蓋快取記帳競態——待使用者裁決是否開工）。
+
+---
+
+- **前一個 Task**: 全庫技術債清償（Phase 12；4-reviewer 掃描 → 30 項修繕，計畫 `docs/logs/2026-08-24/Task_refactor_plan_main.md` + `Task_refactor_plan_D1.md`）✅ **全部 30 項完成**（D4 收尾 @ `5c48c68`，2026-08-25）
 - **中斷點與交接 (Handover)**: A1-A8（批次失敗回報、原子寫入、JSON 防護、undo journal 韌性、currentItem null 化）、B1-B2（匯出/側欄編碼移出 UI isolate）、C1-C13（sidecar/EXIF 方向/夾取/typedef 去重、FIFO 重新命名、死碼清理）、D1（TierTwoRegistry 抽取，變異證明紅→綠）、D2（RenameCoordinator）、D3（displayProvider + rename_dialog 拆分 + theme tokens）、D4（sidebar 色彩 token 化，使用者已外觀驗收）、E1-E2（CLAUDE.md 原生橋接段重寫）。全套件 352 綠 @ `5c4a9c9`（gate artifact `scripts/tmp/final-gate.txt`）。TC-230 掛死根因（fake-async zone 內真實 I/O await）已修，雙 opus 獨立收斂確認。完整交接見 `docs/logs/2026-08-25/refactor-campaign-handover.md`。
 - **下一個子步驟**: M5-DW6 flaky 測試調查（同 HEAD 一紅一綠，可能掩蓋快取記帳競態——待使用者裁決是否開工）。parking-lot 全清單見交接檔 §8。
 

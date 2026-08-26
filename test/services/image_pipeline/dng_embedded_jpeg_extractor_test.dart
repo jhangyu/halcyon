@@ -14,10 +14,9 @@ import '../../support/synthetic_dng.dart';
 /// Every non-trivial-input assertion below runs against REAL DNG samples
 /// under local_data/photo_samples/DNG/ (per repo red line: real photos only
 /// from that directory, never a user's own library). Byte counts were
-/// cross-checked against the shipped Swift extractor compiled standalone
-/// (scripts/tmp/run_dng_extractor_tests.sh harness pattern) and matched
-/// exactly for all 14 samples in that directory before this test was
-/// written -- see scripts/tmp/verify/dng_embedded_jpeg_extractor_dart_vs_swift.txt.
+/// cross-checked against the shipped Swift extractor compiled standalone via
+/// a one-off scratch harness, and matched exactly for all 14 samples in that
+/// directory before this test was written.
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');
 

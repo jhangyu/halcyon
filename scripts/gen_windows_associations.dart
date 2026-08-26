@@ -7,7 +7,7 @@
 // plan P4.4 decision paragraph for why the registry route was chosen).
 import 'dart:io';
 
-import '../lib/models/supported_photo_formats.dart';
+import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 
 /// Encodes [value] as a .reg REG_EXPAND_SZ line: `hex(2):` followed by the
 /// UTF-16LE bytes (+ null terminator) as comma-separated hex pairs. Plain

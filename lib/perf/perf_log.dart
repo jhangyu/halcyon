@@ -8,8 +8,8 @@
 // case) means `enabled` stays false and log() returns before any timing, buffering,
 // or file I/O -- a structural no-op, not merely a disabled feature.
 // The event names and `key=value` field shapes this writes (`PERF|<us>|<name>|...`)
-// are a CONTRACT consumed by scripts/tmp/perf/parse_r2.py -- do not rename/reshape
-// events without checking that parser first; it must keep running unmodified.
+// are a stable output format for downstream perf-log parsing tooling -- do not
+// rename/reshape events without checking that any such tooling still parses them.
 import 'dart:async';
 import 'dart:io';
 

@@ -83,6 +83,25 @@ void main() {
     expect(state.recycleMode, !before);
   });
 
+  testWidgets('HalcyonApp renders empty-folder prompt', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppState(),
+        child: const HalcyonApp(),
+      ),
+    );
+
+    expect(find.text('Select a folder to begin'), findsOneWidget);
+    expect(find.text('Open Folder'), findsOneWidget);
+  });
+
   testWidgets('DropTarget is disabled while a dialog route is on top', (
     tester,
   ) async {

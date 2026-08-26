@@ -57,7 +57,7 @@ Halcyon/
 ├── macos/Runner/                  # macOS 原生整合（MethodChannel）
 ├── android/                       # Android Runner + Gradle / AGP / Kotlin 設定
 ├── scripts/build_apps.py          # 統一 build 入口（native + Flutter，全平台）
-├── assets/icons/                  # 專案層級圖示來源
+├── assets/                        # 專案層級圖示來源（icon.png / icon.svg）
 ├── docs/logs/                     # Unified Task Logs
 ├── build/                         # Flutter build outputs（git ignored）
 ├── artifacts/                     # 本機封存與建置暫存（git ignored）

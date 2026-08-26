@@ -321,6 +321,20 @@ identity 與 `NativeImageResult` 三變體不受影響——這是 CPU 搬運，
 
 ---
 
+### AD-031｜輔助檔案落塵清理：scratch 全面脫離版控、圖示來源單一化、測試檔名去里程碑代號（2026-08-26）
+
+- **背景**：AD-030 的 structure refactor 只動 `lib/`／`test/`，`scripts/`、`assets/`、`docs/` 的落網之魚未處理。2026-08-26 三份跟催稽核（`docs/logs/2026-08-26/structure-audit2-{dart,docs,infra}.md`）盤出剩餘項目，使用者逐項裁決後執行，契約見同目錄 `cleanup-convergence-contract.md`。
+- **決策一：`scripts/tmp/` 完全脫離版本控制**。原有 42 個被追蹤的檔案全數 `git rm`。其中 9 個 Swift 探針／突變腳本與 6 個合成 DNG 素材的受測目標 `macos/Runner/DngPreviewExtractor.swift` 已於 2026-08-24 隨 DNG 解碼全面轉 Dart 而刪除，1 個腳本驗證的 `AppDelegate.swift` 內 `EXPORT-CORE` 區塊亦已不存在——這些不是「還能重用的暫存」，是無法編譯的死檔。`.gitignore` 早已宣告 `scripts/tmp/`，此後宣告與現實一致。
+- **不可再犯**：scratch 產物一旦被 commit，`.gitignore` 就再也擋不住它，只能靠事後盤點發現。新的一次性驗證腳本一律留在 `scripts/tmp/` 且不得 `git add`。
+- **決策二：圖示向量母檔單一化**。刪除 `assets/icons/` 整個子目錄——其中 `icon.png` 與 `assets/icon.png` 位元組完全相同（MD5 `e4cbc196…`），`icon.svg` 則是內容不同的舊版。保留 `assets/icon.svg` 為唯一向量母檔；`pubspec.yaml` 的 `flutter_launcher_icons.image_path` 指向 `assets/icon.png` 不變。**AD-006 寫的「專案層級圖示放在 `assets/icons/`」自本條起失效**，AD-006 本文不改寫（同 AD-030 的歷史條目不回填原則）。
+- **決策三：測試檔名不得編碼里程碑／票號**。8 個帶 `m0`/`f3`/`m3`/`m3_amend3`/`m4`/`m5`/`m6`/`m1` 代號的測試檔改名為描述受測主題的名稱（新舊對照見 `file_index.md` 與 `docs/logs/2026-08-26/cleanup-convergence-contract.md`）；`test/widget_test.dart`（Flutter 範本預設檔名）的唯一案例併入 `test/main_test.dart`，全套測試數 356 前後不變。里程碑代號是專案史，不是測試對象，寫進檔名會在里程碑結束後立刻失去意義。
+- **決策四：建置與分析入口收斂**。CI 的 macOS 建置步驟改呼叫 `python3 scripts/build_apps.py` 而非 `flutter build macos --release`——後者會靜默跳過 `build_apps.py` 強制的色彩閘與原生庫放置檢查。`analysis_options.yaml` 的分析排除範圍從 `scripts/**` 收窄為 `scripts/tmp/**`，讓仍在服役的 `scripts/gen_windows_associations.dart` 重新受靜態分析涵蓋（該檔因此把相對匯入改為 `package:` 匯入，產出的 `.reg` 位元組不變，MD5 `06f9102b…` 前後一致）。
+- **決策五：`windows/runner/halcyon_associations.reg` 脫離追蹤**。它是每次 Windows 建置由 `scripts/gen_windows_associations.dart` 重新產生的產物，已加入 `.gitignore`；產生器本身未改變行為。
+- **保留而非刪除**：`scripts/check_dng_ffi_artifacts.py` 與其 JSON 清單經使用者裁決保留。它並非孤兒——它是 M7「DNG 契約強化」的手動驗收關卡，檢查相鄰 `../ceyx/` 原生套件各平台動態庫是否存在且匯出 `dng_decode_and_process_sized`。這正是相鄰套件改名／重建時唯一會當場示警的機制（2026-08-25 `flutter_dng_decoder` → `ceyx` 改名即為實例）。已在檔頭補一行定位說明「手動執行，非自動關卡」。
+- **新增檢索索引**：`docs/logs/INDEX.md` 覆蓋全部 120 個歷史日誌，每檔一行用途（取自各檔檔頭而非檔名推測），手動維護。`docs/logs/` 為 append-only 歷史，索引不改動任何既有日誌內容。
+
+---
+
 ## Gotchas（踩坑紀錄）
 
 ### G-001｜側邊欄 Scroll Debounce（觸發機制已由 AD-014 取代，debounce 本身仍在）

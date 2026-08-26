@@ -21,7 +21,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extrac
 void main() {
   final sampleDir = Directory('local_data/photo_samples/DNG');
 
-  // Orientation 1 (per test/dng_embedded_jpeg_extractor_m0_test.dart AC2), so the
+  // Orientation 1 (per dng_embedded_jpeg_extractor_long_edge_selection_test.dart AC2), so the
   // returned bytes are exactly the `_MemorySource.read` slice with no
   // `_injectExifOrientation` rebuild in the way.
   const sampleName = '2026-02-15-19-37-38.dng';

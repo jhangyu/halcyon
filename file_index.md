@@ -60,7 +60,7 @@ Halcyon/
 │   │   │   │   ├── dng_decode_service.dart        # DNG 全尺寸解碼服務（flutter_dng_decoder 整合）
 │   │   │   │   ├── dart_image_loader.dart          # `dartImageLoad`：純 Dart 生產實作，取代已刪除的 native thumbnail MethodChannel（M6 C-1/C-2，無 Platform 分支）
 │   │   │   │   ├── image_source_types.dart         # `NativeImageLoad` seam 的純型別（`ImageRequestPurpose`、`NativeImageResult` 3 變體）；M6 P3.3 從舊 native_thumbnail_service.dart 拆出
-│   │   │   │   ├── photo_source.dart               # `PhotoSource.probe`：從內容量測來源成本（`SourceCost`），供 scheduler 消費
+│   │   │   │   ├── photo_source.dart               # `PhotoSource.probeSource`：從內容量測來源成本（`SourceCost`），供 scheduler 消費
 │   │   │   │   ├── prefetch_scheduler.dart         # 排程常數：expensive source 啟動半徑、tier-2 precache 半徑
 │   │   │   │   ├── photo_payload.dart              # `PhotoPayload`：單張照片可保留的最便宜形式；`byteCost` 是 cache 唯一可見介面
 │   │   │   │   ├── photo_payload_cache.dart        # 保留窗口 cache（`kRetentionBefore`=3／`kRetentionAfter`=5），依 `byteCost` 總量驅逐
@@ -107,20 +107,21 @@ Halcyon/
 │   │   ├── services/
 │   │   │   ├── image_pipeline/
 │   │   │   │   ├── image_preload_controller_test.dart  # sliding window cache 驅逐與 tier-1/tier-2 raw-decode 測試
-│   │   │   │   ├── image_preload_controller_m3_amend3_test.dart  # M3 amend3：preload controller 追加行為測試
-│   │   │   │   ├── image_preload_dual_window_m5_test.dart  # M5 dual-window（tier-1/tier-2 並行）測試
-│   │   │   │   ├── image_preload_scheduling_m4_test.dart  # M4 preload 排程測試
+│   │   │   │   ├── image_preload_controller_sequential_decode_retention_test.dart  # RAW 序列化解碼與保留窗口重疊行為測試（TC-086/088/089）
+│   │   │   │   ├── image_preload_controller_dual_window_tier2_test.dart  # tier-1/tier-2 雙視窗保留測試（debugTierTwoKeyIds）
+│   │   │   │   ├── image_preload_controller_permanent_miss_test.dart  # 永久性 miss 記錄與 generation guard 測試
 │   │   │   │   ├── image_preload_window_test.dart  # preload window 邊界測試
 │   │   │   │   ├── sidebar_thumbnail_codec_test.dart  # 側邊欄縮圖 byte cache 邊界測試
 │   │   │   │   ├── decoded_rgba_image_provider_test.dart  # RGBA provider 測試
 │   │   │   │   ├── dng_decoder_smoke_test.dart   # DNG 解碼 smoke test
-│   │   │   │   ├── dng_nav_probe_m3_test.dart    # M3：DNG 導覽 probe 測試
+│   │   │   │   ├── image_preload_controller_probe_first_navigation_test.dart  # 導覽時 probe-first 的 tier-1/tier-2 解碼閘門測試
 │   │   │   │   ├── dng_embedded_jpeg_extractor_test.dart  # DngEmbeddedJpegExtractor 基礎行為測試
-│   │   │   │   ├── dng_embedded_jpeg_extractor_m0_test.dart  # M0：位元組範圍讀取與候選選取測試
-│   │   │   │   ├── dng_embedded_jpeg_extractor_f3_test.dart  # F3：DngEmbeddedJpegExtractor 追加測試
+│   │   │   │   ├── dng_embedded_jpeg_extractor_long_edge_selection_test.dart  # longEdge 候選選取、位元組同一性與 orientation 讀取測試
+│   │   │   │   ├── dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart  # 抽出緩衝為複本而非 view 的回歸測試
 │   │   │   │   ├── dng_embedded_jpeg_extractor_endian_test.dart  # TIFF endian 處理測試
 │   │   │   │   ├── dart_image_loader_test.dart   # dartImageLoad 生產實作測試
-│   │   │   │   ├── photo_source_test.dart        # PhotoSource.probe 成本量測測試
+│   │   │   │   ├── dart_image_loader_no_method_channel_test.dart  # 驗證 dartImageLoad / PhotoSource.load 不觸碰已移除的 `halcyon/thumbnail` MethodChannel
+│   │   │   │   ├── photo_source_test.dart        # PhotoSource.probeSource 成本量測測試
 │   │   │   │   ├── photo_source_probe_test.dart  # PhotoSource probe 行為測試
 │   │   │   │   ├── photo_source_single_probe_test.dart  # 單一 probe 呼叫語意測試
 │   │   │   │   ├── photo_payload_cache_test.dart  # PhotoPayloadCache 保留窗口與驅逐測試
@@ -147,20 +148,18 @@ Halcyon/
 │   │   │   ├── photo_action_bar_test.dart    # 浮動操作列按鈕與回收模式切換測試
 │   │   │   ├── status_line_test.dart         # StatusLine widget 時序與配色測試
 │   │   │   ├── sidebar_view_test.dart        # 側邊欄回收模式狀態圖示與選單測試
-│   │   │   ├── sidebar_view_m1_test.dart     # M1：側邊欄縮圖相關測試
+│   │   │   ├── sidebar_view_thumbnail_decode_cap_test.dart  # 側邊欄縮圖解碼上限（32 × devicePixelRatio）測試
 │   │   │   ├── rename_dialog_test.dart       # RenameDialog widget 測試（TC-052~TC-054）
 │   │   │   ├── theme_tokens_test.dart        # HalcyonTokens fallback / lerp 測試（TC-229/TC-229b）
 │   │   │   └── main_detail_view_test.dart    # MainDetailView spinner 分支測試（TC-230）
 │   │   ├── perf/
 │   │   │   └── perf_log_build_stamp_test.dart  # perf_log build stamp 測試
-│   │   ├── m6_bridge_free_test.dart      # M6：驗證產出無 MethodChannel/native bridge 依賴（C-3）
-│   │   ├── main_test.dart        # main() 啟動流程測試
-│   │   ├── widget_test.dart      # 有效 widget smoke test
+│   │   ├── main_test.dart        # main() 啟動流程測試；含 HalcyonApp 空資料夾提示 smoke case（2026-08-26 由 widget_test.dart 併入）
 │   │   └── support/
 │   │       └── synthetic_dng.dart  # 測試用合成 DNG bytes 產生器（非測試檔本身；不隨鄰近測試移動，路徑不變）
 │   ├── macos/                    # Flutter macOS Runner（MethodChannel native bridge）
 │   │   └── Runner/
-│   │       └── AppDelegate.swift  # getThumbnail handler + preview/thumbnail native logic；`halcyon/exif` batch EXIF 讀取 handler（header-only、native-parallel）
+│   │       └── AppDelegate.swift  # 僅註冊兩個 MethodChannel：`halcyon/trash`（系統垃圾桶）與 `halcyon/open_with`（Finder 開啟方式，push-only）。縮圖／預覽／匯出／EXIF 皆為純 Dart，已無 native handler
 │   ├── ios/                      # Flutter iOS Runner（參考實作）
 │   │   └── Runner/
 │   │       └── AppDelegate.swift  # MethodChannel handler 參考
@@ -184,14 +183,16 @@ Halcyon/
 │   └── linux/                    # Linux desktop 產物
 │
 ├── docs/
-│   └── logs/                     # Unified Task Log 存放處
-│       └── YYYY-MM-DD/
-│           └── Task_*.md         # 單一任務日誌
+│   ├── logs/                     # Unified Task Log 存放處（append-only 歷史，不改舊檔）
+│   │   ├── INDEX.md              # docs/logs/ 全量檢索索引（每檔一行用途，手動維護）
+│   │   └── YYYY-MM-DD/
+│   │       └── Task_*.md         # 單一任務日誌
+│   ├── superpowers/{specs,plans}/ # 功能落地前的設計／計畫文件，被收斂契約引用為權威來源
+│   └── mockups/                  # UI 變體 HTML 樣稿
 │
-├── assets/
-│   └── icons/
-│       ├── icon.png              # 專案層級 bitmap 圖示來源
-│       └── icon.svg              # 專案層級 vector 圖示來源
+├── assets/                       # 專案層級圖示來源（2026-08-26：刪除重複的 assets/icons/ 子目錄）
+│   ├── icon.png                  # bitmap 圖示來源；flutter_launcher_icons 的 image_path 指向此檔
+│   └── icon.svg                  # vector 圖示來源（唯一保留的向量母檔）
 │
 ├── artifacts/                    # 本機封存與 build cache（git ignored）
 │   ├── archives/                 # 例如舊版 `PhotoSelector.zip`

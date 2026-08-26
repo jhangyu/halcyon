@@ -19,7 +19,7 @@
 // (AD-018, unaffected by M5). To observe the full +/-kTierTwoRadius (2) band
 // populated for a pixel payload, the pixel sub-case below walks the selection
 // through neighbouring positions before settling, exactly as
-// test/dng_nav_probe_m3_test.dart's P2/P4 do -- this is not a workaround, it
+// image_preload_controller_probe_first_navigation_test.dart's P2/P4 do -- this is not a workaround, it
 // is what "for pixel payloads alike" actually requires given AD-018.
 
 import 'dart:async';

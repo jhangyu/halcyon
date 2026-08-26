@@ -10,12 +10,14 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # scripts/ holds throwaway tooling and snapshot backups of app code —
-  # scripts/tmp/r2_backup/ is a partial copy whose imports no longer resolve.
-  # Analysing it made `flutter analyze` exit 1 with 51 errors that say nothing
-  # about the shipped app, which turns the gate into noise nobody reads.
+  # scripts/tmp/ holds closed-round scratch output, including
+  # scripts/tmp/r2_backup/, a partial snapshot copy whose imports no longer
+  # resolve. Analysing it made `flutter analyze` exit 1 with 51 errors that
+  # say nothing about the shipped app, which turns the gate into noise nobody
+  # reads. Live build tooling under scripts/ (outside scripts/tmp/) is
+  # analysed normally.
   exclude:
-    - scripts/**
+    - scripts/tmp/**
 
 linter:
   # The lint rules applied to this project can be customized in the

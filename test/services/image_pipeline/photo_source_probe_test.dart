@@ -20,7 +20,7 @@ void main() {
   // The display window this pipeline actually asks for.
   const windowLongEdge = 2800;
 
-  group('PhotoSource.probe (M3 cost gate)', () {
+  group('PhotoSource.probeSource (cost gate)', () {
     // THE KILLER for the entire cost-gate premise. The pre-M3 rule was "a
     // .dng needs an expensive RAW decode", and the design's central
     // measurement is that this is wrong 13 times in 14. Both halves are

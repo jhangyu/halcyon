@@ -52,5 +52,5 @@ jobs:
         run: pod install
         working-directory: macos
 
-      - name: flutter build macos --release
-        run: flutter build macos --release
+      - name: Build via single entry point (scripts/build_apps.py)
+        run: python3 scripts/build_apps.py
