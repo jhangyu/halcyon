@@ -152,6 +152,11 @@ class ImagePreloadController {
   //
   final Set<String> _permanentMisses = {};
 
+  // D3 subset of [_permanentMisses]: the specific reason was "no native RAW
+  // decoder on this platform", not a genuine decode/read failure. See
+  // [isNoNativeDecoder].
+  final Set<String> _noNativeDecoderMisses = {};
+
   // The SIDEBAR's permanent misses (design authority §2.2: the sidebar had no
   // negative cache at all, so a thumbnail that can never be produced was
   // re-requested on every sweep, forever -- invariant I8).
@@ -291,6 +296,25 @@ class ImagePreloadController {
   /// this session. The view shows an error instead of a spinner.
   bool hasFailed(String? id) => id != null && _permanentMisses.contains(id);
 
+  /// D3 (docs/logs/2026-08-26/raw-support-contract.md): true when [id]'s
+  /// permanent miss is specifically "this platform has no native RAW
+  /// decoder", distinct from every other permanent-miss cause (a genuinely
+  /// unreadable file, a throwing decoder, or a D2 browse-only RAW with no
+  /// embedded preview). See [_ensurePayload]'s disambiguation comment for why
+  /// this is decidable without [PhotoSource] carrying an extra field: with no
+  /// decoder configured, the decoder-throws arm can never run, so this
+  /// specific outcome shape is unambiguous. A view MAY use this to show
+  /// "cannot decode on this platform" instead of a generic error; it is
+  /// always a subset of [hasFailed].
+  bool isNoNativeDecoder(String? id) =>
+      id != null && _noNativeDecoderMisses.contains(id);
+
+  /// The [kNoNativeDecoderCode] failure code for [id] when
+  /// [isNoNativeDecoder] is true, else null. Exists so a caller does not have
+  /// to hand-carry the string constant itself.
+  String? noNativeDecoderCodeFor(String? id) =>
+      isNoNativeDecoder(id) ? kNoNativeDecoderCode : null;
+
   /// Whether the full-size (tier-2) decode for [id] has COMPLETED and the
   /// resulting ImageCache entry is still resident for the item's CURRENT
   /// payload. The four-term conjunction (round-2 BLOCKER 1 + BLOCKER 3) now
@@ -309,6 +333,7 @@ class ImagePreloadController {
     _tierTwo.clear();
     _scheduler.reset();
     _permanentMisses.clear();
+    _noNativeDecoderMisses.clear();
     _thumbPermanentMisses.clear();
     _exifOrientations.clear();
     _lastPreloadStart = -1;
@@ -567,6 +592,16 @@ class ImagePreloadController {
         // later pass asks again. This is the load-bearing edge of design §3.4:
         // the ONLY new stranding risk in M3 is a failure that nobody records.
         _permanentMisses.add(id);
+        // D3 (docs/logs/2026-08-26/raw-support-contract.md): PhotoSource
+        // decides "no native RAW decoder on this platform" BEFORE invoking
+        // anything (a static platform property, not a caught decode
+        // failure) and carries it as `outcome.failureCode`, so the
+        // disambiguation from every other permanent-miss cause (a genuine
+        // decode/read failure, or a D2 browse-only RAW) is just reading the
+        // code back, not re-deriving it here.
+        if (outcome.failureCode == kNoNativeDecoderCode) {
+          _noNativeDecoderMisses.add(id);
+        }
       }
       // A deferred item is the one case with nothing to report yet: the
       // debounced +/-1 pass owns it and will notify when its payload lands.
@@ -838,11 +873,19 @@ class ImagePreloadController {
               _thumbCache[id] = cacheBytes;
               notifyLoaded();
             } else if (_sidebarRawDecoder != null &&
-                SupportedPhotoFormats.isRawPath(file.path)) {
+                SupportedPhotoFormats.isDecodablePath(file.path)) {
               // M6 P2.5b (matrix P-12): the Dart sidebar route never decodes
               // by design, so a bare-CFA DNG with no embedded JPEG at any
               // size would otherwise regress to a permanently blank tile.
               // Try the sized RAW decode before giving up.
+              //
+              // `isDecodablePath`, NOT `isRawPath` (docs/logs/2026-08-26/
+              // raw-support-contract.md D2): `isRawPath` also matches D2
+              // browse-only containers (.cr2/.iiq/.mrw) that the engine
+              // cannot decode at all -- calling the sized decoder on one of
+              // those would be a guaranteed-failing round trip through the
+              // FFI boundary for a format the D2 ruling says stays
+              // preview-only, not a real attempt.
               try {
                 final decoded = await _sidebarRawDecoder(
                   file.path,

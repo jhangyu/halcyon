@@ -48,6 +48,16 @@ typedef SourceOutcome = ({
   bool deferred,
   int? exifOrientation,
   ({Uint8List rgba, int width, int height})? fullRes,
+  // D3 (docs/logs/2026-08-26/raw-support-contract.md): a failure CODE, not a
+  // rendered message -- whoever displays it owns the wording. NULLABLE and
+  // null at every existing call site: null means "no failure reason to
+  // report" (the success and deferred paths, and every miss that predates
+  // this field), so no existing meaning changes. Currently only ever set to
+  // [kNoNativeDecoderCode], decided BEFORE the decoder is invoked (the
+  // `dngDecoder == null` branches below), never inferred from a caught
+  // exception -- a missing native library is a static platform property, not
+  // a decode failure to detect after the fact.
+  String? failureCode,
 });
 
 /// What ONE bounded content probe learned about a file.
@@ -127,20 +137,25 @@ class PhotoSource {
           deferred: false,
           exifOrientation: null,
           fullRes: null,
+          failureCode: null,
         );
 
       case NativeImageNeedsRawDecode(:final exifOrientation):
         final decoder = dngDecoder;
         if (decoder == null) {
-          // No FFI work exists to defer, and no legacy channel exists to
-          // fall back to any more (M6 U-12): a genuine permanent miss,
-          // recorded immediately rather than left as a spinner.
+          // D3 (docs/logs/2026-08-26/raw-support-contract.md): a missing
+          // native library is a static platform property, decided HERE,
+          // before any decoder is invoked -- never inferred from a caught
+          // exception. No FFI work exists to defer, and no legacy channel
+          // exists to fall back to any more (M6 U-12): a genuine permanent
+          // miss, recorded immediately rather than left as a spinner.
           return (
             payload: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
             fullRes: null,
+            failureCode: kNoNativeDecoderCode,
           );
         }
         if (!allowExpensive) {
@@ -150,6 +165,7 @@ class PhotoSource {
             deferred: true,
             exifOrientation: exifOrientation,
             fullRes: null,
+            failureCode: null,
           );
         }
         try {
@@ -169,19 +185,23 @@ class PhotoSource {
             deferred: false,
             exifOrientation: null,
             fullRes: fullRes,
+            failureCode: null,
           );
         } catch (_) {
           // Step 3b. A throwing decoder is a genuine permanent miss (M6
-          // U-12): there is no legacy channel path left to degrade to, so
-          // the caller records the uniform null-payload miss (oracle-
-          // protected at test/image_preload_controller_test.dart, the
-          // "no decoder"/"throwing decoder" cases).
+          // U-12), NOT the D3 no-native-decoder state (a decoder that exists
+          // and threw is a real decode failure): there is no legacy channel
+          // path left to degrade to, so the caller records the uniform
+          // null-payload miss (oracle-protected at
+          // test/image_preload_controller_test.dart, the "no decoder"/
+          // "throwing decoder" cases).
           return (
             payload: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
             fullRes: null,
+            failureCode: null,
           );
         }
 
@@ -196,6 +216,7 @@ class PhotoSource {
           deferred: false,
           exifOrientation: null,
           fullRes: null,
+          failureCode: null,
         );
     }
   }
@@ -211,13 +232,18 @@ class PhotoSource {
   }) async {
     final decoder = dngDecoder;
     if (decoder == null) {
-      // M6 U-12: no legacy channel exists to fall back to any more.
+      // D3: decided before invoking anything, same as the [load] arm above
+      // -- see its comment. In practice this arm is unreachable today (a
+      // null decoder never defers in [load], so there is nothing for this
+      // resumed pass to reach), but it is kept symmetric with [load] rather
+      // than left to silently diverge if that invariant ever changes.
       return (
         payload: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
         fullRes: null,
+        failureCode: kNoNativeDecoderCode,
       );
     }
     try {
@@ -237,15 +263,17 @@ class PhotoSource {
         deferred: false,
         exifOrientation: null,
         fullRes: fullRes,
+        failureCode: null,
       );
     } catch (_) {
-      // M6 U-12: a throwing decoder is a genuine permanent miss.
+      // M6 U-12: a throwing decoder is a genuine permanent miss, not D3.
       return (
         payload: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
         fullRes: null,
+        failureCode: null,
       );
     }
   }
