@@ -13,8 +13,8 @@ same phases in the same order.
     Phase 3   artifact verification (+ the Windows manual-verification protocol)
 
 Layouts understood (both auto-detected, override with --root):
-    <repo>/scripts/build_apps.py           with ../flutter_dng_decoder as sibling
-    <zip root>/build_apps.py               with Halcyon/ + flutter_dng_decoder/
+    <repo>/scripts/build_apps.py           with ../ceyx as sibling
+    <zip root>/build_apps.py               with Halcyon/ + ceyx/
 
 Python 3 stdlib only. Run `python3 scripts/build_apps.py --help` for usage.
 
@@ -76,7 +76,7 @@ bw:344   --root                                                  REPRODUCED
 bw:345   --cfa-sample-dng colour gate (runbook S4)               REPRODUCED
 bw:346   --skip-flutter-build                                    REPRODUCED
 bw:347   --native-target T... iteration aid                      REPRODUCED
-bw:364   packaged layout Halcyon/ + flutter_dng_decoder/         REPRODUCED (resolve_layout, and the
+bw:364   packaged layout Halcyon/ + ceyx/                        REPRODUCED (resolve_layout, and the
                                                                  in-repo sibling layout as well)
 bw:380   CMakePresets.json windows-vulkan presence check         REPRODUCED, generalised: the preset name
                                                                  required is the one for the target being
@@ -86,7 +86,7 @@ bw:444   vulkaninfo / nasm soft warnings                         REPRODUCED
 bw:456   flutter presence (soft if --skip-flutter-build)         REPRODUCED
 bw:482   cmake --preset / --build --preset --target              REPRODUCED (build_native)
 bw:502   built-DLL existence assertion                           REPRODUCED
-bw:532   copy artifact into dng_processor_ffi/<os>/Libraries/    REPRODUCED, generalised to
+bw:532   copy artifact into plugin/<os>/Libraries/               REPRODUCED, generalised to
                                                                  macos/.dylib, windows/.dll,
                                                                  android/jniLibs/arm64-v8a/.so
 bw:538   "this tree is not a git checkout" commit note           DELIBERATELY DROPPED: in-repo runs (the
@@ -271,21 +271,21 @@ NATIVE_SPECS = {
         "preset": "macos-metal",
         "build_dir": "build",
         "artifact": "libdng_decoder_native.dylib",
-        "dest": Path("dng_processor_ffi") / "macos" / "Libraries",
+        "dest": Path("plugin") / "macos" / "Libraries",
         "stage1_preset": None,
     },
     "windows": {
         "preset": "windows-vulkan",
         "build_dir": "build-windows",
         "artifact": "dng_decoder_native.dll",
-        "dest": Path("dng_processor_ffi") / "windows" / "Libraries",
+        "dest": Path("plugin") / "windows" / "Libraries",
         "stage1_preset": None,
     },
     "android": {
         "preset": "android-vulkan",
         "build_dir": str(Path("build-android") / "android-arm64"),
         "artifact": "libdng_decoder_native.so",
-        "dest": Path("dng_processor_ffi") / "android" / "src" / "main" / "jniLibs" / "arm64-v8a",
+        "dest": Path("plugin") / "android" / "src" / "main" / "jniLibs" / "arm64-v8a",
         # Android is the one two-stage build: host generators first (W-stage1).
         "stage1_preset": "android-vulkan-stage1",
     },
@@ -399,22 +399,22 @@ class Layout:
 
     @property
     def native(self):
-        return self.decoder / "dng_processor" / "native"
+        return self.decoder / "native"
 
 
 def resolve_layout(root_arg):
-    """Find Halcyon/ and flutter_dng_decoder/ in either supported layout."""
+    """Find Halcyon/ and ceyx/ in either supported layout."""
     if root_arg:
         root = Path(root_arg).resolve()
-        candidates = [(root / "Halcyon", root / "flutter_dng_decoder", True),
-                      (root, root.parent / "flutter_dng_decoder", False)]
+        candidates = [(root / "Halcyon", root / "ceyx", True),
+                      (root, root.parent / "ceyx", False)]
     else:
         here = Path(__file__).resolve().parent
         candidates = [
             # in-repo: scripts/build_apps.py, decoder is a sibling of the repo
-            (here.parent, here.parent.parent / "flutter_dng_decoder", False),
+            (here.parent, here.parent.parent / "ceyx", False),
             # packaged zip root: build_apps.py next to Halcyon/
-            (here / "Halcyon", here / "flutter_dng_decoder", True),
+            (here / "Halcyon", here / "ceyx", True),
         ]
 
     for halcyon, decoder, packaged in candidates:
@@ -425,7 +425,7 @@ def resolve_layout(root_arg):
         "could not locate the Halcyon checkout (no pubspec.yaml found).",
         hints=[
             "Run this script from inside the repo as scripts/build_apps.py,",
-            "or pass --root <folder holding Halcyon/ and flutter_dng_decoder/>.",
+            "or pass --root <folder holding Halcyon/ and ceyx/>.",
         ],
     )
 
@@ -699,7 +699,7 @@ def check_native(target, layout, problems):
 
     if not layout.native.exists():
         problems.append(
-            f"native project not found at {layout.native} - the flutter_dng_decoder "
+            f"native project not found at {layout.native} - the ceyx "
             "checkout must sit beside the Halcyon checkout."
         )
         return
@@ -899,9 +899,9 @@ def check_target(target, layout, args, native_due):
         else:
             ok(f"flutter: {flutter_exe}")
 
-    if not (layout.decoder / "dng_processor_ffi" / "pubspec.yaml").exists():
+    if not (layout.decoder / "plugin" / "pubspec.yaml").exists():
         problems.append(
-            f"the dng_processor_ffi package was not found under {layout.decoder} - "
+            f"the ceyx package was not found under {layout.decoder} - "
             "pubspec.yaml depends on it by relative path, so `flutter pub get` will fail."
         )
     else:
@@ -1236,7 +1236,7 @@ def build_native(target, layout, args):
     ok(f"placed: {placed}")
     if layout.packaged:
         step("This extracted tree is not a git checkout, so the runbook S4 git commit step")
-        step("cannot run here. Copy the library back into the flutter_dng_decoder repo and")
+        step("cannot run here. Copy the library back into the ceyx repo and")
         step("commit it there.")
     return placed
 
@@ -1322,19 +1322,19 @@ def verify_windows_bundle(release_dir, halcyon, placed_dll):
         gen_plugins = halcyon / "windows" / "flutter" / "generated_plugins.cmake"
         if gen_plugins.exists():
             gen_text = gen_plugins.read_text(encoding="utf-8", errors="replace")
-            if "dng_processor_ffi" in gen_text:
-                print("    1. generated_plugins.cmake DOES list dng_processor_ffi (plugin discovered).")
+            if "ceyx" in gen_text:
+                print("    1. generated_plugins.cmake DOES list ceyx (plugin discovered).")
             else:
-                print("    1. generated_plugins.cmake does NOT list dng_processor_ffi.")
+                print("    1. generated_plugins.cmake does NOT list ceyx.")
                 print("       -> flutter pub get did not pick up the plugin declaration (W10).")
                 print("       -> try: flutter clean, then re-run this script (stale generated files).")
         else:
             print(f"    1. {gen_plugins} is missing entirely.")
         print(f"    2. Check that {placed_dll} existed at configure time (a stale CMake cache from")
         print("       before Phase 1 can still hold the empty value). Try: flutter clean, re-run.")
-        print("       Then grep the CMake log for dng_processor_ffi_bundled_libraries; if it")
+        print("       Then grep the CMake log for ceyx_bundled_libraries; if it")
         print("       resolves to empty, that is the silent-failure mode documented in")
-        print("       dng_processor_ffi/windows/CMakeLists.txt.")
+        print("       plugin/windows/CMakeLists.txt.")
         fail(
             f"dng_decoder_native.dll is not in {release_dir}",
             hints=["Runbook S5: do not manually copy the DLL as a workaround - it would hide a real bug."],
@@ -1583,7 +1583,7 @@ def make_parser():
     ]
     p = argparse.ArgumentParser(
         prog="build_apps.py",
-        description="Build Halcyon (native dng_processor + Flutter) for any supported target.",
+        description="Build Halcyon (native ceyx decoder + Flutter) for any supported target.",
         epilog="\n".join(epilog),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1634,9 +1634,9 @@ def make_parser():
     p.add_argument("--ios-codesign", action="store_true",
                    help="Let `flutter build ios` codesign (default: --no-codesign).")
     p.add_argument("--root", default=None,
-                   help="Folder holding Halcyon/ and flutter_dng_decoder/ (default: auto-detect).")
+                   help="Folder holding Halcyon/ and ceyx/ (default: auto-detect).")
     p.add_argument("--decoder", default=None,
-                   help="Path to the flutter_dng_decoder checkout (same flag name as "
+                   help="Path to the ceyx checkout (same flag name as "
                         "package_windows.sh). Default: a sibling of the Halcyon checkout.")
     return p
 

@@ -73,7 +73,7 @@ failed — the summary line's `skipped_samples` count makes that visible.
 1. `git rev-parse HEAD` and `git status --porcelain` — which commit and
    tree state produced the numbers.
 2. `nm -gU` on the vendored native dylib
-   (`../flutter_dng_decoder/dng_processor_ffi/macos/Libraries/libdng_decoder_native.dylib`
+   (`../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib`
    by default, override with `DNG_DYLIB=<path>`), grepped for
    `dng_decode_and_process_sized` — the symbol the sidebar RAW fallback
    depends on — plus `shasum -a 256` of that file.

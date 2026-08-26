@@ -50,7 +50,7 @@ if [ "$SAMPLE_COUNT" -eq 0 ]; then
   exit 1
 fi
 
-DYLIB="${DNG_DYLIB:-/Users/jhangyu/project/flutter_dng_decoder/dng_processor_ffi/macos/Libraries/libdng_decoder_native.dylib}"
+DYLIB="${DNG_DYLIB:-/Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib}"
 
 {
   echo "================================================================================"

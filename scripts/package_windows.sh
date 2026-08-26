@@ -8,7 +8,7 @@
 #   <zip root>/
 #     README_WINDOWS.md
 #     Halcyon/                    (build script lives at Halcyon/scripts/build_apps.py)
-#     flutter_dng_decoder/
+#     ceyx/
 #
 # The build script is NOT duplicated at the zip root. It used to be, copied
 # from the working tree while everything else came from `git archive HEAD` --
@@ -16,7 +16,7 @@
 # one under Halcyon/. One copy, from the archive, cannot drift.
 #
 # The sibling layout is load-bearing: Halcyon/pubspec.yaml depends on
-# ../flutter_dng_decoder/dng_processor_ffi by relative path.
+# ../ceyx/plugin by relative path.
 #
 # Source selection is `git archive HEAD` in each repo, i.e. committed content
 # only. That automatically excludes build trees, local_data/, untracked scratch
@@ -30,19 +30,19 @@
 set -euo pipefail
 
 HALCYON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DECODER_DIR="$(cd "$HALCYON_DIR/.." && pwd)/flutter_dng_decoder"
+DECODER_DIR="$(cd "$HALCYON_DIR/.." && pwd)/ceyx"
 OUT_DIR="$(pwd)"
 
 # Committed paths that are scratch/artifacts rather than build inputs. git
 # archive would carry them (they are tracked for historical reasons), so they
 # are pruned from the staging tree explicitly. Paths are relative to the
-# staged Halcyon/ or flutter_dng_decoder/ root.
+# staged Halcyon/ or ceyx/ root.
 HALCYON_PRUNE=(
   "scripts/tmp"
   "local_data"
 )
 DECODER_PRUNE=(
-  "dng_processor/native/scripts/tmp"
+  "native/scripts/tmp"
   "local_data"
 )
 
@@ -66,7 +66,7 @@ Usage:
 
 Options:
   --out DIR       Where to write the zip (default: current directory).
-  --decoder DIR   Path to the flutter_dng_decoder checkout
+  --decoder DIR   Path to the ceyx checkout
                   (default: sibling of this repo).
   -h, --help      This message.
 USAGE
@@ -118,7 +118,7 @@ DECODER_HEAD="$(read_head "$DECODER_DIR")"
 
 log "Source repositories"
 step "Halcyon:              $HALCYON_DIR @ ${HALCYON_HEAD:0:12}"
-step "flutter_dng_decoder:  $DECODER_DIR @ ${DECODER_HEAD:0:12}"
+step "ceyx:                 $DECODER_DIR @ ${DECODER_HEAD:0:12}"
 
 # Warn about tracked-but-uncommitted work: it will NOT be in the zip.
 warn_dirty() {
@@ -133,7 +133,7 @@ warn_dirty() {
 }
 
 warn_dirty "$HALCYON_DIR" "Halcyon"
-warn_dirty "$DECODER_DIR" "flutter_dng_decoder"
+warn_dirty "$DECODER_DIR" "ceyx"
 
 STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/halcyon-winpack.XXXXXX")"
 cleanup() {
@@ -142,11 +142,11 @@ cleanup() {
 trap cleanup EXIT
 
 log "Staging committed source"
-mkdir -p "$STAGE_DIR/Halcyon" "$STAGE_DIR/flutter_dng_decoder"
+mkdir -p "$STAGE_DIR/Halcyon" "$STAGE_DIR/ceyx"
 git -C "$HALCYON_DIR" archive HEAD | tar -x -C "$STAGE_DIR/Halcyon"
-git -C "$DECODER_DIR" archive HEAD | tar -x -C "$STAGE_DIR/flutter_dng_decoder"
+git -C "$DECODER_DIR" archive HEAD | tar -x -C "$STAGE_DIR/ceyx"
 step "Halcyon:             $(find "$STAGE_DIR/Halcyon" -type f | wc -l | tr -d ' ') files"
-step "flutter_dng_decoder: $(find "$STAGE_DIR/flutter_dng_decoder" -type f | wc -l | tr -d ' ') files"
+step "ceyx:                $(find "$STAGE_DIR/ceyx" -type f | wc -l | tr -d ' ') files"
 
 prune() {
   local root="$1"
@@ -162,7 +162,7 @@ prune() {
 
 log "Pruning committed scratch paths"
 prune "$STAGE_DIR/Halcyon" "${HALCYON_PRUNE[@]}"
-prune "$STAGE_DIR/flutter_dng_decoder" "${DECODER_PRUNE[@]}"
+prune "$STAGE_DIR/ceyx" "${DECODER_PRUNE[@]}"
 
 log "Adding the pack README"
 cp "$README_SRC" "$STAGE_DIR/README_WINDOWS.md"
@@ -170,7 +170,7 @@ cp "$README_SRC" "$STAGE_DIR/README_WINDOWS.md"
   printf '\n---\n\n'
   printf 'Packed %s from:\n\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
   printf -- '- Halcyon @ %s\n' "$HALCYON_HEAD"
-  printf -- '- flutter_dng_decoder @ %s\n' "$DECODER_HEAD"
+  printf -- '- ceyx @ %s\n' "$DECODER_HEAD"
 } >> "$STAGE_DIR/README_WINDOWS.md"
 step "README_WINDOWS.md at zip root; build script at Halcyon/scripts/build_apps.py"
 
@@ -191,7 +191,7 @@ step "entries:  $ENTRY_COUNT"
 step "top level:"
 unzip -Z1 "$ZIP_PATH" | awk -F/ '{ if ($1 == "" ) next; if (NF > 1) print $1"/"; else print $1 }' \
   | sort -u | sed 's/^/      /'
-step "sources:  Halcyon @ ${HALCYON_HEAD:0:12}, flutter_dng_decoder @ ${DECODER_HEAD:0:12}"
+step "sources:  Halcyon @ ${HALCYON_HEAD:0:12}, ceyx @ ${DECODER_HEAD:0:12}"
 step "next:     copy the zip to the Windows laptop, extract, read README_WINDOWS.md,"
 step "          then from Halcyon\\ run: python scripts\\build_apps.py windows"
 step "          (no Native Tools prompt needed; add --check to verify the"

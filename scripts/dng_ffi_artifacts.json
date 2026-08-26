@@ -3,7 +3,7 @@
   "symbol": "dng_decode_and_process_sized",
   "platforms": {
     "macos": {
-      "path": "../flutter_dng_decoder/dng_processor_ffi/macos/Libraries/libdng_decoder_native.dylib",
+      "path": "../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib",
       "expected": true,
       "format": "macho",
       "tool": "nm",
@@ -11,7 +11,7 @@
       "comment": "Vendored arm64 dylib; ruling P-12 confirmed this symbol is exported."
     },
     "windows": {
-      "path": "../flutter_dng_decoder/dng_processor_ffi/windows/Libraries/dng_decoder_native.dll",
+      "path": "../ceyx/plugin/windows/Libraries/dng_decoder_native.dll",
       "expected": true,
       "format": "pe",
       "tool": "dumpbin",
@@ -19,7 +19,7 @@
       "comment": "Trust-on-first-use: built on a real Windows host (commit d36e1bd) but no S4 colour-gate run recorded. dumpbin is unavailable on non-Windows hosts, so this platform legitimately reports symbol=skipped when checked from macOS/Linux."
     },
     "android": {
-      "path": "../flutter_dng_decoder/dng_processor_ffi/android/src/main/jniLibs/arm64-v8a/libdng_decoder_native.so",
+      "path": "../ceyx/plugin/android/src/main/jniLibs/arm64-v8a/libdng_decoder_native.so",
       "expected": true,
       "format": "elf",
       "tool": "nm",
@@ -27,7 +27,7 @@
       "comment": "arm64-v8a shared object."
     },
     "linux": {
-      "path": "../flutter_dng_decoder/dng_processor_ffi/linux/Libraries/libdng_decoder_native.so",
+      "path": "../ceyx/plugin/linux/Libraries/libdng_decoder_native.so",
       "expected": false,
       "format": "elf",
       "tool": "nm",

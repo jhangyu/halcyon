@@ -1,13 +1,13 @@
-import 'package:dng_processor_ffi/dng_processor_ffi.dart';
+import 'package:ceyx/ceyx.dart';
 
 import 'dng_decode_contract.dart';
 
-/// Round-3b adapter: wraps `dng_processor_ffi`'s [DngDecoderService.decodeOnWorker]
+/// Round-3b adapter: wraps `ceyx`'s [DngDecoderService.decodeOnWorker]
 /// to satisfy the frozen [DngFullDecoder] seam.
 ///
 /// Kept production-clean: no dylib-preload workaround, no dev-only path
 /// hacks. The dylib lands in `<App>.app/Contents/Frameworks/` because
-/// `dng_processor_ffi` is a Flutter FFI plugin whose pod vendors it, and
+/// `ceyx` is a Flutter FFI plugin whose pod vendors it, and
 /// `dng_bindings.dart`'s own search order finds it there.
 Future<DecodedRgba> decodeDngFull(String path) async {
   final service = DngDecoderService();
@@ -16,7 +16,7 @@ Future<DecodedRgba> decodeDngFull(String path) async {
   final expectedLength = image.width * image.height * 4;
   if (image.rgbaData.length != expectedLength) {
     throw StateError(
-      'dng_processor returned rgbaData.length=${image.rgbaData.length} '
+      'ceyx returned rgbaData.length=${image.rgbaData.length} '
       'but width*height*4=$expectedLength (width=${image.width}, '
       'height=${image.height})',
     );
@@ -45,7 +45,7 @@ Future<DecodedRgba> decodeDngSized(String path, {required int maxDim}) async {
   final expectedLength = image.width * image.height * 4;
   if (image.rgbaData.length != expectedLength) {
     throw StateError(
-      'dng_processor sized decode length mismatch: '
+      'ceyx sized decode length mismatch: '
       'rgbaData.length=${image.rgbaData.length} but '
       'width*height*4=$expectedLength (width=${image.width}, '
       'height=${image.height})',

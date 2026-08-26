@@ -33,6 +33,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  ceyx:
+    dependency: "direct main"
+    description:
+      path: "../ceyx/plugin"
+      relative: true
+    source: path
+    version: "0.0.1"
   characters:
     dependency: transitive
     description:
@@ -105,13 +112,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.8.0"
-  dng_processor_ffi:
-    dependency: "direct main"
-    description:
-      path: "../flutter_dng_decoder/dng_processor_ffi"
-      relative: true
-    source: path
-    version: "0.0.1"
   exif:
     dependency: "direct main"
     description:

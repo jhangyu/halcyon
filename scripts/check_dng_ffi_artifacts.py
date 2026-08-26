@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Decoder packaging / ABI consistency checker (M7 Task 6, audit gap 8).
 
-Verifies that the dng_processor_ffi RAW decoder artifacts the contract
+Verifies that the ceyx RAW decoder artifacts the contract
 claims to ship are actually present, and that the sized-decode symbol the
 sidebar RAW fallback depends on (dng_decode_and_process_sized) is exported
 from each artifact this host is able to inspect.
@@ -38,7 +38,7 @@ def resolve_manifest_path(repo_root: Path, raw_path: str) -> Path:
     """Resolve a manifest-declared path relative to the repo root.
 
     Paths in the manifest are written relative to the Halcyon repo root
-    (e.g. "../flutter_dng_decoder/..."), not relative to the current
+    (e.g. "../ceyx/..."), not relative to the current
     working directory or to the config file's own location, so the checker
     behaves the same regardless of where it is invoked from or which
     --config file (default or a temporary one used for negative testing)

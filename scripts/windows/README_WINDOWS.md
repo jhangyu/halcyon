@@ -13,11 +13,11 @@ zip), which stays the reference for anything the script cannot do.
   README_WINDOWS.md        this file
   Halcyon\                 Flutter app (committed source only)
     scripts\build_apps.py  the build script — run this
-  flutter_dng_decoder\     native package (committed source only)
+  ceyx\                    native package (committed source only)
 ```
 
 The two folders MUST stay siblings: `Halcyon/pubspec.yaml` depends on
-`../flutter_dng_decoder/dng_processor_ffi` by relative path.
+`../ceyx/plugin` by relative path.
 
 There is deliberately no copy of the build script at the zip root. A root copy
 and the one under `Halcyon\scripts\` could drift apart, and only one of them
@@ -28,7 +28,7 @@ would be the version under version control.
 - `.git` history, build trees, `local_data/`, scratch folders.
 - The Halide v21 binary distribution (~500 MB, not in git). `build_apps.py`
   downloads it automatically into
-  `flutter_dng_decoder\dng_processor\native\third_party\halide\` and checks it
+  `ceyx\native\third_party\halide\` and checks it
   against a recorded sha256.
 - **Photo samples.** Verification (runbook S4/S5/S6) needs real DNG files from
   `local_data/photo_samples/DNG/`. Copy them to the Windows machine yourself.
@@ -86,7 +86,7 @@ What it does:
 2. **Phase 1 (W12)** — `cmake --preset windows-vulkan` + build target
    `dng_decoder_native`, then copies the resulting
    `build-windows\dng_decoder_native.dll` into
-   `flutter_dng_decoder\dng_processor_ffi\windows\Libraries\`.
+   `ceyx\plugin\windows\Libraries\`.
 3. **Phase 2 (W14)** — `flutter pub get` + `flutter build windows --release` in
    `Halcyon\`, then verifies the DLL landed next to `halcyon.exe` in
    `build\windows\x64\runner\Release\`. If it did not, it prints the runbook's
@@ -107,9 +107,9 @@ tree, which `--clean` does.
 
 ## After a successful build
 
-The DLL produced here still has to be committed back in the `flutter_dng_decoder`
+The DLL produced here still has to be committed back in the `ceyx`
 repo (runbook S4) — this extracted tree has no git history, so copy
-`flutter_dng_decoder\dng_processor_ffi\windows\Libraries\dng_decoder_native.dll`
+`ceyx\plugin\windows\Libraries\dng_decoder_native.dll`
 back to the Mac (or to a real checkout) and commit it there.
 
 Record the timing numbers from Phase 3 in the runbook's section 7 "Results".

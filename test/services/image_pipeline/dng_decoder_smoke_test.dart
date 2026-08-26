@@ -16,7 +16,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart'
 /// ponytail: the dylib-preload workaround below is test-only scaffolding
 /// (dyld cannot resolve a bare leaf name cold under `flutter test`'s cwd;
 /// see round-3b handover §8 fact list). Production resolves the dylib from
-/// `<App>.app/Contents/Frameworks/`, where the `dng_processor_ffi` plugin pod
+/// `<App>.app/Contents/Frameworks/`, where the `ceyx` plugin pod
 /// vendors it, via dng_bindings.dart's own search order — this file must never
 /// leak that workaround into lib/.
 void main() {
@@ -27,7 +27,7 @@ void main() {
       expect(
         File(dylibPath).existsSync(),
         isTrue,
-        reason: 'dng_processor native dylib not found at $dylibPath. '
+        reason: 'ceyx native dylib not found at $dylibPath. '
             'Build it in the flutter_dng_decoder repo first.',
       );
       // Preload via absolute path once; subsequent bare-leaf-name
@@ -57,9 +57,9 @@ void main() {
 /// Resolves the vendored dylib via `.dart_tool/package_config.json`, without
 /// hardcoding a dev machine path.
 ///
-/// 2026-08-21 (D1): this used to point at `dng_processor`'s CMake build tree
+/// 2026-08-21 (D1): this used to point at the `app` package's CMake build tree
 /// (`native/build/`), which only exists on a machine that has built the native
-/// target. It now points at the copy `dng_processor_ffi` vendors into host app
+/// target. It now points at the copy `ceyx` vendors into host app
 /// bundles — the same bytes that actually ship.
 String _resolveDngProcessorDylib() {
   final configFile = File('.dart_tool/package_config.json');
@@ -72,9 +72,9 @@ String _resolveDngProcessorDylib() {
   final config = jsonDecode(configFile.readAsStringSync()) as Map;
   final packages = config['packages'] as List;
   final dngPackage = packages.cast<Map>().firstWhere(
-        (p) => p['name'] == 'dng_processor_ffi',
+        (p) => p['name'] == 'ceyx',
         orElse: () => throw StateError(
-          'dng_processor_ffi not found in package_config.json; '
+          'ceyx not found in package_config.json; '
           'check pubspec.yaml path dependency.',
         ),
       );
