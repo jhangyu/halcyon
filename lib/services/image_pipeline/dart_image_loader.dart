@@ -19,6 +19,12 @@ import 'image_source_types.dart';
 ///   `sidebarThumbnail`, nor for `export` — is unchanged and must stay so.
 ///   Browse-only RAW (`.cr2`/`.iiq`/`.mrw`, contract decision D2) has no
 ///   decode route and therefore never yields this variant either.
+///   CAVEAT (F4): "never emitted for `export`" is a statement about this
+///   function's `export` ARGUMENT, not about the export feature. The export
+///   service enters through `purpose: preview`
+///   (`photo_export_service.dart:57-58`) precisely so that it DOES receive
+///   this signal and can decode a preview-less RAW; nothing in `lib/` passes
+///   `ImageRequestPurpose.export` to this loader at all.
 /// - This file stays free of `Platform` checks by construction (C-3). "No
 ///   native decoder on this platform" (contract decision D3) is therefore NOT
 ///   decided here: the loader still reports [NativeImageNeedsRawDecode], and
@@ -74,9 +80,8 @@ Future<NativeImageResult> dartImageLoad(
     // principle over the new hatch gives:
     //  - `purpose == sidebarThumbnail` never reaches here; the sidebar branch
     //    above stays lenient under rulings P-11/P-13.
-    //  - `purpose == export` stays excluded: the escape hatch below is
-    //    preview-only, so strictness would turn "export a smaller-than-ideal
-    //    image" into "export fails" -- a capability loss G-2 did not ask for.
+    //  - `purpose == export` is excluded HERE, but read the next paragraph
+    //    before relying on that: the shipped export feature does not use it.
     //  - browse-only RAW (`.cr2`/`.iiq`/`.mrw`, contract decision D2) stays
     //    excluded for exactly the old reason: the engine cannot decode those
     //    containers, so a rejection would fall through to
@@ -84,8 +89,40 @@ Future<NativeImageResult> dartImageLoad(
     //  - engine-decodable non-DNG RAW (`.arw`/`.nef`/`.rw2`/...) is now
     //    INCLUDED, because the premise that excluded it -- "that escape hatch
     //    is gated on `.dng`" -- is precisely what the contract removed.
-    // AD-021's uneven floor is preserved: strict on preview, lenient on
-    // sidebar and export. It is not unified.
+    //
+    // CORRECTION (round-1 reviewer finding F4). An earlier version of this
+    // comment claimed the export FEATURE stays lenient. It does not, and never
+    // did: `photo_export_service.dart:57-58` calls this loader with
+    // `purpose: preview`, so the strict floor applies to exports too. Nothing
+    // in `lib/` ever passes `ImageRequestPurpose.export` to the loader -- that
+    // enum value is used only for its `targetSize`
+    // (`photo_export_service.dart:82`). The false claim predates the RAW
+    // generalisation: A-6's original "export is excluded because the escape
+    // hatch is unreachable for it" was already wrong about the shipped path,
+    // and this round faithfully carried the wrong premise forward.
+    //
+    // The BEHAVIOUR is deliberately left alone; only the claim is corrected.
+    // Making export pass `ImageRequestPurpose.export` would look like it
+    // restores leniency, but it would kill `photo_export_service.dart:68`'s
+    // `NativeImageNeedsRawDecode` branch, and exporting a preview-less RAW
+    // would start returning null. The export service documents its
+    // preview-purpose choice as deliberate for exactly that reason
+    // (`photo_export_service.dart:43-46`). Consequences of the floor applying
+    // to export, stated rather than papered over:
+    //  - with a decoder available, the result is BETTER: a real decode
+    //    downsized to 2048 beats an undersized embedded preview.
+    //  - with no decoder (contract decision D3), the export fails where it
+    //    would previously have produced an undersized image. That window is
+    //    narrow -- it needs a sensor long edge under roughly 3111px, since a
+    //    full-size candidate must clear `0.90 * cropMax` to qualify -- but it
+    //    is not empty. It is also not new: this exposure already existed for
+    //    `.dng` before this round, because export has always entered through
+    //    the preview purpose. This round widened an accepted condition; it did
+    //    not invent one. Recorded as parking-lot, not silently accepted.
+    // AD-021's uneven floor is preserved -- strict on preview, lenient on
+    // sidebar -- and is not unified. The `export` ARM of this guard is
+    // currently unreachable in production; the tests that pin it pin the
+    // loader's purpose semantics, not the export feature's behaviour.
     final strictPreview =
         purpose == ImageRequestPurpose.preview &&
         SupportedPhotoFormats.isDecodablePath(path);

@@ -201,6 +201,9 @@ void main() {
       ' engine-decodable non-DNG RAW', () async {
     // The permanent-miss logic in image_preload_controller depends on this;
     // generalising the preview route must not leak into the sidebar branch.
+    // The `export` purpose is included for completeness of the guard, but note
+    // (F4) the shipped export path never passes it — see
+    // `photo_export_service.dart:57-58`.
     final dir = await Directory.systemTemp.createTemp('dart_image_loader_sb');
     addTearDown(() => dir.delete(recursive: true));
     for (final f in dngs()) {
@@ -335,8 +338,15 @@ void main() {
       expect((result as NativeImageBytes).bytes, isNotEmpty);
     });
 
-    test('(b) export stays lenient — strictness there would turn "export a '
-        'smaller image" into "export fails"', () async {
+    // F4 (round-1 reviewer): this pins the loader's `export` PURPOSE, not the
+    // export FEATURE. `photo_export_service.dart:57-58` enters the loader with
+    // `purpose: preview`, so a real export gets the strict floor, not this
+    // lenient arm. Nothing in lib/ passes `ImageRequestPurpose.export` to the
+    // loader, so this arm is currently unreachable in production. Kept because
+    // the purpose exists and its semantics should stay pinned — but do not
+    // read a green here as "exports are lenient".
+    test('(b) the loader\'s export PURPOSE stays lenient (unreachable from the '
+        'shipped export path — see F4 note above)', () async {
       final result = await dartImageLoad(
         dngPath,
         purpose: ImageRequestPurpose.export,
