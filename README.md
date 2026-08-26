@@ -110,9 +110,13 @@ name must not start with `.` (dotfiles/AppleDouble sidecars are skipped), and it
 extension must be in the supported set.
 <!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
 
-The supported extensions are `.jpg`, `.jpeg`, `.arw`, `.rw2`, `.dng`, `.png`, `.cr2`,
-`.nef`, `.orf`.
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16 -->
+The supported set is `.jpg`, `.jpeg`, `.png`, plus every RAW extension the Ceyx engine can
+decode (`.dng`, `.arw`, `.cr3`, `.nef`, `.raf`, `.rw2`, `.orf`, `.pef`, `.srw`, `.x3f`,
+derived at runtime from Ceyx's own capability constant) plus three browse-only RAW formats
+Ceyx cannot decode but Halcyon still lists (`.cr2`, `.iiq`, `.mrw`) — see "RAW format
+support and decode routing" below for the full breakdown and why this list is derived
+rather than hand-maintained.
+<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
 
 Matched files are grouped (see below) into `PhotoItem`s and the resulting list is sorted
 by id, case-insensitively.
@@ -608,20 +612,26 @@ the gap between them matters to anyone pointing Halcyon at a folder of camera or
 ### What Halcyon scans and lists
 
 The sidebar only ever shows a file whose extension is in `SupportedPhotoFormats
-.supportedExtensions`, checked once per directory entry during the folder scan:
+.supportedExtensions`, checked once per directory entry during the folder scan. As of the
+2026-08-26 RAW-coverage contract, that set is no longer a hand-written list: it is
+**derived** at runtime from Ceyx's own `kSupportedDecodeExtensions` constant, unioned with
+a small hard-coded browse-only set and the two encoded-bitstream extensions:
 
 | Extension | Category |
 |---|---|
 | `.jpg`, `.jpeg` | Encoded bitstream |
 | `.png` | Encoded bitstream |
-| `.dng` | RAW |
-| `.cr2` | RAW |
-| `.nef` | RAW |
-| `.arw` | RAW |
-| `.rw2` | RAW |
-| `.orf` | RAW |
+| `.dng`, `.arw`, `.cr3`, `.nef`, `.raf`, `.rw2`, `.orf`, `.pef`, `.srw`, `.x3f` | RAW, engine-decodable — derived from Ceyx's `kSupportedDecodeExtensions` |
+| `.cr2`, `.iiq`, `.mrw` | RAW, browse-only — Ceyx cannot decode these containers (contract decision D2); they scan, star and batch-move like any other item, and the loader attempts the same embedded-preview path every other RAW gets — whether that attempt actually finds a usable preview is a property of each vendor's file layout, not guaranteed by this whitelist entry |
 
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16 -->
+<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
+
+The point of deriving rather than restating: a future Ceyx addition reaches every file
+Halcyon browses without anyone editing this app. The previous hand-maintained list already
+failed once this way — Panasonic `.rw2` was silently missing from it until that gap was
+found and closed (`docs/sop/memory.md` G-007) — and a whitelist derived from the engine's
+own capability constant cannot desync from it the same way again.
+<!-- evidence: docs/sop/memory.md G-007 -->
 
 `PhotoLibraryScanner.scan` drops any directory entry that fails
 `SupportedPhotoFormats.isSupportedPath` before it is even grouped into a `PhotoItem`, so an
@@ -632,12 +642,7 @@ Within a sibling group that shares a basename (e.g. a JPG and a RAW written by t
 shutter press), `SupportedPhotoFormats.preferredLoadExtensions` (`.jpg`, `.jpeg`, `.png`,
 in that order) decides which file loads first; a RAW-only group falls back to the first
 supported file present.
-<!-- evidence: lib/models/supported_photo_formats.dart:18-22,45-61 -->
-
-Historical note: Panasonic `.rw2` was once missing from this whitelist and silently
-excluded from the scan; that gap was closed and `.rw2` is present in the current list
-above.
-<!-- evidence: docs/sop/memory.md G-007 -->
+<!-- evidence: lib/models/supported_photo_formats.dart:34-46,56-72 -->
 
 ### What Ceyx can decode
 
@@ -647,113 +652,219 @@ by probing the file header — never by matching the extension:
 | Route | Container | Frontend |
 |---|---|---|
 | DNG | TIFF-based, `DNGVersion` tag present in IFD0 | Adobe DNG SDK |
-| Generic RAW | CR2, CR3, NEF, ARW, RAF, ORF, RW2, PEF, IIQ, MRW, X3F and other vendor containers | LibRaw, with RawSpeed3 as its preferred backend |
+| Generic RAW | ARW, CR3, NEF, RAF, ORF, RW2, PEF, SRW, X3F | LibRaw, with RawSpeed3 as its preferred backend |
 
-<!-- evidence: ceyx README.md:69-76 -->
+<!-- evidence: ceyx README.md:69-76; ../ceyx/plugin/lib/src/raw_route.dart -->
 
-Non-TIFF containers are matched on magic bytes (Fujifilm RAF, Minolta MRW, Canon CR3,
-Phase One IIQ, Foveon X3F); TIFF-based containers route to the DNG frontend only when
-IFD0 carries the `DNGVersion` tag inside the probe window, otherwise they route generic.
-<!-- evidence: ceyx README.md:95-105 -->
+**CR2, IIQ and MRW are not in this list.** Canon's older CR2 container, Phase One IIQ and
+Minolta MRW are formats Ceyx cannot decode at all; Halcyon still lists them (contract
+decision D2, "keep them browsable — removing them would be a capability regression") and
+routes them through the same embedded-preview attempt as every other RAW with no decode
+route. That attempt does not always succeed: it depends on the walker recognising the
+container's own preview tags, and it is unconfirmed for real CR2 files specifically —
+there is no CR2 sample in this project's test corpus, and the walker's candidate search
+targets tags that real CR2 embedded previews are not known to use. Nothing in this
+document should be read as a claim that a real CR2 file has been observed displaying its
+embedded preview in Halcyon; only that the code attempts it and does not fall back to a
+decode.
 
-Once a file is unpacked, Ceyx's GPU dispatch keys on sensor layout, not vendor or
-container:
-
-| Layout | Example sensors |
-|---|---|
-| Bayer 2×2 | the RGGB-family majority |
-| X-Trans 6×6 | Fujifilm X-Trans |
-| Linear RGB / no CFA | Foveon X3F |
-
+Fujifilm's X-Trans and Sigma's Foveon X3F are decodable, and are not a separate question
+from the rest of this list: Ceyx's GPU dispatch keys on sensor layout after a file is
+unpacked (Bayer 2×2 for the RGGB-family majority, X-Trans 6×6 for Fujifilm, linear RGB/no
+CFA for Foveon), and both non-Bayer layouts already have working GPU paths — there is no
+open question of whether they are supported, only which layout dispatch a given decoded
+file lands on.
 <!-- evidence: ceyx README.md:107-117 -->
 
-### The gap between what's listed and what's decodable
+### Full RAW decode routing
 
-Every RAW extension Halcyon lists (`.dng`, `.cr2`, `.nef`, `.arw`, `.rw2`, `.orf`) is
-within Ceyx's documented coverage, but Ceyx documents decoding a substantially larger set
-— including Fujifilm RAF (X-Trans sensors), Canon CR3, Pentax PEF, Phase One IIQ, Minolta
-MRW and Sigma's Foveon X3F — none of which appear in Halcyon's scan whitelist, so files in
-those formats never reach the sidebar at all regardless of Ceyx's capability.
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16; ceyx README.md:73-76 -->
+Two Halcyon-side gaps used to sit between "Ceyx can decode this container" and "Halcyon
+actually asks it to": a narrower scan whitelist (closed above) and a decode-routing
+decision that was hard-coded to `.dng`. Both are closed as of this contract.
 
-A second, more consequential gap sits inside the formats Halcyon *does* list. The only
-Ceyx entry point wired into Halcyon's Dart code is the DNG full decoder
-(`DngDecoderService.decodeOnWorker`, wrapped as `halcyonDngFullDecoder`); no call site in
-`lib/` invokes Ceyx's generic-RAW entry point. The RAW-decode fallback in
-`dart_image_loader.dart` is emitted only for `.dng`; a `.cr2`, `.nef`, `.arw`, `.rw2` or
-`.orf` file with no usable embedded preview returns a `RAW_NO_EMBEDDED_PREVIEW` failure
-instead of reaching a decoder — so today, non-DNG RAW files display only when their
-embedded preview is usable, never through a full RAW decode.
-<!-- evidence: lib/services/image_pipeline/dng_decode_service.dart:5-34; lib/services/image_pipeline/dart_image_loader.dart:12-15,114-119 -->
+The decode dispatch itself — the code that hands a file to Ceyx's decoder once the loader
+has said "this needs a real RAW decode" — was **already format-agnostic** before this
+round; there was no `.dng`-only branch inside the state coordinator or the full-size half
+of the preload controller. The entire routing gap lived in one place: the pure-Dart image
+loader emitted its "needs RAW decode" signal only when the path ended in `.dng`, so every
+other RAW extension that lacked a usable embedded preview fell through to a
+`RAW_NO_EMBEDDED_PREVIEW` failure instead of ever reaching the decoder. That gate is now
+`SupportedPhotoFormats.isDecodablePath` — true for every extension in Ceyx's capability
+constant, false for the D2 browse-only set and everything else — so the signal fires for
+any engine-decodable RAW, not just DNG.
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:12-27,126-137; lib/services/image_pipeline/photo_source.dart:143-163 -->
 
-### Platform availability of the native decoder
+Two guards that used to be spelled `.dng` for the same reason were re-derived onto the same
+gate rather than left behind: the minimum-long-edge strictness that sends an undersized
+preview candidate to decode instead of serving it undersized (`docs/sop/memory.md` AD-021),
+and the "container declares only unreadable candidates" malformed verdict
+(`docs/sop/memory.md` AD-022). Both now apply to every engine-decodable RAW, not only DNG;
+browse-only RAW (D2) is deliberately excluded from both, because rejecting a candidate
+there has nowhere to fall through to but `RAW_NO_EMBEDDED_PREVIEW` — there is no decoder
+waiting on the other side.
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:69-137 -->
+
+**A real bug fixed in passing.** The sidebar-thumbnail RAW-decode fallback used to gate on
+"is this a RAW file" rather than "can the engine decode this RAW file", so every
+browse-only RAW (`.cr2`/`.iiq`/`.mrw`) triggered a doomed native decode call on every
+folder load — one that could never succeed, silently swallowed, and degraded to a blank
+sidebar tile. The gate is now the same `isDecodablePath` check used everywhere else: a
+format the code still tries to decode was never really browse-only.
+<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:875-888 -->
+
+### Panasonic RW2: a second container flavour, not just a version number
+
+Accepting Panasonic's TIFF version word (85, vs the Adobe/standard 42) was necessary but
+not sufficient. An RW2's IFD0 is an ordinary TIFF chain, but it carries none of the six
+tags (Compression, PhotometricInterpretation, width/height, StripOffsets/StripByteCounts)
+the walker used to look for — its embedded previews are whole JPEG bitstreams sitting
+inline in two vendor tags (`0x002E` "JpgFromRaw", the small rendition; `0x0127`
+"JpgFromRaw2", the full-size one) whose dimensions are not stated anywhere in the IFD. The
+walker now reads each blob's own JPEG frame header under a bounded scan to learn its size,
+and falls back to Panasonic's own width/height IFD tags (rather than the Adobe
+`DefaultCropSize` tag RW2 does not carry) when judging whether a candidate is full-size.
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:19-24,314-327,731-834 -->
+
+On the real sample file
+(`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/2026-08-10-17-47-27.rw2`), the
+full-size preview path selects the `0x0127` blob — 6000×4000, 3,593,728 bytes — and the
+sidebar path selects the smaller `0x002E` blob — 1920×1280 — at a measured probe cost of
+24,578 bytes across 4 disk reads.
+<!-- evidence: test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart:396-448 -->
+
+Non-TIFF RAW containers (Fujifilm RAF, Sigma X3F, Canon CR3) are deliberately not handled
+by this walker at all; they are not TIFF-based, so they reach Ceyx's decoder directly and
+that is sufficient.
+
+### The no-native-decoder platform state (D3)
 
 Full RAW decode is not available on every platform Halcyon targets. The build script's
 native-library table only builds and packages a Ceyx decoder library for macOS, Windows
 and Android; a target absent from that table has no native decoder, and the table
-explicitly names iOS, Linux and web as such targets today. On those three platforms, path
-two below cannot run — a RAW file with no usable embedded preview has no full-decode
-fallback, and only the embedded-preview path (path one) can produce pixels.
+explicitly names iOS, Linux and web as such targets today.
 <!-- evidence: scripts/build_apps.py:265-290 -->
+
+On those three platforms, a RAW file that needs a real decode (no usable embedded preview)
+is now distinguishable, internally, from an ordinary decode failure. The pure-Dart loader
+stays free of `Platform` checks by construction: it still emits the ordinary "needs RAW
+decode" signal, and the layer that owns the decoder seam detects the absent decoder
+**before** attempting anything and records it as a `NativeImageFailure` carrying the
+`NO_NATIVE_DECODER` code — a static platform property, never inferred from a caught
+exception, and never confused with a decoder that exists and threw on bad data.
+`NativeImageResult` still has exactly three variants; this is expressed as a failure code
+on the existing failure variant, not a fourth variant (`docs/sop/memory.md`
+AD-010/AD-011). This is a plumbing-level distinction only: nothing in the app's views reads
+this code today, so the item surfaces the same way any other permanent miss does, with no
+dedicated on-screen message for "no native decoder on this platform".
+<!-- evidence: lib/services/image_pipeline/image_source_types.dart:120-132; lib/services/image_pipeline/photo_source.dart:147-162; lib/services/image_pipeline/image_preload_controller.dart:297,309-316; lib/providers/app_state.dart:219 -->
 
 ### The two read paths
 
-Halcyon shows a RAW file's pixels one of two ways, and which one runs is decided before
+Halcyon shows a RAW file's pixels one of three ways, and which one runs is decided before
 any GPU work happens. Path two, below, depends on a native Ceyx library that only ships on
-macOS, Windows and Android (see "Platform availability of the native decoder" above); on
-iOS, Linux and web, path one is the only path that can produce pixels for a RAW file.
+macOS, Windows and Android (see "The no-native-decoder platform state (D3)" above); on
+iOS, Linux and web, an engine-decodable RAW with no usable embedded preview reports the D3
+state instead of running path two.
 
 **Path one — embedded preview.** Many RAW containers (DNGs from Lightroom Classic or DxO
-PureRAW in particular) carry one or more JPEG renditions alongside the actual sensor data.
-When a candidate large enough to serve the request is found, Halcyon reads that JPEG
-directly — a bounds-checked seek and slice, no image decode of the RAW mosaic at all — and
-skips RAW decode entirely.
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:6-13 -->
+PureRAW in particular, and Panasonic RW2s via their vendor-tag blobs) carry one or more
+JPEG renditions alongside the actual sensor data. When a candidate large enough to serve
+the request is found, Halcyon reads that JPEG directly — a bounds-checked seek and slice,
+no image decode of the RAW mosaic at all — and skips RAW decode entirely.
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:6-24 -->
 
-**Path two — full RAW decode.** When no preview candidate qualifies, the file is handed to
-Ceyx's DNG full decoder instead.
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:107-112; lib/services/image_pipeline/dng_decode_service.dart:5-14 -->
+**Path two — full RAW decode.** When no preview candidate qualifies and the extension is
+in Ceyx's decodable set, the file is handed to Ceyx's decoder (the `DngFullDecoder` seam;
+the name predates this round's generalisation and is not being renamed — see the
+architecture-decision entry in `docs/sop/memory.md` AD-032).
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-195; lib/services/image_pipeline/photo_source.dart:143-192 -->
 
-The rule that decides between the two paths is a minimum long-edge requirement, and it is
-applied unevenly on purpose. The `preview` request purpose (long edge 2800px) on a `.dng`
-passes that value as `minLongEdge`: a selected candidate smaller than 2800px on its long
-edge is rejected outright, sending the file to path two rather than serving an undersized
-image.
-<!-- evidence: lib/services/image_pipeline/image_source_types.dart:19; lib/services/image_pipeline/dart_image_loader.dart:69-77 -->
+**Path three — no native decoder on this platform (D3).** On iOS, Linux and web, path two
+cannot run at all; a RAW that would otherwise need it is recorded internally with the
+`NO_NATIVE_DECODER` code described above instead, with no separate on-screen treatment.
 
-The sidebar-thumbnail path and the export path do not apply this floor. The sidebar
-deliberately keeps its lenient smallest-then-largest candidate selection so thumbnails
-never fall through to a full RAW decode; export stays lenient because there is no RAW
-decode fallback on that path at all — rejecting an undersized candidate there would turn
-"export a slightly smaller image" into "export fails," which is a capability loss, not a
-correctness fix.
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:86-93; lib/services/image_pipeline/dart_image_loader.dart:41-51,58-68; docs/sop/memory.md AD-021 -->
+The rule that decides between paths one and two is a minimum long-edge requirement, and it
+is applied unevenly on purpose. The `preview` request purpose (long edge 2800px) on any
+engine-decodable RAW passes that value as `minLongEdge`: a selected candidate smaller than
+2800px on its long edge is rejected outright, sending the file to path two rather than
+serving an undersized image.
+<!-- evidence: lib/services/image_pipeline/image_source_types.dart:19; lib/services/image_pipeline/dart_image_loader.dart:126-137 -->
 
-One rejection threshold applies independently of the size floor: a DNG whose declared
-crop extent implies a decoded RGBA buffer over roughly 1.5 GB is refused outright rather
-than decoded, to bound worst-case memory use.
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:96-105 -->
+The sidebar-thumbnail path deliberately does not apply this floor: it keeps its lenient
+smallest-then-largest candidate selection so thumbnails never fall through to a full RAW
+decode.
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:96-100; lib/services/image_pipeline/dart_image_loader.dart:58-67; docs/sop/memory.md AD-021 -->
 
-### Two distinct "no preview" outcomes
+`PhotoExportService.exportBytesFor` calls the loader with the `preview` purpose — the same
+purpose the strict floor is keyed on — so the floor applies to export today as well: an
+export source whose best embedded candidate falls short of 2800px on its long edge is sent
+to a full RAW decode rather than exported at that smaller size.
+<!-- evidence: lib/services/library/photo_export_service.dart:53-58 -->
 
-A DNG that fails to yield a usable embedded preview lands in one of two states, and
-Halcyon's loader tells them apart rather than collapsing them into one generic failure:
+One rejection threshold applies independently of the size floor: a RAW whose declared crop
+extent implies a decoded RGBA buffer over roughly 1.5 GB is refused outright rather than
+decoded, to bound worst-case memory use.
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-182 -->
+
+### Two things a container with unreadable previews is not conflated with
+
+A container whose declared preview candidates are all unreadable — a strip offset or byte
+count that falls outside the file — used to be reported broken immediately, before any
+decode was attempted. That pre-empt is gone: such a container is now routed to a real RAW
+decode first, exactly like an ordinary preview-less file, and is only reported broken
+(`DNG_PARSE_FAILED`) if that decode *also* fails. The change followed a measurement: a file
+in this state was being reported broken while the engine decoded its actual sensor data
+successfully in 383ms.
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:138-170; lib/services/image_pipeline/image_source_types.dart:76-104; lib/services/image_pipeline/photo_source.dart:193-222 -->
+
+The finding — that every declared preview was unreadable — still travels forward; it is
+not discarded, only no longer acted on early. It rides as a field on the same "needs RAW
+decode" signal (`NativeImageNeedsRawDecode.declaredPreviewsUnreadable`), and the layer that
+owns the decoder is the one that finally resolves it, because it is the only layer that
+knows whether the decode succeeded:
 
 - **The container declares no preview at all** (a bare-CFA capture, or every candidate is
-  either absent or rejected as undersized). This is not an error: the file proceeds to
-  path two, full RAW decode, carrying forward whatever EXIF orientation the same walk
-  already read.
-- **The container declares one or more preview candidates, but every one of them is
-  unreadable** — a strip offset or byte count that falls outside the file. This is treated
-  as a structurally broken file: Halcyon reports it as a decode failure
-  (`DNG_PARSE_FAILED`) rather than silently trying — and failing — a RAW decode on data
-  that already proved inconsistent.
+  either absent or rejected as undersized) and the decode fails — the uniform miss, no
+  broken-file code.
+- **The container declares previews but all are unreadable** and the decode *also* fails —
+  only now is it reported broken (`DNG_PARSE_FAILED`); AD-022's two-state distinction is
+  preserved, it is just formed after the decode attempt instead of before it.
+- **The container declares previews but all are unreadable**, and the decode *succeeds* —
+  the file renders normally and is never called broken at all, which is the point of the
+  change.
+- **No native decoder exists on this platform** (D3, above) — a property of the build, not
+  of the file, decided before any decode is attempted and never conflated with either state
+  above or with a decoder that exists and threw on bad data.
 
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dart_image_loader.dart:80-95 -->
+Browse-only RAW (D2) is unaffected in every direction: it never reached the old pre-empt
+and has no decode to route to now, so a corrupt `.cr2`/`.iiq`/`.mrw` keeps the uniform
+`RAW_NO_EMBEDDED_PREVIEW` state throughout.
+<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dart_image_loader.dart:159-170,196-203; lib/services/image_pipeline/photo_source.dart:193-222 -->
 
 A single unreadable candidate sitting next to a good one does not trigger the broken-file
-state — only the case where *no* declared candidate is readable counts as malformed.
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:44-55 -->
+finding — only the case where *no* declared candidate is readable counts as malformed.
+<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:521-528 -->
+
+### What is proven, and what is not
+
+The routing change above is implemented and covered by unit tests using a substituted
+decoder (`test/services/image_pipeline/raw_coverage_wiring_test.dart`,
+`test/services/image_pipeline/dart_image_loader_test.dart`,
+`test/services/image_pipeline/photo_source_test.dart`). It has **not** been proven end to
+end against a real preview-less file of a non-DNG format: the one real Panasonic sample
+available to this project has an embedded preview, so it exercises path one, not path two.
+Do not read the routing description above as a claim that a real generic-RAW file has been
+watched going through Ceyx's decoder inside Halcyon's own app shell — that has only been
+demonstrated for DNG (see "Measured performance" below).
+
+Real sample files exist only for Panasonic, Sony, Fujifilm and Sigma
+(`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/`). Nikon, Canon CR3, Olympus,
+Pentax and Samsung get routing-logic tests only — there is no real-file proof for them.
+This is a stated limitation of the current test corpus, not a gap silently papered over.
+
+Verification, HEAD `0a32c50`: `flutter analyze` reports 0 issues across `lib/`, `test/` and
+`tool/`; `flutter test -j 1` passes 403 test cases on the combined tree (serialized
+execution is required — the parallel runner loses filenames and miscounts).
 
 ---
 

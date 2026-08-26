@@ -99,8 +99,12 @@ RAW 與 JPG 檔案的記憶卡時，這個 app 實際會做的事。
 （dotfile／AppleDouble 側寫檔會被跳過），且副檔名必須在支援清單內。
 <!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
 
-支援的副檔名為 `.jpg`、`.jpeg`、`.arw`、`.rw2`、`.dng`、`.png`、`.cr2`、`.nef`、`.orf`。
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16 -->
+支援的集合是 `.jpg`、`.jpeg`、`.png`，加上 Ceyx 引擎能解碼的每一個 RAW 副檔名（`.dng`、
+`.arw`、`.cr3`、`.nef`、`.raf`、`.rw2`、`.orf`、`.pef`、`.srw`、`.x3f`，在執行期由 Ceyx
+自身能力常數推導而來），再加上三個 Ceyx 無法解碼但 Halcyon 仍列出的 browse-only RAW 格式
+（`.cr2`、`.iiq`、`.mrw`）——完整拆解與這份清單為何是推導而非手寫，見下文「RAW 格式支援
+與解碼路由」。
+<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
 
 符合的檔案會被分組（見下節）成 `PhotoItem`，最終清單依 id 排序，且不分大小寫。
 <!-- evidence: lib/services/library/photo_library_scanner.dart:22-26 -->
@@ -547,20 +551,24 @@ key——否則每一個標記都會靜默地孤立在一個已不存在的檔�
 ### Halcyon 掃描並列出哪些檔案
 
 側欄只會顯示副檔名出現在 `SupportedPhotoFormats.supportedExtensions` 裡的檔案，這個檢查
-在資料夾掃描時對每一個目錄項目各做一次：
+在資料夾掃描時對每一個目錄項目各做一次。自 2026-08-26 的 RAW 涵蓋率契約起，這份清單不再
+是手寫的：它在執行期由 Ceyx 自己的 `kSupportedDecodeExtensions` 常數**推導**而來，聯集一
+個小型手寫的 browse-only 集合與兩個已編碼位元流副檔名：
 
 | 副檔名 | 分類 |
 |---|---|
 | `.jpg`, `.jpeg` | 已編碼位元流 |
 | `.png` | 已編碼位元流 |
-| `.dng` | RAW |
-| `.cr2` | RAW |
-| `.nef` | RAW |
-| `.arw` | RAW |
-| `.rw2` | RAW |
-| `.orf` | RAW |
+| `.dng`、`.arw`、`.cr3`、`.nef`、`.raf`、`.rw2`、`.orf`、`.pef`、`.srw`、`.x3f` | RAW，引擎可解碼——由 Ceyx 的 `kSupportedDecodeExtensions` 推導而來 |
+| `.cr2`、`.iiq`、`.mrw` | RAW，僅可瀏覽——Ceyx 完全無法解碼這些容器（契約裁決 D2）；它們能被掃描、加星號、批次搬移，載入器對它們也會嘗試與其他 RAW 相同的內嵌預覽路徑——這個嘗試是否真的找到可用預覽，取決於各廠牌檔案自身的版面配置，這份白名單條目本身不保證找得到 |
 
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16 -->
+<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
+
+推導而非手寫清單的用意：Ceyx 未來新增的能力會自動觸達 Halcyon 瀏覽的每一個檔案，不需要
+任何人記得同步編輯這份清單。這正是先前手寫清單已經失敗過一次的地方——Panasonic 的 `.rw2`
+曾經被靜默地漏列在清單外，直到那個缺口被發現並修補（`docs/sop/memory.md` G-007）——而
+由引擎自身能力常數推導出的白名單，不可能再以同樣方式與引擎失去同步。
+<!-- evidence: docs/sop/memory.md G-007 -->
 
 `PhotoLibraryScanner.scan` 會在任何目錄項目被分組成 `PhotoItem` 之前，先丟掉未通過
 `SupportedPhotoFormats.isSupportedPath` 的項目，因此一個不在清單上的副檔名永遠不會進入
@@ -570,11 +578,7 @@ key——否則每一個標記都會靜默地孤立在一個已不存在的檔�
 在共用同一個檔名（basename）的同組檔案中（例如同一次快門寫出的一張 JPG 與一張 RAW），
 `SupportedPhotoFormats.preferredLoadExtensions`（依序為 `.jpg`、`.jpeg`、`.png`）決定哪
 一個檔案優先載入；純 RAW 的組別則退回為該組中第一個受支援的檔案。
-<!-- evidence: lib/models/supported_photo_formats.dart:18-22,45-61 -->
-
-歷史備註：Panasonic 的 `.rw2` 曾經一度漏列在這份白名單裡，因而被靜默地排除在掃描之外；
-這個缺口已經修補，`.rw2` 目前存在於上表的清單中。
-<!-- evidence: docs/sop/memory.md G-007 -->
+<!-- evidence: lib/models/supported_photo_formats.dart:34-46,56-72 -->
 
 ### Ceyx 能解碼哪些格式
 
@@ -584,101 +588,184 @@ RAW 解碼能力歸屬於 Ceyx，不屬於 Halcyon。它靠探測檔案表頭將
 | 路由 | 容器 | 前端 |
 |---|---|---|
 | DNG | 以 TIFF 為基礎、IFD0 中帶有 `DNGVersion` 標籤 | Adobe DNG SDK |
-| 通用 RAW | CR2、CR3、NEF、ARW、RAF、ORF、RW2、PEF、IIQ、MRW、X3F 及其他廠商容器 | LibRaw，並以 RawSpeed3 作為優先解碼後端 |
+| 通用 RAW | ARW、CR3、NEF、RAF、ORF、RW2、PEF、SRW、X3F | LibRaw，並以 RawSpeed3 作為優先解碼後端 |
 
-<!-- evidence: ceyx README.md:69-76 -->
+<!-- evidence: ceyx README.md:69-76; ../ceyx/plugin/lib/src/raw_route.dart -->
 
-非 TIFF 容器是靠魔數位元組比對（Fujifilm RAF、Minolta MRW、Canon CR3、Phase One IIQ、
-Foveon X3F）；以 TIFF 為基礎的容器只有在 IFD0 於探測視窗內帶有 `DNGVersion` 標籤時才路由
-到 DNG 前端，否則路由到通用前端。
-<!-- evidence: ceyx README.md:95-105 -->
+**CR2、IIQ 與 MRW 不在這份清單裡。** Canon 較舊的 CR2 容器、Phase One IIQ 與 Minolta MRW
+是 Ceyx 完全無法解碼的格式；Halcyon 仍然列出它們（契約裁決 D2，「保留可瀏覽——移除等於能
+力倒退」），並讓它們走與其他無解碼路由的 RAW 相同的內嵌預覽嘗試。這個嘗試不保證成功：它
+取決於 walker 能否辨認該容器自己的預覽標籤，而對真實 CR2 檔案這一點尚未證實——語料庫裡
+沒有 CR2 樣本，且已知 walker 尋找候選圖依賴的標籤，並不確定真實 CR2 內嵌預覽是否使用。
+本文件的任何敘述都不應被讀成「已經觀察到一個真實 CR2 檔案在 Halcyon 中顯示其內嵌預覽」；
+只是程式碼會嘗試，且不會落到解碼。
 
-檔案被解包之後，Ceyx 的 GPU 派工是依據感光元件的排列方式決定，而不是依廠牌或容器格式：
-
-| 排列方式 | 感光元件範例 |
-|---|---|
-| Bayer 2×2 | 絕大多數 RGGB 家族感光元件 |
-| X-Trans 6×6 | Fujifilm X-Trans |
-| 線性 RGB／無彩色濾鏡陣列 | Foveon X3F |
-
+Fujifilm 的 X-Trans 與 Sigma 的 Foveon X3F 是可解碼的，這不是與清單其他部分分開的另一個
+問題：Ceyx 的 GPU 派工在檔案解包之後依感光元件排列方式決定（Bayer 2×2 對應絕大多數 RGGB
+家族、X-Trans 6×6 對應 Fujifilm、線性 RGB／無彩色濾鏡陣列對應 Foveon），這兩種非 Bayer 排
+列都已有可運作的 GPU 路徑——不存在「是否支援」的懸而未決問題，只有一個已解碼檔案會落在哪
+一種排列派工上的問題。
 <!-- evidence: ceyx README.md:107-117 -->
 
-### 「列出的格式」與「可解碼的格式」之間的落差
+### 完整 RAW 解碼路由
 
-Halcyon 列出的每一個 RAW 副檔名（`.dng`、`.cr2`、`.nef`、`.arw`、`.rw2`、`.orf`）都在 Ceyx
-記載的能力範圍內，但 Ceyx 記載能解碼的格式集合實質上更大——包含 Fujifilm RAF（X-Trans
-感光元件）、Canon CR3、Pentax PEF、Phase One IIQ、Minolta MRW，以及 Sigma 的 Foveon
-X3F——這些格式沒有一個出現在 Halcyon 的掃描白名單裡，**因此不論 Ceyx 有沒有能力解碼，這些
-格式的檔案完全不會出現在側欄裡**。
-<!-- evidence: lib/models/supported_photo_formats.dart:6-16; ceyx README.md:73-76 -->
+過去有兩個 Halcyon 端的落差，卡在「Ceyx 能解碼這個容器」與「Halcyon 真的會請它解碼」之間
+：較窄的掃描白名單（已於上文關閉）與一個硬編碼到 `.dng` 的解碼路由決策。兩者在本契約下都
+已關閉。
 
-第二個、也更重要的落差，藏在 Halcyon *確實*列出的格式內部。目前唯一接上 Halcyon Dart 程式
-碼的 Ceyx 進入點是 DNG 完整解碼器（`DngDecoderService.decodeOnWorker`，包裝為
-`halcyonDngFullDecoder`）；`lib/` 裡沒有任何呼叫點使用 Ceyx 的通用 RAW 進入點。
-`dart_image_loader.dart` 裡的 RAW 解碼備援只會針對 `.dng` 觸發；一個沒有可用內嵌預覽的
-`.cr2`、`.nef`、`.arw`、`.rw2` 或 `.orf` 檔案會回傳 `RAW_NO_EMBEDDED_PREVIEW` 失敗，而不是
-被送進解碼器——也就是說，**目前非 DNG 的 RAW 檔案只有在其內嵌預覽可用時才會顯示，永遠不會
-走完整的 RAW 解碼**。
-<!-- evidence: lib/services/image_pipeline/dng_decode_service.dart:5-34; lib/services/image_pipeline/dart_image_loader.dart:12-15,114-119 -->
+解碼派工本身——把檔案交給 Ceyx 解碼器的那段程式碼，發生在載入器已經說「這需要真正的 RAW
+解碼」之後——在這一輪之前**就已經與格式無關**；狀態協調器與預載控制器的全尺寸那一半內都
+沒有 `.dng` 專屬的分支。整個路由缺口只存在於一處：純 Dart 的影像載入器過去只在路徑以 `.dng`
+結尾時才發出「需要 RAW 解碼」訊號，導致其他每一個缺乏可用內嵌預覽的 RAW 副檔名都落到
+`RAW_NO_EMBEDDED_PREVIEW` 失敗，從未真正到達解碼器。這道閘現在是
+`SupportedPhotoFormats.isDecodablePath`——對 Ceyx 能力常數內的每一個副檔名為真，對 D2
+browse-only 集合與其餘一切為假——因此該訊號會對任何引擎可解碼的 RAW 觸發，不只是 DNG。
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:12-27,126-137; lib/services/image_pipeline/photo_source.dart:143-163 -->
 
-### 原生解碼器的平台可用性
+有兩道過去同樣寫成 `.dng` 的守衛，也重新推導到了同一道閘上，而不是被留在舊行為裡：把尺寸
+不足的預覽候選圖送去解碼、而非直接端出的最小長邊嚴格性（`docs/sop/memory.md` AD-021），
+以及「容器只宣告了讀不到的候選圖」的 malformed 判定（`docs/sop/memory.md` AD-022）。兩者
+現在都適用於每一個引擎可解碼的 RAW，不只是 DNG；browse-only RAW（D2）刻意被排除在兩者之
+外，因為在那裡拒絕一個候選圖，除了 `RAW_NO_EMBEDDED_PREVIEW` 沒有其他地方可以落下去——
+沒有解碼器在另一端等著。
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:69-137 -->
 
-並非 Halcyon 支援的每一個平台都能使用完整 RAW 解碼。建置腳本的原生函式庫對照表只為 macOS、
-Windows 與 Android 建置並封裝 Ceyx 解碼器函式庫；不在這張表裡的目標平台就沒有原生解碼器，
-而該表明確點名 iOS、Linux 與 web 就是這樣的目標平台。在這三個平台上，下文的路徑二無法執行
-——一個沒有可用內嵌預覽的 RAW 檔案在這些平台上沒有完整解碼的備援，只有內嵌預覽路徑（路徑
-一）能產生像素。
+**順手修好的一個既有 bug。** 側欄縮圖的 RAW 解碼備援過去的閘門是「這是不是一個 RAW 檔」，
+而不是「引擎能不能解碼這個 RAW 檔」，導致每一次資料夾載入都會對 browse-only RAW
+（`.cr2`/`.iiq`/`.mrw`）觸發一次注定失敗的原生解碼呼叫——這個呼叫永遠不會成功，被靜默吞
+掉後退化成一格空白的側欄縮圖。這道閘現在改用與其他地方相同的 `isDecodablePath` 檢查：一
+個程式碼仍會嘗試解碼的格式，從來就不是真正的 browse-only。
+<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:875-888 -->
+
+### Panasonic RW2：另一種容器版面，不只是版本字不同
+
+接受 Panasonic 的 TIFF 版本字（85，相對於 Adobe／標準的 42）是必要條件，但還不夠。RW2 的
+IFD0 是一條普通的 TIFF 鏈，但它不帶 walker 原本尋找候選圖所依賴的六個標籤中任何一個
+（Compression、PhotometricInterpretation、寬／高、StripOffsets/StripByteCounts）——它的
+內嵌預覽是整段 JPEG 位元流直接塞在兩個廠商標籤裡（`0x002E`「JpgFromRaw」小圖、`0x0127`
+「JpgFromRaw2」全尺寸圖），尺寸不寫在 IFD 任何地方。walker 現在對每個 blob 自己的 JPEG
+frame header 做有界掃描以取得尺寸，並在判斷候選圖是否為全尺寸時，退回使用 Panasonic 自己
+的寬高 IFD 標籤（而非 RW2 沒有的 Adobe `DefaultCropSize` 標籤）。
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:19-24,314-327,731-834 -->
+
+在真實樣本檔
+（`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/2026-08-10-17-47-27.rw2`）上，
+全尺寸預覽路徑選中 `0x0127` blob——6000×4000，3,593,728 bytes——側欄路徑選中較小的
+`0x002E` blob——1920×1280——探測成本實測為 24,578 bytes、共 4 次讀取。
+<!-- evidence: test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart:396-448 -->
+
+非 TIFF 的 RAW 容器（Fujifilm RAF、Sigma X3F、Canon CR3）刻意不由這個 walker 處理；它們
+根本不是以 TIFF 為基礎，因此直接抵達 Ceyx 解碼器，這樣就已足夠。
+
+### 此平台無原生解碼器的狀態（D3）
+
+並非 Halcyon 支援的每一個平台都能使用完整 RAW 解碼。建置腳本的原生函式庫對照表只為
+macOS、Windows 與 Android 建置並封裝 Ceyx 解碼器函式庫；不在這張表裡的目標平台就沒有原生
+解碼器，而該表明確點名 iOS、Linux 與 web 就是這樣的目標平台。
 <!-- evidence: scripts/build_apps.py:265-290 -->
+
+在這三個平台上，一個需要真正解碼（沒有可用內嵌預覽）的 RAW 檔案，現在在內部與一般解碼失
+敗是可以區分的。純 Dart 載入器依然照原則不做任何 `Platform` 檢查：它仍然發出一般的「需要
+RAW 解碼」訊號，由持有 decoder seam 的那一層在嘗試任何動作**之前**偵測到解碼器缺席，並將
+其記錄為帶有 `NO_NATIVE_DECODER` 代碼的 `NativeImageFailure`——這是一個靜態的平台屬性，
+絕不是從捕捉到的例外推斷出來的，也絕不會與一個存在但對壞資料拋出例外的解碼器混淆。
+`NativeImageResult` 仍然只有三個變體；這是表達在既有失敗變體上的一個失敗代碼，不是第四個
+變體（`docs/sop/memory.md` AD-010/AD-011）。**這只是一個資料層級的區分**：目前 app 的
+views 裡沒有任何地方讀取這個代碼，所以這個項目呈現的方式與任何其他永久失敗完全相同，沒有
+「此平台無原生解碼器」的專屬畫面訊息。
+<!-- evidence: lib/services/image_pipeline/image_source_types.dart:120-132; lib/services/image_pipeline/photo_source.dart:147-162; lib/services/image_pipeline/image_preload_controller.dart:297,309-316; lib/providers/app_state.dart:219 -->
 
 ### 兩條讀取路徑
 
-Halcyon 用兩種方式之一顯示一張 RAW 照片的像素，而選哪一條是在任何 GPU 運算開始之前就決定
+Halcyon 用三種方式之一顯示一張 RAW 照片的像素，而選哪一條是在任何 GPU 運算開始之前就決定
 好的。下文的路徑二，依賴一個只在 macOS、Windows 與 Android 上才有的原生 Ceyx 函式庫（見上
-方「原生解碼器的平台可用性」）；在 iOS、Linux 與 web 上，路徑一是唯一能為 RAW 檔案產生像
-素的路徑。
+方「此平台無原生解碼器的狀態（D3）」）；在 iOS、Linux 與 web 上，一個沒有可用內嵌預覽的
+引擎可解碼 RAW 會回報 D3 狀態，而不是執行路徑二。
 
 **路徑一——內嵌預覽。** 許多 RAW 容器（尤其是 Lightroom Classic 或 DxO PureRAW 產出的
-DNG）在實際的感光元件資料旁還帶有一張或多張 JPEG 成品。當找到一個大小足以滿足請求的候選
-圖時，Halcyon 會直接讀取那張 JPEG——一次有邊界檢查的定位讀取（seek）與切片，完全不對 RAW
-馬賽克進行影像解碼——並徹底跳過 RAW 解碼。
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:6-13 -->
+DNG，以及透過廠商標籤 blob 的 Panasonic RW2）在實際的感光元件資料旁還帶有一張或多張 JPEG
+成品。當找到一個大小足以滿足請求的候選圖時，Halcyon 會直接讀取那張 JPEG——一次有邊界檢查
+的定位讀取（seek）與切片，完全不對 RAW 馬賽克進行影像解碼——並徹底跳過 RAW 解碼。
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:6-24 -->
 
-**路徑二——完整 RAW 解碼。** 當沒有任何預覽候選圖符合條件時，該檔案會改交給 Ceyx 的 DNG
-完整解碼器處理。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:107-112; lib/services/image_pipeline/dng_decode_service.dart:5-14 -->
+**路徑二——完整 RAW 解碼。** 當沒有任何預覽候選圖符合條件、且該副檔名在 Ceyx 可解碼集合
+內時，該檔案會交給 Ceyx 的解碼器（`DngFullDecoder` seam；這個名字早於本輪的一般化改動，
+不在本輪重新命名的範圍內——見 `docs/sop/memory.md` AD-032 的架構決策條目）。
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-195; lib/services/image_pipeline/photo_source.dart:143-192 -->
 
-決定走哪一條路徑的規則是一個最小長邊要求，而且刻意不是統一套用的。`.dng` 檔案的 `preview`
-請求用途（長邊 2800px）會把這個值當作 `minLongEdge` 傳入：若選中的候選圖長邊小於
-2800px，就直接被拒絕，改把該檔案送進路徑二，而不是端出一張尺寸不足的圖像。
-<!-- evidence: lib/services/image_pipeline/image_source_types.dart:19; lib/services/image_pipeline/dart_image_loader.dart:69-77 -->
+**路徑三——此平台無原生解碼器（D3）。** 在 iOS、Linux 與 web 上，路徑二完全無法執行；一個
+原本需要它的 RAW 會在內部被記錄為上述的 `NO_NATIVE_DECODER` 代碼，不會有另外的畫面呈現。
 
-側欄縮圖路徑與匯出路徑都不套用這個下限。側欄刻意維持「先選最小、再退而求其次選最大」的
-寬鬆候選圖選擇邏輯，讓縮圖永遠不會落到需要完整 RAW 解碼的地步；匯出路徑維持寬鬆則是因為
-這條路徑上根本沒有 RAW 解碼備援——若在這裡拒絕尺寸不足的候選圖，會把「匯出一張稍小的圖」
-變成「匯出失敗」，這是能力上的損失，而不是修正正確性。
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:86-93; lib/services/image_pipeline/dart_image_loader.dart:41-51,58-68; docs/sop/memory.md AD-021 -->
+決定走路徑一或路徑二的規則是一個最小長邊要求，而且刻意不是統一套用的。任何引擎可解碼 RAW
+的 `preview` 請求用途（長邊 2800px）會把這個值當作 `minLongEdge` 傳入：若選中的候選圖長邊
+小於 2800px，就直接被拒絕，改把該檔案送進路徑二，而不是端出一張尺寸不足的圖像。
+<!-- evidence: lib/services/image_pipeline/image_source_types.dart:19; lib/services/image_pipeline/dart_image_loader.dart:126-137 -->
 
-還有一個與尺寸下限無關、獨立生效的拒絕門檻：如果一個 DNG 宣告的裁切範圍會讓解碼出來的
+側欄縮圖路徑刻意不套用這個下限：它維持「先選最小、再退而求其次選最大」的寬鬆候選圖選擇
+邏輯，讓縮圖永遠不會落到需要完整 RAW 解碼的地步。
+<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:96-100; lib/services/image_pipeline/dart_image_loader.dart:58-67; docs/sop/memory.md AD-021 -->
+
+`PhotoExportService.exportBytesFor` 是以 `preview` 這個用途呼叫載入器——正是嚴格下限所依
+據的同一個用途——因此這個下限現在同樣適用於匯出：一個最佳內嵌候選圖長邊不到 2800px 的匯
+出來源，會被送進完整 RAW 解碼，而不是以較小的尺寸匯出。
+<!-- evidence: lib/services/library/photo_export_service.dart:53-58 -->
+
+還有一個與尺寸下限無關、獨立生效的拒絕門檻：如果一個 RAW 宣告的裁切範圍會讓解碼出來的
 RGBA 緩衝區超過大約 1.5 GB，就會直接拒絕解碼，藉此限制記憶體使用量的最壞情況。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:96-105 -->
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-182 -->
 
-### 兩種不同的「無預覽」結果
+### 「還沒有全尺寸像素」時不會被混為一談的兩件事
 
-一個未能產出可用內嵌預覽的 DNG，會落入以下兩種狀態之一，而 Halcyon 的載入器會把它們區分
-開來，而不是把它們併成同一種通用失敗：
+一個容器宣告的預覽候選圖全部讀不到——例如某個資料條的偏移量或位元組數落在檔案範圍之外—
+—過去會在嘗試任何解碼之前立刻被回報為損毀。這個搶先攔截現已移除：這類容器現在會先被送進
+真正的 RAW 解碼，和一般沒有預覽的檔案走同一條路，只有在解碼**也**失敗時，才會被回報為損
+毀（`DNG_PARSE_FAILED`）。這個改動源自一次實測：一個處於此狀態的檔案被判定為損毀，但引擎
+其實在 383 毫秒內成功解碼了它真正的感光元件資料。
+<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:138-170; lib/services/image_pipeline/image_source_types.dart:76-104; lib/services/image_pipeline/photo_source.dart:193-222 -->
+
+「每一個宣告的預覽都讀不到」這個發現本身仍然會被往下傳遞；它沒有被丟棄，只是不再提早被
+採取行動。它搭載在同一個「需要 RAW 解碼」訊號的一個欄位上
+（`NativeImageNeedsRawDecode.declaredPreviewsUnreadable`），由持有解碼器的那一層最終判
+定，因為只有它才知道解碼是否成功：
 
 - **容器完全沒有宣告任何預覽**（裸感光元件擷取檔，或每一個候選圖都缺席、或都因尺寸不足而
-  被拒絕）。這不算錯誤：該檔案會繼續走到路徑二、完整 RAW 解碼，並沿用同一次掃描已經讀到的
-  EXIF 方向資訊。
-- **容器宣告了一個或多個預覽候選圖，但每一個都讀不到**——例如某個資料條的偏移量或位元組數
-  落在檔案範圍之外。這會被視為結構性損毀的檔案：Halcyon 會回報為解碼失敗
-  （`DNG_PARSE_FAILED`），而不是靜默地嘗試——並且失敗——對已證實不一致的資料進行 RAW 解碼。
+  被拒絕），且解碼失敗——這是通用的 miss，沒有損毀代碼。
+- **容器宣告了預覽但全部讀不到**，且解碼也失敗——直到此刻才會被回報為損毀
+  （`DNG_PARSE_FAILED`）；AD-022 的兩狀態區分原則保留，只是判定時機從解碼前移到了解碼
+  嘗試之後。
+- **容器宣告了預覽但全部讀不到**，但解碼**成功**——檔案正常顯示，從未被判定為損毀，這正
+  是本次改動的重點。
+- **此平台沒有原生解碼器**（D3，見上文）——這是建置的屬性，不是檔案的屬性，在嘗試任何解
+  碼之前就已決定，且絕不會與上述任一狀態、或一個存在但拋出例外的解碼器混淆。
 
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dart_image_loader.dart:80-95 -->
+Browse-only RAW（D2）在任何方向都不受影響：它從未被舊的搶先攔截處理過，現在也沒有解碼可
+以路由過去，所以一個損毀的 `.cr2`/`.iiq`/`.mrw` 全程維持通用的 `RAW_NO_EMBEDDED_PREVIEW`
+狀態。
+<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dart_image_loader.dart:159-170,196-203; lib/services/image_pipeline/photo_source.dart:193-222 -->
 
-一個讀不到的候選圖，若旁邊還有一個讀得到的候選圖，並不會觸發「容器損毀」狀態——只有在*沒
-有任何*宣告的候選圖可讀時，才會被判定為 malformed。
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:44-55 -->
+一個讀不到的候選圖，若旁邊還有一個讀得到的候選圖，並不會觸發「容器損毀」這個發現——只有
+在*沒有任何*宣告的候選圖可讀時，才會被判定為 malformed。
+<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:521-528 -->
+
+### 已證實的部分，以及尚未證實的部分
+
+上述路由改動已經實作，並以替身解碼器的單元測試覆蓋
+（`test/services/image_pipeline/raw_coverage_wiring_test.dart`、
+`test/services/image_pipeline/dart_image_loader_test.dart`、
+`test/services/image_pipeline/photo_source_test.dart`）。它**尚未**針對一個真實的、非
+DNG 格式的無預覽檔案完成端到端證實：本專案唯一擁有的真實 Panasonic 樣本帶有內嵌預覽，因
+此它走的是路徑一，不是路徑二。請勿把上文的路由描述讀成「已經觀察到一個真實通用 RAW 檔案
+在 Halcyon 自己的 app 殼層內經過 Ceyx 解碼器」的宣稱——這一點只對 DNG 證實過（見下文
+「實測效能」）。
+
+真實樣本檔僅有 Panasonic、Sony、Fujifilm、Sigma
+（`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/`）。Nikon、Canon CR3、Olympus、
+Pentax、Samsung 只有路由邏輯測試——沒有真實檔案佐證。這是目前測試語料庫的一項既定限制，
+不是被靜默掩蓋的缺口。
+
+驗證結果，HEAD `0a32c50`：`flutter analyze` 在 `lib/`、`test/`、`tool/` 全範圍回報 0
+issues；`flutter test -j 1` 在整合後的樹上通過 403 個測試案例（需要序列化執行——平行執
+行器會遺失檔名並算錯數量）。
 
 ---
 
