@@ -7,9 +7,9 @@ class SupportedPhotoFormats {
   /// Extensions the Ceyx engine can actually decode, derived from
   /// `kSupportedDecodeExtensions` rather than restated, so a future engine
   /// addition cannot silently desync (contract: docs/logs/2026-08-26/raw-support-contract.md).
-  static final Set<String> decodableExtensions = kSupportedDecodeExtensions
-      .map((ext) => '.${ext.toLowerCase()}')
-      .toSet();
+  static final Set<String> decodableExtensions = Set.unmodifiable(
+    kSupportedDecodeExtensions.map((ext) => '.${ext.toLowerCase()}'),
+  );
 
   /// D2 — formats the engine cannot decode but stay browsable via embedded
   /// preview only (Canon CR2, Phase One IIQ, Minolta MRW).
@@ -19,11 +19,17 @@ class SupportedPhotoFormats {
     '.mrw',
   };
 
-  static Set<String> get rawExtensions =>
-      decodableExtensions.union(browseOnlyRawExtensions);
+  // static final: computed once (folder scans call isSupportedPath/isRawPath
+  // per entry, so these must not re-allocate on every call — they were const
+  // before decodableExtensions made them derived). Unmodifiable so callers
+  // can't corrupt process-global format policy via `.add`.
+  static final Set<String> rawExtensions = Set.unmodifiable(
+    decodableExtensions.union(browseOnlyRawExtensions),
+  );
 
-  static Set<String> get supportedExtensions =>
-      {'.jpg', '.jpeg', '.png'}.union(rawExtensions);
+  static final Set<String> supportedExtensions = Set.unmodifiable(
+    {'.jpg', '.jpeg', '.png'}.union(rawExtensions),
+  );
 
   static const preferredLoadExtensions = <String>[
     '.jpg',
