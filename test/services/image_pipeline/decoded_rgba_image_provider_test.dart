@@ -261,7 +261,7 @@ void main() {
     });
   });
 
-  test('TC-311: a TIFF with Orientation 6 renders 90 degrees clockwise, '
+  test('TC-322: a TIFF with Orientation 6 renders 90 degrees clockwise, '
       'swapping width and height exactly once', () async {
     // A real 2x3 TIFF whose six pixels carry six distinct R-channel markers.
     // Shape alone cannot separate 90CW from 90CCW (both give 3x2), so the

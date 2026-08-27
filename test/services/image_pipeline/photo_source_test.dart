@@ -330,7 +330,7 @@ void main() {
     });
   });
 
-  group('TC-310: a corrupt TIFF is an ordinary permanent miss', () {
+  group('TC-321: a corrupt TIFF is an ordinary permanent miss', () {
     test('a throwing decoder on a TIFF yields failureCode null, NOT '
         'DNG_PARSE_FAILED', () async {
       final source = PhotoSource(

@@ -766,7 +766,7 @@ void main() {
       expect(result, isA<NativeImageNeedsRawDecode>());
     });
 
-    test('TC-313: NativeImageResult still has exactly three variants after '
+    test('TC-324: NativeImageResult still has exactly three variants after '
         'the bitmap-format widening', () {
       // Exhaustive switch with NO default clause: a fourth variant makes this
       // file stop compiling. The counter proves all three arms are live.
@@ -813,7 +813,7 @@ void main() {
       return file.path;
     }
 
-    test('TC-314: a .heic at preview returns NeedsRawDecode carrying the '
+    test('TC-325: a .heic at preview returns NeedsRawDecode carrying the '
         'orientation the probe supplied', () async {
       final path = await writeHeic('a.heic');
       final result = await dartImageLoad(
@@ -832,11 +832,11 @@ void main() {
       );
     });
 
-    test('TC-314: a null probe answer waves through with orientation 1',
+    test('TC-325: a null probe answer waves through with orientation 1',
         () async {
       // The degradation path: no dylib, no symbol, or a native error. It must
       // still reach the decoder, which is what produces the permanent miss —
-      // refusing here would lose the distinction TC-316 depends on.
+      // refusing here would lose the distinction TC-327 depends on.
       final path = await writeHeic('b.heif');
       final result = await dartImageLoad(
         path,
@@ -850,7 +850,7 @@ void main() {
       );
     });
 
-    test('TC-315: a .heic at sidebarThumbnail is a failure and NEVER '
+    test('TC-326: a .heic at sidebarThumbnail is a failure and NEVER '
         'NeedsRawDecode', () async {
       final path = await writeHeic('c.heic');
       var probeCalls = 0;
@@ -873,7 +873,7 @@ void main() {
       );
     });
 
-    test('TC-320: a HEIC declaring 30000x30000 is IMAGE_TOO_LARGE', () async {
+    test('TC-331: a HEIC declaring 30000x30000 is IMAGE_TOO_LARGE', () async {
       final path = await writeHeic('huge.heic');
       // 30000 * 30000 * 4 == 3.6e9 > 1.5e9. The file is 8 bytes long, so any
       // other result would prove the check ran after a decode attempt.

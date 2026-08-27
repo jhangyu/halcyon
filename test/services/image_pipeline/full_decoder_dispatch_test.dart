@@ -263,7 +263,7 @@ void main() {
       expect(heifCalls, 1);
     });
 
-    test('TC-316: an unavailable HEIF library becomes a decoder throw, not a '
+    test('TC-327: an unavailable HEIF library becomes a decoder throw, not a '
         'crash and not the D3 no-decoder state', () async {
       // What the ceyx service does on a build with -DDNG_ENABLE_HEIF=OFF.
       Future<DecodedRgba> unavailable(String path) async =>
@@ -278,7 +278,7 @@ void main() {
       );
     });
 
-    test('TC-316: PhotoSource turns that throw into the uniform permanent '
+    test('TC-327: PhotoSource turns that throw into the uniform permanent '
         'miss, with failureCode null', () async {
       final source = PhotoSource(
         loader: (path, {required purpose}) async =>
@@ -298,7 +298,7 @@ void main() {
       expect(outcome.observedCost, SourceCost.expensive);
     });
 
-    test('TC-317: a length/geometry mismatch is rejected before it can reach '
+    test('TC-328: a length/geometry mismatch is rejected before it can reach '
         'decodeImageFromPixels', () async {
       // The adapter's own check. A buffer that disagrees with its declared
       // geometry would otherwise blow _imageFromPixels' assert deep inside the
@@ -319,7 +319,7 @@ void main() {
       );
     });
 
-    test('TC-317: a consistent buffer passes through unchanged', () async {
+    test('TC-328: a consistent buffer passes through unchanged', () async {
       final rgba = Uint8List(4 * 2 * 4);
       rgba[0] = 0xA5;
       final decoded =

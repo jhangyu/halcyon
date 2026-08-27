@@ -611,7 +611,7 @@ void main() {
     });
   });
 
-  test('TC-312: exporting a TIFF produces a JPEG with long edge <= 2048 and '
+  test('TC-323: exporting a TIFF produces a JPEG with long edge <= 2048 and '
       'Orientation == 1', () async {
     final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_export');
     addTearDown(() => tmp.deleteSync(recursive: true));

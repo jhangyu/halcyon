@@ -24,7 +24,7 @@ void main() {
     return file.path;
   }
 
-  group('TC-319: the probe seam routes by container family', () {
+  group('TC-330: the probe seam routes by container family', () {
     test('a .tif is read by the IFD0 walker, not the HEIF probe', () async {
       var heifCalls = 0;
       Future<BitmapContainerExtent?> neverHeif(String path) async {
