@@ -27,14 +27,50 @@ class SupportedPhotoFormats {
     decodableExtensions.union(browseOnlyRawExtensions),
   );
 
+  /// Formats the Flutter engine's own codec (Skia/Impeller `SkCodec`) reads
+  /// directly from the file's bytes. ONE definition, consumed both by the
+  /// folder-scan whitelist below and by `dart_image_loader.dart`'s
+  /// encoded-bitstream branch, so the two cannot desync (the same
+  /// "derive, don't restate" rule the 2026-08-26 contract imposed on the RAW
+  /// list). Animated WebP is decoded to its first frame only; Halcyon is a
+  /// still-photo triage tool.
+  static const Set<String> engineBitstreamExtensions = {
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+  };
+
+  /// Already-rendered bitmap containers with no cheap encoded bitstream that a
+  /// full decoder can still turn into RGBA. Phase 1 is TIFF via
+  /// `package:image`; `.heic`/`.heif` join this set in phase 2 (native
+  /// libheif) and must NOT be added before that decoder exists.
+  static const Set<String> bitmapDecodeExtensions = {'.tif', '.tiff'};
+
   static final Set<String> supportedExtensions = Set.unmodifiable(
-    {'.jpg', '.jpeg', '.png'}.union(rawExtensions),
+    engineBitstreamExtensions.union(bitmapDecodeExtensions).union(rawExtensions),
   );
 
+  /// Everything with a route to RGBA through the `DngFullDecoder` seam:
+  /// engine-decodable RAW plus the bitmap containers above. Deliberately
+  /// distinct from [decodableExtensions] — AD-021's `minLongEdge` floor and
+  /// AD-022's malformed-container finding stay gated on THAT set, because both
+  /// are statements about embedded previews in a RAW container.
+  static final Set<String> fullDecodeExtensions = Set.unmodifiable(
+    decodableExtensions.union(bitmapDecodeExtensions),
+  );
+
+  /// `.webp` sits AFTER `.png`: a WebP sibling of a RAW should win (it is a
+  /// rendered bitstream), but a JPEG or PNG sibling stays preferred because
+  /// those are what cameras and prior exports produce. `.tif`/`.tiff` are
+  /// absent on purpose — a TIFF must not outrank a JPEG sibling, and
+  /// [bestFileToLoad]'s supported-file fallback already picks it up when the
+  /// whole group is TIFF.
   static const preferredLoadExtensions = <String>[
     '.jpg',
     '.jpeg',
     '.png',
+    '.webp',
   ];
 
   static bool isSupportedPath(String path) {
@@ -47,6 +83,18 @@ class SupportedPhotoFormats {
 
   static bool isDecodablePath(String path) {
     return decodableExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  static bool isEncodedBitstreamPath(String path) {
+    return engineBitstreamExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  static bool isBitmapDecodePath(String path) {
+    return bitmapDecodeExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  static bool hasFullDecodeRoute(String path) {
+    return fullDecodeExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static String photoIdFor(File file) {

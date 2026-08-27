@@ -90,10 +90,78 @@ void main() {
       );
     });
 
-    test('supportedExtensions includes jpg/jpeg/png plus all raw extensions', () {
+    test('supportedExtensions includes engine bitstreams, bitmap-decode and '
+        'all raw extensions', () {
       expect(
         SupportedPhotoFormats.supportedExtensions,
-        {'.jpg', '.jpeg', '.png'}.union(SupportedPhotoFormats.rawExtensions),
+        SupportedPhotoFormats.engineBitstreamExtensions
+            .union(SupportedPhotoFormats.bitmapDecodeExtensions)
+            .union(SupportedPhotoFormats.rawExtensions),
+      );
+    });
+  });
+
+  group('phase-1 bitmap formats', () {
+    test('TC-302: .webp/.tif/.tiff are supported, .xyz is not', () {
+      for (final path in ['a.webp', 'b.tif', 'c.tiff', 'D.WEBP', 'E.TIF']) {
+        expect(
+          SupportedPhotoFormats.isSupportedPath(path),
+          isTrue,
+          reason: '$path must survive the folder scan whitelist',
+        );
+      }
+      expect(SupportedPhotoFormats.isSupportedPath('d.xyz'), isFalse);
+      expect(SupportedPhotoFormats.isSupportedPath('e.heic'), isFalse,
+          reason: 'HEIC is phase 2 and must not be claimed yet');
+    });
+
+    test('TC-302: .webp is an engine bitstream, .tif/.tiff are bitmap-decode',
+        () {
+      expect(SupportedPhotoFormats.isEncodedBitstreamPath('a.webp'), isTrue);
+      expect(SupportedPhotoFormats.isBitmapDecodePath('a.webp'), isFalse);
+      expect(SupportedPhotoFormats.isEncodedBitstreamPath('b.tif'), isFalse);
+      expect(SupportedPhotoFormats.isBitmapDecodePath('b.tif'), isTrue);
+      expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
+      expect(SupportedPhotoFormats.bitmapDecodeExtensions, {'.tif', '.tiff'});
+    });
+
+    test('TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream',
+        () {
+      expect(SupportedPhotoFormats.hasFullDecodeRoute('b.tif'), isTrue);
+      expect(SupportedPhotoFormats.hasFullDecodeRoute('c.tiff'), isTrue);
+      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.dng'), isTrue);
+      for (final path in ['x.cr2', 'y.iiq', 'z.mrw']) {
+        expect(
+          SupportedPhotoFormats.hasFullDecodeRoute(path),
+          isFalse,
+          reason: 'D2 browse-only containers have no decode route',
+        );
+      }
+      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.webp'), isFalse);
+      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.jpg'), isFalse);
+    });
+
+    test('TC-304: bestFileToLoad prefers .jpg over .webp, .webp over .dng', () {
+      File f(String name) => File(name);
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.webp'), f('a.jpg')])!.path,
+        'a.jpg',
+      );
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.png'), f('a.webp')])!.path,
+        'a.png',
+      );
+      // The DNG is listed FIRST: a fallback that returns `supported.first`
+      // would return the DNG, so this only passes if .webp is in
+      // preferredLoadExtensions.
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.dng'), f('a.webp')])!.path,
+        'a.webp',
+      );
+      // TIFF is deliberately NOT preferred over a JPEG sibling.
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.tif'), f('a.jpg')])!.path,
+        'a.jpg',
       );
     });
   });
