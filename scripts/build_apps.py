@@ -1787,6 +1787,15 @@ def print_halide_pins():
 def main():
     args = make_parser().parse_args()
 
+    # Absolutize the S4 sample now: build_apps.py runs from the Halcyon repo, so
+    # a relative --cfa-sample-dng passes the Phase-0 existence check here, but
+    # test_cfa_color is invoked by run_checked with cwd=native/build, where the
+    # same relative path resolves to nothing and LibRaw returns DATA_ERROR
+    # (100008) on an empty read. Pinning it to an absolute path once removes the
+    # cwd dependency for every downstream consumer.
+    if args.cfa_sample_dng:
+        args.cfa_sample_dng = os.path.abspath(args.cfa_sample_dng)
+
     if args.print_halide_pins:
         print_halide_pins()
         return
