@@ -62,7 +62,7 @@ class PerfDriver {
   }
 
   static Future<void> _run(AppState state) async {
-    PerfLog.init(_out);
+    PerfLog.init(_out, payloadByteBudget: state.retentionPolicy.payloadByteBudget);
     Timer.periodic(const Duration(seconds: 1), (t) {
       PerfLog.log('heartbeat');
     });

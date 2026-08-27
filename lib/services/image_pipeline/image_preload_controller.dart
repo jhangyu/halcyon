@@ -16,6 +16,7 @@ import 'photo_source.dart';
 import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
+import 'retention_policy.dart';
 import 'serial_decode_lane.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
@@ -77,8 +78,16 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     DngSizedDecoder? sidebarRawDecoder,
+    this.retention = const RetentionPolicy.floor(),
   }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),
-       _sidebarRawDecoder = sidebarRawDecoder;
+       _sidebarRawDecoder = sidebarRawDecoder,
+       _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
+
+  /// How far retention reaches and how many bytes it may hold. Sized from
+  /// total physical memory at startup (see retention_policy.dart); the
+  /// default is the shipped floor, so every test and every platform without
+  /// a memory reading behaves exactly as before.
+  final RetentionPolicy retention;
 
   final PhotoSource _source;
   // M6 P2.5b: sized RAW-decode fallback for the sidebar sweep, for bare-CFA
@@ -86,7 +95,7 @@ class ImagePreloadController {
   // never decodes by design otherwise -- see the sweep below). Null on
   // platforms/tests with no RAW decoder at all.
   final DngSizedDecoder? _sidebarRawDecoder;
-  final PhotoPayloadCache _cache = PhotoPayloadCache();
+  final PhotoPayloadCache _cache;
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
   /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
@@ -414,6 +423,8 @@ class ImagePreloadController {
       items,
       currentIndex,
       (item) => item.id,
+      before: retention.before,
+      after: retention.after,
     );
     _retentionIds = neededIds;
     for (final id in _cache.retainOnly(neededIds)) {
@@ -453,11 +464,11 @@ class ImagePreloadController {
     // belongs to a different generation.
     if (generation != _previewGeneration) return;
 
-    final startIdx = (currentIndex - kRetentionBefore).clamp(
+    final startIdx = (currentIndex - retention.before).clamp(
       0,
       items.length - 1,
     );
-    final endIdx = (currentIndex + kRetentionAfter).clamp(0, items.length - 1);
+    final endIdx = (currentIndex + retention.after).clamp(0, items.length - 1);
     // NEAR-TO-FAR, not start-to-end: an expensive item does not load here, it
     // is ENQUEUED on the serial lane, and the lane's start order is the order
     // this loop hands it (0, +1, -1, +2, -2, +3, -3, +4, +5 -- user ruling
@@ -875,11 +886,11 @@ class ImagePreloadController {
     final height = _tierOneHeight;
     if (width == null || height == null) return;
 
-    final tierStart = (currentIndex - kRetentionBefore).clamp(
+    final tierStart = (currentIndex - retention.before).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kRetentionAfter).clamp(
+    final tierEnd = (currentIndex + retention.after).clamp(
       0,
       items.length - 1,
     );
@@ -893,6 +904,8 @@ class ImagePreloadController {
       items,
       currentIndex,
       (item) => item.id,
+      before: retention.before,
+      after: retention.after,
     );
 
     for (var i = tierStart; i <= tierEnd; i++) {

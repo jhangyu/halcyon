@@ -33,6 +33,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
+import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 // A minimal valid 1x1 transparent PNG: exercises a REAL engine decode, so the
 // ImageCache assertions below are about entries that actually landed rather
@@ -563,5 +564,73 @@ void main() {
     // sanity-check the other, so both are asserted independently.
     expect(kImageCacheCeilingBytes, 768 * 1024 * 1024);
     expect(kPayloadByteBudget, 224 * 1024 * 1024);
+  });
+
+  test('TC-318 a mid-rung policy fills out to +8 and retains nothing at +9',
+      () async {
+    const midRung = RetentionPolicy(
+      before: 3,
+      after: 8,
+      payloadByteBudget: 318767104,
+    );
+    final controller = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+      dngDecoder: (path) async => fakeDecoded(),
+      retention: midRung,
+    );
+    addTearDown(controller.dispose);
+    controller.updateTargetSize(10, 10);
+
+    final photos = rawItems(30);
+    const selected = 12;
+    await controller.preloadImages(
+      items: photos,
+      selectedItemId: photos[selected].id,
+      notifyLoaded: () {},
+    );
+    await _until(
+      () => List.generate(
+        midRung.before + midRung.after + 1,
+        (i) => photos[selected - midRung.before + i].id,
+      ).every((id) => controller.payloadFor(id) != null),
+      reason: 'every slot of the mid-rung -3..+8 window to acquire a payload',
+    );
+
+    expect(
+      controller.payloadFor(photos[selected + midRung.after].id),
+      isNotNull,
+      reason: '+8 is inside the mid rung and must hold a payload',
+    );
+    expect(
+      controller.payloadFor(photos[selected + midRung.after + 1].id),
+      isNull,
+      reason: '+9 is outside the mid rung and must never be retained',
+    );
+  });
+
+  test('TC-319 the default policy is still the shipped -3..+5 floor', () async {
+    final controller = cheapController();
+    addTearDown(controller.dispose);
+    controller.updateTargetSize(10, 10);
+    expect(controller.retention, const RetentionPolicy.floor());
+
+    final photos = rawItems(30);
+    const selected = 12;
+    await controller.preloadImages(
+      items: photos,
+      selectedItemId: photos[selected].id,
+      notifyLoaded: () {},
+    );
+    await _until(
+      () => controllerWindowFilled(controller, photos, selected),
+      reason: 'the -3..+5 floor window to fill',
+    );
+
+    expect(
+      controller.payloadFor(photos[selected + kRetentionAfter + 1].id),
+      isNull,
+      reason: 'the default controller must not reach past +5',
+    );
   });
 }

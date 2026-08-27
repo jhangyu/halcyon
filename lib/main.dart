@@ -4,6 +4,8 @@ import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/dng_decode_service.dart';
+import 'services/image_pipeline/retention_policy.dart';
+import 'services/platform/device_memory.dart';
 import 'services/platform/open_with_channel.dart';
 import 'views/main_screen.dart';
 import 'views/theme_tokens.dart';
@@ -12,20 +14,34 @@ import 'views/theme_tokens.dart';
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
 // precaching needs headroom for several images at once.
 
-void configureImageCache() {
-  // M6 F-25/P5.1: derived from physical memory via imageCacheBudgetBytes,
-  // behind an injectable seam — dart:io has no platform-neutral
+void configureImageCache({int? physicalMemoryBytes}) {
+  // M6 F-25/P5.1 seam, now actually fed: DeviceMemory supplies the reading on
+  // macOS and null everywhere else, and null yields the same fixed ceiling
+  // this app shipped before. dart:io still has no platform-neutral
   // total-physical-memory API (ProcessInfo is RSS-only) and Platform.isX
-  // branches are forbidden (C-3), so this passes null (no source) and gets
-  // back the same fixed ceiling as imageCacheBudgetBytes's own `ceiling`. See
+  // branches are forbidden (C-3), which is why the reading arrives over a
+  // channel instead of from Dart. See
   // lib/services/image_pipeline/cache_budget.dart for the sizing rationale.
-  PaintingBinding.instance.imageCache.maximumSizeBytes =
-      imageCacheBudgetBytes(physicalMemoryBytes: null);
+  PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheBudgetBytes(
+    physicalMemoryBytes: physicalMemoryBytes,
+  );
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  configureImageCache();
+  // ONE reading, taken before runApp. It must be awaited here rather than
+  // fired off: AppState is constructed on the next line, and a late-arriving
+  // reading would silently leave the app on the floor policy while looking
+  // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
+  final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
+  configureImageCache(physicalMemoryBytes: physicalMemoryBytes);
+  final retention = retentionPolicyFor(
+    physicalMemoryBytes: physicalMemoryBytes,
+  );
+  // The one line that makes the mechanism self-reporting: without it, "the
+  // app adapts to this machine" is a claim about code rather than an
+  // observed fact. Compared against `sysctl -n hw.memsize` on macOS.
+  debugPrint('startup.memory|bytes=$physicalMemoryBytes|policy=$retention');
   // Composition root: injects the real RAW decoder. When dngDecoder is null
   // (tests, and any platform without the native dylib) a DNG carrying no
   // embedded preview is a PERMANENT MISS -- there is no legacy decode channel
@@ -33,6 +49,7 @@ void main() {
   // AppState's constructor.
   final appState = AppState(
     dngDecoder: halcyonDngFullDecoder,
+    retention: retention,
   ); // PERF-INSTRUMENTATION
   // Finder "Open With" / shell association: load the file's folder and select
   // that photo. Registered before runApp so a launch-time file isn't missed.
