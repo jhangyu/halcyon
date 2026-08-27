@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../models/supported_photo_formats.dart';
+import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
 
@@ -35,11 +36,12 @@ Future<NativeImageResult> dartImageLoad(
   String path, {
   required ImageRequestPurpose purpose,
 }) async {
-  final lower = path.toLowerCase();
-  final isEncodedBitstream =
-      lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.png');
+  // Derived, never restated: the SAME set the folder-scan whitelist uses
+  // (`SupportedPhotoFormats.engineBitstreamExtensions`), so a format added to
+  // the scan cannot silently miss this branch and fall through to the RAW
+  // path. `.webp` joins here in phase 1 — the Flutter engine's codec reads it
+  // natively on every platform.
+  final isEncodedBitstream = SupportedPhotoFormats.isEncodedBitstreamPath(path);
   try {
     if (!await File(path).exists()) {
       // Deviation from the plan's verbatim listing (reported to the lead):
@@ -54,6 +56,44 @@ Future<NativeImageResult> dartImageLoad(
     }
     if (isEncodedBitstream) {
       return NativeImageBytes(await File(path).readAsBytes());
+    }
+    // Already-rendered bitmap containers (phase 1: TIFF). No embedded-preview
+    // walk runs for these at all: `DngEmbeddedJpegExtractor` is a RAW-preview
+    // walker, and a scanner TIFF's IFD0 IS the image, so "extract the embedded
+    // preview" is meaningless here. Placing the branch above the walk is what
+    // makes that structural rather than a comment — and it is also why
+    // `declaredPreviewsUnreadable` is always false for a TIFF, leaving
+    // AD-022's two RAW-specific end states untouched.
+    if (SupportedPhotoFormats.isBitmapDecodePath(path)) {
+      if (purpose != ImageRequestPurpose.preview) {
+        // The AD-010 invariant, preserved verbatim: NeedsRawDecode is emitted
+        // for the preview purpose ONLY. The sidebar's own sized-decode
+        // fallback (image_preload_controller.dart) is the only thumbnail
+        // route for these files.
+        return const NativeImageFailure(
+          'NO_THUMBNAIL',
+          'no embedded candidate',
+        );
+      }
+      final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
+      if (dims != null &&
+          dims.width * dims.height * 4 > kDecodedPixelBudgetBytes) {
+        // The budget moves WITH the escape hatch, so it now covers TIFF. This
+        // is stricter than JPEG/WebP on purpose: the TIFF decode happens on
+        // the Dart heap in an isolate, where the failure mode is a process
+        // OOM rather than an engine-side decode error. A null extent
+        // (unreadable IFD0) waves through, exactly as on the RAW path below.
+        return const NativeImageFailure(
+          'IMAGE_TOO_LARGE',
+          'decode exceeds the decoded-pixel budget',
+        );
+      }
+      final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
+      return NativeImageNeedsRawDecode(
+        exifOrientation: orientation ?? kDefaultExifOrientation,
+        // Structurally false: no preview probe ran, so the container cannot
+        // have "declared previews that were all unreadable" (AD-022).
+      );
     }
     if (purpose == ImageRequestPurpose.sidebarThumbnail) {
       // Smallest embedded candidate reaching the sidebar edge (G3 finding:
@@ -171,7 +211,8 @@ Future<NativeImageResult> dartImageLoad(
     if (purpose == ImageRequestPurpose.preview &&
         SupportedPhotoFormats.isDecodablePath(path)) {
       final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
-      if (dims != null && dims.width * dims.height * 4 > 1500000000) {
+      if (dims != null &&
+          dims.width * dims.height * 4 > kDecodedPixelBudgetBytes) {
         // F-20: same budget the deleted native guard enforced
         // (formerly AppDelegate.swift renderCGImage). A header claiming an
         // absurd extent must be an error result, never an OOM.

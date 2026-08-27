@@ -658,4 +658,137 @@ void main() {
       );
     });
   });
+
+  group('phase-1 bitmap formats', () {
+    late Directory tmp;
+
+    setUpAll(() {
+      tmp = Directory.systemTemp.createTempSync('halcyon_bitmap_loader');
+    });
+    tearDownAll(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    Future<String> writeBytes(String name, Uint8List bytes) async {
+      final file = File('${tmp.path}${Platform.pathSeparator}$name');
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    }
+
+    test('TC-303: a .webp takes the encoded-bitstream branch for all three '
+        'purposes and returns the file\'s own bytes', () async {
+      // Content need not be a valid WebP: this branch never decodes, it only
+      // hands the bytes to the engine. Using a marker payload proves the
+      // returned buffer is the FILE's bytes, not something re-encoded.
+      final marker = Uint8List.fromList([
+        0x52, 0x49, 0x46, 0x46, 0xDE, 0xAD, 0xBE, 0xEF,
+      ]);
+      final path = await writeBytes('a.webp', marker);
+      for (final purpose in ImageRequestPurpose.values) {
+        final result = await dartImageLoad(path, purpose: purpose);
+        expect(result, isA<NativeImageBytes>(), reason: 'purpose $purpose');
+        expect((result as NativeImageBytes).bytes, marker);
+      }
+    });
+
+    test('TC-305: a .tif at preview returns NeedsRawDecode with the IFD0 '
+        'orientation and declaredPreviewsUnreadable == false', () async {
+      final path = await writeBytes(
+        'b.tif',
+        buildSyntheticTiffHeader(width: 800, height: 600, orientation: 6),
+      );
+      final result =
+          await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+      expect(result, isA<NativeImageNeedsRawDecode>());
+      final signal = result as NativeImageNeedsRawDecode;
+      expect(signal.exifOrientation, 6);
+      expect(
+        signal.declaredPreviewsUnreadable,
+        isFalse,
+        reason: 'a bitmap container is never preview-probed, so AD-022 '
+            'cannot apply to it',
+      );
+    });
+
+    test('TC-305: a .tif with no Orientation tag falls back to 1', () async {
+      final path = await writeBytes(
+        'b_noorient.tif',
+        buildSyntheticTiffHeader(width: 800, height: 600),
+      );
+      final result =
+          await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+      expect(
+        (result as NativeImageNeedsRawDecode).exifOrientation,
+        kDefaultExifOrientation,
+      );
+    });
+
+    test('TC-306: a .tif at sidebarThumbnail is a failure and NEVER '
+        'NeedsRawDecode', () async {
+      final path = await writeBytes(
+        'c.tiff',
+        buildSyntheticTiffHeader(width: 800, height: 600, orientation: 6),
+      );
+      final result = await dartImageLoad(
+        path,
+        purpose: ImageRequestPurpose.sidebarThumbnail,
+      );
+      expect(result, isNot(isA<NativeImageNeedsRawDecode>()));
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
+    });
+
+    test('TC-307: a TIFF header declaring 30000x30000 is IMAGE_TOO_LARGE',
+        () async {
+      final path = await writeBytes(
+        'huge.tif',
+        buildSyntheticTiffHeader(width: 30000, height: 30000),
+      );
+      // 30000 * 30000 * 4 == 3.6e9 > 1.5e9. The file is 26 bytes long, so a
+      // result other than IMAGE_TOO_LARGE would prove the check ran after a
+      // decode attempt rather than before one.
+      final result =
+          await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'IMAGE_TOO_LARGE');
+    });
+
+    test('TC-307: a TIFF just under the budget still routes to the decoder',
+        () async {
+      // 19364 * 19364 * 4 == 1_499_857_984 < 1_500_000_000. Pins that the
+      // comparison is a strict `>` on the budget, not an off-by-one refusal.
+      final path = await writeBytes(
+        'nearlimit.tif',
+        buildSyntheticTiffHeader(width: 19364, height: 19364),
+      );
+      final result =
+          await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+      expect(result, isA<NativeImageNeedsRawDecode>());
+    });
+
+    test('TC-313: NativeImageResult still has exactly three variants after '
+        'the bitmap-format widening', () {
+      // Exhaustive switch with NO default clause: a fourth variant makes this
+      // file stop compiling. The counter proves all three arms are live.
+      final results = <NativeImageResult>[
+        NativeImageBytes(Uint8List(0)),
+        const NativeImageNeedsRawDecode(
+          exifOrientation: kDefaultExifOrientation,
+        ),
+        const NativeImageFailure('NO_THUMBNAIL', 'no embedded candidate'),
+      ];
+      final seen = <String>{};
+      for (final r in results) {
+        switch (r) {
+          case NativeImageBytes():
+            seen.add('bytes');
+          case NativeImageNeedsRawDecode():
+            seen.add('needsRawDecode');
+          case NativeImageFailure():
+            seen.add('failure');
+        }
+      }
+      expect(seen, {'bytes', 'needsRawDecode', 'failure'});
+    });
+  });
 }
