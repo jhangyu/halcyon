@@ -104,6 +104,16 @@ RAW 與 JPG 檔案的記憶卡時，這個 app 實際會做的事。
 與解碼路由」。
 <!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
 
+在 JPEG／PNG 之外，另外支援兩種點陣圖格式：
+
+- **WebP**（`.webp`）——由 Flutter 引擎在所有平台上直接解碼。動態 WebP 只顯示第一個影格；
+  寫在 WebP `EXIF` 區塊裡的方向資訊不會被套用，因此手機以非 1 的方向標記所寫出的檔案，
+  顯示時可能是旋轉的。
+- **TIFF**（`.tif`、`.tiff`）——以 `package:image` 解碼。支援分條式與分塊式 TIFF、
+  8／16／32 位元取樣，以及 LZW／PackBits／Deflate 與未壓縮；16 位元會降轉為 8 位元供顯示。
+  多頁 TIFF 只顯示第 1 頁。少見的壓縮方式（CCITT G3／G4、TIFF 內嵌 JPEG2000、
+  舊式 TIFF 內嵌 JPEG）不支援，會被視為無法讀取的檔案。
+
 符合的檔案分組（見下節）成 `PhotoItem` 後，最終清單依 id 排序，不分大小寫。
 <!-- evidence: lib/services/library/photo_library_scanner.dart:22-26 -->
 
