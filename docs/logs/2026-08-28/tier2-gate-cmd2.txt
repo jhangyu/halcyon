@@ -1,0 +1,12 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart
+00:00 +0: TC-095 every slot of the -3..+5 retention window holds a tier-1 entry (AC2)
+00:00 +1: TC-096 an item at -3 and one at +5 keep their tier-1 entries while in-window, and lose them on leaving (AC2 killer)
+00:00 +2: TC-097 tier-2 full-size entries cover -1..+3 after the debounce settles (AC3)
+00:00 +3: TC-098a an all-expensive folder fills the WHOLE -3..+5 payload window, not just +/-1 (criterion 2)
+00:00 +4: TC-098b at most ONE expensive decode is ever in flight, while cheap window loads still issue in parallel (criterion 3)
+00:00 +5: TC-098c fresh settle decode START order is 0, +1, -1, +2, -2, +3, -3, +4, +5 (criterion 4)
+00:00 +6: TC-098d navigating mid-queue reprioritises the lane: no decode starts outside the new window, and the next one is its nearest missing item (criterion 5)
+00:01 +7: TC-099 widening tier-1 creates no payloads of its own
+00:02 +8: TC-100 the two budget constants are pinned as raw byte counts
+00:02 +9: All tests passed!
+RC=0

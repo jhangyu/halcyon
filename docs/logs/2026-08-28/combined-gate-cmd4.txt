@@ -1,0 +1,45 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/views/photo_action_bar_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/views/photo_action_bar_test.dart: direct mode shows the trash can icons
+00:00 +1: /Users/jhangyu/project/Halcyon/test/views/photo_action_bar_test.dart: recycle mode shows the restore-from-trash icons
+00:00 +2: loading /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart
+00:00 +2: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: trashed status icon follows the mode
+00:01 +3: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: invoking onSelected with the shared constant reaches the export path
+00:01 +4: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: TC-055 onSelected with the shared constant opens the dialog
+00:01 +5: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: sidebar sweep routes sidebarThumbnail requests through the Dart producer
+00:02 +6: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: sidebar RAW-decode fallback: decodable PNG for a bare-CFA DNG, maxDim 200 requested
+00:02 +7: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: sidebar RAW-decode fallback: decoder throwing is a permanent miss, no crash, no retry signal
+00:02 +8: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: sidebar RAW-decode fallback: a non-RAW item never reaches the decoder
+00:02 +9: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_test.dart: TC-226 the overflow menu exposes exactly the five actions
+00:02 +10: loading /Users/jhangyu/project/Halcyon/test/views/main_detail_view_test.dart
+00:03 +10: /Users/jhangyu/project/Halcyon/test/views/main_detail_view_test.dart: TC-230 the detail view spins with no bytes and no provider
+00:03 +11: loading /Users/jhangyu/project/Halcyon/test/views/theme_tokens_test.dart
+00:04 +11: /Users/jhangyu/project/Halcyon/test/views/theme_tokens_test.dart: TC-229 HalcyonTokens.of falls back to dark
+00:04 +12: /Users/jhangyu/project/Halcyon/test/views/theme_tokens_test.dart: TC-229b lerp returns a HalcyonTokens, not null
+00:04 +13: loading /Users/jhangyu/project/Halcyon/test/views/sidebar_view_thumbnail_decode_cap_test.dart
+00:04 +13: /Users/jhangyu/project/Halcyon/test/views/sidebar_view_thumbnail_decode_cap_test.dart: AC2/AC3: sidebar thumbnail decode is capped at 32*devicePixelRatio on the longest edge and preserves source aspect ratio within 1%
+00:05 +14: loading /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart
+00:06 +14: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: ordinary zoom request a plain zoom-in from identity requests an animation
+00:06 +15: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: ordinary zoom request a plain zoom-out from a zoomed-in state requests an animation
+00:06 +16: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: upper bound zooming in repeatedly clamps at exactly 5.0x
+00:06 +17: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: upper bound a step at the 5.0x ceiling produces no further zoom request
+00:06 +18: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: lower bound reset a target scale <= 1.05 snaps back to identity, not to 1.0x-ish
+00:06 +19: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: lower bound reset a scale still above 1.05 after zoom-out is NOT reset to identity
+00:06 +20: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: focus selection uses pointerPosition when the cursor is over the viewer
+00:06 +21: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: focus selection falls back to lastKnownCenter when the cursor has left
+00:06 +22: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: focus selection a later layout centre is used once the pointer exits
+00:06 +23: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: notification contract a zoom request notifies listeners exactly once
+00:06 +24: /Users/jhangyu/project/Halcyon/test/views/zoom_controller_test.dart: notification contract writing lastKnownCenter or pointerPosition never notifies
+00:06 +25: loading /Users/jhangyu/project/Halcyon/test/views/rename_dialog_test.dart
+00:06 +25: /Users/jhangyu/project/Halcyon/test/views/rename_dialog_test.dart: TC-052 every preset and every variable chip is rendered
+00:07 +26: /Users/jhangyu/project/Halcyon/test/views/rename_dialog_test.dart: TC-053 an invalid rule disables Rename and shows the reason
+00:07 +27: /Users/jhangyu/project/Halcyon/test/views/rename_dialog_test.dart: TC-054 tapping a chip appends its token to the rule
+00:07 +28: loading /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart
+00:08 +28: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: holds for 2.5s, fades over 0.5s, gone at 3.0s
+00:08 +29: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: a second message restarts the timer
+00:08 +30: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: emphasisSpans colours only the starred runs
+00:08 +31: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: TC-056 an action message renders a button that fires once
+00:08 +32: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: reveal builds the right command per OS and surfaces failure
+00:08 +33: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: reveal returns null on a successful (exit 0) process run
+00:08 +34: /Users/jhangyu/project/Halcyon/test/views/status_line_test.dart: reveal surfaces a ProcessException (binary missing / spawn failure)
+00:08 +35: All tests passed!
+RC=0

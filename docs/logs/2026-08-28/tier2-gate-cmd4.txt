@@ -1,0 +1,30 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart
+00:00 +0: TC-239 the debounce is a cancel-and-reschedule: only the FINAL navigation position ever gets a tier-2 sweep
+00:00 +1: TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at a time, released in near-to-far order
+00:00 +1 -1: TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at a time, released in near-to-far order [E]
+  Null check operator used on a null value
+  test/services/image_pipeline/tier_two_scheduler_test.dart 89:17   _Harness.release
+  test/services/image_pipeline/tier_two_scheduler_test.dart 152:15  main.<fn>
+  
+00:00 +1 -1: TC-241 the window re-check is INSIDE the queued body: an item the user has navigated away from is dropped instead of loaded
+00:00 +1 -2: TC-241 the window re-check is INSIDE the queued body: an item the user has navigated away from is dropped instead of loaded [E]
+  Null check operator used on a null value
+  test/services/image_pipeline/tier_two_scheduler_test.dart 89:17   _Harness.release
+  test/services/image_pipeline/tier_two_scheduler_test.dart 184:17  main.<fn>
+  
+00:00 +1 -2: TC-242 a swept window publishes its encoded payloads to the registry, and the next sweep evicts the ids that left the window
+00:00 +1 -3: TC-242 a swept window publishes its encoded payloads to the registry, and the next sweep evicts the ids that left the window [E]
+  Expected: empty
+    Actual: ['a4']
+  
+  package:matcher                                                  expect
+  package:flutter_test/src/widget_tester.dart 473:18               expect
+  test/services/image_pipeline/tier_two_scheduler_test.dart 217:7  main.<fn>
+  
+00:00 +1 -3: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at a time, released in near-to-far order
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-241 the window re-check is INSIDE the queued body: an item the user has navigated away from is dropped instead of loaded
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-242 a swept window publishes its encoded payloads to the registry, and the next sweep evicts the ids that left the window
+RC=1

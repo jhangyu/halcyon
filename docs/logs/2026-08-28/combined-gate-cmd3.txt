@@ -1,0 +1,76 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed moves trashed files and sidecars through the trash service
+00:00 +1: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed keeps the source file when trash service fails
+00:00 +2: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed TC-207 deleteTrashed continues past a failing trash call
+00:00 +3: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items
+00:00 +4: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode moves starred items to the destination, removes the source, leaves unstarred untouched
+00:00 +5: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode processes every sibling file in a RAW+JPG group
+00:00 +6: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=false skips a starred file whose destination already exists, source is left alone
+00:00 +7: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=true replaces an existing destination file
+00:00 +8: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode discards a preexisting destination AppleDouble sidecar and keeps the source sidecar
+00:00 +9: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode discards the source AppleDouble sidecar instead of moving it
+00:00 +10: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred does nothing when the destination folder does not exist
+00:00 +11: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred TC-206 processStarred continues past a failing file
+00:00 +12: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed moves every sibling file and sidecar into .trash
+00:00 +13: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed suffixes collisions instead of overwriting
+00:00 +14: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed records per-file failures and keeps processing the rest
+00:00 +15: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: TC-212 sidecarPathFor prefixes the basename only
+00:00 +16: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart
+00:00 +16: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: only starred items are exported; unmarked/trashed are not
+00:00 +17: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: an item with .dng + .jpg siblings produces exactly one output file, from the JPEG source
+00:00 +18: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: an existing destination file is overwritten
+00:00 +19: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: a fetch that returns null or throws lands in failures and the remaining items still export
+00:00 +20: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: onProgress is called once per item with a monotonically increasing done and the correct total
+00:00 +21: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: a destination that does not exist returns an empty outcome without throwing
+00:00 +22: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: default fetch (no fetchBytes injected): pure-Dart export pipeline a preview-bearing DNG exports a JPEG with long edge <= 2048, no channel call
+00:02 +23: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: default fetch (no fetchBytes injected): pure-Dart export pipeline a no-preview DNG with an injected decoder exports via the raw-decode branch, no channel call
+00:02 +24: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: default fetch (no fetchBytes injected): pure-Dart export pipeline a no-preview DNG with NO decoder injected fails the item, no crash, no channel call
+00:02 +25: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: exportBytesFor: source EXIF carry-over (P3 review P-14 ruling) export of a DNG with source Make/Model/DateTimeOriginal EXIF carries those tags into the output JPEG, with Orientation forced to 1
+00:04 +26: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 1: identity
+00:04 +27: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 2: flip horizontal
+00:04 +28: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 3: rotate 180
+00:04 +29: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 4: flip vertical (no-op on a 1-row image, colours unchanged)
+00:04 +30: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 5: transpose (rotate 90 + flip horizontal)
+00:04 +31: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 6: rotate 90 CW
+00:04 +32: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 7: transverse (rotate 270 + flip horizontal)
+00:04 +33: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: bakeExifOnDecoded: all 8 EXIF orientation values orientation 8: rotate 270 CW
+00:04 +34: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: A7 offset-view export regression TC-214 an offset-view RGBA buffer exports the same pixels
+00:04 +35: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: A7 offset-view export regression TC-215 a length/dimension mismatch returns null, not garbage
+00:04 +36: /Users/jhangyu/project/Halcyon/test/services/library/photo_export_service_test.dart: shared orientation table parity TC-216 bakeExifOnDecoded agrees with the shared table for 1..8
+00:04 +37: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart
+00:04 +37: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-041 a custom rule survives a round trip
+00:04 +38: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-042 saveStatuses preserves _last_viewed_id and _rename_rule
+00:04 +39: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-043 applySavedStatuses does not treat _rename_rule as a stale key
+00:04 +40: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-044 remapKeys moves marks and the last-viewed id to new ids
+00:04 +41: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-208 a corrupt status file loads as empty instead of throwing
+Halcyon: unreadable .halcyon_status.json (FormatException: Unterminated string (at character 13)
+{"A": "starr
+            ^
+); ignoring it
+00:04 +42: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-209 corrupt JSON degrades on every read entry point
+00:04 +43: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-210 concurrent saves do not lose each other's keys
+00:04 +44: loading /Users/jhangyu/project/Halcyon/test/services/rename/rename_coordinator_test.dart
+00:05 +44: /Users/jhangyu/project/Halcyon/test/services/rename/rename_coordinator_test.dart: RenameCoordinator TC-227 an empty rename plan does not clobber the previous batch's undo map
+00:05 +45: /Users/jhangyu/project/Halcyon/test/services/rename/rename_coordinator_test.dart: TC-228 displayProvider returns the identical object currentFullResProvider returns once the full-size decode is ready
+00:05 +46: loading /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart
+00:06 +46: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-031 sibling RAW + JPG + sidecar all get the same new base
+00:06 +47: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-032 same-second items with {seq} number in original-name order
+00:06 +48: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-033 collision without {seq} falls back to -1/-2
+00:06 +49: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-034 a name already in the folder is never reused
+00:06 +50: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-035 an item already named correctly produces no moves
+00:06 +51: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-036 missing metadata still renames, using file mtime
+00:06 +52: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-037 renames every file and reports progress
+00:06 +53: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-038 undo restores every original name and drops the log
+00:06 +54: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-039 a missing source is a failure, not an aborted batch
+00:06 +55: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-040 cancel stops the batch and leaves a replayable log
+00:06 +56: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-211 a malformed journal line does not block the undo
+00:06 +57: loading /Users/jhangyu/project/Halcyon/test/services/rename/exif_metadata_service_test.dart
+00:06 +57: /Users/jhangyu/project/Halcyon/test/services/rename/exif_metadata_service_test.dart: TC-045 decodes a full native map
+00:06 +58: /Users/jhangyu/project/Halcyon/test/services/rename/exif_metadata_service_test.dart: TC-046 a null map, a missing date and a junk date all degrade
+00:06 +59: /Users/jhangyu/project/Halcyon/test/services/rename/exif_metadata_service_test.dart: TC-120 readBatch never touches a platform channel
+00:06 +60: loading /Users/jhangyu/project/Halcyon/test/services/platform/open_with_channel_test.dart
+00:07 +60: /Users/jhangyu/project/Halcyon/test/services/platform/open_with_channel_test.dart: a pushed openFile call is delivered to the listener
+00:07 +61: /Users/jhangyu/project/Halcyon/test/services/platform/open_with_channel_test.dart: an empty path is ignored
+00:07 +62: /Users/jhangyu/project/Halcyon/test/services/platform/open_with_channel_test.dart: an unrecognised method is ignored
+00:07 +63: All tests passed!
+RC=0

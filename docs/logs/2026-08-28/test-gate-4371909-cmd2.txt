@@ -1,0 +1,30 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart
+00:00 +0: AppState.loadFolder scans supported files, ignores hidden files, and groups by photo id
+00:00 +1: AppState.loadFolder warns on the status line when the folder is read-only
+00:00 +2: AppState.loadFolder restores saved statuses and last viewed id from JSON
+00:00 +3: AppState.loadFolder scans RW2 files into photo groups
+00:00 +4: AppState.loadFolder groups CR2/NEF/ORF raw files with their JPG sibling
+00:00 +5: AppState selection and marking auto-advance moves to the next photo after applying a new status
+00:00 +6: AppState selection and marking uses semantic image request purposes for preview and sidebar thumbnail loading
+00:00 +7: AppState selection and marking toggling a status off does not auto-advance even when auto-advance is on
+00:00 +8: AppState selection and marking nextPhoto and previousPhoto move selection within bounds
+00:00 +9: AppState selection and marking TC-222 currentItem returns null for a selection that is gone
+00:00 +10: AppState selection and marking TC-223 currentItem does not throw on an empty item list
+00:00 +11: AppState selection and marking TC-221 a failing copy surfaces a status message
+processStarred failure: IMG_0001.jpg: FileSystemException: Cannot copy file to '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_dest_PrCXBr/IMG_0001.jpg', path = '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_src_H1A527/IMG_0001.jpg' (OS Error: Is a directory, errno = 21)
+00:00 +12: AppState selection and marking TC-224 a scan failure surfaces a status message
+Error loading directory: FileSystemException: unreadable, path = ''
+00:00 +13: AppState selection and marking TC-225 readMetadataFor chunks once and reports progress
+00:00 +14: AppState.openPhotoAtPath loads the containing folder and selects the given file
+00:00 +15: AppState.openPhotoAtPath ignores unsupported files instead of clearing the folder
+00:00 +16: AppState recycle mode defaults on when a folder has same-name sibling groups
+00:00 +17: AppState recycle mode defaults off when every photo has a single extension
+00:00 +18: AppState recycle mode toggles both ways and notifies listeners
+00:00 +19: AppState recycle mode recycle mode moves files to .trash instead of the system trash
+00:00 +20: AppState recycle mode direct mode still routes through the system trash
+00:00 +21: AppState.processStarred selection restore TC-248 keeps the selected photo, falling back to its index
+00:00 +22: renameByExif TC-049 renames files and moves the star to the new id
+00:00 +23: renameByExif TC-050 undo restores the original names and the star
+00:00 +24: renameByExif TC-051 a custom rule is saved; a preset clears it
+00:00 +25: All tests passed!
+RC=0

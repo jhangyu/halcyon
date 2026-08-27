@@ -1,0 +1,17 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart
+00:00 +0: M5-DW1 tier-2 keys equal the +/-2 band after settle, for encoded and pixel payloads alike
+00:03 +1: M5-DW2 a pixel-backed item at distance 0 gets a FULL-resolution tier-2 entry distinct from its window-resolution tier-1 entry
+00:03 +2: M5-DW3 payload production and full-res tier-2 for a RAW item inside +/-1 cost exactly ONE decoder call
+00:03 +3: M5-DW4 leaving +/-2 evicts the full-res entry; re-entering re-upgrades with exactly one extra decoder call and an identical retained payload
+00:04 +4: M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload
+00:09 +4 -1: M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload [E]
+  timed out waiting for: the failing catch-up attempt to run
+  package:matcher                                                                          fail
+  test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart 115:9  main.until
+  
+00:09 +4 -1: M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache
+00:09 +5 -1: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload
+RC=1

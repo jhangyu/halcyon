@@ -1,0 +1,316 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-239 the debounce is a cancel-and-reschedule: only the FINAL navigation position ever gets a tier-2 sweep
+00:00 +1: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at a time, released in near-to-far order
+00:00 +2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-241 the window re-check is INSIDE the queued body: an item the user has navigated away from is dropped instead of loaded
+00:00 +3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-242 a swept window publishes its encoded payloads to the registry, and the next sweep evicts the ids that left the window
+00:00 +4: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart
+00:00 +4: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: sample directory exists with at least one DNG
+00:00 +5: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-19-37-38.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +6: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-53-24.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +7: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-53-31.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +8: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-57-15.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +9: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-57-23-2.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +10: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-57-23.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:01 +11: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-57-26.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +12: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-20-57-28.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +13: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-21-53-33.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +14: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-21-53-41.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +15: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-21-53-42.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +16: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-02-15-21-53-43.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:02 +17: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview 2026-08-07-17-52-54.dng: extracts a decodable SOI/EOI-bounded JPEG
+00:03 +18: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: IMG_20251112_092839.dng (no qualifying embedded preview) returns null, not a crash
+00:03 +19: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: orientation tag: sample with EXIF orientation 6 is read and injected
+00:03 +20: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws empty bytes
+00:03 +21: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws too short to contain a TIFF header
+00:03 +22: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws wrong byte-order marker (not II/MM)
+00:03 +23: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws valid byte-order marker but garbage magic/IFD offset
+00:03 +24: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws a real DNG truncated mid-file (IFD offsets now point past EOF)
+00:03 +25: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws a plain JPEG (non-DNG) file is rejected without throwing
+00:03 +26: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws extractFullSizeEmbeddedJpegFromFile on a nonexistent path returns null
+00:03 +27: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: malformed/truncated/non-DNG input degrades to null, never throws readDngOrientation degrades to 1 for malformed input
+00:03 +28: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling E: orientation is clamped to the EXIF-legal range 1..8 raw orientation 0 is reported as 1
+00:03 +29: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling E: orientation is clamped to the EXIF-legal range 1..8 raw orientation 1 is reported as 1
+00:03 +30: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling E: orientation is clamped to the EXIF-legal range 1..8 raw orientation 8 is reported as 8
+00:03 +31: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling E: orientation is clamped to the EXIF-legal range 1..8 raw orientation 9 is reported as 1
+00:03 +32: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling E: orientation is clamped to the EXIF-legal range 1..8 the null row: undetermined stays 1 where the contract folds it, and stays null where the contract preserves it
+00:03 +33: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling G-2: minLongEdge rejects an undersized selected candidate longEdge: null — rejected with minLongEdge, returned without
+00:03 +34: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling G-2: minLongEdge rejects an undersized selected candidate longEdge: 200 — same pair, proving it applies in both selection modes and not just the full-size one
+00:03 +35: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling G-2: minLongEdge rejects an undersized selected candidate minLongEdge rejects rather than re-selects: a container that HAS a qualifying candidate still returns the largest, not the smallest one clearing the bar
+00:04 +36: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: M7 ruling G-2: minLongEdge rejects an undersized selected candidate the default is null, i.e. every existing caller is unchanged
+00:04 +37: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) full-size request selects the JpgFromRaw2 (0x0127) blob
+00:05 +38: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) sidebar request (longEdge 200) picks the smaller 0x002E blob
+00:05 +39: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) the same container with version word 42 keeps the old behaviour: vendor tags are not honoured outside the Panasonic flavour
+00:07 +40: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) an unknown version word is still rejected: the gate opened for 85, not for everything
+00:10 +41: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) orientation is read from IFD0 and injected into the blob
+00:10 +42: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) readImageDimensions falls back to the vendor extent tags
+00:11 +43: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) probeContent measures the largest blob without reading a strip
+00:12 +44: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) AC4 — the two "no preview" states stay distinguishable declares no preview tag at all -> miss, malformed FALSE (routes to a real RAW decode)
+00:12 +45: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) AC4 — the two "no preview" states stay distinguishable declares a preview whose every blob is unreadable -> malformed TRUE
+00:13 +46: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) AC4 — the two "no preview" states stay distinguishable an intact but undersized blob is a deliberate miss, not damage
+00:13 +47: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened blob offset points past EOF
+00:14 +48: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened blob byte count runs off the end of the file
+00:15 +49: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened blob is in range but carries no SOI -> declared and broken
+00:15 +50: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened blob has an SOI but no reachable frame header -> dropped as unmeasurable, NOT reported as damage
+00:15 +51: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened a header claiming version 85 whose IFD0 offset is past EOF walks to null, malformed FALSE (AD-022 third case)
+00:15 +52: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened a self-referential IFD0 offset terminates
+00:15 +53: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart: Panasonic container (TIFF version word 85) bounds checking is not weakened a Panasonic-magic file truncated to the bare header does not throw
+00:15 +54: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_no_method_channel_test.dart
+00:17 +54: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_no_method_channel_test.dart: AC4: preview DNG produces bytes with ZERO channel-seam calls
+00:17 +55: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_no_method_channel_test.dart: AC5: with the channel throwing MissingPluginException, cheap AND no-preview DNGs still behave
+00:17 +56: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart
+00:18 +56: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: AC3: NativeImageResult has exactly three variants and the D3 platform state is a failure CODE, not a fourth variant
+00:18 +57: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: jpeg returns its exact bytes without decoding
+00:18 +58: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: preview-bearing DNGs return exactly the extractor bytes
+00:23 +59: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: no-preview DNGs yield NeedsRawDecode with the walked orientation
+00:23 +60: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: sidebar purpose never returns the raw-decode signal
+00:23 +61: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: missing file is a failure, not a throw
+00:23 +62: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: browse-only RAW (.cr2): embedded preview is served, no-preview is an explicit unsupported state (never the raw-decode signal)
+00:24 +63: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: engine-decodable non-DNG RAW (.arw): embedded preview is served, no-preview now routes to RAW decode
+00:24 +64: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: the sidebar still never returns the raw-decode signal for an engine-decodable non-DNG RAW
+00:24 +65: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: F-20: a header claiming a 40000x40000 decode is refused, never handed to a raw decode
+00:24 +66: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: F-20: the guard does not fire on real, ordinary-sized samples
+00:25 +67: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule (a) preview on an undersized .dng enters RAW decode instead of returning the undersized bytes
+00:25 +68: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule (b) the sidebar stays lenient (P-11/P-13)
+00:25 +69: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule (b) the loader's export PURPOSE stays lenient (unreachable from the shipped export path — see F4 note above)
+00:25 +70: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule A-6: browse-only RAW (.cr2) stays lenient — the engine cannot decode it, so strictness would only delete an image the user can currently see
+00:25 +71: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule A-6 re-derived: an undersized candidate in an engine-decodable non-DNG RAW (.arw) now enters RAW decode, because the escape hatch is no longer .dng-gated
+00:25 +72: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: G-2 undersized-candidate rule a DNG whose candidate DOES clear 2800 is unaffected on the preview path
+00:26 +73: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state (a) preview on a container whose every declared candidate is unreadable now REACHES the decoder instead of failing fast
+00:27 +74: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state (c) the sidebar branch is unchanged: still NO_THUMBNAIL
+00:28 +75: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state (b) a real preview-less DNG still yields NeedsRawDecode — the valid-miss path did not regress
+00:28 +76: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state a container that declares no preview at all is unchanged: NeedsRawDecode with declaredPreviewsUnreadable false
+00:29 +77: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state the G-2 undersized rejection is NOT malformed — an intact but small candidate keeps routing to RAW decode
+00:29 +78: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state probe: a corrupt container reports malformed, an intact one does not, and a non-TIFF file is not malformed either
+00:30 +79: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state AD-022 generalised: an engine-decodable non-DNG RAW whose every declared candidate is unreadable also reaches the decoder, carrying the finding
+00:31 +80: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state AD-022 NOT generalised to browse-only RAW: a corrupt .cr2 keeps the uniform unsupported state, because there is no decode to pre-empt
+00:31 +81: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state a non-TIFF engine-decodable RAW (.cr3/.raf/.x3f) is never reported as a parse failure; it reaches the decoder
+00:32 +82: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dart_image_loader_test.dart: malformed-DNG parse-failure state extractEmbeddedJpeg keeps its contract on the same corrupt input (added API, not a migration)
+00:32 +83: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/exif_orientation_test.dart
+00:33 +83: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/exif_orientation_test.dart: TC-213 exifTransformFor maps all eight EXIF values
+00:33 +84: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/exif_orientation_test.dart: TC-213b an unrecognised orientation is identity, not a guess
+00:33 +85: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart
+00:34 +85: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart: PhotoSource.probeSource (cost gate) TC-072 content, not the extension, decides the rung: the SAME extension yields both answers
+00:34 +86: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart: PhotoSource.probeSource (cost gate) TC-073 every sample DNG is measured, and exactly the known preview-less ones are expensive
+00:34 +87: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart: PhotoSource.probeSource (cost gate) TC-074 the SAME file changes rung when the requested size changes
+00:34 +88: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart: PhotoSource.probeSource (cost gate) TC-075 probing costs at most 300KB of reads, and a JPEG costs 2 bytes
+00:34 +89: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_probe_test.dart: PhotoSource.probeSource (cost gate) TC-076 an unmeasurable file is UNDETERMINED, not expensive
+00:34 +90: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart
+00:35 +90: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart: single-probe seam TC-090 the whole probe is ONE file open
+00:35 +91: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart: single-probe seam TC-091 the fused orientation equals the dedicated reader
+00:35 +92: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart: single-probe seam TC-092 the combined probe reads at most 300KB, and a JPEG still costs 2 bytes
+00:35 +93: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart: TC-094 emptying the caller list mid-load does not crash preloadImages
+00:35 +94: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_single_probe_test.dart: TC-093 an expensive item reaches its RAW decode with ZERO loader calls
+00:35 +95: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart
+00:36 +95: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-060 eviction order is identical when the payload KINDS are swapped
+00:36 +96: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-061 eviction with priority set evicts the FARTHEST item, not the oldest (user ruling 2026-08-27)
+00:37 +97: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-300 over-budget put evicts the farthest id, not the oldest
+00:37 +98: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-301 selected (first-priority) item survives even when it is the oldest entry
+00:37 +99: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-062 peek does not count as a use
+00:37 +100: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-063 a payload larger than the whole budget is still retained
+00:37 +101: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-064 retainOnly drops exactly the ids outside the window and reports them
+00:37 +102: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-065 the retention window is -3..+5, clamped at both ends
+00:37 +103: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-219 retentionWindowIds honours explicit before/after
+00:37 +104: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart: PhotoPayloadCache (D4: retention is type-blind) TC-220 retentionWindowIds defaults are still -3..+5
+00:37 +105: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_pixels_image_test.dart
+00:38 +105: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_pixels_image_test.dart: RawPixelsImage (I1: buffer identity IS the cache key) TC-066 equal CONTENT in a different buffer is a different key
+00:38 +106: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_pixels_image_test.dart: RawPixelsImage (I1: buffer identity IS the cache key) TC-067 resolving the same buffer twice decodes once
+00:38 +107: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_pixels_image_test.dart: RawPixelsImage (I1: buffer identity IS the cache key) TC-068 eviction disposes the cache's own image and touches nothing the pipeline owns
+00:38 +108: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart
+00:39 +108: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-095 every slot of the -3..+5 retention window holds a tier-1 entry (AC2)
+00:40 +109: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-096 an item at -3 and one at +5 keep their tier-1 entries while in-window, and lose them on leaving (AC2 killer)
+00:40 +110: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-097 tier-2 full-size entries cover -1..+3 after the debounce settles (AC3)
+00:41 +111: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-098a an all-expensive folder fills the WHOLE -3..+5 payload window, not just +/-1 (criterion 2)
+00:41 +112: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-098b at most ONE expensive decode is ever in flight, while cheap window loads still issue in parallel (criterion 3)
+00:41 +113: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-098c fresh settle decode START order is 0, +1, -1, +2, -2, +3, -3, +4, +5 (criterion 4)
+00:41 +114: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-098d navigating mid-queue reprioritises the lane: no decode starts outside the new window, and the next one is its nearest missing item (criterion 5)
+00:41 +115: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-099 widening tier-1 creates no payloads of its own
+00:42 +116: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart: TC-100 the two budget constants are pinned as raw byte counts
+00:42 +117: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/cache_budget_test.dart
+00:44 +117: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/cache_budget_test.dart: budget derivation: floor 256MiB, ceiling 768MiB, quarter of physical
+00:44 +118: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart
+00:45 +118: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: D2: a browse-only RAW (.cr2) that has no embedded preview stays a preview-only permanent miss -- it never reaches the full decoder
+00:45 +119: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: AC3: NativeImageResult has exactly three variants, proven by an exhaustive switch with no default case (a fourth variant fails to compile here, not just at runtime)
+00:45 +120: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: a DngFullDecoder/DngSizedDecoder fake wired through the controller reaches an engine-decodable non-DNG RAW when the loader signals NeedsRawDecode -- proves the full-size path is format-agnostic once the loader routes correctly (photo_source.dart already dispatches NativeImageNeedsRawDecode to dngDecoder regardless of extension; the remaining gate lives in dart_image_loader.dart, owned by T2)
+00:45 +121: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: AC5 D3: an engine-decodable RAW with no configured native decoder (a platform with no native library) is a permanent miss carrying the D3 no-native-decoder code -- distinct from a decoder that exists but throws
+00:45 +122: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: AC5 D3 negative: a THROWING decoder (decoder exists but failed) is a permanent miss WITHOUT the D3 no-native-decoder code -- not conflated with the no-decoder-on-this-platform state
+00:45 +123: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: PhotoSource.load: decoder == null carries kNoNativeDecoderCode directly on SourceOutcome.failureCode (unit-level proof, below the controller seam)
+00:45 +124: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: PhotoSource.load: every other outcome (bytes, throwing decoder, NativeImageFailure) carries a null failureCode -- the field must not leak into unrelated paths
+00:45 +125: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/raw_coverage_wiring_test.dart: D2 sidebar fix: a browse-only RAW (.cr2) never invokes the sized sidebar decoder, even though isRawPath(".cr2") is true -- the gate must be isDecodablePath, not isRawPath
+00:45 +126: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart
+00:46 +126: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: small payloads pass through untouched (identity, same object)
+00:46 +127: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-172 a payload at exactly reencodeThreshold passes through byte-identical
+00:46 +128: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-173 oversized payloads are re-encoded as JPEG, long edge capped at 200
+00:46 +129: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-174 undecodable oversized input falls back to the original bytes
+00:46 +130: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-175 jpegFromOrientedPixels bakes EXIF orientation 6 (90 CW) into a decodable JPEG
+00:46 +131: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-176 jpegQuality is tunable and changes the encoded size
+00:46 +132: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/sidebar_thumbnail_codec_test.dart: TC-217 sidebarCacheBytes still returns decodable JPEG
+00:46 +133: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart
+00:47 +133: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-231 isReady is false when nothing has been registered
+00:48 +134: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-232 isReady is false while the entry is PENDING, not just missing
+00:48 +135: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-233 isReady is true once the decode listener has fired
+00:48 +136: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-234 isReady goes false when the payload object is replaced
+00:48 +137: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-235 isReady goes false when the ImageCache entry is evicted underneath
+00:48 +138: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-236 hasFullResEntryFor is true BEFORE the ready flag fires (AC-M5-4)
+00:48 +139: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-237 the full-res failure memo is per payload object, not per id
+00:48 +140: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/tier_two_registry_test.dart: TC-238 evict drops one id and clear drops every id
+00:48 +141: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_sequential_decode_retention_test.dart
+00:50 +141: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_sequential_decode_retention_test.dart: TC-086 expensive post-debounce RAW execution is sequential
+00:50 +142: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_sequential_decode_retention_test.dart: TC-088 cheap and expensive payloads retain identically at -3 and evict identically at -4
+00:51 +143: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_sequential_decode_retention_test.dart: TC-089 cheap full retention-window source loads overlap
+00:51 +144: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart
+00:52 +144: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: TC-218 a thumbnail load in flight does not mark the id as loading
+00:52 +145: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: preloadImages evicts preview cache entries outside the sliding window
+00:52 +146: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: preloadImages loads the selected item first, then the rest of the window concurrently
+00:52 +147: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: selecting an in-flight item still fires notify once its load completes (R3: no permanent spinner strand)
+00:52 +148: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: tierOneProviderFor produces an identical ImageCache key for the same bytes object identity and same width/height (AC2: display and precache must share one cache entry, not silently double-decode)
+00:53 +149: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: precache-then-display resolves as an ImageCache hit (AC2 integration: no second decode once the tier-1 entry is warm)
+00:53 +150: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: tier-2 full-size decode does not start until the navigation debounce elapses (AC3a)
+00:54 +151: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: tier-2 never queues an item that scrolled out of the window during continuous navigation (AC3b)
+00:54 +152: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: tier-1 and tier-2 caches coexist: evicting a tier-2 entry does not evict the tier-1 entry for the same item (AC3c)
+00:55 +153: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: isFullSizeReady does not report stale readiness after an item leaves and re-enters the bytes window with a new bytes object (round-2 review BLOCKER 1)
+00:56 +154: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: isFullSizeReady stays false while the tier-2 decode is still PENDING, not just when it is missing (round-2 review BLOCKER 3)
+00:56 +155: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-077 an expensive item is sourced ONCE and its payload serves both tiers
+00:57 +156: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-078 an expensive payload survives leaving the +/-1 STARTUP window and is dropped only on leaving the -3..+5 RETENTION window
+00:58 +156 -1: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-078 an expensive payload survives leaving the +/-1 STARTUP window and is dropped only on leaving the -3..+5 RETENTION window [E]
+  Expected: <1>
+    Actual: <2>
+  returning re-decoded
+  
+  package:matcher                                                        expect
+  package:flutter_test/src/widget_tester.dart 473:18                     expect
+  test/services/image_pipeline/image_preload_controller_test.dart 924:7  main.<fn>.<fn>
+  
+00:58 +156 -1: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-079 leaving the tier-2 window evicts the ImageCache entry while the payload stays retained
+00:58 +156 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-079 leaving the tier-2 window evicts the ImageCache entry while the payload stays retained [E]
+  Expected: false
+    Actual: <true>
+  the ImageCache entry outlived its tier-2 window; nothing would ever evict it again
+  
+  package:matcher                                                        expect
+  package:flutter_test/src/widget_tester.dart 473:18                     expect
+  test/services/image_pipeline/image_preload_controller_test.dart 988:9  main.<fn>.<fn>
+  
+00:58 +156 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-080 dispose() with a source still in flight destroys nothing and leaks no handle
+00:58 +157 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-081 reset() drops every payload and every ImageCache entry
+00:59 +158 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-082 an expensive item is requested from the native loader exactly ONCE across repeated in-window passes
+01:00 +159 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-083 retained cost stays bounded by the window across a long sweep
+01:00 +160 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-084 a source that lands AFTER its item left the window cannot resurrect a retained entry
+01:01 +161 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-085 decoder throws marks a permanent miss immediately (no legacy channel left to fall back to, M6 U-12) and never asks again
+01:01 +162 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path NO DECODER: an immediate permanent miss, not a spinner
+01:01 +163 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path THROWING DECODER: an immediate permanent miss, not a spinner
+01:01 +164 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path an ordinary (bytes) item is untouched by the raw-decode path
+01:01 +165 -2: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_decoder_smoke_test.dart
+01:02 +165 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_decoder_smoke_test.dart: decodeDngFull decodes the vivo sample at full resolution
+Shell: [DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+Shell: [Pipeline] GPU backend: metal (available=yes)
+01:03 +166 -2: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart
+01:03 +166 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart: AC-B1: extractFullSizeEmbeddedJpeg result is unaffected by mutating the source buffer after the call
+01:03 +167 -2: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart
+01:04 +167 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 1 maps every pixel correctly
+01:04 +168 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 2 maps every pixel correctly
+01:04 +169 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 3 maps every pixel correctly
+01:04 +170 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 4 maps every pixel correctly
+01:04 +171 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 5 maps every pixel correctly
+01:04 +172 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 6 maps every pixel correctly
+01:04 +173 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 7 maps every pixel correctly
+01:04 +174 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) orientation 8 maps every pixel correctly
+01:04 +175 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) an unrecognised orientation degrades to no transform
+01:04 +176 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToImage orientation (AC B3) a buffer that disagrees with the dimensions is rejected
+01:04 +177 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: applyExifOrientation caller-owns contract returns src ITSELF for orientation 1, with no copy
+01:04 +178 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: applyExifOrientation caller-owns contract never disposes src, for either the identity or a real transform
+01:04 +179 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 1 survives the window downscale
+01:04 +180 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 2 survives the window downscale
+01:04 +181 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 3 survives the window downscale
+01:04 +182 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 4 survives the window downscale
+01:04 +183 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 5 survives the window downscale
+01:04 +184 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 6 survives the window downscale
+01:04 +185 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 7 survives the window downscale
+01:04 +186 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-069 orientation 8 survives the window downscale
+01:04 +187 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-070 a frame already smaller than the window is NOT upscaled
+01:04 +188 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/decoded_rgba_image_provider_test.dart: decodedRgbaToPixelPayload (M3 step 3) TC-071 the retained buffer is the DOWNSCALED size, not the decoded size
+01:04 +189 -2: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart
+01:05 +189 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P1 translated: cheap DNG has tier-1 entries at arrival; expensive cold arrival fills the same window, one decode at a time
+01:05 +190 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: TC-088 probe-first expensive item: selected distance 0 has ZERO loader calls before debounce
+01:05 +191 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: TC-088 probe-first expensive item: plus-one distance 1 has ZERO loader calls before debounce
+01:05 +192 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: TC-088 probe-first expensive item: outer retention distance 3 has ZERO loader calls before debounce
+01:05 +193 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P2 translated: navigation bursts never exceed one expensive decode in flight and never decode out-of-window items, while cheap DNGs/JPEGs prefetch during the same burst
+01:07 +194 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P3 translated: one-step expensive round trip decodes once and retains the PixelPayload
+01:07 +195 -2: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P4 translated: two-step expensive excursion decodes once and retains the payload; JPEG bytes still survive identically
+01:09 +195 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P4 translated: two-step expensive excursion decodes once and retains the payload; JPEG bytes still survive identically [E]
+  Expected: <1>
+    Actual: <2>
+  
+  package:matcher                                                                               expect
+  package:flutter_test/src/widget_tester.dart 473:18                                            expect
+  test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart 392:5  main.<fn>
+  
+01:09 +195 -3: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart
+01:09 +195 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE across three preloadThumbnails sweeps
+01:10 +196 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M4-AC1b a failed sidebar thumbnail must not poison the PREVIEW state of a file whose own name happens to be "thumb_" + another file's name
+01:10 +197 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M6-PL1 a throwing sidebar thumbnail loader must not abort the sweep, must release the in-flight key, and must record a permanent miss like a non-bytes result
+01:11 +198 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M4-AC2 a stale preloadImages resume must not reschedule tier-2 for the window it started with (invariant I4)
+01:12 +199 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M6-PL7 the SECOND generation guard (after the window await, :406) must discard a stale resume too, not only the priority-load guard (:381)
+01:13 +200 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M4-AC3 step-3b failure inside PhotoSource.load reports a NON-deferred null payload -- the signal the caller turns into a permanent miss
+01:13 +201 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart: M4-AC3 the step-3b failure path marks a permanent miss and RELEASES the view from its spinner (invariant T1)
+01:13 +202 -3: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart
+01:13 +202 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW1 tier-2 keys equal the +/-2 band after settle, for encoded and pixel payloads alike
+01:17 +203 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW2 a pixel-backed item at distance 0 gets a FULL-resolution tier-2 entry distinct from its window-resolution tier-1 entry
+01:17 +204 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW3 payload production and full-res tier-2 for a RAW item inside +/-1 cost exactly ONE decoder call
+01:17 +205 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW4 leaving +/-2 evicts the full-res entry; re-entering re-upgrades with exactly one extra decoder call and an identical retained payload
+01:18 +206 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload
+01:20 +207 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache
+01:20 +208 -3: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart
+01:21 +208 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: synthetic_dng helper is deterministic: identical arguments give identical bytes
+01:22 +209 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: synthetic_dng helper writes the requested byte-order marker
+01:22 +210 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: synthetic_dng helper the II build is readable at all (differential sanity floor)
+01:22 +211 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: MM equals II selected dims at longEdge: 200
+01:23 +212 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: MM equals II selected dims at longEdge: null
+01:23 +213 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: MM equals II extracted bytes are byte-identical
+01:23 +214 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: MM equals II orientation matches
+01:24 +215 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart: corruptOffsets stays walkable but yields no extractable candidate
+01:24 +216 -3: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart
+01:25 +216 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: sample directory has both required fixtures
+01:25 +217 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: a .dng that fails the native preview channel recovers the embedded JPEG through the controller, byte-identical to the extractor
+01:25 +218 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: a .dng with no embedded preview still falls through to hasFailed, not a crash, when the native preview channel fails
+01:25 +219 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: a real DNG saved under a .jpg extension is recovered through the seam once the native preview channel fails (F-08: the walker keys on magic, not extension)
+01:25 +220 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: non-TIFF garbage saved under a .jpg extension is still a permanent miss when the native preview channel fails (proves the magic check, not the extension, is what discriminates)
+01:25 +221 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: fallbackAfterNativeFailure recovers a non-DNG RAW with an embedded preview (extension gate removed)
+01:25 +222 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: AD-022 after the pre-empt override: the two no-preview states stay distinguishable once the decode outcome is known previews declared but unreadable AND the decode also failed surfaces the broken-file code
+01:25 +223 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: AD-022 after the pre-empt override: the two no-preview states stay distinguishable once the decode outcome is known no preview declared and the decode failed stays the uniform miss, NOT the broken-file code
+01:25 +224 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: AD-022 after the pre-empt override: the two no-preview states stay distinguishable once the decode outcome is known the two codes actually differ — the states are not collapsed
+01:25 +225 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: AD-022 after the pre-empt override: the two no-preview states stay distinguishable once the decode outcome is known a container with unreadable previews whose decode SUCCEEDS is not reported broken at all — the point of the override
+01:25 +226 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_source_test.dart: AD-022 after the pre-empt override: the two no-preview states stay distinguishable once the decode outcome is known the broken-file code is NOT the D3 no-native-decoder state
+01:25 +227 -3: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart
+01:26 +227 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC2: smallest candidate >= longEdge 200 is the 256x171 preview
+01:26 +228 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-19-37-38.dng
+01:26 +229 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-53-24.dng
+01:26 +230 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-53-31.dng
+01:26 +231 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-57-15.dng
+01:26 +232 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-57-23-2.dng
+01:26 +233 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-57-23.dng
+01:26 +234 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-57-26.dng
+01:26 +235 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-20-57-28.dng
+01:26 +236 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-21-53-33.dng
+01:26 +237 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-21-53-41.dng
+01:26 +238 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-21-53-42.dng
+01:26 +239 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-02-15-21-53-43.dng
+01:26 +240 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC3: longEdge 2800 is byte-identical to today's full-size extraction 2026-08-07-17-52-54.dng
+01:26 +241 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC4: byte-range read budget stays bounded across every .dng sample
+01:26 +242 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC5: sole 6000x4000 candidate is selected, orientation 6, APP1 injected
+01:26 +243 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC6: no-candidate/missing/non-DNG inputs return null, never throw DNG with no qualifying candidate returns null
+01:26 +244 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC6: no-candidate/missing/non-DNG inputs return null, never throw nonexistent path returns null
+01:26 +245 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC6: no-candidate/missing/non-DNG inputs return null, never throw plain-JPEG file (not a DNG/TIFF container) returns null
+01:26 +246 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC11a: readOrientation reads IFD0 tag 0x0112 via the bounded walk (discriminating case)
+01:26 +247 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC11b: readOrientation on a no-preview DNG stays under the disk-read budget
+01:26 +248 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC12a: readOrientation on a nonexistent path returns null, never throws
+01:26 +249 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC12b: a file that parses but carries no 0x0112 tag returns 1
+01:26 +250 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC12c: non-TIFF/garbage input returns null, never throws
+01:26 +251 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC12h: 0x0112 tag PRESENT but unreadable -> readOrientation null, readDngOrientation 1 (distinct from AC12b's tag-ABSENT case)
+01:26 +252 -3: /Users/jhangyu/project/Halcyon/test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart: AC12d: N1 fixture — large file with a patched non-default orientation tag
+01:26 +253 -3: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart: P4 translated: two-step expensive excursion decodes once and retains the payload; JPEG bytes still survive identically
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-078 an expensive payload survives leaving the +/-1 STARTUP window and is dropped only on leaving the -3..+5 RETENTION window
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_controller_test.dart: raw-decode path TC-079 leaving the tier-2 window evicts the ImageCache entry while the payload stays retained
+RC=1

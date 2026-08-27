@@ -1,0 +1,66 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-024 default template renders zero-padded date and time
+00:00 +1: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-025 {seq} defaults to one digit, {seq:3} zero-pads to three
+00:00 +2: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-026 missing capture date falls back to file mtime
+00:00 +3: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-027 non-date variables render, missing ones render empty
+00:00 +4: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-028 path-hostile characters are replaced, edges trimmed
+00:00 +5: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-029 unknown variable and empty result are reported as errors
+00:00 +6: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-030 every preset is a valid template and the default is first
+00:00 +7: loading /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart
+00:00 +7: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: SupportedPhotoFormats.decodableExtensions derives exactly from kSupportedDecodeExtensions, dotted form
+00:00 +8: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: D2 browse-only extensions (.cr2, .iiq, .mrw) are NOT in decodableExtensions
+00:00 +9: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: D2 browse-only extensions (.cr2, .iiq, .mrw) ARE in rawExtensions and supportedExtensions
+00:00 +10: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath true for an engine-decodable extension
+00:00 +11: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath false for a D2 browse-only extension
+00:00 +12: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath false for an unsupported extension
+00:00 +13: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: AC1 — folder scan surfaces a file of every derived-list extension over a fake directory listing, every decodable+browse-only ext is picked up
+00:01 +14: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: rawExtensions / supportedExtensions composition rawExtensions == decodableExtensions union browseOnlyRawExtensions
+00:01 +15: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: rawExtensions / supportedExtensions composition supportedExtensions includes jpg/jpeg/png plus all raw extensions
+00:01 +16: loading /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart
+00:01 +16: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: PhotoItem.bestFileToLoad prefers JPG over RAW files in the same group
+00:01 +17: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: PhotoItem.bestFileToLoad falls back to the first RAW file when no preview format exists
+00:01 +18: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: SupportedPhotoFormats central registry includes RW2 and excludes unsupported files
+00:01 +19: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: SupportedPhotoFormats HEIC is not scanned, and never preferred over a decodable sibling
+00:01 +20: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart
+00:02 +20: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-160 keeps the loaded folder when the file does not exist
+00:02 +21: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-161 keeps the loaded folder when the parent directory is missing
+00:02 +22: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-162 still opens a real file and selects it
+00:02 +23: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-163 ignores unsupported extensions
+00:02 +24: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart
+00:03 +24: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans supported files, ignores hidden files, and groups by photo id
+00:03 +25: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder warns on the status line when the folder is read-only
+00:03 +26: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder restores saved statuses and last viewed id from JSON
+00:03 +27: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans RW2 files into photo groups
+00:03 +28: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder groups CR2/NEF/ORF raw files with their JPG sibling
+00:03 +29: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking auto-advance moves to the next photo after applying a new status
+00:03 +30: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking uses semantic image request purposes for preview and sidebar thumbnail loading
+00:03 +31: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking toggling a status off does not auto-advance even when auto-advance is on
+00:03 +32: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking nextPhoto and previousPhoto move selection within bounds
+00:03 +33: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-222 currentItem returns null for a selection that is gone
+00:03 +34: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-223 currentItem does not throw on an empty item list
+00:03 +35: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-221 a failing copy surfaces a status message
+processStarred failure: IMG_0001.jpg: FileSystemException: Cannot copy file to '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_dest_WyRmpg/IMG_0001.jpg', path = '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_src_UC9K5d/IMG_0001.jpg' (OS Error: Is a directory, errno = 21)
+00:03 +36: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-224 a scan failure surfaces a status message
+Error loading directory: FileSystemException: unreadable, path = ''
+00:03 +37: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-225 readMetadataFor chunks once and reports progress
+00:03 +38: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath loads the containing folder and selects the given file
+00:03 +39: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath ignores unsupported files instead of clearing the folder
+00:03 +40: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults on when a folder has same-name sibling groups
+00:03 +41: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults off when every photo has a single extension
+00:03 +42: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode toggles both ways and notifies listeners
+00:03 +43: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode recycle mode moves files to .trash instead of the system trash
+00:03 +44: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode direct mode still routes through the system trash
+00:03 +45: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.processStarred selection restore TC-248 keeps the selected photo, falling back to its index
+00:03 +46: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-049 renames files and moves the star to the new id
+00:03 +47: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-050 undo restores the original names and the star
+00:03 +48: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-051 a custom rule is saved; a preset clears it
+00:03 +49: loading /Users/jhangyu/project/Halcyon/test/perf/perf_log_build_stamp_test.dart
+00:04 +49: /Users/jhangyu/project/Halcyon/test/perf/perf_log_build_stamp_test.dart: P-2b kHalcyonBuildCommit reflects HALCYON_BUILD_COMMIT at compile time
+00:04 +50: loading /Users/jhangyu/project/Halcyon/test/main_test.dart
+00:05 +50: /Users/jhangyu/project/Halcyon/test/main_test.dart: configureImageCache raises ImageCache.maximumSizeBytes to 768 MiB (default 100MB only fits ~1 full-frame decode)
+00:05 +51: /Users/jhangyu/project/Halcyon/test/main_test.dart: main screen accepts file drops through DropTarget
+00:05 +52: /Users/jhangyu/project/Halcyon/test/main_test.dart: R key toggles recycle mode
+00:05 +53: /Users/jhangyu/project/Halcyon/test/main_test.dart: HalcyonApp renders empty-folder prompt
+00:05 +54: /Users/jhangyu/project/Halcyon/test/main_test.dart: DropTarget is disabled while a dialog route is on top
+00:06 +55: All tests passed!
+RC=0
