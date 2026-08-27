@@ -610,4 +610,45 @@ void main() {
       }
     });
   });
+
+  test('TC-312: exporting a TIFF produces a JPEG with long edge <= 2048 and '
+      'Orientation == 1', () async {
+    final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_export');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    // A real TIFF file must exist at this path: exportBytesFor calls
+    // dartImageLoad, whose bitmap branch reads the IFD0 extent and
+    // orientation from the file before returning NeedsRawDecode, and
+    // _attachSourceExif re-reads the same file with package:exif.
+    final path = '${tmp.path}${Platform.pathSeparator}scan.tif';
+    File(path).writeAsBytesSync(
+      img.encodeTiff(img.Image(width: 60, height: 40)),
+    );
+
+    // 3000x2000 forces the resize; the fake decoder stands in for the
+    // dispatching decoder so the test never loads a real dylib.
+    final rgba = Uint8List(3000 * 2000 * 4);
+    for (var i = 3; i < rgba.length; i += 4) {
+      rgba[i] = 255; // opaque
+    }
+    final jpeg = await PhotoExportService.exportBytesFor(
+      path,
+      decoder: (p) async =>
+          DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+    );
+
+    expect(jpeg, isNotNull);
+    final out = img.decodeJpg(jpeg!)!;
+    expect(out.width, lessThanOrEqualTo(2048));
+    expect(out.height, lessThanOrEqualTo(2048));
+    expect(out.width == 2048 || out.height == 2048, isTrue,
+        reason: 'the long edge is capped AT 2048, not below it');
+    // Orientation must be read from the exported bytes via an INDEPENDENT
+    // oracle (pkg:exif), NOT `out.exif.imageIfd['Orientation']`: `img.decodeJpg`
+    // unconditionally clears the Orientation tag on every decode because it
+    // bakes orientation into pixel layout (documented in the P-14 carry-over
+    // test above), so the tag can never be observed through the decoded image.
+    final outputTags = await pkg_exif.readExifFromBytes(jpeg);
+    expect(outputTags['Image Orientation']?.values.firstAsInt(), 1,
+        reason: 'pixels are already rotated; the tag must not double-apply');
+  });
 }

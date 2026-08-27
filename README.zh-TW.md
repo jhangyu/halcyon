@@ -97,12 +97,29 @@ RAW 與 JPG 檔案的記憶卡時，這個 app 實際會做的事。
 （dotfile／AppleDouble 側寫檔一律跳過），且副檔名要在支援清單內。
 <!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
 
-支援的集合是 `.jpg`、`.jpeg`、`.png`，加上 Ceyx 引擎能解碼的每一個 RAW 副檔名（`.dng`、
+支援的集合是 `.jpg`、`.jpeg`、`.png`、`.webp`、`.tif`、`.tiff`、`.heic`、`.heif`，加上 Ceyx 引擎能解碼的每一個 RAW 副檔名（`.dng`、
 `.arw`、`.cr3`、`.nef`、`.raf`、`.rw2`、`.orf`、`.pef`、`.srw`、`.x3f`，執行期由 Ceyx 自身
 能力常數推導而來），再加三個 Ceyx 解不了、但 Halcyon 仍會列出的 browse-only RAW 格式
 （`.cr2`、`.iiq`、`.mrw`）——這份清單為何是推導而非手寫，完整拆解見下文「RAW 格式支援
 與解碼路由」。
 <!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
+
+在 JPEG／PNG 之外，另外支援這些點陣圖格式：
+
+- **WebP**（`.webp`）——由 Flutter 引擎在所有平台上直接解碼。動態 WebP 只顯示第一個影格；
+  寫在 WebP `EXIF` 區塊裡的方向資訊不會被套用，因此手機以非 1 的方向標記所寫出的檔案，
+  顯示時可能是旋轉的。
+- **TIFF**（`.tif`、`.tiff`）——以 `package:image` 解碼。支援分條式與分塊式 TIFF、
+  8／16／32 位元取樣，以及 LZW／PackBits／Deflate 與未壓縮；16 位元會降轉為 8 位元供顯示。
+  多頁 TIFF 只顯示第 1 頁。少見的壓縮方式（CCITT G3／G4、TIFF 內嵌 JPEG2000、
+  舊式 TIFF 內嵌 JPEG）不支援，會被視為無法讀取的檔案。
+- **HEIC／HEIF**（`.heic`、`.heif`）——交給隨應用程式一起打包的 libheif 加 libde265
+  解碼，因此各平台得到的結果完全一致，不必仰賴作業系統自帶的解碼器。目前只在 **macOS**
+  上驗證過；Windows 與 Linux 的建置規則雖已寫好，卻**尚未實際執行**——在缺少這兩個函式庫
+  的平台上，檔案會被回報為無法讀取，而應用程式仍可正常啟動。含多張影像的檔案（連拍、
+  Live Photo、深度圖與輔助影像）只會顯示主影像；HDR 增益圖與深度圖一律忽略，10／12 位元的
+  HEIC 也會降轉為 8 位元供顯示。以容器旋轉屬性記錄的方向會被套用；但只帶 EXIF `Orientation`
+  標籤、沒有容器旋轉屬性的檔案，顯示時可能不會被轉正。AVIF 不支援。
 
 符合的檔案分組（見下節）成 `PhotoItem` 後，最終清單依 id 排序，不分大小寫。
 <!-- evidence: lib/services/library/photo_library_scanner.dart:22-26 -->

@@ -8,7 +8,7 @@ import '../../models/photo_item.dart';
 import '../../models/supported_photo_formats.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
-import 'dng_embedded_jpeg_extractor.dart';
+import 'bitmap_container_probe.dart';
 import 'image_source_types.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -1059,8 +1059,16 @@ class ImagePreloadController {
               if (generation != _thumbBatchGeneration) return;
               _thumbCache[id] = cacheBytes;
               notifyLoaded();
+              // 2026-08-28 (bitmap decoders phase 1): the gate widens from
+              // the engine-decodable set to the full-decode-route set so a
+              // TIFF gets a thumbnail at all -- the loader answers NO_THUMBNAIL
+              // for the sidebar purpose by design (the AD-010 invariant),
+              // making this sized decode the ONLY TIFF thumbnail route. D2
+              // browse-only containers stay excluded: that route set is
+              // decodableExtensions + bitmapDecodeExtensions and contains
+              // none of .cr2/.iiq/.mrw.
             } else if (_sidebarRawDecoder != null &&
-                SupportedPhotoFormats.isDecodablePath(file.path)) {
+                SupportedPhotoFormats.hasFullDecodeRoute(file.path)) {
               // M6 P2.5b (matrix P-12): the Dart sidebar route never decodes
               // by design, so a bare-CFA DNG with no embedded JPEG at any
               // size would otherwise regress to a permanently blank tile.
@@ -1079,9 +1087,12 @@ class ImagePreloadController {
                   maxDim: 200,
                 );
                 if (generation != _thumbBatchGeneration) return;
+                // One orientation source for every container family: the IFD0
+                // walker for RAW/TIFF, the native probe for HEIC. Calling the
+                // walker directly here would silently give every HEIC
+                // orientation 1, because it cannot read ISO-BMFF.
                 final orientation =
-                    await DngEmbeddedJpegExtractor.readOrientation(file.path) ??
-                    kDefaultExifOrientation;
+                    await bitmapContainerOrientation(file.path);
                 final jpeg = await jpegFromOrientedPixels(
                   decoded,
                   exifOrientation: orientation,

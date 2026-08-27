@@ -240,3 +240,41 @@ class _Writer {
     return offset + 12;
   }
 }
+
+/// Builds a minimal IFD0-only TIFF: byte-order marker, magic 42, IFD0 at
+/// offset 8, three ascending-tag entries (ImageWidth 0x0100 LONG, ImageLength
+/// 0x0101 LONG, Orientation 0x0112 SHORT), then a zero next-IFD offset.
+///
+/// Two properties are load-bearing and must not be "fixed":
+///  - NO Compression tag (0x0103), so `DngEmbeddedJpegExtractor`'s candidate
+///    walk skips IFD0 exactly as it does for [buildSyntheticDng].
+///  - NO pixel data, so `img.decodeTiff` returns null on it — this is the
+///    "corrupt TIFF" input the permanent-miss tests need, and it is what lets
+///    a 30000x30000 extent be declared in 26 bytes.
+Uint8List buildSyntheticTiffHeader({
+  required int width,
+  required int height,
+  int orientation = 1,
+  bool bigEndian = false,
+}) {
+  const headerLength = 8;
+  const entryCount = 3;
+  final total = headerLength + 2 + entryCount * 12 + 4;
+  final out = Uint8List(total);
+  final w = _Writer(out, bigEndian);
+
+  final marker = bigEndian ? 0x4D : 0x49;
+  out[0] = marker;
+  out[1] = marker;
+  w.u16(2, 42);
+  w.u32(4, headerLength);
+
+  w.u16(headerLength, entryCount);
+  var entryPos = headerLength + 2;
+  entryPos = w.entryLongInline(entryPos, 0x0100, width);
+  entryPos = w.entryLongInline(entryPos, 0x0101, height);
+  entryPos = w.entryShortInline(entryPos, 0x0112, [orientation]);
+  w.u32(entryPos, 0); // next-IFD offset: none
+
+  return out;
+}

@@ -1,0 +1,451 @@
+==============================================================
+ Halcyon build_apps.py - native + Flutter, one entry point
+==============================================================
+    halcyon: /Users/jhangyu/project/Halcyon-decoders
+    decoder: /Users/jhangyu/project/ceyx-heic
+    host:    macos/arm64  mode: release
+
+==> Target: macos (release)
+
+==> Phase 0: prerequisite checks (macos)
+    [ok]   flutter: /Users/jhangyu/project/flutter/bin/flutter
+    [ok]   decoder package: /Users/jhangyu/project/ceyx-heic
+    [ok]   CMake preset macos-metal present
+    [ok]   cmake: 4.3.1 (/opt/homebrew/bin/cmake)
+    [ok]   libheif/libde265 dist: libheif.1.dylib
+    [ok]   libheif/libde265 dist: libde265.0.dylib
+    [ok]   host macos/arm64 can build 'macos'
+
+==> Phase 0b: Halide v21.0.0 distribution
+    [ok]   already present: /Users/jhangyu/project/ceyx-heic/native/third_party/halide (Halide-21.0.0-arm-64-osx-b629c80de18f1534ec71fddd8b567aa7027a0876.tar.gz)
+
+==> Phase 1: native dng_decoder_native (macos-metal)
+    cmake --preset macos-metal
+-- Halide vendored: 21.0.0 (see third_party/halide/VERSION)
+-- Using STATIC libjpeg-turbo: /opt/homebrew/opt/jpeg-turbo/lib/libjpeg.a
+-- Halide 'host' platform triple:   arm-64-osx
+-- Halide 'cmake' platform triple:  arm-64-osx
+-- Halide default AOT target:       host
+-- Halide AOT target: host-metal-no_asserts-no_bounds_query
+-- Halide AOT lib extension: .a; Stage4 split kernel: OFF
+-- HEIF: libheif /Users/jhangyu/project/ceyx-heic/native/third_party/heif-dist/lib/libheif.dylib + libde265 /Users/jhangyu/project/ceyx-heic/native/third_party/heif-dist/lib/libde265.dylib (dynamic)
+-- [ceyx] desktop OpenMP: using VENDORED libomp (arm64) at /Users/jhangyu/project/ceyx-heic/native/third_party/libomp
+-- [ceyx] desktop OpenMP: using libomp at /Users/jhangyu/project/ceyx-heic/native/third_party/libomp
+-- Performing basic integral type checks
+-- Performing basic integral type checks - Success
+-- Looking for OpenMP
+-- Looking for OpenMP - found (system)
+-- Looking for pugixml
+-- Looking for pugixml sources
+-- Looking for pugixml sources in /usr/src/pugixml
+CMake Warning at CMakeLists.txt:33 (message):
+  Did not find pugixml sources! Fetching from web...
+
+
+CMake Warning (dev) at /opt/homebrew/share/cmake/Modules/ExternalProject/shared_internal_commands.cmake:1261 (message):
+  The DOWNLOAD_EXTRACT_TIMESTAMP option was not given and policy CMP0135 is
+  not set.  The policy's OLD behavior will be used.  When using a URL
+  download, the timestamps of extracted files should preferably be that of
+  the time of extraction, otherwise code that depends on the extracted
+  contents might not be rebuilt if the URL changes.  The OLD behavior
+  preserves the timestamps from the archive instead, but this is usually not
+  what you want.  Update your project to the NEW behavior or specify the
+  DOWNLOAD_EXTRACT_TIMESTAMP option with a value of true to avoid this
+  robustness issue.
+Call Stack (most recent call first):
+  /opt/homebrew/share/cmake/Modules/ExternalProject.cmake:3258 (_ep_add_download_command)
+  CMakeLists.txt:34 (ExternalProject_Add)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/jhangyu/project/ceyx-heic/native/build/rawspeed3-build/src/external/pugixml
+[100%] Built target pugixml
+CMake Deprecation Warning at build/rawspeed3-build/src/external/pugixml/src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- Looking for pugixml - found ('in-tree')
+-- Looking for JPEG
+-- Looking for JPEG - found
+-- Looking for ZLIB
+-- Found ZLIB: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd (found suitable version "1.2.12", minimum required is "1.2.11")
+-- Looking for ZLIB - found (system)
+-- The following features have been enabled:
+
+ * OpenMP-based threading, used for parallelization of the library
+ * XML reading, used for loading of data/cameras.xml
+ * Lossy JPEG decoding, used for DNG Lossy JPEG compression decoding
+ * ZLIB decoding, used for DNG Deflate compression decoding
+
+-- The following RECOMMENDED packages have been found:
+
+ * OpenMP, Open Multi-Processing, <https://www.openmp.org/>
+   Used for parallelization of the library
+ * JPEG, free library for handling the JPEG image data format, implements a JPEG codec
+   Used for decoding DNG Lossy JPEG compression
+
+-- The following REQUIRED packages have been found:
+
+ * Halide
+ * ZLIB (required version >= 1.2.11), software library used for data compression
+   Used for decoding DNG Deflate compression
+
+-- LibRaw string version: 0.22.0
+-- LibRaw ID version:     0x0220
+-- LibRaw SO version:     26.0.0
+-- Check for LCMS2 availability...
+-- Found lcms version 2.19, /opt/homebrew/lib/liblcms2.dylib
+-- Found LCMS2 : /opt/homebrew/lib/liblcms2.dylib /opt/homebrew/include
+-- Found ZLIB: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd (found version "1.2.12")
+-- 
+-- ----------------------------------------------------------------------------------
+--  Libraw 0.22.0 configuration            <http://www.libraw.org>
+-- 
+--  Libraw will be compiled with OpenMP support .................. YES
+--  Libraw will be compiled with LCMS support .................... YES
+--  Libraw will be compiled with example command-line programs ... NO
+--  Libraw will be compiled with RedCine codec support ........... NO
+--  Libraw will be compiled with DNG deflate codec support ....... YES
+--  Libraw will be compiled with DNG lossy codec support ......... YES
+--  Libraw will be compiled with RawSpeed support ................ NO
+--  Libraw will be compiled with debug message from dcraw ........ NO
+--  Libraw will be compiled with Foveon X3F support .............. YES
+--  Libraw will be compiled with Raspberry Pi RAW support ........ NO
+--  Libraw will be compiled as a static library
+-- ----------------------------------------------------------------------------------
+-- 
+-- Configuring done (0.4s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/jhangyu/project/ceyx-heic/native/build
+    [ok]   cmake configure (macos-metal)
+    cmake --build --preset macos-metal --target dng_decoder_native
+[  8%] Built target rawspeed_decoders
+[  8%] Built target pugixml
+[  8%] Built target rawspeed_adt
+[  8%] Built target rawspeed_codes
+[ 13%] Built target rawspeed_common
+[ 14%] Built target rawspeed_metadata
+[ 16%] Built target rawspeed_io
+[ 18%] Built target rawspeed_tiff
+[ 21%] Built target rawspeed_parsers
+[ 32%] Built target rawspeed_decompressors
+[ 32%] Built target rawspeed_interpolators
+[ 32%] Built target rawspeed
+[ 32%] Built target rawspeed_get_number_of_processor_cores
+[ 32%] Building CXX object libraw-cmake-build/CMakeFiles/raw.dir/__/libraw/RawSpeed3/rawspeed3_c_api/rawspeed3_capi.cpp.o
+[ 34%] Building CXX object libraw-cmake-build/CMakeFiles/raw.dir/__/rawspeed3-cameras/cameras.cpp.o
+/Users/jhangyu/project/ceyx-heic/native/build/rawspeed3-cameras/cameras.cpp:20091:2: warning: null character(s) preserved in string literal [-Wnull-character]
+ 20091 | "<U+0000>";
+       |  ^
+1 warning generated.
+[ 34%] Linking CXX static library libraw.a
+[ 62%] Built target raw
+[ 85%] Built target dng_sdk
+[ 85%] Built target dng_demosaic_generator
+[ 85%] Built target halide_runtime_target
+[ 85%] Built target rectilinear_warp_generator
+[ 85%] Built target dng_warp_aot_target
+[ 85%] Built target dng_demosaic_aot_target
+[ 86%] Built target raw_bayer_demosaic_generator
+[ 86%] Built target raw_bayer_demosaic_aot_target
+[ 86%] Built target raw_xtrans_demosaic_generator
+[ 86%] Built target raw_xtrans_demosaic_aot_target
+[ 86%] Built target raw_linear_rgb_normalize_generator
+[ 86%] Built target raw_linear_rgb_normalize_aot_target
+[ 88%] Built target dng_demosaic_warp_generator
+[ 88%] Built target dng_demosaic_warp_aot_target
+[ 88%] Built target dng_render_generator
+[ 88%] Built target dng_render_aot_target
+[ 90%] Built target dng_render_scaled_preavg_aot_target
+[ 91%] Built target dng_opcode_polynomial_generator
+[ 91%] Built target dng_opcode_polynomial_aot_target
+[ 91%] Built target dng_opcode_polynomial3_generator
+[ 93%] Built target dng_opcode_polynomial3_aot_target
+[ 95%] Linking CXX shared library libdng_decoder_native.dylib
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[2](jcapimin.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[3](jcapistd-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[6](jccoefct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[7](jccoefct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[8](jccolor-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[9](jccolor-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[10](jccolor-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[11](jcdctmgr-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[12](jcdctmgr-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[13](jcdiffct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[14](jcdiffct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[15](jcdiffct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[16](jchuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[18](jcinit.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[19](jclhuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[20](jclossls-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[21](jclossls-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[22](jclossls-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[23](jcmainct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[24](jcmainct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[25](jcmainct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[26](jcmarker.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[27](jcmaster.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[28](jcomapi.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[29](jcparam.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[30](jcphuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[31](jcprepct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[32](jcprepct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[33](jcprepct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[34](jcsample-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[35](jcsample-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[36](jcsample-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[38](jdapimin.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[39](jdapistd-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[43](jdatasrc.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[44](jdcoefct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[45](jdcoefct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[46](jdcolor-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[47](jdcolor-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[48](jdcolor-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[49](jddctmgr-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[50](jddctmgr-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[51](jddiffct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[52](jddiffct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[53](jddiffct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[54](jdhuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[56](jdinput.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[57](jdlhuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[58](jdlossls-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[59](jdlossls-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[60](jdlossls-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[61](jdmainct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[62](jdmainct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[63](jdmainct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[64](jdmarker.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[65](jdmaster.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[66](jdmerge-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[67](jdmerge-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[68](jdphuff.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[69](jdpostct-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[70](jdpostct-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[71](jdpostct-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[72](jdsample-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[73](jdsample-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[74](jdsample-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[76](jerror.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[77](jfdctflt.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[78](jfdctfst-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[79](jfdctfst-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[80](jfdctint-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[81](jfdctint-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[82](jidctflt-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[83](jidctflt-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[84](jidctfst-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[85](jidctfst-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[86](jidctint-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[87](jidctint-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[88](jidctred-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[89](jidctred-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[90](jmemmgr.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[91](jmemnobs.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[93](jquant1-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[94](jquant1-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[95](jquant2-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[96](jquant2-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[97](jutils-8.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[98](jutils-12.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[99](jutils-16.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[100](jaricom.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[101](jcarith.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[102](jdarith.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[103](jccolor-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[104](jcgray-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[105](jchuff-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[106](jcphuff-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[107](jcsample-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[108](jdcolor-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[109](jdmerge-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[110](jdsample-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[111](jfdctfst-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[112](jfdctint-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[113](jidctfst-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[114](jidctint-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[115](jidctred-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[116](jquanti-neon.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[117](jsimdcpu.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: object file (/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libjpeg.a[118](jsimd.c.o)) was built for newer 'macOS' version (15.0) than being linked (11.0)
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/little-cms2/lib/liblcms2.2.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/libomp.dylib' which was built for newer version 15.0
+Vendoring Homebrew deps into dng_decoder_native
+/Users/jhangyu/project/ceyx-heic/native/build/libdng_decoder_native.dylib: replacing existing signature
+[bundle] repointed Homebrew deps in /Users/jhangyu/project/ceyx-heic/native/build/libdng_decoder_native.dylib
+Staging libheif/libde265 next to dng_decoder_native
+[100%] Built target dng_decoder_native
+    [ok]   cmake build (dng_decoder_native)
+    [ok]   built: /Users/jhangyu/project/ceyx-heic/native/build/libdng_decoder_native.dylib
+    cmake --build --preset macos-metal --target test_cfa_color
+[  8%] Built target rawspeed_decoders
+[  8%] Built target pugixml
+[  8%] Built target rawspeed_adt
+[  8%] Built target rawspeed_codes
+[ 12%] Built target rawspeed_common
+[ 14%] Built target rawspeed_metadata
+[ 16%] Built target rawspeed_io
+[ 17%] Built target rawspeed_tiff
+[ 20%] Built target rawspeed_parsers
+[ 32%] Built target rawspeed_decompressors
+[ 32%] Built target rawspeed_interpolators
+[ 32%] Built target rawspeed
+[ 32%] Built target rawspeed_get_number_of_processor_cores
+[ 61%] Built target raw
+[ 83%] Built target dng_sdk
+[ 83%] Built target dng_demosaic_generator
+[ 83%] Built target halide_runtime_target
+[ 83%] Built target rectilinear_warp_generator
+[ 83%] Built target dng_warp_aot_target
+[ 83%] Built target dng_demosaic_aot_target
+[ 85%] Built target raw_bayer_demosaic_generator
+[ 85%] Built target raw_bayer_demosaic_aot_target
+[ 85%] Built target raw_xtrans_demosaic_generator
+[ 85%] Built target raw_xtrans_demosaic_aot_target
+[ 85%] Built target raw_linear_rgb_normalize_generator
+[ 85%] Built target raw_linear_rgb_normalize_aot_target
+[ 87%] Built target dng_demosaic_warp_generator
+[ 87%] Built target dng_demosaic_warp_aot_target
+[ 87%] Built target dng_render_generator
+[ 87%] Built target dng_render_aot_target
+[ 88%] Built target dng_render_scaled_preavg_aot_target
+[ 90%] Built target dng_opcode_polynomial_generator
+[ 90%] Built target dng_opcode_polynomial_aot_target
+[ 90%] Built target dng_opcode_polynomial3_generator
+[ 91%] Built target dng_opcode_polynomial3_aot_target
+[ 98%] Built target dng_decoder_native
+[ 98%] Linking CXX executable test_cfa_color
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/little-cms2/lib/liblcms2.2.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/libomp.dylib' which was built for newer version 15.0
+[100%] Built target test_cfa_color
+    [ok]   cmake build (test_cfa_color)
+    /Users/jhangyu/project/ceyx-heic/native/build/test_cfa_color /Users/jhangyu/project/Halcyon/local_data/photo_samples/DNG/IMG_20251112_092839.dng --expect-blue-sky
+[Pipeline] GPU backend: metal (available=yes)
+[CFA COLOR] file=/Users/jhangyu/project/Halcyon/local_data/photo_samples/DNG/IMG_20251112_092839.dng size=4080x3056 band=0.10 samples=1244400 meanR=81.93 meanG=146.90 meanB=214.34 B-R=132.41 min=50.00 [PASS]
+    [ok]   test_cfa_color colour gate
+    cmake --build --preset macos-metal --target test_heif_color
+[  8%] Built target rawspeed_decoders
+[  8%] Built target pugixml
+[  8%] Built target rawspeed_adt
+[  8%] Built target rawspeed_codes
+[ 12%] Built target rawspeed_common
+[ 14%] Built target rawspeed_metadata
+[ 16%] Built target rawspeed_io
+[ 17%] Built target rawspeed_tiff
+[ 20%] Built target rawspeed_parsers
+[ 32%] Built target rawspeed_decompressors
+[ 32%] Built target rawspeed_interpolators
+[ 32%] Built target rawspeed
+[ 32%] Built target rawspeed_get_number_of_processor_cores
+[ 61%] Built target raw
+[ 83%] Built target dng_sdk
+[ 83%] Built target dng_demosaic_generator
+[ 83%] Built target halide_runtime_target
+[ 83%] Built target rectilinear_warp_generator
+[ 83%] Built target dng_warp_aot_target
+[ 83%] Built target dng_demosaic_aot_target
+[ 85%] Built target raw_bayer_demosaic_generator
+[ 85%] Built target raw_bayer_demosaic_aot_target
+[ 85%] Built target raw_xtrans_demosaic_generator
+[ 85%] Built target raw_xtrans_demosaic_aot_target
+[ 85%] Built target raw_linear_rgb_normalize_generator
+[ 85%] Built target raw_linear_rgb_normalize_aot_target
+[ 87%] Built target dng_demosaic_warp_generator
+[ 87%] Built target dng_demosaic_warp_aot_target
+[ 87%] Built target dng_render_generator
+[ 87%] Built target dng_render_aot_target
+[ 88%] Built target dng_render_scaled_preavg_aot_target
+[ 90%] Built target dng_opcode_polynomial_generator
+[ 90%] Built target dng_opcode_polynomial_aot_target
+[ 90%] Built target dng_opcode_polynomial3_generator
+[ 91%] Built target dng_opcode_polynomial3_aot_target
+[ 98%] Built target dng_decoder_native
+[ 98%] Linking CXX executable test_heif_color
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/little-cms2/lib/liblcms2.2.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/jpeg-turbo/lib/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/libomp.dylib' which was built for newer version 15.0
+[100%] Built target test_heif_color
+    [ok]   cmake build (test_heif_color)
+    /Users/jhangyu/project/ceyx-heic/native/build/test_heif_color /Users/jhangyu/project/ceyx-heic/native/tests/data/h1_sample.heic /Users/jhangyu/project/ceyx-heic/native/tests/data/h1_reference.rgba
+[HEIF COLOR] file=/Users/jhangyu/project/ceyx-heic/native/tests/data/h1_sample.heic size=512x415 pixels=212480 MAE=0.2869 max=2.0000 [PASS]
+    [ok]   test_heif_color H1 colour gate
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/libdng_decoder_native.dylib
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/libheif.1.dylib
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/liblcms2.2.dylib
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/libomp.dylib
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/libde265.0.dylib
+    [ok]   placed: /Users/jhangyu/project/ceyx-heic/plugin/macos/Libraries/libjpeg.8.dylib
+
+==> Phase 2: flutter build macos (release)
+    flutter pub get
+Resolving dependencies...
+Downloading packages...
+  archive 4.0.9 (4.2.0 available)
+  async 2.13.0 (2.13.1 available)
+  cli_util 0.4.2 (0.6.0 available)
+  cross_file 0.3.5+2 (0.3.5+5 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  desktop_drop 0.8.0 (0.8.2 available)
+  file_selector_android 0.5.2+4 (0.5.2+9 available)
+  file_selector_ios 0.5.3+4 (0.5.3+5 available)
+  file_selector_web 0.9.4+2 (0.9.5 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  json_annotation 4.11.0 (4.12.0 available)
+  lints 5.1.1 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.22 (2.3.1 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  posix 6.0.3 (6.5.2 available)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.27 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 15.0.2 (15.3.0 available)
+Got dependencies!
+27 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+    [ok]   flutter pub get
+    build commit stamp: 52697cb322d0492453e3ab86b460c07aacc0641d-dirty
+    ARCHS=arm64 (via FLUTTER_XCODE_ARCHS)
+    flutter build macos --release --dart-define=HALCYON_BUILD_COMMIT=52697cb322d0492453e3ab86b460c07aacc0641d-dirty
+The following plugins do not support Swift Package Manager for macos:
+  - ceyx
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+Running pod install...                                             422ms
+Building macOS application...                                   
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/liblcms2.2.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/libjpeg.8.dylib' which was built for newer version 15.0
+ld: warning: building for macOS-11.0, but linking with dylib '@rpath/liblcms2.2.dylib' which was built for newer version 15.0
+warning: Run script build phase 'Run Script' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'Flutter Assemble' from project 'Runner')
+✓ Built build/macos/Build/Products/Release/Halcyon.app (32.7MB)
+    [ok]   flutter build macos --release
+
+==> Phase 3: artifact verification
+    [ok]   macOS app bundle: /Users/jhangyu/project/Halcyon-decoders/build/macos/Build/Products/Release/Halcyon.app
+    [ok]   app slices: arm64 (Halcyon)
+    [ok]   decoder slices: arm64
+    [ok]   HEIF @rpath dependencies present in the app bundle (libheif.1.dylib, libde265.0.dylib)
+
+==============================================================
+ DONE - no warnings.
+==============================================================
+BUILD_RC=0

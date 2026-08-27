@@ -110,13 +110,36 @@ name must not start with `.` (dotfiles/AppleDouble sidecars are skipped), and it
 extension must be in the supported set.
 <!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
 
-The supported set is `.jpg`, `.jpeg`, `.png`, plus every RAW extension the Ceyx engine can
-decode (`.dng`, `.arw`, `.cr3`, `.nef`, `.raf`, `.rw2`, `.orf`, `.pef`, `.srw`, `.x3f`,
-derived at runtime from Ceyx's own capability constant) plus three browse-only RAW formats
-Ceyx cannot decode but Halcyon still lists (`.cr2`, `.iiq`, `.mrw`) — see "RAW format
-support and decode routing" below for the full breakdown and why this list is derived
-rather than hand-maintained.
+The supported set is `.jpg`, `.jpeg`, `.png`, `.webp`, `.tif`, `.tiff`, `.heic`, `.heif`, plus every RAW
+extension the Ceyx engine can decode (`.dng`, `.arw`, `.cr3`, `.nef`, `.raf`, `.rw2`,
+`.orf`, `.pef`, `.srw`, `.x3f`, derived at runtime from Ceyx's own capability constant)
+plus three browse-only RAW formats Ceyx cannot decode but Halcyon still lists (`.cr2`,
+`.iiq`, `.mrw`) — see "RAW format support and decode routing" below for the full breakdown
+and why this list is derived rather than hand-maintained.
 <!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
+
+The bitmap formats added alongside JPEG/PNG:
+
+- **WebP** (`.webp`) — decoded by the Flutter engine on every platform.
+  Animated WebP shows its first frame only. EXIF orientation carried in a
+  WebP `EXIF` chunk is not applied; files written by phones with a non-1
+  Orientation tag may display rotated.
+- **TIFF** (`.tif`, `.tiff`) — decoded with `package:image`. Stripped and
+  tiled TIFF, 8/16/32-bit samples, LZW/PackBits/Deflate and uncompressed are
+  supported; 16-bit is down-converted to 8-bit for display. Multi-page TIFF
+  shows page 1 only. Exotic compressions (CCITT G3/G4, JPEG2000-in-TIFF,
+  old-style JPEG-in-TIFF) are not supported and appear as an unreadable file.
+- **HEIC / HEIF** (`.heic`, `.heif`) — decoded by a bundled libheif +
+  libde265 pair, so the result is identical on every platform rather than
+  depending on the OS's own decoder. Verified on **macOS**; the Windows and
+  Linux build rules are written but **have not been run** — on a platform
+  where the libraries are absent the file is reported unreadable and the app
+  starts normally. Multi-image files (bursts, Live Photos, depth and auxiliary
+  images) show the primary image only; HDR gain maps and depth maps are
+  ignored, and 10/12-bit HEIC is converted to 8 bits for display. Rotation
+  recorded as a container transform is applied; a file that carries only an
+  EXIF `Orientation` tag and no container transform may display unrotated.
+  AVIF is not supported.
 
 Matched files are grouped (see below) into `PhotoItem`s and the resulting list is sorted
 by id, case-insensitively.
