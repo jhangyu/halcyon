@@ -35,13 +35,19 @@ void main() {
       expect(SupportedPhotoFormats.isRawPath('/tmp/P1000001.rw2'), isTrue);
     });
 
-    test('HEIC is not scanned, and never preferred over a decodable sibling', () {
-      expect(SupportedPhotoFormats.isSupportedPath('/x/a.heic'), isFalse);
-      final files = [File('/x/a.heic'), File('/x/a.arw')];
-      // A HEIC that slipped into an item (pre-removal folder state) must not
-      // win preference — the old list preferred the one file that cannot
-      // decode anywhere (supported_photo_formats.dart:47-56 bug).
-      expect(SupportedPhotoFormats.bestFileToLoad(files)!.path, '/x/a.arw');
+    test('HEIC is scanned in phase 2, and never outranks a cheap engine sibling',
+        () {
+      // Phase-2 boundary: HEIC joined bitmapDecodeExtensions (native libheif
+      // route), so it is now a supported, scanned container — the inverse of
+      // the phase-1 assertion this replaces.
+      expect(SupportedPhotoFormats.isSupportedPath('/x/a.heic'), isTrue);
+      // The invariant that is actually decided: a HEIC must not outrank a
+      // rendered, engine-decodable JPEG sibling — HEIC is deliberately absent
+      // from preferredLoadExtensions, exactly like TIFF. (A HEIC vs a RAW
+      // sibling is left to list order, the same as TIFF vs RAW; a deliberate
+      // ranking there would be a new product decision.)
+      final files = [File('/x/a.heic'), File('/x/a.jpg')];
+      expect(SupportedPhotoFormats.bestFileToLoad(files)!.path, '/x/a.jpg');
     });
   });
 }
