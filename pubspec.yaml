@@ -43,8 +43,16 @@ dependencies:
   # the `app` package: it is a Flutter app project, so depending on it
   # drags its harness dependencies (file_picker, path_provider) into this app
   # and broke the Android build. See ../ceyx/plugin.
+  # PHASE-2 DEV REDIRECT — MUST BE REVERTED BY TASK 9.
+  # The HEIF Dart surface (HeifDecoderService) lives on ceyx's
+  # feature/heic-decode branch, which is checked out at ../ceyx-heic. The live
+  # ../ceyx worktree is consumed by other sessions and must not be modified,
+  # so phase-2 development points here instead. Task 9 reverts this line to
+  # `path: ../ceyx/plugin` and pairs the revert with merging
+  # feature/heic-decode into ceyx main; the phase is not complete until both
+  # have happened.
   ceyx:
-    path: ../ceyx/plugin
+    path: ../ceyx-heic/plugin
   # Fallback EXIF reader for platforms without the halcyon/exif native handler.
   exif: ^3.3.0
   image: ^4.9.2

@@ -41,11 +41,20 @@ class SupportedPhotoFormats {
     '.webp',
   };
 
+  static const Set<String> tiffExtensions = {'.tif', '.tiff'};
+
+  static const Set<String> heifExtensions = {'.heic', '.heif'};
+
   /// Already-rendered bitmap containers with no cheap encoded bitstream that a
-  /// full decoder can still turn into RGBA. Phase 1 is TIFF via
-  /// `package:image`; `.heic`/`.heif` join this set in phase 2 (native
-  /// libheif) and must NOT be added before that decoder exists.
-  static const Set<String> bitmapDecodeExtensions = {'.tif', '.tiff'};
+  /// full decoder can still turn into RGBA: TIFF via `package:image`, HEIC via
+  /// the native libheif route in `ceyx` (phase 2). Membership here is what
+  /// gives a format the widened `NativeImageNeedsRawDecode` escape hatch, the
+  /// sidebar's sized-decode fallback and the export arm — all three derive
+  /// from this one set.
+  static const Set<String> bitmapDecodeExtensions = {
+    ...tiffExtensions,
+    ...heifExtensions,
+  };
 
   static final Set<String> supportedExtensions = Set.unmodifiable(
     engineBitstreamExtensions.union(bitmapDecodeExtensions).union(rawExtensions),
@@ -91,6 +100,14 @@ class SupportedPhotoFormats {
 
   static bool isBitmapDecodePath(String path) {
     return bitmapDecodeExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  /// True for the containers the native libheif route decodes. Used by
+  /// `full_decoder_dispatch.dart` to pick the HEIF arm; kept separate from
+  /// [isBitmapDecodePath] because that set also contains TIFF, which goes to
+  /// `package:image` instead.
+  static bool isHeifPath(String path) {
+    return heifExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static bool hasFullDecodeRoute(String path) {

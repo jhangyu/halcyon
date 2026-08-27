@@ -111,8 +111,10 @@ void main() {
         );
       }
       expect(SupportedPhotoFormats.isSupportedPath('d.xyz'), isFalse);
-      expect(SupportedPhotoFormats.isSupportedPath('e.heic'), isFalse,
-          reason: 'HEIC is phase 2 and must not be claimed yet');
+      expect(SupportedPhotoFormats.isSupportedPath('e.heic'), isTrue,
+          reason: 'phase 2 claims HEIC: the native libheif route exists');
+      expect(SupportedPhotoFormats.isSupportedPath('f.HEIF'), isTrue,
+          reason: 'extension matching is case-insensitive');
     });
 
     test('TC-302: .webp is an engine bitstream, .tif/.tiff are bitmap-decode',
@@ -122,7 +124,8 @@ void main() {
       expect(SupportedPhotoFormats.isEncodedBitstreamPath('b.tif'), isFalse);
       expect(SupportedPhotoFormats.isBitmapDecodePath('b.tif'), isTrue);
       expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
-      expect(SupportedPhotoFormats.bitmapDecodeExtensions, {'.tif', '.tiff'});
+      expect(SupportedPhotoFormats.bitmapDecodeExtensions,
+          {'.tif', '.tiff', '.heic', '.heif'});
     });
 
     test('TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream',
@@ -162,6 +165,41 @@ void main() {
       expect(
         SupportedPhotoFormats.bestFileToLoad([f('a.tif'), f('a.jpg')])!.path,
         'a.jpg',
+      );
+    });
+  });
+
+  group('phase-2 HEIC formats', () {
+    test('TC-302: .heic/.heif are bitmap-decode, not engine bitstreams', () {
+      for (final path in ['a.heic', 'b.heif', 'C.HEIC', 'D.HEIF']) {
+        expect(SupportedPhotoFormats.isSupportedPath(path), isTrue);
+        expect(SupportedPhotoFormats.isBitmapDecodePath(path), isTrue);
+        expect(
+          SupportedPhotoFormats.isEncodedBitstreamPath(path),
+          isFalse,
+          reason: 'the Flutter engine cannot decode HEIC on every platform, '
+              'which is why it needs the native route at all',
+        );
+        expect(SupportedPhotoFormats.hasFullDecodeRoute(path), isTrue);
+      }
+      expect(SupportedPhotoFormats.bitmapDecodeExtensions,
+          {'.tif', '.tiff', '.heic', '.heif'});
+    });
+
+    test('TC-302: a HEIC sibling does not outrank a JPEG sibling', () {
+      File f(String name) => File(name);
+      // HEIC is deliberately absent from preferredLoadExtensions, exactly like
+      // TIFF: a rendered JPEG next to a HEIC is the cheaper, engine-decodable
+      // file and must keep winning.
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.heic'), f('a.jpg')])!.path,
+        'a.jpg',
+      );
+      expect(
+        SupportedPhotoFormats.bestFileToLoad([f('a.heic')])!.path,
+        'a.heic',
+        reason: 'the supported-file fallback still picks it up when the whole '
+            'group is HEIC',
       );
     });
   });
