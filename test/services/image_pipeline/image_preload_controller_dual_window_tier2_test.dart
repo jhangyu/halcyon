@@ -17,7 +17,10 @@
 // Historical note: a pixel-backed (expensive/RAW) item used to get a payload
 // only within +/-1 of SOME selection it had passed through (AD-018), so the
 // pixel sub-case below walks the selection through neighbouring positions
-// before settling in order to see the full +/-kTierTwoRadius (2) band
+// before settling in order to see the full -1..+3 band (kTierTwoBefore /
+// kTierTwoAfter; the test NAMES below still say "+/-2" and are frozen by the
+// contract at the top of this file -- the band they assert is now -1..+3,
+// AD-034)
 // populated. AD-018 was OVERTURNED on 2026-08-26 (memory.md AD-033: expensive
 // items now fill the same -3..+5 window as cheap ones, serially), which makes
 // that walk unnecessary rather than wrong -- it is kept because what it
@@ -142,12 +145,14 @@ void main() {
         notifyLoaded: () {},
       );
       await until(
-        () => cheap.debugTierTwoKeyIds.length == 2 * kTierTwoRadius + 1,
-        reason: 'cheap tier-2 band to settle to +/-2',
+        () =>
+            cheap.debugTierTwoKeyIds.length ==
+            kTierTwoBefore + kTierTwoAfter + 1,
+        reason: 'cheap tier-2 band to settle to -1..+3',
       );
 
       final cheapExpectedBand = <String>{
-        for (var d = -kTierTwoRadius; d <= kTierTwoRadius; d++)
+        for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
           cheapItems[cheapSelected + d].id,
       };
       expect(
@@ -155,9 +160,9 @@ void main() {
         cheapExpectedBand,
         reason:
             'encoded payloads: the tier-2 key id set must equal exactly the '
-            '+/-2 band after settle',
+            '-1..+3 band after settle',
       );
-      for (final d in [-3, 3, 4, 5]) {
+      for (final d in [-3, -2, 4, 5]) {
         final id = cheapItems[cheapSelected + d].id;
         expect(
           await tierOneResident(cheap, id, width: 10, height: 10),
@@ -176,17 +181,16 @@ void main() {
       // REQUIRED under AD-018 (a payload only existed within +/-1 of some
       // visited selection); since AD-033 it is merely a harder starting
       // state than a cold settle.
-      // --- core claim: the +/-2 band ends up with EXACTLY that band in
+      // --- core claim: the -1..+3 band ends up with EXACTLY that band in
       // debugTierTwoKeyIds.
       //
-      // Retention (-3..+5, width 9) and the target band (-2..+2, width 5)
+      // Retention (-3..+5, width 9) and the target band (-1..+3, width 5)
       // are close enough in width that this walk can hold every band id's
       // payload alive simultaneously through to the final settle: 5 seeds
-      // 4/5/6, 7 seeds 6/7/8 (retention range [4,12] keeps 4 alive too), 3
-      // seeds 2/3/4 (retention range [0,8] keeps everything from the first
-      // two stops alive), and the final settle at 5 re-widens retention to
+      // 2..10, 7 seeds 4..12, 3 seeds 0..8, so the union covers the whole
+      // final band, and the final settle at 5 re-widens retention to
       // [2,10] -- a superset of everything acquired -- while its own
-      // tier-2 window [3,7] triggers the catch-up upgrade for every band id
+      // tier-2 window [4,8] triggers the catch-up upgrade for every band id
       // that does not already carry a live tier-2 entry.
       ImagePreloadController buildPixelController() => ImagePreloadController(
         imageLoader: (path, {required purpose}) async =>
@@ -209,12 +213,14 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 400));
       }
       await until(
-        () => pixel.debugTierTwoKeyIds.length == 2 * kTierTwoRadius + 1,
-        reason: 'pixel tier-2 band to settle to +/-2 after the walk',
+        () =>
+            pixel.debugTierTwoKeyIds.length ==
+            kTierTwoBefore + kTierTwoAfter + 1,
+        reason: 'pixel tier-2 band to settle to -1..+3 after the walk',
       );
 
       final pixelExpectedBand = <String>{
-        for (var d = -kTierTwoRadius; d <= kTierTwoRadius; d++)
+        for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
           pixelItems[pixelSelected + d].id,
       };
       expect(
@@ -222,11 +228,13 @@ void main() {
         pixelExpectedBand,
         reason:
             'pixel payloads: the tier-2 key id set must equal exactly the '
-            '+/-2 band after settle, same as encoded payloads',
+            '-1..+3 band after settle, same as encoded payloads',
       );
 
-      // --- boundary claim: -3, +3, +4, +5 have a tier-1 entry (once a
-      // payload was ever produced for them) and NEVER a tier-2 entry.
+      // --- boundary claim: -3, -2, +4, +5 have a tier-1 entry (once a
+      // payload was ever produced for them) and NEVER a tier-2 entry. Under
+      // the forward-biased -1..+3 window (AD-034) the backward boundaries are
+      // now -3 and -2 and the forward boundaries are +4 and +5.
       //
       // Each boundary is checked with its OWN short walk rather than inside
       // the combined walk above: retention (width 9) and the full -3..+5
@@ -237,23 +245,26 @@ void main() {
       // artefact. Isolating each boundary sidesteps that without weakening
       // what is actually asserted per position.
       //
-      // distance -3 is free: item at pixelSelected-3 (index 2) already
-      // received a payload from the "3" stop of the walk above and survives
-      // into the final retention window [2,10], but loses its tier-2 entry
-      // because distance 3 is outside the tier-2 window [3,7].
-      final minus3Id = pixelItems[pixelSelected - 3].id;
-      expect(
-        await tierOneResident(pixel, minus3Id, width: 10, height: 10),
-        isTrue,
-        reason: 'distance -3 (pixel) must still hold a tier-1 entry',
-      );
-      expect(
-        pixel.debugTierTwoKeyIds.contains(minus3Id),
-        isFalse,
-        reason: 'distance -3 (pixel) must NOT hold a tier-2 entry',
-      );
+      // distances -3 and -2 are free: the items at pixelSelected-3 (index 2)
+      // and pixelSelected-2 (index 3) already received payloads from the "3"
+      // stop of the walk above and survive into the final retention window
+      // [2,10], but hold no tier-2 entry because the tier-2 window is now
+      // [4,8]. -2 is the slot the forward bias gave up (AD-034).
+      for (final d in [-3, -2]) {
+        final backwardId = pixelItems[pixelSelected + d].id;
+        expect(
+          await tierOneResident(pixel, backwardId, width: 10, height: 10),
+          isTrue,
+          reason: 'distance $d (pixel) must still hold a tier-1 entry',
+        );
+        expect(
+          pixel.debugTierTwoKeyIds.contains(backwardId),
+          isFalse,
+          reason: 'distance $d (pixel) must NOT hold a tier-2 entry',
+        );
+      }
 
-      for (final d in [3, 4, 5]) {
+      for (final d in [4, 5]) {
         final boundary = buildPixelController();
         addTearDown(boundary.dispose);
         boundary.updateTargetSize(10, 10);
@@ -262,7 +273,7 @@ void main() {
 
         // Seed the boundary id's payload by selecting it directly (distance
         // 0 to itself), then settle on the real selection: retention [2,10]
-        // keeps the payload (distance d <= 5), but the tier-2 window [3,7]
+        // keeps the payload (distance d <= 5), but the tier-2 window [4,8]
         // does not include it, so its tier-2 entry is evicted.
         await boundary.preloadImages(
           items: boundaryItems,
@@ -463,9 +474,9 @@ void main() {
       final firstPayload = controller.payloadFor(items[8].id);
       expect(firstPayload, isNotNull);
 
-      // Distance 3 from item 8: outside the +/-2 tier-2 window but still
-      // inside the -3..+5 retention window, so the payload survives while
-      // the tier-2 entry must be evicted.
+      // Item 8 is at distance -3 from selection 11: outside the forward-biased
+      // -1..+3 tier-2 window but still inside the -3..+5 retention window, so
+      // the payload survives while the tier-2 entry must be evicted.
       await controller.preloadImages(
         items: items,
         selectedItemId: items[11].id,
@@ -476,19 +487,21 @@ void main() {
         controller.debugTierTwoKeyIds.contains(items[8].id),
         isFalse,
         reason: 'containsKey == false: the full-res entry is gone once '
-            'outside +/-2',
+            'outside the -1..+3 window',
       );
       expect(
         controller.payloadFor(items[8].id),
         isNotNull,
-        reason: 'the payload itself is still retained (distance 3 <= 5)',
+        reason: 'the payload itself is still retained (distance -3 >= -3)',
       );
 
-      // Re-enter distance 2: the catch-up upgrade path must re-decode ONCE
-      // more (payload already exists, only the full-res entry is missing).
+      // Re-enter at distance -1 (select item 9, window [8,12]): the catch-up
+      // upgrade path must re-decode ONCE more (payload already exists, only
+      // the full-res entry is missing). -1 is chosen because the forward bias
+      // gave up -2; item 8 must land inside [sel-1, sel+3] to re-upgrade.
       await controller.preloadImages(
         items: items,
-        selectedItemId: items[10].id,
+        selectedItemId: items[9].id,
         notifyLoaded: () {},
       );
       await until(() => controller.isFullSizeReady(items[8].id));
@@ -544,7 +557,8 @@ void main() {
       await until(() => controller.isFullSizeReady(items[8].id));
       expect(targetCalls(), 1);
 
-      // Distance 3: evicts the full-res entry, retains the payload.
+      // Item 8 at distance -3 from selection 11: evicts the full-res entry,
+      // retains the payload.
       await controller.preloadImages(
         items: items,
         selectedItemId: items[11].id,
@@ -553,10 +567,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(controller.payloadFor(items[8].id), isNotNull);
 
-      // Re-enter distance 2: the catch-up decode runs and THROWS.
+      // Re-enter at distance -1 (select item 9, window [8,12]): the catch-up
+      // decode runs and THROWS. -1 is used because the forward bias gave up
+      // -2; item 8 must land inside [sel-1, sel+3] to trigger the re-upgrade.
       await controller.preloadImages(
         items: items,
-        selectedItemId: items[10].id,
+        selectedItemId: items[9].id,
         notifyLoaded: () {},
       );
       await until(

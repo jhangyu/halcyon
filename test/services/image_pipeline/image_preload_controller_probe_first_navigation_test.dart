@@ -388,8 +388,16 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 350));
     }
+    // The PixelPayload (window-resolution) is retained through the whole
+    // excursion: it never leaves the unchanged -3..+5 retention window.
     expect(identical(controller.payloadFor(items[8].id), first), isTrue);
-    expect(decodesOfTarget(), 1);
+    // But under the forward-biased -1..+3 tier-2 window (AD-034) the excursion
+    // to index 10 puts item 8 at distance -2 -- the slot the bias gave up --
+    // so item 8's FULL-RES tier-2 entry is evicted there and re-decoded once
+    // when the walk returns to index 9/8. That second decode is the accepted
+    // AD-034 catch-up cost, NOT the AD-033 discarded-piggyback bug: it fires on
+    // a legitimate re-entry against a live payload, not a single-visit discard.
+    expect(decodesOfTarget(), 2);
 
     final cheapCalls = <String>[];
     final cheapController = ImagePreloadController(

@@ -4,8 +4,9 @@
 //   * tier-1 (screen resolution) precache covers the WHOLE -3..+5 retention
 //     window, so every retained slot also holds a decoded screen-resolution
 //     entry;
-//   * tier-2 (full size) covers +/-2 via `kTierTwoRadius`, behind the frozen
-//     250ms navigation debounce.
+//   * tier-2 (full size) covers -1..+3 via `kTierTwoBefore`/`kTierTwoAfter`,
+//     behind the frozen 250ms navigation debounce. Forward-biased for the
+//     same reason retention is (-3..+5): browsing is overwhelmingly forwards.
 //
 // What changed on 2026-08-26 (user ruling; contract at
 // docs/logs/2026-08-26/serial-lane-unification-contract.md): the +/-1
@@ -209,7 +210,7 @@ void main() {
 
   // ---------------------------------------------------------------- AC3
 
-  testWidgets('TC-097 tier-2 full-size entries cover -2..+2 after the '
+  testWidgets('TC-097 tier-2 full-size entries cover -1..+3 after the '
       'debounce settles (AC3)', (tester) async {
     await tester.runAsync(() async {
       final controller = cheapController();
@@ -223,32 +224,35 @@ void main() {
         selectedItemId: photos[selected].id,
         notifyLoaded: () {},
       );
-      // The frozen 250 ms debounce is UNCHANGED by round 2; this waits it out
-      // rather than altering it.
+      // The frozen 250 ms debounce is UNCHANGED by the forward-bias change;
+      // this waits it out rather than altering it.
       await Future<void>.delayed(const Duration(milliseconds: 400));
 
-      for (var d = -kTierTwoRadius; d <= kTierTwoRadius; d++) {
+      for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++) {
         expect(
           controller.isFullSizeReady(photos[selected + d].id),
           isTrue,
           reason:
               'distance $d is inside the tier-2 window and must hold a '
-              'full-size entry; before round 2 the span was +/-1, so -2 and '
-              '+2 re-decoded on every visit',
+              'full-size entry; the window is forward-biased -1..+3 so that '
+              'the next forward step lands on a ready entry instead of a '
+              'catch-up decode',
         );
       }
 
-      // The span is +/-2, not "everything": the boundary must still bite, or
-      // the test would pass just as well against an unbounded window.
+      // The span is -1..+3, not "everything": both boundaries must still
+      // bite, or the test would pass just as well against an unbounded
+      // window. -2 is the slot the forward bias GAVE UP; +4 is the slot it
+      // still does not reach.
       expect(
-        controller.isFullSizeReady(photos[selected - kTierTwoRadius - 1].id),
+        controller.isFullSizeReady(photos[selected - kTierTwoBefore - 1].id),
         isFalse,
-        reason: 'distance -3 is outside the tier-2 window',
+        reason: 'distance -2 is outside the forward-biased tier-2 window',
       );
       expect(
-        controller.isFullSizeReady(photos[selected + kTierTwoRadius + 1].id),
+        controller.isFullSizeReady(photos[selected + kTierTwoAfter + 1].id),
         isFalse,
-        reason: 'distance +3 is outside the tier-2 window',
+        reason: 'distance +4 is outside the tier-2 window',
       );
     });
   });

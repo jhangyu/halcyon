@@ -2,15 +2,27 @@ import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
 
-/// How far from the selected item a FULL-SIZE (tier-2) decode is precached.
+/// How far BEFORE the selected item a FULL-SIZE (tier-2) decode is precached.
 ///
-/// Retention is a wider thing again (`-3..+5`): this radius decides only which
+/// Retention is a wider thing again (`-3..+5`): these radii decide only which
 /// slots are decoded at FULL size, not which are kept -- and, since the
-/// 2026-08-26 serial-lane ruling, it decides nothing at all about which slots
+/// 2026-08-26 serial-lane ruling, they decide nothing at all about which slots
 /// may START an expensive decode. Every slot of the retention window may;
 /// expensive ones simply queue on `SerialDecodeLane` instead of running in
 /// parallel.
-const int kTierTwoRadius = 2;
+///
+/// Forward-biased (`-1..+3`) rather than symmetric, for the same reason
+/// retention and the lane start order already are: browsing is overwhelmingly
+/// forwards, so spending the scarce full-resolution budget on `i-2` buys a
+/// slot the user rarely returns to while `i+3` -- already retained as a
+/// payload -- pays a catch-up decode on arrival. The WINDOW SIZE is unchanged
+/// at 5 slots, so the peak number of resident full-resolution images is the
+/// same as under the old symmetric `+/-2`.
+const int kTierTwoBefore = 1;
+
+/// How far AFTER the selected item a FULL-SIZE (tier-2) decode is precached.
+/// See [kTierTwoBefore] for why this is the larger of the two.
+const int kTierTwoAfter = 3;
 
 /// Decides WHICH LANE a source runs on. The only layer that knows about cost
 /// (design §3.3).

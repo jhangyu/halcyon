@@ -898,7 +898,10 @@ void main() {
       final retained = controller.payloadFor(items[5].id);
       expect(decodesOfTarget(), 1);
 
-      // Out of +/-1, still inside -3..+5.
+      // Excursion to index 7: item 5 is now at distance -2, the slot the
+      // forward-biased -1..+3 window gave up (AD-034), so its FULL-RES tier-2
+      // entry is evicted -- but the ~50MB window-resolution PAYLOAD is still
+      // inside the unchanged -3..+5 retention window and must survive.
       await controller.preloadImages(
         items: items,
         selectedItemId: items[7].id,
@@ -914,14 +917,25 @@ void main() {
             're-decode on return',
       );
 
-      // Back again: no new source call, which is the P4 2 -> 1 flip.
+      // Back again: the payload is reused (no ~50MB re-production), but under
+      // AD-034 item 5 legitimately LEFT the tier-2 window at index 7 (distance
+      // -2), so returning pays exactly one catch-up FULL-RES decode -> 2. This
+      // is the accepted forward-bias cost, NOT the AD-033 discarded-piggyback
+      // bug: the two decodes are separated by a full navigate-away-and-back and
+      // the second fires on re-entry against a live payload with an evicted
+      // tier-2 entry, not a single-visit discard.
       await controller.preloadImages(
         items: items,
         selectedItemId: items[5].id,
         notifyLoaded: () {},
       );
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      expect(decodesOfTarget(), 1, reason: 'returning re-decoded');
+      expect(
+        decodesOfTarget(),
+        2,
+        reason: 'returning re-decodes the full-res once (AD-034 catch-up); '
+            'the payload itself was not re-produced',
+      );
 
       // Far enough that item 5 leaves -3..+5 -- and only then is it dropped.
       await controller.preloadImages(
@@ -974,16 +988,23 @@ void main() {
           isTrue,
         );
 
-        // Three steps, not two: round 2 widened tier-2 to +/-2, so index 5 is
-        // still INSIDE the window at index 7. Index 8 puts it at distance 3 --
-        // out of tier-2, but still on the -3 retention boundary, which is
-        // precisely the state this test is about (frame evicted, payload kept).
+        // Under the forward-biased -1..+3 window (AD-034) item 5 leaves tier-2
+        // as early as index 7 (distance -2, the slot the bias gave up); index
+        // 8 puts it at distance -3, out of tier-2 but still on the -3 retention
+        // boundary, which is the state this test is about (frame evicted,
+        // payload kept).
         await controller.preloadImages(
           items: items,
           selectedItemId: items[8].id,
           notifyLoaded: () {},
         );
         await until(() => controller.isFullSizeReady(items[8].id));
+        // The selected item (index 8) reaches readiness via the immediate
+        // piggyback path, which can win the race against the 250ms debounce
+        // that runs the tier-2 eviction sweep. Wait the debounce out so the
+        // stale-entry eviction for item 5 has actually run before asserting on
+        // it -- this waits for the eviction, it does not relax the assertion.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
 
         expect(
           PaintingBinding.instance.imageCache.containsKey(provider),

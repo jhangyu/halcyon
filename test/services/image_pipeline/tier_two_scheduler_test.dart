@@ -107,7 +107,8 @@ void main() {
       h.scheduler.schedule(items, 7, () {});
       await h.pump();
 
-      // Window is +/-kTierTwoRadius (2) around index 7, and the lane starts
+      // Window is -kTierTwoBefore..+kTierTwoAfter (-1..+3) around index 7, and
+      // the lane starts
       // at its centre: index 7 itself is the one load that may have begun.
       // (Until 2026-08-26 this asserted `contains('a5')` -- true only because
       // the old queue started at the window's low index. a5 is now the LAST
@@ -130,14 +131,15 @@ void main() {
       h.scheduler.schedule(items, 2, () {});
       await h.pump();
 
-      // All five slots are in the +/-2 window and none has a payload, so all
-      // five are enqueued -- but only the first may have STARTED.
+      // The four slots in the forward-biased -1..+3 window around index 2 are
+      // a1..a4 (a0 at distance -2 is excluded, AD-034); none has a payload, so
+      // all four are enqueued -- but only the first may have STARTED.
       //
       // "Index order" until 2026-08-26; the shared serial lane orders by
-      // distance from the selection instead (0, +1, -1, +2, -2), so a
-      // window centred on index 2 starts a2 and finishes with a0. The
-      // SEQUENTIALITY this test pins is unchanged -- one at a time, and the
-      // next one only starts when the previous is released.
+      // distance from the selection instead (0, +1, -1, +2), so a window
+      // centred on index 2 starts a2 and finishes with a4. The SEQUENTIALITY
+      // this test pins is unchanged -- one at a time, and the next one only
+      // starts when the previous is released.
       expect(h.loadOrder, ['a2']);
 
       await h.release('a2');
@@ -148,8 +150,7 @@ void main() {
 
       await h.release('a1');
       await h.release('a4');
-      await h.release('a0');
-      expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4', 'a0']);
+      expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4']);
     },
   );
 
@@ -176,15 +177,18 @@ void main() {
       // index 7 instead of draining the queue built for index 0.
       expect(h.loadOrder, ['a0', 'a7']);
 
-      // Drain the rest of the second sweep. a1 and a2 are still pending from
-      // the first sweep and get their turn in here; their bodies must skip
+      // Drain the rest of the second sweep. Under the forward-biased -1..+3
+      // window the sweep at index 7 covers a6..a9 (AD-034; a5 at distance -2
+      // is no longer in the window). a1 and a2 are still pending from the
+      // first sweep and get their turn in here; their bodies must skip
       // themselves on the window re-check rather than load.
-      for (final id in ['a7', 'a8', 'a6', 'a9', 'a5']) {
+      for (final id in ['a7', 'a8', 'a6', 'a9']) {
         await h.release(id);
       }
-      expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6', 'a9', 'a5']);
+      expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6', 'a9']);
       expect(h.loadOrder, isNot(contains('a1')));
       expect(h.loadOrder, isNot(contains('a2')));
+      expect(h.loadOrder, isNot(contains('a5')));
     },
   );
 
@@ -196,7 +200,7 @@ void main() {
       final items = _items(10);
       addTearDown(() => h.registry.clear());
 
-      for (final id in ['a0', 'a1', 'a2', 'a3']) {
+      for (final id in ['a0', 'a1', 'a2', 'a3', 'a4']) {
         h.payloads[id] = _freshEncodedPayload();
       }
 
@@ -204,13 +208,15 @@ void main() {
       final allLoaded = Completer<void>();
       h.scheduler.schedule(items, 1, () {
         loaded++;
-        if (loaded == 4 && !allLoaded.isCompleted) allLoaded.complete();
+        if (loaded == 5 && !allLoaded.isCompleted) allLoaded.complete();
       });
       await allLoaded.future;
       await h.pump();
 
-      // The +/-2 window around index 1 clamps to a0..a3.
-      expect(h.registry.keyIds, {'a0', 'a1', 'a2', 'a3'});
+      // The forward-biased -1..+3 window around index 1 clamps to a0..a4
+      // (AD-034; the window grew forward to include a4 relative to the old
+      // symmetric +/-2 span a0..a3).
+      expect(h.registry.keyIds, {'a0', 'a1', 'a2', 'a3', 'a4'});
       expect(h.registry.isReady('a1'), isTrue);
       // Payload production is never triggered for a slot that already has one.
       expect(h.loadOrder, isEmpty);

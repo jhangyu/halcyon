@@ -39,7 +39,7 @@ typedef FullSizeProviderFor = ImageProvider Function(SourcePayload payload);
 
 /// Owns the TIER-2 SCHEDULING that used to live inline in
 /// [ImagePreloadController]: WHEN a full-size decode happens (the 250ms
-/// navigation debounce), FOR WHICH items (the +/-[kTierTwoRadius] window), and
+/// navigation debounce), FOR WHICH items (the [kTierTwoBefore]..[kTierTwoAfter] window), and
 /// IN WHAT ORDER (one sequential queue: payload production in index order
 /// first, then full-resolution upgrades by distance).
 ///
@@ -112,7 +112,7 @@ class TierTwoScheduler {
   /// route, which is the one tier-2 decision taken outside this class.
   bool isInWindow(String id) => _windowIds.contains(id);
 
-  /// Publishes the +/-[kTierTwoRadius] id set for [currentIndex] IMMEDIATELY,
+  /// Publishes the -[kTierTwoBefore]..+[kTierTwoAfter] id set for [currentIndex] IMMEDIATELY,
   /// without arming or disturbing the debounce.
   ///
   /// Called by the controller at the top of every navigation pass, and it has
@@ -126,14 +126,14 @@ class TierTwoScheduler {
   /// "exactly one decoder call" guarantee AC-M5-4 pins.
   ///
   /// Only the id set moves earlier. WHEN full-size decodes run is still the
-  /// debounce's business, and the +/-2 radius is unchanged.
+  /// debounce's business, and the -1..+3 window is unchanged.
   void updateWindow(List<PhotoItem> items, int currentIndex) {
     _windowIds = retentionWindowIds<PhotoItem>(
       items,
       currentIndex,
       (item) => item.id,
-      before: kTierTwoRadius,
-      after: kTierTwoRadius,
+      before: kTierTwoBefore,
+      after: kTierTwoAfter,
     );
   }
 
@@ -165,18 +165,19 @@ class TierTwoScheduler {
     });
   }
 
-  // Tier-2 precache: decode current +/-kTierTwoRadius at full size once
+  // Tier-2 precache: decode current -kTierTwoBefore..+kTierTwoAfter at full size once
   // navigation has paused, and start the expensive sources that the immediate
   // pass deferred. Both tiers coexist: this only evicts its own window's
   // ImageCache entries and never touches the tier-1 keys or the payload cache --
   // payload retention is the -3..+5 rule and belongs to preloadImages alone.
   //
-  // The span here is kTierTwoRadius (2) and it governs FULL-SIZE decodes only.
+  // The span here is -1..+3 (kTierTwoBefore/kTierTwoAfter) and it governs
+  // FULL-SIZE decodes only.
   // Since the 2026-08-26 ruling it no longer has anything to say about where an
   // expensive source may be STARTED: the window pass in the controller already
   // queues every missing payload in the -3..+5 retention window on the shared
   // serial lane. What this loop still owns is the catch-up case -- a slot that
-  // is inside the +/-2 band and still has no payload when the debounce fires
+  // is inside the -1..+3 band and still has no payload when the debounce fires
   // gets (re-)queued here WITH its tier-2 decode chained on, because if the
   // user has stopped navigating there is no later pass to flip readiness.
   void _decodeWindow(
@@ -184,11 +185,11 @@ class TierTwoScheduler {
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    final tierStart = (currentIndex - kTierTwoRadius).clamp(
+    final tierStart = (currentIndex - kTierTwoBefore).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kTierTwoRadius).clamp(
+    final tierEnd = (currentIndex + kTierTwoAfter).clamp(
       0,
       items.length - 1,
     );
@@ -202,8 +203,8 @@ class TierTwoScheduler {
       items,
       currentIndex,
       (item) => item.id,
-      before: kTierTwoRadius,
-      after: kTierTwoRadius,
+      before: kTierTwoBefore,
+      after: kTierTwoAfter,
     );
     _windowIds = neededIds;
 
@@ -247,7 +248,7 @@ class TierTwoScheduler {
         case PixelPayload():
           // The CATCH-UP upgrade (design §2.2): this item already has its
           // window-resolution payload but no full-resolution entry -- it slid
-          // into the +/-2 band, or left and came back after its entry was
+          // into the -1..+3 band, or left and came back after its entry was
           // evicted. Unlike the piggyback path there is no decode in flight to
           // ride along on, so it costs one FFI decode, taken on the SAME serial
           // lane as payload production (no new concurrency) and behind the same
