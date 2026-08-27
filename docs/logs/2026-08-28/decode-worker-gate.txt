@@ -1,0 +1,320 @@
+================================================================================
+PERSISTENT DECODE WORKER -- MEASUREMENT GATE
+PRE-REGISTRATION BLOCK -- written to this file BEFORE any measurement
+existed. Everything below the RESULTS banner was appended after this
+block was on disk.
+================================================================================
+
+SAMPLE_DIR=local_data/photo_samples/DNG
+TOTAL_FOUND=26
+MAX_SAMPLES=12 (0 = all; a deterministic sorted-first-N slice
+  used purely to fit one bounded foreground run; never below the 5 floor)
+SAMPLE_COUNT=12
+
+DECISION RULE (verbatim from
+docs/logs/2026-08-28/spec-tier2-bias-and-persistent-decoder.md Sec B.5):
+
+  GO if, over at least 5 distinct no-preview RAW samples,
+  median(throwaway_wall_ms) - median(warm_wall_ms)
+      >= 0.15 * median(throwaway_wall_ms)
+  AND that absolute difference is >= 50 ms.
+  Otherwise NO-GO.
+
+  Fewer than 5 usable samples => NO-GO by insufficient evidence.
+  Never a smaller sample set, never synthetic input.
+
+  Medians are taken over the WARM calls only (call_index 1..5):
+  per sample, the median of its 5 warm calls; per variant, the median
+  of those per-sample values. call_index 0 is the cold call and is
+  recorded but excluded from the medians.
+
+No re-running with different parameters until a run passes: a failing
+run stays in this artifact.
+================================================================================
+RESULTS  (everything below this banner was produced AFTER the block above)
+================================================================================
+
+## 0. Tree state
+-- git rev-parse HEAD
+4371909808ae7fad58412abb4264f20f9125569e
+HEAD_RC=0
+HEAD=4371909808ae7fad58412abb4264f20f9125569e
+-- git status --porcelain
+ M lib/services/image_pipeline/prefetch_scheduler.dart
+ M lib/services/image_pipeline/tier_two_scheduler.dart
+ M pubspec.lock
+ M test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart
+ M test/services/image_pipeline/image_preload_window_test.dart
+ M test/services/image_pipeline/tier_two_scheduler_test.dart
+?? docs/logs/2026-08-24/Task_refactor_T9_handoff.md
+?? docs/logs/2026-08-24/Task_refactor_plan_D1.md
+?? docs/logs/2026-08-24/Task_refactor_plan_main.md
+?? docs/logs/2026-08-25/p2-p4-remediation-contract.md
+?? docs/logs/2026-08-25/structure-audit-architecture.md
+?? docs/logs/2026-08-25/structure-audit-inventory.md
+?? docs/logs/2026-08-25/structure-audit-proposal.md
+?? docs/logs/2026-08-25/structure-refactor-baton-1.md
+?? docs/logs/2026-08-25/structure-refactor-plan.md
+?? docs/logs/2026-08-26/raw-support-contract.md
+?? docs/logs/2026-08-28/
+?? docs/superpowers/plans/2026-08-28-adaptive-payload-retention.md
+?? docs/superpowers/plans/2026-08-28-reload-preserving-selection-helper.md
+?? docs/superpowers/plans/2026-08-28-tier2-bias-and-persistent-decoder.md
+?? tool/decode_worker_bench/
+STATUS_RC=0
+
+## 1. Provenance: native artifact content marker (never mtime)
+-- vendored dylib: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+0000000000003664 T _dng_decode_and_process
+00000000000037ec T _dng_decode_and_process_sized
+NM_GREP_RC=0 (0 means the decode symbol is present in this build)
+85404846e94ed7287278d5c4bd834009f39f2b0f6730ea02a533b08549ef562e  /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+SHA_RC=0
+
+## 3. Variant throwaway (today's production shape)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+THROWAWAY_RC=0
+
+## 4. Variant warm (one reused, initialized service)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+WARM_RC=0
+
+## 5. Measurements
+BENCH_CSV_BEGIN
+variant,file,call_index,wall_ms,decode_ms,process_ms,width,height
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,0,116.438,83.61125,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,1,56.637,44.5365,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,2,55.134,45.057541,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,3,60.938,49.745458,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,4,117.849,104.461,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,5,179.8,161.280417,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,0,122.025,106.284042,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,1,114.035,99.0635,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,2,104.437,89.794708,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,3,95.32,82.23825,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,4,78.557,67.45475,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,5,74.61,63.802917,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,0,84.019,70.567833,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,1,177.648,162.468458,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,2,101.519,87.915042,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,3,102.719,87.121916,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,4,118.058,103.546167,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,5,134.803,118.185125,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,0,91.016,77.726958,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,1,78.498,67.246709,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,2,73.313,61.901291,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,3,86.635,72.2915,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,4,197.566,180.094958,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,5,102.674,88.542292,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,0,99.736,83.356417,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,1,106.965,92.771541,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,2,152.025,134.098875,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,3,91.513,78.918667,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,4,72.965,63.016584,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,5,64.567,54.567958,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,0,58.174,48.572583,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,1,63.295,52.608791,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,2,82.311,69.056584,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,3,172.599,157.549709,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,4,98.503,83.010291,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,5,99.812,83.910042,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,0,134.487,119.050875,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,1,114.81,96.36325,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,2,80.41,68.306917,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,3,68.146,56.8325,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,4,70.254,58.004417,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,5,90.029,74.560292,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,0,208.902,190.214292,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,1,105.36,91.268208,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,2,98.15,83.106375,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,3,156.001,138.784584,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,4,112.749,98.076458,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,5,74.802,64.831541,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,0,59.667,50.383167,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,1,58.527,49.100375,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,2,61.948,51.466583,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,3,85.991,71.572125,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,4,176.924,160.626208,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,5,99.207,85.736791,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,0,97.303,81.735625,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,1,106.818,91.600042,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,2,123.914,108.3215,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,3,92.921,78.773542,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,4,81.233,68.376625,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,5,73.352,61.99275,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,0,82.134,67.00075,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,1,176.802,159.535167,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,2,124.06,110.650666,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,3,114.132,97.838875,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,4,129.78,111.296708,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,5,142.425,122.473875,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,0,93.206,80.498084,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,1,76.283,64.896708,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,2,71.725,59.905625,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,3,83.582,69.056542,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,4,176.899,160.5115,0.0,4080,3056
+throwaway,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,5,114.765,98.866,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,0,104.796,98.926875,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,1,57.267,57.061875,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,2,78.627,78.398042,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,3,171.306,170.335583,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,4,107.941,106.484667,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-26.dng,5,96.331,93.7505,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,0,109.972,108.102375,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,1,131.18,130.868291,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,2,85.26,84.9445,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,3,65.972,65.724125,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,4,60.414,60.221333,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-41.dng,5,64.744,64.540375,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,0,73.063,72.782083,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,1,164.131,162.917209,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,2,120.989,120.656875,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,3,88.032,86.917042,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,4,88.912,88.54225,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-52-49.dng,5,112.447,112.171458,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,0,115.685,115.360417,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,1,85.124,84.844208,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,2,73.667,73.40525,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,3,67.926,67.59675,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,4,74.918,74.646875,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-44.dng,5,180.009,178.247291,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,0,129.146,128.636791,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,1,89.096,87.736541,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,2,90.0,89.709666,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,3,134.407,134.090959,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,4,98.446,97.419375,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-54-49.dng,5,73.25,71.999333,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,0,58.323,58.075708,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,1,56.786,56.564334,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,2,58.215,57.387125,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,3,69.222,69.021,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,4,169.475,168.999459,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-14.dng,5,134.557,134.156791,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,0,89.326,89.06475,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,1,101.874,101.608792,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,2,212.325,210.535041,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,3,118.682,118.456292,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,4,128.154,127.895875,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-55-35.dng,5,280.147,279.285834,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,0,128.266,127.822,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,1,123.383,123.037917,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,2,106.28,105.966042,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,3,96.916,96.678417,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,4,83.967,82.816,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-56-59.dng,5,84.894,84.637416,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,0,91.702,91.423833,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,1,231.251,231.000458,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,2,159.543,159.275125,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,3,139.484,139.20375,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,4,138.858,138.57575,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-18-58-42.dng,5,103.108,102.830667,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,0,83.131,82.89775,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,1,86.998,86.440417,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,2,98.62,98.06025,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,3,207.201,206.950458,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,4,99.89,99.657208,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-03-19-03-09.dng,5,91.825,91.528125,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,0,177.938,177.557209,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,1,94.219,94.000208,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,2,82.058,81.85025,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,3,74.371,74.166625,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,4,69.655,69.402625,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-52.dng,5,73.168,72.956584,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,0,100.696,100.447291,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,1,183.779,183.514375,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,2,103.094,102.805208,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,3,147.528,147.035542,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,4,150.255,149.864792,0.0,4080,3056
+warm,local_data/photo_samples/DNG/2024-07-06-19-09-55.dng,5,83.374,83.17125,0.0,4080,3056
+BENCH_CSV_END
+
+## 6. Verdict
+Apply the DECISION RULE above to the CSV and append exactly one line:
+  VERDICT=GO      or      VERDICT=NO-GO
+together with the two medians and their difference it was derived from.
+
+## 7. Verdict (rule applied to the CSV above; medians over warm calls 1..5,
+##    per-file median then median across the 12 per-file values)
+MEDIAN_THROWAWAY_MS=92.217
+MEDIAN_WARM_MS=96.624
+DIFF_MS=-4.406
+DIFF_RATIO=-0.0478
+# Rule: GO requires DIFF_RATIO >= 0.15 AND DIFF_MS >= 50. Here the warm proxy
+# (an upper bound on the win, since it also skips the isolate hand-off) is
+# actually SLOWER than the throwaway shape: the dylib load + pipeline build is
+# not a measurable per-decode tax on this host/GPU. Upper bound fails => the
+# persistent worker cannot pass either.
+VERDICT=NO-GO
