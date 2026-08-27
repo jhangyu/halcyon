@@ -469,6 +469,45 @@ void main() {
     });
   });
 
+  group('AppState.processStarred selection restore', () {
+    test('TC-248 keeps the selected photo, falling back to its index',
+        () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_ps248_src_');
+      addTearDown(() => src.delete(recursive: true));
+      final dest = await Directory.systemTemp.createTemp('halcyon_ps248_dst_');
+      addTearDown(() => dest.delete(recursive: true));
+      await _touch(src, 'IMG_0001.jpg');
+      await _touch(src, 'IMG_0002.jpg');
+      await _touch(src, 'IMG_0003.jpg');
+
+      final state = _testState();
+      addTearDown(state.dispose);
+      await state.loadFolder(src);
+
+      // Star IMG_0001, then park the selection on IMG_0002: the selected
+      // photo survives the move, so it must still be selected afterwards.
+      state.selectItem('IMG_0001');
+      state.markCurrent(PhotoStatus.starred);
+      state.selectItem('IMG_0002');
+
+      await state.processStarred(dest.path, true);
+
+      expect(state.items.map((item) => item.id), ['IMG_0002', 'IMG_0003']);
+      expect(state.selectedItemID, 'IMG_0002',
+          reason: 'surviving selection is restored by id');
+
+      // Now star and move the SELECTED photo. Its id is gone from the new
+      // scan, so the restore falls to the captured index: IMG_0002 sat at
+      // index 0, and index 0 of the reloaded ['IMG_0003'] is IMG_0003.
+      state.markCurrent(PhotoStatus.starred); // IMG_0002 is current
+      await state.processStarred(dest.path, true);
+
+      expect(state.items.map((item) => item.id), ['IMG_0003']);
+      expect(state.selectedItemID, 'IMG_0003',
+          reason: 'vanished selection falls back down the loadFolder chain');
+    });
+  });
+
   group('renameByExif', () {
     late Directory tempDir;
 

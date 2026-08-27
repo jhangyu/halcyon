@@ -437,12 +437,26 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// Reloads [dir] and puts the selection back where it was.
+  ///
+  /// Call this *after* a batch file operation. `PhotoFileActions` touches the
+  /// filesystem only — it never mutates [_items] or `_selectedItemID` — so the
+  /// selection read here is still the pre-operation one. [dir] must be the
+  /// directory captured before the operation, not `_currentDir` re-read now:
+  /// the folder to refresh is the folder that was mutated.
+  Future<void> _reloadPreservingSelection(Directory dir) {
+    final currentId = _selectedItemID;
+    return loadFolder(
+      dir,
+      targetSelectionId: currentId,
+      targetFallbackIndex: _items.indexWhere((i) => i.id == currentId),
+    );
+  }
+
   // Actions
   Future<void> processStarred(String destinationStr, bool move) async {
     final destDir = Directory(destinationStr);
-
-    final currentId = _selectedItemID;
-    final currentIndex = _items.indexWhere((i) => i.id == currentId);
+    final dir = _currentDir;
 
     try {
       final outcome = await _fileActions.processStarred(
@@ -464,12 +478,8 @@ class AppState extends ChangeNotifier {
       showStatus(StatusMessage('檔案處理失敗：$e'));
     }
 
-    if (_currentDir != null) {
-      await loadFolder(
-        _currentDir!,
-        targetSelectionId: currentId,
-        targetFallbackIndex: currentIndex,
-      );
+    if (dir != null) {
+      await _reloadPreservingSelection(dir);
     }
   }
 
@@ -496,8 +506,6 @@ class AppState extends ChangeNotifier {
   }
 
   Future<BatchDeleteResult> deleteTrashed() async {
-    final currentId = _selectedItemID;
-    final currentIndex = _items.indexWhere((i) => i.id == currentId);
     final dir = _currentDir;
     final recycled = _recycleMode;
 
@@ -522,11 +530,7 @@ class AppState extends ChangeNotifier {
     }
 
     if (dir != null) {
-      await loadFolder(
-        dir,
-        targetSelectionId: currentId,
-        targetFallbackIndex: currentIndex,
-      );
+      await _reloadPreservingSelection(dir);
     }
 
     return BatchDeleteResult(
