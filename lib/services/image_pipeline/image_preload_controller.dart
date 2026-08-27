@@ -8,7 +8,7 @@ import '../../models/photo_item.dart';
 import '../../models/supported_photo_formats.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
-import 'dng_embedded_jpeg_extractor.dart';
+import 'bitmap_container_probe.dart';
 import 'image_source_types.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -1074,9 +1074,12 @@ class ImagePreloadController {
                   maxDim: 200,
                 );
                 if (generation != _thumbBatchGeneration) return;
+                // One orientation source for every container family: the IFD0
+                // walker for RAW/TIFF, the native probe for HEIC. Calling the
+                // walker directly here would silently give every HEIC
+                // orientation 1, because it cannot read ISO-BMFF.
                 final orientation =
-                    await DngEmbeddedJpegExtractor.readOrientation(file.path) ??
-                    kDefaultExifOrientation;
+                    await bitmapContainerOrientation(file.path);
                 final jpeg = await jpegFromOrientedPixels(
                   decoded,
                   exifOrientation: orientation,

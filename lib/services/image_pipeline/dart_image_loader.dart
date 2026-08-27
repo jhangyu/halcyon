@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../models/supported_photo_formats.dart';
+import 'bitmap_container_probe.dart';
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
@@ -35,6 +36,12 @@ import 'image_source_types.dart';
 Future<NativeImageResult> dartImageLoad(
   String path, {
   required ImageRequestPurpose purpose,
+  // Injected so this file needs no format knowledge beyond the registry
+  // predicate and stays free of Platform checks (contract C-3): HEIC's extent
+  // and orientation live in ISO-BMFF boxes that the TIFF IFD0 walker cannot
+  // read, and reaching them means an FFI call that must not exist in a unit
+  // test.
+  BitmapContainerProbe probe = probeBitmapContainer,
 }) async {
   // Derived, never restated: the SAME set the folder-scan whitelist uses
   // (`SupportedPhotoFormats.engineBitstreamExtensions`), so a format added to
@@ -75,22 +82,22 @@ Future<NativeImageResult> dartImageLoad(
           'no embedded candidate',
         );
       }
-      final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
-      if (dims != null &&
-          dims.width * dims.height * 4 > kDecodedPixelBudgetBytes) {
-        // The budget moves WITH the escape hatch, so it now covers TIFF. This
-        // is stricter than JPEG/WebP on purpose: the TIFF decode happens on
-        // the Dart heap in an isolate, where the failure mode is a process
-        // OOM rather than an engine-side decode error. A null extent
-        // (unreadable IFD0) waves through, exactly as on the RAW path below.
+      final extent = await probe(path);
+      if (extent != null &&
+          extent.width * extent.height * 4 > kDecodedPixelBudgetBytes) {
+        // The budget moves WITH the escape hatch, so it covers TIFF and HEIC.
+        // This is stricter than JPEG/WebP on purpose: these decodes happen on
+        // the Dart heap or in the native decoder, where the failure mode is a
+        // process OOM rather than an engine-side decode error. A null extent
+        // (unreadable IFD0, or a HEIF probe that could not answer) waves
+        // through, exactly as on the RAW path below.
         return const NativeImageFailure(
           'IMAGE_TOO_LARGE',
           'decode exceeds the decoded-pixel budget',
         );
       }
-      final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
       return NativeImageNeedsRawDecode(
-        exifOrientation: orientation ?? kDefaultExifOrientation,
+        exifOrientation: extent?.orientation ?? kDefaultExifOrientation,
         // Structurally false: no preview probe ran, so the container cannot
         // have "declared previews that were all unreadable" (AD-022).
       );
@@ -166,14 +173,14 @@ Future<NativeImageResult> dartImageLoad(
     final strictPreview =
         purpose == ImageRequestPurpose.preview &&
         SupportedPhotoFormats.isDecodablePath(path);
-    final probe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
+    final embeddedProbe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
       path,
       longEdge: null,
       minLongEdge: strictPreview
           ? ImageRequestPurpose.preview.targetSize
           : null,
     );
-    final full = probe.jpeg?.bytes;
+    final full = embeddedProbe.jpeg?.bytes;
     if (full != null) return NativeImageBytes(full);
     // USER RULING 2026-08-26 — the malformed PRE-EMPT is gone.
     //
@@ -231,7 +238,7 @@ Future<NativeImageResult> dartImageLoad(
         // none were readable". Both route to the decoder identically — the
         // only thing this changes is which failure code surfaces if that
         // decode fails.
-        declaredPreviewsUnreadable: probe.malformed,
+        declaredPreviewsUnreadable: embeddedProbe.malformed,
       );
     }
     // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) with no embedded preview, and

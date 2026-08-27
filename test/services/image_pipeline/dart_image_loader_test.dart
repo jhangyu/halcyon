@@ -791,4 +791,99 @@ void main() {
       expect(seen, {'bytes', 'needsRawDecode', 'failure'});
     });
   });
+
+  group('phase-2 HEIC', () {
+    late Directory heicTmp;
+
+    setUpAll(() {
+      heicTmp = Directory.systemTemp.createTempSync('halcyon_heic_loader');
+    });
+    tearDownAll(() {
+      if (heicTmp.existsSync()) heicTmp.deleteSync(recursive: true);
+    });
+
+    Future<String> writeHeic(String name) async {
+      final file = File('${heicTmp.path}${Platform.pathSeparator}$name');
+      // A stub ISO-BMFF-looking header is enough: the loader never decodes,
+      // and the probe is injected, so no byte of this file is parsed.
+      await file.writeAsBytes(
+        Uint8List.fromList([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]),
+        flush: true,
+      );
+      return file.path;
+    }
+
+    test('TC-314: a .heic at preview returns NeedsRawDecode carrying the '
+        'orientation the probe supplied', () async {
+      final path = await writeHeic('a.heic');
+      final result = await dartImageLoad(
+        path,
+        purpose: ImageRequestPurpose.preview,
+        probe: (_) async => (width: 4032, height: 3024, orientation: 6),
+      );
+      expect(result, isA<NativeImageNeedsRawDecode>());
+      final signal = result as NativeImageNeedsRawDecode;
+      expect(signal.exifOrientation, 6);
+      expect(
+        signal.declaredPreviewsUnreadable,
+        isFalse,
+        reason: 'a bitmap container is never preview-probed, so AD-022 cannot '
+            'apply to it',
+      );
+    });
+
+    test('TC-314: a null probe answer waves through with orientation 1',
+        () async {
+      // The degradation path: no dylib, no symbol, or a native error. It must
+      // still reach the decoder, which is what produces the permanent miss —
+      // refusing here would lose the distinction TC-316 depends on.
+      final path = await writeHeic('b.heif');
+      final result = await dartImageLoad(
+        path,
+        purpose: ImageRequestPurpose.preview,
+        probe: (_) async => null,
+      );
+      expect(result, isA<NativeImageNeedsRawDecode>());
+      expect(
+        (result as NativeImageNeedsRawDecode).exifOrientation,
+        kDefaultExifOrientation,
+      );
+    });
+
+    test('TC-315: a .heic at sidebarThumbnail is a failure and NEVER '
+        'NeedsRawDecode', () async {
+      final path = await writeHeic('c.heic');
+      var probeCalls = 0;
+      final result = await dartImageLoad(
+        path,
+        purpose: ImageRequestPurpose.sidebarThumbnail,
+        probe: (_) async {
+          probeCalls++;
+          return (width: 4032, height: 3024, orientation: 1);
+        },
+      );
+      expect(result, isNot(isA<NativeImageNeedsRawDecode>()));
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
+      expect(
+        probeCalls,
+        0,
+        reason: 'the sidebar bails before the probe: an FFI round trip per '
+            'thumbnail would be paid for an answer that is discarded',
+      );
+    });
+
+    test('TC-320: a HEIC declaring 30000x30000 is IMAGE_TOO_LARGE', () async {
+      final path = await writeHeic('huge.heic');
+      // 30000 * 30000 * 4 == 3.6e9 > 1.5e9. The file is 8 bytes long, so any
+      // other result would prove the check ran after a decode attempt.
+      final result = await dartImageLoad(
+        path,
+        purpose: ImageRequestPurpose.preview,
+        probe: (_) async => (width: 30000, height: 30000, orientation: 1),
+      );
+      expect(result, isA<NativeImageFailure>());
+      expect((result as NativeImageFailure).code, 'IMAGE_TOO_LARGE');
+    });
+  });
 }
