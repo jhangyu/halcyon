@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/full_decoder_dispatch.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 // A 2x3 source image whose every pixel is a distinct marker, so a wrong
@@ -256,5 +259,59 @@ void main() {
       );
       expect(payload.byteCost, 2 * 3 * 4);
     });
+  });
+
+  test('TC-311: a TIFF with Orientation 6 renders 90 degrees clockwise, '
+      'swapping width and height exactly once', () async {
+    // A real 2x3 TIFF whose six pixels carry six distinct R-channel markers.
+    // Shape alone cannot separate 90CW from 90CCW (both give 3x2), so the
+    // marker grid is what makes this test discriminating.
+    const rows = <List<int>>[
+      [a, b],
+      [c, d],
+      [e, f],
+    ];
+    final source = img.Image(width: 2, height: 3);
+    for (var y = 0; y < 3; y++) {
+      for (var x = 0; x < 2; x++) {
+        source.setPixelRgb(x, y, rows[y][x], 0, 0);
+      }
+    }
+    final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_orient');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final path = '${tmp.path}${Platform.pathSeparator}orient6.tif';
+    File(path).writeAsBytesSync(img.encodeTiff(source));
+
+    // The real TIFF arm: package:image does NOT bake orientation, so applying
+    // it downstream is required, not belt-and-braces.
+    final decoded = await decodeTiffFull(path);
+    expect(decoded.width, 2);
+    expect(decoded.height, 3);
+
+    final payload = await decodedRgbaToPixelPayload(
+      decoded,
+      exifOrientation: 6,
+      longEdge: 2800,
+    );
+    expect(payload.width, 3, reason: 'orientation 6 swaps the axes');
+    expect(payload.height, 2);
+    expect(payload.rgba.length, 3 * 2 * 4);
+
+    // Orientation 6 = rotate 90 clockwise:
+    //   A B          E C A
+    //   C D    ->    F D B
+    //   E F
+    final grid = <List<int>>[];
+    for (var y = 0; y < 2; y++) {
+      final row = <int>[];
+      for (var x = 0; x < 3; x++) {
+        row.add(payload.rgba[(y * 3 + x) * 4]);
+      }
+      grid.add(row);
+    }
+    expect(grid, [
+      [e, c, a],
+      [f, d, b],
+    ]);
   });
 }

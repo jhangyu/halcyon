@@ -329,4 +329,45 @@ void main() {
       expect('DNG_PARSE_FAILED', isNot(kNoNativeDecoderCode));
     });
   });
+
+  group('TC-310: a corrupt TIFF is an ordinary permanent miss', () {
+    test('a throwing decoder on a TIFF yields failureCode null, NOT '
+        'DNG_PARSE_FAILED', () async {
+      final source = PhotoSource(
+        // What Task 2's loader branch returns for a .tif at preview:
+        // declaredPreviewsUnreadable is structurally false because no preview
+        // probe ever runs for a bitmap container.
+        loader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async =>
+            throw StateError('TIFF_DECODE_FAILED: package:image returned null'),
+      );
+      final outcome = await source.load('/tmp/broken.tif', longEdge: 2800);
+      expect(outcome.payload, isNull);
+      expect(outcome.deferred, isFalse);
+      expect(
+        outcome.failureCode,
+        isNull,
+        reason: 'DNG_PARSE_FAILED is reserved for a RAW container whose '
+            'declared previews were all unreadable (AD-022)',
+      );
+      expect(outcome.observedCost, SourceCost.expensive);
+    });
+
+    test('the DNG_PARSE_FAILED arm is still reachable for a RAW container '
+        'with unreadable declared previews', () async {
+      // Negative control: without this, the test above would also pass if the
+      // DNG_PARSE_FAILED arm had simply been deleted.
+      final source = PhotoSource(
+        loader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(
+              exifOrientation: 1,
+              declaredPreviewsUnreadable: true,
+            ),
+        dngDecoder: (path) async => throw StateError('decode failed'),
+      );
+      final outcome = await source.load('/tmp/broken.dng', longEdge: 2800);
+      expect(outcome.failureCode, 'DNG_PARSE_FAILED');
+    });
+  });
 }
