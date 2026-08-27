@@ -1,5 +1,5 @@
 PODS:
-  - ceyx (0.0.1):
+  - ceyx (0.1.0):
     - FlutterMacOS
   - FlutterMacOS (1.0.0)
 
@@ -14,7 +14,7 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
 
 SPEC CHECKSUMS:
-  ceyx: f2ffc915f7ebfa82f36cb4facb185a4bd248bdb1
+  ceyx: bd7c525c902c5fe590657c478026817deecf9e6b
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
 
 PODFILE CHECKSUM: 346bfb2deb41d4a6ebd6f6799f92188bde2d246f
