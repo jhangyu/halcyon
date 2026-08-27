@@ -14,6 +14,7 @@ import '../services/image_pipeline/dng_decode_service.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
+import '../services/image_pipeline/retention_policy.dart';
 import '../services/library/photo_file_actions.dart';
 import '../services/library/photo_library_scanner.dart';
 import '../services/library/photo_status_store.dart';
@@ -68,6 +69,7 @@ class AppState extends ChangeNotifier {
     DngFullDecoder? dngDecoder,
     PhotoExportService? exportService,
     ExifBatchReader? exifReader,
+    RetentionPolicy retention = const RetentionPolicy.floor(),
   }) : _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -89,6 +91,7 @@ class AppState extends ChangeNotifier {
              sidebarRawDecoder: dngDecoder == null
                  ? null
                  : halcyonDngSizedDecoder,
+             retention: retention,
            ) {
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
@@ -110,6 +113,11 @@ class AppState extends ChangeNotifier {
   final PhotoExportService _exportService;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;
+
+  /// The policy actually in force. Read from the controller rather than the
+  /// constructor argument, so an injected controller and this getter can
+  /// never disagree.
+  RetentionPolicy get retentionPolicy => _preloadController.retention;
 
   bool get isRenaming => _renameCoordinator.isRenaming;
 
