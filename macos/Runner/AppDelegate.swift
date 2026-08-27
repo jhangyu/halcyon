@@ -39,6 +39,23 @@ class AppDelegate: FlutterAppDelegate {
       }
     })
 
+    // Total physical RAM, for machine-adaptive cache sizing (Dart side:
+    // lib/services/platform/device_memory.dart). Pull-only, so unlike
+    // openWithChannel there is nothing to retain: the channel object may
+    // die with this scope once the handler is installed on the messenger.
+    let deviceMemoryChannel = FlutterMethodChannel(name: "halcyon/device_memory",
+                                                   binaryMessenger: controller.engine.binaryMessenger)
+    deviceMemoryChannel.setMethodCallHandler({
+      (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+      if call.method == "totalPhysicalBytes" {
+        // physicalMemory is a cheap sysctl-backed property; no background
+        // dispatch needed (unlike trashFile, which touches the filesystem).
+        result(Int(ProcessInfo.processInfo.physicalMemory))
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    })
+
     let openWithChannel = FlutterMethodChannel(name: "halcyon/open_with",
                                                binaryMessenger: controller.engine.binaryMessenger)
     self.openWithChannel = openWithChannel
