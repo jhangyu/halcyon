@@ -291,6 +291,19 @@ NATIVE_SPECS = {
     },
 }
 
+# Phase 2 (HEIC): the vendored libheif/libde265 distribution, produced by
+# ceyx's native/scripts/fetch_heif_deps.sh. Only macOS is VERIFIED in phase 2;
+# the Windows and Linux rows exist so the readiness check reports them, not
+# because either has been run (spec section 7.3 records that build_apps.py's
+# Windows native path has never run end to end).
+HEIF_DIST = Path("native") / "third_party" / "heif-dist"
+HEIF_RUNTIME_LIBS = {
+    "macos": ["libheif.1.dylib", "libde265.0.dylib"],
+    "windows": ["heif.dll", "libde265.dll"],
+    "linux": ["libheif.so.1", "libde265.so.0"],
+}
+HEIF_VERIFIED_TARGETS = ("macos",)
+
 WARNING_COUNT = 0
 CURRENT_PHASE = "startup"
 # Set when a native library was placed without the runbook S4 colour gate. It
@@ -833,6 +846,39 @@ def check_native(target, layout, problems):
             problems.append("xcodebuild not found - install Xcode / the command line tools.")
 
 
+def check_heif_dist(target, layout, problems):
+    """Phase 0 readiness for the HEIC route (spec section 7.3).
+
+    A missing dist is a PROBLEM, not a warning: cmake/heif.cmake fails the
+    configure with the same message, and discovering it at Phase 0 costs
+    seconds instead of a full Halide-backed configure.
+    """
+    dist = layout.native / "third_party" / "heif-dist"
+    provenance = dist / "PROVENANCE.md"
+    if not provenance.exists():
+        problems.append(
+            f"{provenance} not found - the HEIC route needs the vendored "
+            "libheif/libde265 distribution. Run "
+            "ceyx/native/scripts/fetch_heif_deps.sh, or configure the native "
+            "build with -DDNG_ENABLE_HEIF=OFF to build without HEIC."
+        )
+        return
+
+    libs = HEIF_RUNTIME_LIBS.get(target, [])
+    missing = [name for name in libs if not (dist / "lib" / name).exists()]
+    if missing:
+        problems.append(
+            f"HEIF dist at {dist} is missing {', '.join(missing)} - re-run "
+            "ceyx/native/scripts/fetch_heif_deps.sh."
+        )
+        return
+
+    suffix = "" if target in HEIF_VERIFIED_TARGETS else \
+        " [unverified (phase 2 scope: macOS)]"
+    for name in libs:
+        ok(f"libheif/libde265 dist: {name}{suffix}")
+
+
 def check_symlink_support(problems):
     """Flutter on Windows needs symlink support (Developer Mode). Without it
     Phase 2 dies deep inside the tool; the changes doc records this costing a
@@ -921,6 +967,9 @@ def check_target(target, layout, args, native_due):
 
     if native_due:
         check_native(native_target_for(target), layout, problems)
+
+    if native_due and native_target_for(target) is not None:
+        check_heif_dist(native_target_for(target), layout, problems)
 
     if args.cfa_sample_dng and not Path(args.cfa_sample_dng).exists():
         problems.append(f"--cfa-sample-dng file not found: {args.cfa_sample_dng}")
@@ -1226,6 +1275,36 @@ def build_native(target, layout, args):
         step("Runbook S4 requires test_cfa_color (blue-sky B >> R) to pass before the library is")
         step("trusted. Do not commit or ship the artifact from this run without running that gate.")
 
+    # H1 known-answer colour gate (spec section 7.5). S4 validates the RAW
+    # demosaic/colour pipeline from a Bayer sample and shares no code with
+    # HEIC's YUV -> RGB conversion, so extending --cfa-sample-dng to HEIC
+    # would be theatre; HEIC needs its OWN reference comparison, in the same
+    # Phase 1 position, failing the build the same way.
+    #
+    # There is deliberately no --no-h1-gate: the fixtures are committed, so
+    # unlike S4 there is no "the user did not supply a sample" case to opt out
+    # of. A disabled HEIF route is the only skip, and it prints a line.
+    heif_sample = native_dir / "tests" / "data" / "h1_sample.heic"
+    heif_reference = native_dir / "tests" / "data" / "h1_reference.rgba"
+    if not heif_sample.exists() or not heif_reference.exists():
+        fail(
+            "the H1 HEIC colour-gate fixtures are missing.",
+            hints=[
+                f"expected {heif_sample} and {heif_reference}",
+                "Regenerate with ceyx/native/tests/data/make_h1_fixtures.sh, or "
+                "configure the native build with -DDNG_ENABLE_HEIF=OFF if this "
+                "target has no HEIC route.",
+            ],
+        )
+    run_checked("cmake", ["--build", "--preset", spec["preset"], "--target", "test_heif_color"],
+                native_dir, "cmake build (test_heif_color)")
+    h1_exe_name = "test_heif_color.exe" if host_os() == "windows" else "test_heif_color"
+    h1_exe = build_dir / h1_exe_name
+    if not h1_exe.exists():
+        fail(f"{h1_exe_name} not found at {h1_exe}")
+    run_checked(str(h1_exe), [str(heif_sample), str(heif_reference)], build_dir,
+                "test_heif_color H1 colour gate")
+
     dest_dir = layout.decoder / spec["dest"]
     if not dest_dir.exists():
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -1432,6 +1511,42 @@ def verify_macos_slices(app_bundle, layout, args):
         )
 
 
+def verify_macos_heif_rpaths(app_bundle):
+    """Mechanically prove spec section 7.2's DYNAMIC-linking decision shipped.
+
+    Not a style check: static linking would trigger LGPL-3 section 4(d)(0)'s
+    duty to ship relinkable object files with every release. `otool -L` naming
+    both libraries via @rpath, and both files being present in Frameworks/, is
+    the evidence that a user can replace them. Collected and reported once so a
+    partial regression names every missing piece, not just the first.
+    """
+    problems = []
+    frameworks = app_bundle / "Contents" / "Frameworks"
+    decoder = frameworks / "libdng_decoder_native.dylib"
+    if not decoder.exists():
+        fail(f"{decoder} not bundled - the HEIC @rpath check cannot run.")
+    for name in HEIF_RUNTIME_LIBS["macos"]:
+        if not (frameworks / name).exists():
+            problems.append(
+                f"{name} is not in {frameworks} - the HEIC route would fail to "
+                "load at runtime on any machine without a system libheif."
+            )
+    out = subprocess.run(["otool", "-L", str(decoder)],
+                         capture_output=True, text=True, check=False).stdout
+    for name in HEIF_RUNTIME_LIBS["macos"]:
+        if f"@rpath/{name}" not in out:
+            problems.append(
+                f"{decoder} does not name @rpath/{name} - either HEIF was "
+                "linked statically (which the LGPL-3 position forbids) or the "
+                "install name was not set to @rpath."
+            )
+    if problems:
+        fail("the shipped macOS bundle fails the HEIF @rpath verification.",
+             hints=problems)
+    ok("HEIF @rpath dependencies present in the app bundle "
+       f"({', '.join(HEIF_RUNTIME_LIBS['macos'])})")
+
+
 def build_flutter(target, layout, mode, args, placed_native):
     phase(f"Phase 2: flutter build {target} ({mode})")
     run_checked("flutter", ["pub", "get"], layout.halcyon, "flutter pub get")
@@ -1466,6 +1581,7 @@ def build_flutter(target, layout, mode, args, placed_native):
 
     if target == "macos":
         verify_macos_slices(artifact, layout, args)
+        verify_macos_heif_rpaths(artifact)
 
     if target == "windows":
         expect_dll = (layout.decoder / NATIVE_SPECS["windows"]["dest"] /
