@@ -43,7 +43,7 @@ class PerfLog {
 
   static int get us => _sw.elapsedMicroseconds;
 
-  static void init(String outPath) {
+  static void init(String outPath, {int payloadByteBudget = kPayloadByteBudget}) {
     enabled = true;
     _path = outPath;
     final f = File(outPath);
@@ -66,7 +66,7 @@ class PerfLog {
     log(
       'build.stamp|commit=$kHalcyonBuildCommit'
       '|imageCacheMaxBytes=${PaintingBinding.instance.imageCache.maximumSizeBytes}'
-      '|kPayloadByteBudget=$kPayloadByteBudget',
+      '|kPayloadByteBudget=$payloadByteBudget',
     );
   }
 

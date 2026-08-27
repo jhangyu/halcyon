@@ -34,6 +34,25 @@ void main() {
     },
   );
 
+  testWidgets(
+    'TC-320: configureImageCache derives the budget from a supplied reading',
+    (tester) async {
+      configureImageCache(physicalMemoryBytes: 2 * 1024 * 1024 * 1024);
+      expect(
+        PaintingBinding.instance.imageCache.maximumSizeBytes,
+        536870912,
+        reason: '2 GiB / 4 = 512 MiB, above the 256 MiB floor',
+      );
+
+      configureImageCache();
+      expect(
+        PaintingBinding.instance.imageCache.maximumSizeBytes,
+        805306368,
+        reason: 'no reading still means the 768 MiB ceiling',
+      );
+    },
+  );
+
   // ponytail: same FakeAsync-hang avoidance as photo_action_bar_test.dart —
   // real dart:io folder scan must run via tester.runAsync.
   Future<AppState> stateForFolder(WidgetTester tester) async {
