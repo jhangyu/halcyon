@@ -8,15 +8,17 @@ import '../../models/supported_photo_formats.dart';
 import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart';
 import 'dng_embedded_jpeg_extractor.dart';
+import 'heif_decode_service.dart';
 
 /// One production implementation of [DngFullDecoder]/[DngSizedDecoder] for
 /// every format Halcyon can turn into RGBA, so that `dart_image_loader.dart`
 /// and `photo_source.dart` need no format knowledge beyond the registry
-/// predicate. Routing (phase 1):
+/// predicate. Routing:
 ///
-///   .tif/.tiff -> package:image decodeTiff on a worker isolate
-///   RAW        -> the existing Ceyx engine decode (unchanged)
-///   otherwise  -> UnsupportedError
+///   .heic/.heif -> the native libheif route in ceyx (phase 2)
+///   .tif/.tiff  -> package:image decodeTiff on a worker isolate
+///   RAW         -> the existing Ceyx engine decode (unchanged)
+///   otherwise   -> UnsupportedError
 ///
 /// The `UnsupportedError` is a designed degradation path, not an accident:
 /// `photo_source.dart`'s step-3b catch turns any decoder throw into the
@@ -131,11 +133,17 @@ Future<DecodedRgba> decodeTiffSized(
 /// containers (.cr2/.iiq/.mrw) the engine cannot decode, and routing one of
 /// those to the engine arm would be a guaranteed-failing FFI round trip
 /// instead of the immediate refusal the D2 ruling wants.
+///
+/// HEIC is checked FIRST and with its own predicate: `.heic` is also in
+/// `bitmapDecodeExtensions`, so a plain `isBitmapDecodePath` test would send
+/// it to `package:image`, which cannot read ISO-BMFF.
 Future<DecodedRgba> dispatchFullDecode(
   String path, {
   DngFullDecoder rawArm = halcyonDngFullDecoder,
   DngFullDecoder tiffArm = decodeTiffFull,
+  DngFullDecoder heifArm = halcyonHeifFullDecoder,
 }) async {
+  if (SupportedPhotoFormats.isHeifPath(path)) return heifArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);
   if (SupportedPhotoFormats.isDecodablePath(path)) return rawArm(path);
   throw UnsupportedError('no full-decode route for $path');
@@ -146,7 +154,11 @@ Future<DecodedRgba> dispatchSizedDecode(
   required int maxDim,
   DngSizedDecoder rawArm = halcyonDngSizedDecoder,
   DngSizedDecoder tiffArm = decodeTiffSized,
+  DngSizedDecoder heifArm = halcyonHeifSizedDecoder,
 }) async {
+  if (SupportedPhotoFormats.isHeifPath(path)) {
+    return heifArm(path, maxDim: maxDim);
+  }
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) {
     return tiffArm(path, maxDim: maxDim);
   }

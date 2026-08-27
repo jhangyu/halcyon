@@ -4,8 +4,13 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
+import 'package:ceyx/ceyx.dart';
+
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/full_decoder_dispatch.dart';
+import 'package:halcyon_flutter/services/image_pipeline/heif_decode_service.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 import '../../support/synthetic_dng.dart';
 
@@ -209,6 +214,119 @@ void main() {
       final path = await write('small_sidebar.tif', realTiff());
       await decodeTiffSized(path, maxDim: 200, decodeBytes: spy);
       expect(decodeAttempts, 1);
+    });
+  });
+
+  group('phase-2 HEIC arm', () {
+    test('TC-309: routes .heic/.heif to the HEIF arm, never to TIFF or RAW',
+        () async {
+      final calls = <String>[];
+      Future<DecodedRgba> heifArm(String path) async {
+        calls.add(path);
+        return _fakeDecoded();
+      }
+
+      Future<DecodedRgba> never(String path) async =>
+          fail('only the HEIF arm may run for a HEIC container');
+
+      for (final name in ['a.heic', 'b.HEIF']) {
+        final decoded = await dispatchFullDecode(
+          '${tmp.path}${Platform.pathSeparator}$name',
+          rawArm: never,
+          tiffArm: never,
+          heifArm: heifArm,
+        );
+        expect(decoded.rgba[0], 0xA5);
+      }
+      expect(calls, hasLength(2));
+    });
+
+    test('TC-309: the sized path routes .heic to the HEIF arm with maxDim',
+        () async {
+      var heifCalls = 0;
+      Future<DecodedRgba> heifArm(String path, {required int maxDim}) async {
+        expect(maxDim, 200);
+        heifCalls++;
+        return _fakeDecoded();
+      }
+
+      Future<DecodedRgba> never(String path, {required int maxDim}) async =>
+          fail('only the HEIF arm may run for a HEIC container');
+
+      await dispatchSizedDecode(
+        '${tmp.path}${Platform.pathSeparator}a.heic',
+        maxDim: 200,
+        rawArm: never,
+        tiffArm: never,
+        heifArm: heifArm,
+      );
+      expect(heifCalls, 1);
+    });
+
+    test('TC-316: an unavailable HEIF library becomes a decoder throw, not a '
+        'crash and not the D3 no-decoder state', () async {
+      // What the ceyx service does on a build with -DDNG_ENABLE_HEIF=OFF.
+      Future<DecodedRgba> unavailable(String path) async =>
+          throw HeifUnavailableException(path);
+
+      await expectLater(
+        dispatchFullDecode(
+          '${tmp.path}${Platform.pathSeparator}gone.heic',
+          heifArm: unavailable,
+        ),
+        throwsA(isA<HeifUnavailableException>()),
+      );
+    });
+
+    test('TC-316: PhotoSource turns that throw into the uniform permanent '
+        'miss, with failureCode null', () async {
+      final source = PhotoSource(
+        loader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async => throw HeifUnavailableException(path),
+      );
+      final outcome = await source.load('/tmp/gone.heic', longEdge: 2800);
+      expect(outcome.payload, isNull);
+      expect(outcome.deferred, isFalse);
+      expect(
+        outcome.failureCode,
+        isNull,
+        reason: 'NO_NATIVE_DECODER (D3) stays reserved for dngDecoder == null; '
+            'a HEIC on a HEIF-less build is an ordinary permanent miss, and '
+            'the app must not report "decoding unavailable" app-wide',
+      );
+      expect(outcome.observedCost, SourceCost.expensive);
+    });
+
+    test('TC-317: a length/geometry mismatch is rejected before it can reach '
+        'decodeImageFromPixels', () async {
+      // The adapter's own check. A buffer that disagrees with its declared
+      // geometry would otherwise blow _imageFromPixels' assert deep inside the
+      // provider, where the message names neither the file nor the decoder.
+      await expectLater(
+        heifImageToDecodedRgba(
+          rgba: Uint8List(4 * 2 * 4 - 1),
+          width: 4,
+          height: 2,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('31'), contains('32')),
+          ),
+        ),
+      );
+    });
+
+    test('TC-317: a consistent buffer passes through unchanged', () async {
+      final rgba = Uint8List(4 * 2 * 4);
+      rgba[0] = 0xA5;
+      final decoded =
+          await heifImageToDecodedRgba(rgba: rgba, width: 4, height: 2);
+      expect(decoded.width, 4);
+      expect(decoded.height, 2);
+      expect(decoded.rgba[0], 0xA5);
     });
   });
 }
