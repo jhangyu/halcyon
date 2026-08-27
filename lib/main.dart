@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'providers/app_state.dart';
 import 'services/image_pipeline/cache_budget.dart';
-import 'services/image_pipeline/dng_decode_service.dart';
+import 'services/image_pipeline/full_decoder_dispatch.dart';
 import 'services/platform/open_with_channel.dart';
 import 'views/main_screen.dart';
 import 'views/theme_tokens.dart';
@@ -31,8 +31,12 @@ void main() {
   // embedded preview is a PERMANENT MISS -- there is no legacy decode channel
   // left to fall back to; it was deleted in M6. See the dngDecoder comment in
   // AppState's constructor.
+  // The DISPATCHING decoder, not the RAW-only one: this single argument is
+  // what makes TIFF reach pixels in the detail view AND in the export path,
+  // because AppState forwards the same value into PhotoExportService and into
+  // ImagePreloadController.
   final appState = AppState(
-    dngDecoder: halcyonDngFullDecoder,
+    dngDecoder: halcyonFullDecoder,
   ); // PERF-INSTRUMENTATION
   // Finder "Open With" / shell association: load the file's folder and select
   // that photo. Registered before runApp so a launch-time file isn't missed.

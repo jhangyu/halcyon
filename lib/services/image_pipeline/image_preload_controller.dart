@@ -1046,8 +1046,16 @@ class ImagePreloadController {
               if (generation != _thumbBatchGeneration) return;
               _thumbCache[id] = cacheBytes;
               notifyLoaded();
+              // 2026-08-28 (bitmap decoders phase 1): the gate widens from
+              // the engine-decodable set to the full-decode-route set so a
+              // TIFF gets a thumbnail at all -- the loader answers NO_THUMBNAIL
+              // for the sidebar purpose by design (the AD-010 invariant),
+              // making this sized decode the ONLY TIFF thumbnail route. D2
+              // browse-only containers stay excluded: that route set is
+              // decodableExtensions + bitmapDecodeExtensions and contains
+              // none of .cr2/.iiq/.mrw.
             } else if (_sidebarRawDecoder != null &&
-                SupportedPhotoFormats.isDecodablePath(file.path)) {
+                SupportedPhotoFormats.hasFullDecodeRoute(file.path)) {
               // M6 P2.5b (matrix P-12): the Dart sidebar route never decodes
               // by design, so a bare-CFA DNG with no embedded JPEG at any
               // size would otherwise regress to a permanently blank tile.

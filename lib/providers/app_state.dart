@@ -10,7 +10,7 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/dng_decode_contract.dart';
-import '../services/image_pipeline/dng_decode_service.dart';
+import '../services/image_pipeline/full_decoder_dispatch.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
@@ -86,9 +86,13 @@ class AppState extends ChangeNotifier {
              // M6 P2.5b: the sidebar's sized RAW-decode fallback only exists
              // where the app has a decoder at all (a platform/test with no
              // dngDecoder stays on the uniform explicit miss).
+             // Dispatching sized decoder (2026-08-28 phase 1): routes .tif to
+             // package:image and everything else to the Ceyx engine. The
+             // `dngDecoder == null` guard is unchanged -- a build or test with
+             // no decoder keeps the uniform explicit miss.
              sidebarRawDecoder: dngDecoder == null
                  ? null
-                 : halcyonDngSizedDecoder,
+                 : halcyonSizedDecoder,
            ) {
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
