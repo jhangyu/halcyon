@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
+import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
 /// Task #1 (dng-dart-preview, AC1/AC2): pure-Dart port of the upstream macOS
@@ -19,7 +20,7 @@ import '../../support/synthetic_dng.dart';
 /// a one-off scratch harness, and matched exactly for all 14 samples in that
 /// directory before this test was written.
 void main() {
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
 
   test('sample directory exists with at least one DNG', () {
     expect(
@@ -33,7 +34,7 @@ void main() {
         .where((f) => f.path.toLowerCase().endsWith('.dng'))
         .toList();
     expect(dngFiles, isNotEmpty);
-  });
+  }, skip: samplePhotosSkipReason);
 
   group(
     'extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview',
@@ -85,6 +86,7 @@ void main() {
         });
       }
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -96,6 +98,7 @@ void main() {
           await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path);
       expect(bytes, isNull);
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -113,6 +116,7 @@ void main() {
       expect(bytes![2], 0xFF);
       expect(bytes[3], 0xE1);
     },
+    skip: samplePhotosSkipReason,
   );
 
   group('malformed/truncated/non-DNG input degrades to null, never throws', () {
@@ -157,6 +161,7 @@ void main() {
           isNull,
         );
       },
+      skip: samplePhotosSkipReason,
     );
 
     test('a plain JPEG (non-DNG) file is rejected without throwing', () {

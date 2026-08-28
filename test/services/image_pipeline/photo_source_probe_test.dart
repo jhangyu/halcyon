@@ -7,10 +7,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/sample_photos.dart';
+
 void main() {
-  final dngDir = Directory('local_data/photo_samples/DNG');
-  final jpgDir = Directory('local_data/photo_samples/JPG');
-  final hasSamples = dngDir.existsSync();
+  final dngDir = sampleDngDir;
+  final jpgDir = sampleJpgDir;
+  final hasSamples = samplePhotosAvailable;
 
   List<File> dngs() =>
       dngDir.listSync().whereType<File>().where(

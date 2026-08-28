@@ -19,6 +19,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/sample_photos.dart';
+
 final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
@@ -43,8 +45,8 @@ void main() {
     height: 2,
   );
 
-  final dngDir = Directory('local_data/photo_samples/DNG');
-  final hasSamples = dngDir.existsSync();
+  final dngDir = sampleDngDir;
+  final hasSamples = samplePhotosAvailable;
 
   File sampleNamed(String name) => File('${dngDir.path}/$name');
 

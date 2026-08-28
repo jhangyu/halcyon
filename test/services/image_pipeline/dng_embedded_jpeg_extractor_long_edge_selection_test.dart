@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
+import '../../support/sample_photos.dart';
+
 /// M0 acceptance oracle (round-1-m0-contract.md, W2).
 ///
 /// Written against the FROZEN API (§"Frozen API" of the contract) before the
@@ -30,7 +32,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extrac
 /// identify the new files by mtime — several of the newest carry 2024
 /// timestamps.
 void main() {
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
 
   // Kept in lockstep with the frozen oracle's `withPreview` list (read, not
   // retyped from memory) — test/dng_embedded_jpeg_extractor_test.dart lines 39-53.
@@ -67,7 +69,7 @@ void main() {
     expect(result.height, 171);
     expect(result.bytes.length, 9525);
     expect(result.orientation, 1);
-  });
+  }, skip: samplePhotosSkipReason);
 
   group('AC3: longEdge 2800 is byte-identical to today\'s full-size extraction', () {
     for (final name in withPreview) {
@@ -99,7 +101,7 @@ void main() {
         );
       });
     }
-  });
+  }, skip: samplePhotosSkipReason);
 
   test(
     'AC4: byte-range read budget stays bounded across every .dng sample',
@@ -159,6 +161,7 @@ void main() {
         }
       }
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -188,6 +191,7 @@ void main() {
         reason: 'expected injected APP1 segment marker byte 1 at offset 3',
       );
     },
+    skip: samplePhotosSkipReason,
   );
 
   group('AC6: no-candidate/missing/non-DNG inputs return null, never throw', () {
@@ -200,7 +204,7 @@ void main() {
         longEdge: 200,
       );
       expect(result, isNull);
-    });
+    }, skip: samplePhotosSkipReason);
 
     test('nonexistent path returns null', () async {
       final result = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
@@ -240,6 +244,7 @@ void main() {
       final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
       expect(orientation, 6);
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -268,6 +273,7 @@ void main() {
             '(got $totalOnDiskRead)',
       );
     },
+    skip: samplePhotosSkipReason,
   );
 
   // AC11c is REPLACED by AC12a (a nonexistent path now returns null, not 1)

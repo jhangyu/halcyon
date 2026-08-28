@@ -7,10 +7,11 @@ import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
+import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
 void main() {
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
   List<File> dngs() => sampleDir
       .listSync()
       .whereType<File>()
@@ -80,7 +81,7 @@ void main() {
       greaterThan(0),
       reason: 'sample set must exercise the hit path',
     );
-  });
+  }, skip: samplePhotosSkipReason);
 
   test(
     'no-preview DNGs yield NeedsRawDecode with the walked orientation',
@@ -111,6 +112,7 @@ void main() {
         reason: 'sample set must exercise the miss path',
       );
     },
+    skip: samplePhotosSkipReason,
   );
 
   test('sidebar purpose never returns the raw-decode signal', () async {
@@ -121,7 +123,7 @@ void main() {
       );
       expect(result is! NativeImageNeedsRawDecode, isTrue, reason: f.path);
     }
-  });
+  }, skip: samplePhotosSkipReason);
 
   test('missing file is a failure, not a throw', () async {
     final result = await dartImageLoad(
@@ -162,7 +164,7 @@ void main() {
     }
     expect(hits, greaterThan(0));
     expect(misses, greaterThan(0));
-  });
+  }, skip: samplePhotosSkipReason);
 
   test('engine-decodable non-DNG RAW (.arw): embedded preview is served,'
       ' no-preview now routes to RAW decode', () async {
@@ -195,7 +197,7 @@ void main() {
     }
     expect(hits, greaterThan(0));
     expect(misses, greaterThan(0));
-  });
+  }, skip: samplePhotosSkipReason);
 
   test('the sidebar still never returns the raw-decode signal for an'
       ' engine-decodable non-DNG RAW', () async {
@@ -221,7 +223,7 @@ void main() {
         );
       }
     }
-  });
+  }, skip: samplePhotosSkipReason);
 
   // M6 P3.7 (F-20): oversized-image guard — same 1.5GB decoded-pixel budget
   // the deleted native guard (AppDelegate.swift renderCGImage) enforced.
@@ -282,6 +284,7 @@ void main() {
         }
       }
     },
+    skip: samplePhotosSkipReason,
   );
 
   // -------------------------------------------------------------------

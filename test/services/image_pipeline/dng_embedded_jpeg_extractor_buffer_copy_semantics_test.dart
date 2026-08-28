@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
+import '../../support/sample_photos.dart';
+
 /// F3 copy-semantics regression (round-2 F3, user decision 2026-08-23: FIX).
 ///
 /// Pre-M0 base 48bb934's `_MemorySource.read` returned `sublist` (an
@@ -19,7 +21,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extrac
 /// asserts the returned bytes are unaffected. Under view semantics this is a
 /// content assertion failure, not a compile error.
 void main() {
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
 
   // Orientation 1 (per dng_embedded_jpeg_extractor_long_edge_selection_test.dart AC2), so the
   // returned bytes are exactly the `_MemorySource.read` slice with no
@@ -61,5 +63,6 @@ void main() {
             'instead of an independent copy',
       );
     },
+    skip: samplePhotosSkipReason,
   );
 }

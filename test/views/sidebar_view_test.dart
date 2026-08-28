@@ -17,6 +17,8 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/sample_photos.dart';
+
 // A minimal valid 1x1 transparent PNG (same fixture as
 // image_preload_controller_test.dart) — the sidebar renders thumbnail bytes
 // through Image.memory, and this test's later assertion needs a real
@@ -235,7 +237,7 @@ void main() {
       }
 
       await tester.runAsync(() async {
-        final sampleDir = Directory('local_data/photo_samples/DNG');
+        final sampleDir = sampleDngDir;
         // Known preview-bearing samples (cross-checked in
         // dng_embedded_jpeg_extractor_test.dart) — keeps this test fast and
         // deterministic rather than sweeping all 14 samples.
@@ -277,6 +279,7 @@ void main() {
         reason: 'preview-bearing samples must yield sidebar bytes via Dart',
       );
     },
+    skip: !samplePhotosAvailable,
   );
 
   // M6 P2.5b (matrix P-12): the sidebar RAW-decode fallback for bare-CFA

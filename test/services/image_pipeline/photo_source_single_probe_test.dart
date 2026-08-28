@@ -27,6 +27,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/sample_photos.dart';
+
 /// Counts `open()` calls on files created inside an [IOOverrides] zone.
 ///
 /// Only `open()` is implemented: every other member throws, which is the
@@ -64,9 +66,9 @@ Future<int> countingOpens(Future<void> Function() body) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final dngDir = Directory('local_data/photo_samples/DNG');
-  final jpgDir = Directory('local_data/photo_samples/JPG');
-  final hasSamples = dngDir.existsSync();
+  final dngDir = sampleDngDir;
+  final jpgDir = sampleJpgDir;
+  final hasSamples = samplePhotosAvailable;
 
   List<File> dngs() =>
       dngDir.listSync().whereType<File>().where(

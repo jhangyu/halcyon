@@ -9,6 +9,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/sample_photos.dart';
+
 /// M2: source-selection was moved from an inline check in
 /// `image_preload_controller.dart` into `photo_source.dart`, behind the
 /// existing `ImageBytesLoader` seam. Most of these tests deliberately do NOT
@@ -27,7 +29,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
   const withPreviewSample = '2026-02-15-19-37-38.dng';
   const noPreviewSample = 'IMG_20251112_092839.dng';
 
@@ -37,7 +39,7 @@ void main() {
       isTrue,
     );
     expect(File('${sampleDir.path}/$noPreviewSample').existsSync(), isTrue);
-  });
+  }, skip: samplePhotosSkipReason);
 
   test(
     // Killer assertion: if delegation to PhotoSource is wired wrong (e.g.
@@ -80,6 +82,7 @@ void main() {
       expect(gotBytes, equals(expectedBytes));
       expect(controller.hasFailed('dng-1'), isFalse);
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -128,6 +131,7 @@ void main() {
       expect(controller.imageBytesFor('dng-2'), isNull);
       expect(controller.hasFailed('dng-2'), isTrue);
     },
+    skip: samplePhotosSkipReason,
   );
 
   // Rewritten under C-4: this pair used to assert the pre-M6 `.dng`-only
@@ -182,6 +186,7 @@ void main() {
       expect(controller.imageBytesFor('jpg-1'), equals(expectedBytes));
       expect(controller.hasFailed('jpg-1'), isFalse);
     },
+    skip: samplePhotosSkipReason,
   );
 
   test(
@@ -227,7 +232,7 @@ void main() {
     () async {
       final dir = await Directory.systemTemp.createTemp('photo_source_f08');
       addTearDown(() => dir.delete(recursive: true));
-      final samples = Directory('local_data/photo_samples/DNG')
+      final samples = sampleDir
           .listSync()
           .whereType<File>()
           .where((f) => f.path.toLowerCase().endsWith('.dng'));
@@ -246,6 +251,7 @@ void main() {
       await withPreview!.copy(asNef.path);
       expect(await PhotoSource.fallbackAfterNativeFailure(asNef.path), isNotNull);
     },
+    skip: samplePhotosSkipReason,
   );
 
   // -------------------------------------------------------------------

@@ -8,9 +8,11 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/sample_photos.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final sampleDir = Directory('local_data/photo_samples/DNG');
+  final sampleDir = sampleDngDir;
 
   late int channelCalls;
   setUp(() {
@@ -41,7 +43,7 @@ void main() {
     final outcome = await source.load(f!.path, longEdge: 2800);
     expect(outcome.payload, isNotNull);
     expect(channelCalls, 0);
-  });
+  }, skip: samplePhotosSkipReason);
 
   test('AC5: with the channel throwing MissingPluginException, cheap AND'
       ' no-preview DNGs still behave', () async {
@@ -62,5 +64,5 @@ void main() {
     final dearOut = await source.load(dear!.path, longEdge: 2800);
     expect(dearOut.payload, isNotNull); // decoded via the fake, no channel
     expect(dearOut.observedCost, SourceCost.expensive);
-  });
+  }, skip: samplePhotosSkipReason);
 }

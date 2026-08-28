@@ -11,10 +11,12 @@ import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
+import '../../support/sample_photos.dart';
+
 Uint8List _fakeJpeg(String tag) => Uint8List.fromList('jpeg:$tag'.codeUnits);
 
 // Real samples per repo red line (photos only from local_data/photo_samples).
-final _sampleDir = Directory('local_data/photo_samples/DNG');
+final _sampleDir = sampleDngDir;
 List<File> _dngs() => _sampleDir
     .listSync()
     .whereType<File>()
@@ -381,7 +383,7 @@ void main() {
         expect(outcome.failures, hasLength(1));
       },
     );
-  });
+  }, skip: samplePhotosSkipReason);
 
   // M6 P3 review (task #6), P-14 ruling: exported JPEGs must carry the
   // source file's EXIF metadata again, with Orientation forced to 1. This
@@ -463,7 +465,7 @@ void main() {
         );
       },
     );
-  });
+  }, skip: samplePhotosSkipReason);
 
   // M6 P3.6 (F-11): the 8-case EXIF orientation mapping applied to raw
   // (unrotated) FFI decode output. A 2x1 two-colour image makes a wrong

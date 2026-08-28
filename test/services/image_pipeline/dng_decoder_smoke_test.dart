@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart';
 
+import '../../support/sample_photos.dart';
+
 /// Round-3b smoke test: proves `decodeDngFull` really decodes a DNG that has
 /// no embedded full-size JPEG preview, through the actual native dylib.
 ///
@@ -36,8 +38,8 @@ void main() {
       // already-loaded image (dlopen state is process-wide).
       DynamicLibrary.open(dylibPath);
 
-      const samplePath =
-          'local_data/photo_samples/DNG/IMG_20251112_092839.dng';
+      final samplePath =
+          '${sampleDngDir.path}/IMG_20251112_092839.dng';
       expect(
         File(samplePath).existsSync(),
         isTrue,
@@ -51,6 +53,7 @@ void main() {
       expect(result.rgba.length, 49873920);
     },
     timeout: const Timeout(Duration(minutes: 2)),
+    skip: samplePhotosSkipReason,
   );
 }
 
