@@ -1,3 +1,5 @@
+import 'retention_policy.dart';
+
 /// M6 F-25 / P5.1: image-cache budget derived from physical memory, behind
 /// an injectable seam.
 ///
@@ -29,11 +31,28 @@
 ///
 /// This is NOT interchangeable with `kPayloadByteBudget`: the two are sized
 /// against different corpora and neither can sanity-check the other.
+///
+/// Rung-scaled ceiling (user decision 2026-08-28, from
+/// docs/logs/2026-08-28/cache-sizing-rederivation.md §3 alternative): the
+/// adaptive retention rungs widen the tier-1 span (9/12/15 slots) but every
+/// machine >= 3 GiB already saturated the old fixed 768 MiB ceiling, leaving
+/// the high rung ~4% headroom — under transient overshoot the byte-LRU could
+/// evict a tier-2 `-1..+3` entry the back-navigation guarantee depends on.
+/// ceiling(after) = roundUpMiB((552.05 + (after-1)*18.54) * 1.15), floored at
+/// 768 -> 768 / 800 / 896 MiB, restoring the ~15% headroom policy the original
+/// 768 figure was chosen under. Rung thresholds are shared with
+/// `retentionPolicyFor` so the two mechanisms can never disagree on tiers.
 const int kImageCacheCeilingBytes = 768 << 20;
+const int kImageCacheCeilingMidBytes = 800 << 20;
+const int kImageCacheCeilingHighBytes = 896 << 20;
 
 int imageCacheBudgetBytes({int? physicalMemoryBytes}) {
   const floor = 256 << 20;
-  const ceiling = kImageCacheCeilingBytes;
-  if (physicalMemoryBytes == null) return ceiling;
+  if (physicalMemoryBytes == null) return kImageCacheCeilingBytes;
+  final ceiling = physicalMemoryBytes >= kHighRungTriggerBytes
+      ? kImageCacheCeilingHighBytes
+      : physicalMemoryBytes >= kMidRungTriggerBytes
+          ? kImageCacheCeilingMidBytes
+          : kImageCacheCeilingBytes;
   return (physicalMemoryBytes ~/ 4).clamp(floor, ceiling);
 }
