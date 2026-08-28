@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import '../support/temp_dirs.dart';
+import '../support/fixture_files.dart';
+import '../support/fs_permissions.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -42,8 +44,8 @@ void main() {
     test('warns on the status line when the folder is read-only', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_ro_');
       addTearDown(() async {
-        await Process.run('chmod', ['u+w', dir.path]);
-        await dir.delete(recursive: true);
+        await makeDirWritable(dir);
+        await deleteTempDir(dir);
       });
       await _touch(dir, 'IMG_0001.jpg');
 
@@ -51,7 +53,7 @@ void main() {
       await state.loadFolder(dir);
       expect(state.status, isNull, reason: 'writable folder stays quiet');
 
-      await Process.run('chmod', ['a-w', dir.path]);
+      await makeDirReadOnly(dir);
       await state.loadFolder(dir);
       expect(state.status?.text, contains('唯讀'));
       expect(
@@ -516,12 +518,10 @@ void main() {
       tempDir = await Directory.systemTemp.createTemp('halcyon_rename_state_');
     });
 
-    tearDown(() async {
-      if (await tempDir.exists()) await tempDir.delete(recursive: true);
-    });
+    tearDown(() => deleteTempDir(tempDir));
 
     Future<void> touch(String name) =>
-        File(p.join(tempDir.path, name)).writeAsString(name);
+        writeFixtureString(tempDir, name, name);
 
     AppState buildState() {
       return AppState(
@@ -610,9 +610,8 @@ void main() {
   });
 }
 
-Future<void> _touch(Directory dir, String name) {
-  return File(p.join(dir.path, name)).writeAsBytes(<int>[1, 2, 3]);
-}
+Future<void> _touch(Directory dir, String name) =>
+    writeFixtureBytes(dir, name, const <int>[1, 2, 3]);
 
 AppState _testState() {
   return AppState(
