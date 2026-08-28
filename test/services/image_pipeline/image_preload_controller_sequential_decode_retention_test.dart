@@ -132,10 +132,12 @@ void main() {
     var maxConcurrent = 0;
     final first = Completer<NativeImageResult>();
     var isFirst = true;
+    var firstRequested = false;
     final controller = ImagePreloadController(
       imageLoader: (path, {required purpose}) {
         if (isFirst) {
           isFirst = false;
+          firstRequested = true;
           return first.future;
         }
         concurrent++;
@@ -156,7 +158,13 @@ void main() {
       selectedItemId: photos[5].id,
       notifyLoaded: () {},
     );
-    await Future<void>.delayed(Duration.zero);
+    // Wait on the REAL signal that the priority (first) load has been invoked,
+    // not a fixed event-loop turn: preloadImages reaches this loader only after
+    // an async content probe, so on a loaded runner one `Duration.zero` turn can
+    // fire before `first` exists to be completed. `until` fails loudly on
+    // timeout. Positive, pollable condition -> convertible.
+    await until(() => firstRequested,
+        reason: 'priority (first) loader has been requested');
     first.complete(NativeImageBytes(Uint8List.fromList([137, 80, 78, 71])));
     await preload;
     expect(
