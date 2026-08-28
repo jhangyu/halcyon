@@ -9,17 +9,28 @@ class PhotoItem {
   final List<File> files;
   PhotoStatus status;
 
+  /// The sibling chosen by the I/O-aware ranking
+  /// ([SupportedPhotoFormats.resolveBestFileToLoad]) at scan time, when it was
+  /// computed. Carries the TIFF cheap/expensive probe result the synchronous
+  /// [bestFileToLoad] getter cannot reach; `null` for items built without a
+  /// scan (tests, or code paths that never had a probe), which then fall back
+  /// to the pure-extension ranking.
+  final File? resolvedBestFile;
+
   PhotoItem({
     required this.id,
     required this.files,
     this.status = PhotoStatus.unmarked,
+    this.resolvedBestFile,
   });
 
   String get displayName => id;
 
-  /// Prefer loading JPG/PNG versions of the file over RAW if available,
-  /// as they are smaller and faster to extract thumbnails from or decode.
+  /// Prefer loading a cheap-to-display sibling (JPG → HEIC → WebP → PNG, then a
+  /// TIFF with an embedded rendered image) over a RAW decode when available.
+  /// Uses the scan-time resolved choice when one exists, otherwise the
+  /// synchronous, I/O-free extension ranking.
   File? get bestFileToLoad {
-    return SupportedPhotoFormats.bestFileToLoad(files);
+    return resolvedBestFile ?? SupportedPhotoFormats.bestFileToLoad(files);
   }
 }

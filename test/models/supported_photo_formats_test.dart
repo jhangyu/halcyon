@@ -150,9 +150,11 @@ void main() {
         SupportedPhotoFormats.bestFileToLoad([f('a.webp'), f('a.jpg')])!.path,
         'a.jpg',
       );
+      // D2 ruling reordered the cheap tier to WebP > PNG, so WebP now wins
+      // over a PNG sibling.
       expect(
         SupportedPhotoFormats.bestFileToLoad([f('a.png'), f('a.webp')])!.path,
-        'a.png',
+        'a.webp',
       );
       // The DNG is listed FIRST: a fallback that returns `supported.first`
       // would return the DNG, so this only passes if .webp is in
@@ -188,9 +190,10 @@ void main() {
 
     test('TC-302: a HEIC sibling does not outrank a JPEG sibling', () {
       File f(String name) => File(name);
-      // HEIC is deliberately absent from preferredLoadExtensions, exactly like
-      // TIFF: a rendered JPEG next to a HEIC is the cheaper, engine-decodable
-      // file and must keep winning.
+      // Post-D2, HEIC is in the cheap tier but ranks BELOW JPG: a rendered JPEG
+      // next to a HEIC is the cheaper, engine-decodable file and must keep
+      // winning. (The HEIC-above-RAW promotion is pinned in the D2 ranking
+      // test.)
       expect(
         SupportedPhotoFormats.bestFileToLoad([f('a.heic'), f('a.jpg')])!.path,
         'a.jpg',

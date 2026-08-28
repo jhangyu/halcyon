@@ -42,10 +42,10 @@ void main() {
       // the phase-1 assertion this replaces.
       expect(SupportedPhotoFormats.isSupportedPath('/x/a.heic'), isTrue);
       // The invariant that is actually decided: a HEIC must not outrank a
-      // rendered, engine-decodable JPEG sibling — HEIC is deliberately absent
-      // from preferredLoadExtensions, exactly like TIFF. (A HEIC vs a RAW
-      // sibling is left to list order, the same as TIFF vs RAW; a deliberate
-      // ranking there would be a new product decision.)
+      // rendered, engine-decodable JPEG sibling. Post-D2 (2026-08-28) HEIC is
+      // in the cheap tier but ranks below JPG, so a JPEG sibling still wins.
+      // (HEIC-above-RAW is now a decided ranking, pinned in the D2 ranking
+      // test.)
       final files = [File('/x/a.heic'), File('/x/a.jpg')];
       expect(SupportedPhotoFormats.bestFileToLoad(files)!.path, '/x/a.jpg');
     });
