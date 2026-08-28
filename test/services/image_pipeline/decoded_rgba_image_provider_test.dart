@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:image/image.dart' as img;
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
@@ -278,7 +279,7 @@ void main() {
       }
     }
     final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_orient');
-    addTearDown(() => tmp.deleteSync(recursive: true));
+    addTempDirTeardown(tmp);
     final path = '${tmp.path}${Platform.pathSeparator}orient6.tif';
     File(path).writeAsBytesSync(img.encodeTiff(source));
 

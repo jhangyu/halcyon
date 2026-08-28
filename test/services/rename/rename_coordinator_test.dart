@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -107,7 +108,7 @@ void main() {
       final dir = await Directory.systemTemp.createTemp(
         'halcyon_display_provider_',
       );
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       // A DNG with no embedded preview: the loader reports
       // NativeImageNeedsRawDecode and the fake dngDecoder hands back pixels,
       // so this item is pixel-backed (currentDecodedProvider is the

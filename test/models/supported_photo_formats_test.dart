@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:ceyx/ceyx.dart' show kSupportedDecodeExtensions;
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 
 void main() {
@@ -58,7 +59,7 @@ void main() {
   group('AC1 — folder scan surfaces a file of every derived-list extension', () {
     test('over a fake directory listing, every decodable+browse-only ext is picked up', () async {
       final tmpDir = await Directory.systemTemp.createTemp('halcyon_fmt_test_');
-      addTearDown(() => tmpDir.delete(recursive: true));
+      addTempDirTeardown(tmpDir);
 
       final allExts = SupportedPhotoFormats.rawExtensions
           .followedBy(const ['.jpg', '.jpeg', '.png']);

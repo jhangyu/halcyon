@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -23,7 +24,7 @@ void main() {
   group('AppState.openPhotoAtPath', () {
     test('TC-160 keeps the loaded folder when the file does not exist', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
@@ -43,7 +44,7 @@ void main() {
       'TC-161 keeps the loaded folder when the parent directory is missing',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
 
         final state = _testState();
@@ -61,7 +62,7 @@ void main() {
 
     test('TC-162 still opens a real file and selects it', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_openwith_ok_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.dng');
 
@@ -75,10 +76,10 @@ void main() {
 
     test('TC-163 ignores unsupported extensions', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       final other = await Directory.systemTemp.createTemp('halcyon_other_');
-      addTearDown(() => other.delete(recursive: true));
+      addTempDirTeardown(other);
       await _touch(other, 'notes.txt');
 
       final state = _testState();

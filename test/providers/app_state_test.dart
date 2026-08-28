@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -22,7 +23,7 @@ void main() {
       'scans supported files, ignores hidden files, and groups by photo id',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_scan_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0001.arw');
         await _touch(dir, 'IMG_0002.dng');
@@ -62,7 +63,7 @@ void main() {
 
     test('restores saved statuses and last viewed id from JSON', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_status_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
       await File(p.join(dir.path, '.halcyon_status.json')).writeAsString(
@@ -90,7 +91,7 @@ void main() {
 
     test('scans RW2 files into photo groups', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_rw2_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'P1000001.rw2');
 
       final state = _testState();
@@ -102,7 +103,7 @@ void main() {
 
     test('groups CR2/NEF/ORF raw files with their JPG sibling', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_raw_ext_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0001.cr2');
       await _touch(dir, 'IMG_0002.jpg');
@@ -129,7 +130,7 @@ void main() {
       'auto-advance moves to the next photo after applying a new status',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_mark_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0002.jpg');
 
@@ -148,7 +149,7 @@ void main() {
       'uses semantic image request purposes for preview and sidebar thumbnail loading',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_request_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
 
         final calls = <ImageRequestPurpose>[];
@@ -171,7 +172,7 @@ void main() {
       'toggling a status off does not auto-advance even when auto-advance is on',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_toggle_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0002.jpg');
 
@@ -198,7 +199,7 @@ void main() {
 
     test('nextPhoto and previousPhoto move selection within bounds', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_nav_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
@@ -218,7 +219,7 @@ void main() {
     test('TC-222 currentItem returns null for a selection that is gone',
         () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_cur_gone_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
@@ -236,7 +237,7 @@ void main() {
 
     test('TC-223 currentItem does not throw on an empty item list', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_cur_empty_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
 
       final state = _testState();
@@ -250,11 +251,11 @@ void main() {
 
     test('TC-221 a failing copy surfaces a status message', () async {
       final src = await Directory.systemTemp.createTemp('halcyon_ps221_src_');
-      addTearDown(() => src.delete(recursive: true));
+      addTempDirTeardown(src);
       final dest = await Directory.systemTemp.createTemp(
         'halcyon_ps221_dest_',
       );
-      addTearDown(() => dest.delete(recursive: true));
+      addTempDirTeardown(dest);
       await _touch(src, 'IMG_0001.jpg');
       // Block the destination path with a DIRECTORY so the copy throws.
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
@@ -273,7 +274,7 @@ void main() {
 
     test('TC-224 a scan failure surfaces a status message', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_scanfail_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final state = AppState(
         scanner: _ThrowingScanner(const FileSystemException('unreadable')),
@@ -334,7 +335,7 @@ void main() {
   group('AppState.openPhotoAtPath', () {
     test('loads the containing folder and selects the given file', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.dng');
 
@@ -348,12 +349,12 @@ void main() {
 
     test('ignores unsupported files instead of clearing the folder', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       // Deliberately in a different folder: without the guard, currentDir
       // would move here and the folder in view would be lost.
       final other = await Directory.systemTemp.createTemp('halcyon_other_');
-      addTearDown(() => other.delete(recursive: true));
+      addTempDirTeardown(other);
       await _touch(other, 'notes.txt');
 
       final state = _testState();
@@ -368,7 +369,7 @@ void main() {
   group('AppState recycle mode', () {
     test('defaults on when a folder has same-name sibling groups', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mode_on_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0001.dng');
 
@@ -380,7 +381,7 @@ void main() {
 
     test('defaults off when every photo has a single extension', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mode_off_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
@@ -392,7 +393,7 @@ void main() {
 
     test('toggles both ways and notifies listeners', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mode_tog_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
 
       final state = _testState();
@@ -411,7 +412,7 @@ void main() {
     test('recycle mode moves files to .trash instead of the system trash',
         () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mode_run_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0001.dng');
 
@@ -444,7 +445,7 @@ void main() {
 
     test('direct mode still routes through the system trash', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mode_dir_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
 
       final trashed = <String>[];
@@ -473,9 +474,9 @@ void main() {
     test('TC-248 keeps the selected photo, falling back to its index',
         () async {
       final src = await Directory.systemTemp.createTemp('halcyon_ps248_src_');
-      addTearDown(() => src.delete(recursive: true));
+      addTempDirTeardown(src);
       final dest = await Directory.systemTemp.createTemp('halcyon_ps248_dst_');
-      addTearDown(() => dest.delete(recursive: true));
+      addTempDirTeardown(dest);
       await _touch(src, 'IMG_0001.jpg');
       await _touch(src, 'IMG_0002.jpg');
       await _touch(src, 'IMG_0003.jpg');

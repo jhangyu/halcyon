@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -29,7 +30,7 @@ void main() {
     late AppState state;
     await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('halcyon_bar_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       if (withSibling) {
         await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes([1, 2, 3]);

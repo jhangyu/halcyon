@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
@@ -65,7 +66,7 @@ void main() {
     late AppState state;
     await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('halcyon_sidebar_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       if (withSibling) {
         await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes([1, 2, 3]);
@@ -155,7 +156,7 @@ void main() {
           'halcyon_sidebar_export_',
         );
       });
-      addTearDown(() => exportDest.delete(recursive: true));
+      addTempDirTeardown(exportDest);
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
@@ -255,7 +256,7 @@ void main() {
         final dir = await Directory.systemTemp.createTemp(
           'halcyon_sidebar_dartproducer_',
         );
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         for (final f in samples) {
           await f.copy(p.join(dir.path, p.basename(f.path)));
         }
@@ -309,7 +310,7 @@ void main() {
       dir = await Directory.systemTemp.createTemp('halcyon_sidebar_p25b_');
       await File(p.join(dir.path, fileName)).writeAsBytes([1, 2, 3]);
     });
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     return dir;
   }
 

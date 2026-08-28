@@ -5,6 +5,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/temp_dirs.dart';
 import 'package:halcyon_flutter/main.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -59,7 +60,7 @@ void main() {
     late AppState state;
     await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('halcyon_main_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       state = AppState(
         imageLoader: (path, {required purpose}) async {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:path/path.dart' as p;
@@ -11,7 +12,7 @@ void main() {
       'moves trashed files and sidecars through the trash service',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_trash_');
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
 
         final photo = await _touch(dir, 'IMG_0001.jpg');
         final sidecar = await _touch(dir, '._IMG_0001.jpg');
@@ -47,7 +48,7 @@ void main() {
 
     test('keeps the source file when trash service fails', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_trash_fail_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final photo = await _touch(dir, 'IMG_0001.jpg');
       final actions = PhotoFileActions(
@@ -71,7 +72,7 @@ void main() {
 
     test('TC-207 deleteTrashed continues past a failing trash call', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_dt_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final bad = await _touch(dir, 'IMG_0001.jpg');
       final good = await _touch(dir, 'IMG_0002.jpg');
@@ -103,11 +104,11 @@ void main() {
       'copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items',
       () async {
         final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
-        addTearDown(() => src.delete(recursive: true));
+        addTempDirTeardown(src);
         final dest = await Directory.systemTemp.createTemp(
           'halcyon_star_dest_',
         );
-        addTearDown(() => dest.delete(recursive: true));
+        addTempDirTeardown(dest);
 
         final starred = await _touch(src, 'IMG_0001.jpg');
         final unstarred = await _touch(src, 'IMG_0002.jpg');
@@ -143,11 +144,11 @@ void main() {
       'move mode moves starred items to the destination, removes the source, leaves unstarred untouched',
       () async {
         final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
-        addTearDown(() => src.delete(recursive: true));
+        addTempDirTeardown(src);
         final dest = await Directory.systemTemp.createTemp(
           'halcyon_star_dest_',
         );
-        addTearDown(() => dest.delete(recursive: true));
+        addTempDirTeardown(dest);
 
         final starred = await _touch(src, 'IMG_0001.jpg');
         final unstarred = await _touch(src, 'IMG_0002.jpg');
@@ -177,9 +178,9 @@ void main() {
 
     test('move mode processes every sibling file in a RAW+JPG group', () async {
       final src = await Directory.systemTemp.createTemp('halcyon_star_sib_');
-      addTearDown(() => src.delete(recursive: true));
+      addTempDirTeardown(src);
       final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
-      addTearDown(() => dest.delete(recursive: true));
+      addTempDirTeardown(dest);
 
       final jpg = await _touch(src, 'IMG_0001.jpg');
       final dng = await _touch(src, 'IMG_0001.dng');
@@ -200,11 +201,11 @@ void main() {
         final src = await Directory.systemTemp.createTemp(
           'halcyon_star_skip_',
         );
-        addTearDown(() => src.delete(recursive: true));
+        addTempDirTeardown(src);
         final dest = await Directory.systemTemp.createTemp(
           'halcyon_star_dest_',
         );
-        addTearDown(() => dest.delete(recursive: true));
+        addTempDirTeardown(dest);
 
         await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
         final source = File(p.join(src.path, 'IMG_0001.jpg'));
@@ -232,9 +233,9 @@ void main() {
 
     test('overwriteExisting=true replaces an existing destination file', () async {
       final src = await Directory.systemTemp.createTemp('halcyon_star_over_');
-      addTearDown(() => src.delete(recursive: true));
+      addTempDirTeardown(src);
       final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
-      addTearDown(() => dest.delete(recursive: true));
+      addTempDirTeardown(dest);
 
       await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
       final source = File(p.join(src.path, 'IMG_0001.jpg'));
@@ -261,11 +262,11 @@ void main() {
         final src = await Directory.systemTemp.createTemp(
           'halcyon_star_sc_copy_',
         );
-        addTearDown(() => src.delete(recursive: true));
+        addTempDirTeardown(src);
         final dest = await Directory.systemTemp.createTemp(
           'halcyon_star_dest_',
         );
-        addTearDown(() => dest.delete(recursive: true));
+        addTempDirTeardown(dest);
 
         final photo = await _touch(src, 'IMG_0001.jpg');
         final srcSidecar = await _touch(src, '._IMG_0001.jpg');
@@ -299,11 +300,11 @@ void main() {
         final src = await Directory.systemTemp.createTemp(
           'halcyon_star_sc_move_',
         );
-        addTearDown(() => src.delete(recursive: true));
+        addTempDirTeardown(src);
         final dest = await Directory.systemTemp.createTemp(
           'halcyon_star_dest_',
         );
-        addTearDown(() => dest.delete(recursive: true));
+        addTempDirTeardown(dest);
 
         final photo = await _touch(src, 'IMG_0001.jpg');
         final srcSidecar = await _touch(src, '._IMG_0001.jpg');
@@ -331,7 +332,7 @@ void main() {
 
     test('does nothing when the destination folder does not exist', () async {
       final src = await Directory.systemTemp.createTemp('halcyon_star_nodest_');
-      addTearDown(() => src.delete(recursive: true));
+      addTempDirTeardown(src);
       final missingDest = Directory(p.join(src.path, 'does_not_exist'));
       final photo = await _touch(src, 'IMG_0001.jpg');
 
@@ -345,8 +346,8 @@ void main() {
     test('TC-206 processStarred continues past a failing file', () async {
       final src = await Directory.systemTemp.createTemp('halcyon_ps_src_');
       final dest = await Directory.systemTemp.createTemp('halcyon_ps_dest_');
-      addTearDown(() => src.delete(recursive: true));
-      addTearDown(() => dest.delete(recursive: true));
+      addTempDirTeardown(src);
+      addTempDirTeardown(dest);
 
       final bad = await _touch(src, 'IMG_0001.jpg');
       final good = await _touch(src, 'IMG_0002.jpg');
@@ -374,7 +375,7 @@ void main() {
   group('PhotoFileActions.recycleTrashed', () {
     test('moves every sibling file and sidecar into .trash', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final jpg = await _touch(dir, 'IMG_0001.jpg');
       final dng = await _touch(dir, 'IMG_0001.dng');
@@ -411,7 +412,7 @@ void main() {
 
     test('suffixes collisions instead of overwriting', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_dup_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final trashDir = Directory(p.join(dir.path, '.trash'));
       await trashDir.create(recursive: true);
@@ -435,7 +436,7 @@ void main() {
 
     test('records per-file failures and keeps processing the rest', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_err_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
 
       final bad = await _touch(dir, 'IMG_0001.jpg');
       final good = await _touch(dir, 'IMG_0002.jpg');

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
@@ -161,7 +162,7 @@ void main() {
       final tmpDir = await Directory.systemTemp.createTemp(
         'halcyon_photo_source_gate_',
       );
-      addTearDown(() => tmpDir.delete(recursive: true));
+      addTempDirTeardown(tmpDir);
       final fakeJpgFile = File('${tmpDir.path}/not-a-dng.jpg');
       await fakeJpgFile.writeAsBytes(dngBytes);
 
@@ -197,7 +198,7 @@ void main() {
       final tmpDir = await Directory.systemTemp.createTemp(
         'halcyon_photo_source_gate_negative_',
       );
-      addTearDown(() => tmpDir.delete(recursive: true));
+      addTempDirTeardown(tmpDir);
       final garbageJpgFile = File('${tmpDir.path}/not-an-image.jpg');
       await garbageJpgFile.writeAsBytes(
         List<int>.generate(64, (i) => i % 256),
@@ -231,7 +232,7 @@ void main() {
     'preview (extension gate removed)',
     () async {
       final dir = await Directory.systemTemp.createTemp('photo_source_f08');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       final samples = sampleDir
           .listSync()
           .whereType<File>()

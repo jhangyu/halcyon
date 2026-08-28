@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:provider/provider.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -28,7 +29,7 @@ void main() {
     late AppState state;
     await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('halcyon_mdv_');
-      addTearDown(() => dir.delete(recursive: true));
+      addTempDirTeardown(dir);
       await File('${dir.path}/IMG_0001.jpg').writeAsBytes(<int>[1, 2, 3]);
 
       // A loader that never completes pins the item in the "loading" state

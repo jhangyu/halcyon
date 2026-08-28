@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
@@ -89,7 +90,7 @@ void main() {
         final dir = await Directory.systemTemp.createTemp(
           'halcyon_sidebar_m1_',
         );
-        addTearDown(() => dir.delete(recursive: true));
+        addTempDirTeardown(dir);
         await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
 
         state = AppState(

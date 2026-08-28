@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
@@ -616,7 +617,7 @@ void main() {
   test('TC-323: exporting a TIFF produces a JPEG with long edge <= 2048 and '
       'Orientation == 1', () async {
     final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_export');
-    addTearDown(() => tmp.deleteSync(recursive: true));
+    addTempDirTeardown(tmp);
     // A real TIFF file must exist at this path: exportBytesFor calls
     // dartImageLoad, whose bitmap branch reads the IFD0 extent and
     // orientation from the file before returning NeedsRawDecode, and
