@@ -173,6 +173,17 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Child process output is read as UTF-8 (see run_streaming) and relayed verbatim
+# to our own stdout. On Windows that stdout defaults to the ANSI code page
+# (cp1252), and Flutter prints U+221A SQUARE ROOT as its "step ok" marker — so
+# the relay died with UnicodeEncodeError partway through a perfectly healthy
+# build. Force UTF-8 here rather than only setting PYTHONIOENCODING in CI: a
+# developer running this in a plain cmd.exe hits the identical crash.
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if _reconfigure is not None:
+        _reconfigure(encoding="utf-8", errors="replace")
+
 # --------------------------------------------------------------------------
 # Constants
 # --------------------------------------------------------------------------
