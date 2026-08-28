@@ -32,6 +32,27 @@ class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // Synchronise on the ACTUAL signal a piece of controller work produces,
+  // never on a guessed number of event-loop turns or a fixed sleep. Reaching
+  // most observable state here crosses at least one `await` (an async content
+  // probe, PhotoSource.probeSource file I/O, the 250ms tier-2 debounce, and/or
+  // a real engine decode). A fixed `Future.delayed(Duration.zero)` or a short
+  // millisecond sleep happens to cover those turns on a fast runner but loses
+  // the race on a loaded one — the macOS-CI-only failures this file kept
+  // producing. Polling the real condition is deterministic regardless of
+  // scheduler speed. Use this for any assertion on state that becomes TRUE
+  // after an await; a fixed sleep is only correct when asserting that a state
+  // stays FALSE (a non-event cannot be polled for).
+  Future<void> pumpUntil(bool Function() condition, {String? reason}) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('timed out waiting for: ${reason ?? 'condition'}');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+  }
+
   test('TC-218 a thumbnail load in flight does not mark the id as loading',
       () async {
     final items = List.generate(5, (index) {
@@ -134,9 +155,15 @@ void main() {
         notifyLoaded: () {},
       );
 
-      // Let the microtask queue advance to the point where the selected
-      // item's load has been requested.
-      await Future<void>.delayed(Duration.zero);
+      // Wait for the selected item's load to actually be requested — reaching
+      // the loader crosses an awaited async content probe, so a fixed turn
+      // count races on a slow runner. The selected-first invariant guarantees
+      // NOTHING else is requested until we complete this load below, so once
+      // the request list is non-empty it holds exactly [selectedPath].
+      await pumpUntil(
+        () => requestOrder.isNotEmpty,
+        reason: 'the selected item to be requested first',
+      );
       expect(requestOrder, [selectedPath]);
 
       // Completing the selected item's load lets the controller move on to
@@ -144,11 +171,15 @@ void main() {
       completers[selectedPath]!.complete(
         NativeImageBytes(Uint8List.fromList([1])),
       );
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
 
       // All remaining window items must have been requested already, proving
-      // they were dispatched concurrently rather than one at a time.
+      // they were dispatched concurrently rather than one at a time. Poll for
+      // the full set rather than a fixed number of turns: each window item is
+      // dispatched through its own awaited probe.
+      await pumpUntil(
+        () => requestOrder.length == windowPaths.length,
+        reason: 'the whole window to be dispatched concurrently',
+      );
       expect(requestOrder.length, windowPaths.length);
       expect(requestOrder.toSet(), windowPaths.toSet());
       for (final path in remainingPaths) {
@@ -190,24 +221,6 @@ void main() {
     });
 
     final targetPath = items[2].files.single.path; // IMG_0002
-
-    // Synchronise on the ACTUAL signal — the selected item's loader having
-    // been invoked — not on a fixed number of event-loop turns. Reaching the
-    // loader requires the controller to first `await` an async content probe
-    // (_ensurePayload -> PrefetchScheduler.classify -> PhotoSource.probeSource,
-    // real file I/O on a nonexistent /tmp path). A single `Future.delayed(
-    // Duration.zero)` covers that on a fast runner but loses the race on a
-    // loaded one (green on Linux CI, red on the macOS runner). Polling the
-    // real condition is deterministic regardless of scheduler speed.
-    Future<void> pumpUntil(bool Function() condition, {String? reason}) async {
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (!condition()) {
-        if (DateTime.now().isAfter(deadline)) {
-          fail('timed out waiting for: ${reason ?? 'condition'}');
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 1));
-      }
-    }
 
     // First preload pass selects IMG_0002; this starts (but does not
     // finish) its load and queues the rest of the window.
@@ -431,8 +444,13 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         expect(controller.isFullSizeReady(items[2].id), isFalse);
 
-        // After the debounce elapses, tier-2 has landed.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        // After the debounce elapses, tier-2 has landed. Poll the real
+        // readiness signal rather than betting a fixed sleep covers the
+        // debounce PLUS the decode on a loaded runner.
+        await pumpUntil(
+          () => controller.isFullSizeReady(items[2].id),
+          reason: 'tier-2 to land for the selected item after the debounce',
+        );
         expect(controller.isFullSizeReady(items[2].id), isTrue);
       });
     },
@@ -486,8 +504,13 @@ void main() {
           );
         }
 
-        // Let the debounce settle on the FINAL position (index 5).
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // Let the debounce settle on the FINAL position (index 5): poll until
+        // the current item lands. Once it has, the debounce has fired, so the
+        // out-of-window index 2 has had its full chance to be (wrongly) queued.
+        await pumpUntil(
+          () => controller.isFullSizeReady(items[5].id),
+          reason: "the final position's tier-2 to land after the burst",
+        );
 
         // Index 2 scrolled out of the tier-2 window during the burst and
         // must never have been queued for a full-size decode.
@@ -523,7 +546,10 @@ void main() {
           selectedItemId: items[5].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        await pumpUntil(
+          () => controller.isFullSizeReady(items[4].id),
+          reason: 'tier-2 to land for index 4 after the debounce',
+        );
         expect(controller.isFullSizeReady(items[4].id), isTrue);
 
         final bytesAt4 = controller.imageBytesFor(items[4].id)!;
@@ -561,7 +587,12 @@ void main() {
           selectedItemId: items[7].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // Poll for the eviction itself (it runs on the 250ms debounce sweep)
+        // rather than assuming a fixed sleep outlasts it on a slow runner.
+        await pumpUntil(
+          () => !PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
+          reason: "index 4's tier-2 entry to be evicted after leaving +/-2",
+        );
 
         expect(
           PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
@@ -607,7 +638,10 @@ void main() {
         );
 
         await go(5);
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        await pumpUntil(
+          () => controller.isFullSizeReady(items[5].id),
+          reason: 'the initial tier-2 for index 5 to land',
+        );
         expect(controller.isFullSizeReady(items[5].id), isTrue);
         final originalBytes = controller.imageBytesFor(items[5].id)!;
         final originalKey = await fullSizeProviderFor(
@@ -704,9 +738,17 @@ void main() {
         );
         addTearDown(() => ic.evict(tierTwoKey));
 
-        // Let the debounce fire; the controller's decode attempt joins the
-        // pre-inserted pending entry above and will never complete.
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // Let the debounce fire; the controller's decode attempt for item 5
+        // joins the pre-inserted pending entry above and will never complete.
+        // Synchronise on item 4 becoming ready: item 4 shares this tier-2
+        // window, was NOT pre-seeded, and decodes normally — its readiness is
+        // a positive signal that the debounce has fired (so item 5's decode
+        // attempt has also happened and joined the pending entry), without
+        // betting a fixed sleep outlasts the debounce plus a real decode.
+        await pumpUntil(
+          () => controller.isFullSizeReady(items[4].id),
+          reason: 'the tier-2 debounce to fire (item 4 decodes normally)',
+        );
 
         expect(
           PaintingBinding.instance.imageCache.containsKey(tierTwoKey),
@@ -951,7 +993,12 @@ void main() {
         selectedItemId: items[5].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      // Poll for the catch-up full-res decode to fire rather than assuming a
+      // fixed sleep covers the debounce plus the serial-lane decode.
+      await until(
+        () => decodesOfTarget() == 2,
+        reason: 'the AD-034 catch-up full-res decode on re-entry',
+      );
       expect(
         decodesOfTarget(),
         2,
@@ -1023,10 +1070,13 @@ void main() {
         await until(() => controller.isFullSizeReady(items[8].id));
         // The selected item (index 8) reaches readiness via the immediate
         // piggyback path, which can win the race against the 250ms debounce
-        // that runs the tier-2 eviction sweep. Wait the debounce out so the
-        // stale-entry eviction for item 5 has actually run before asserting on
-        // it -- this waits for the eviction, it does not relax the assertion.
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        // that runs the tier-2 eviction sweep. Poll for the eviction itself so
+        // this waits exactly as long as the sweep needs on any runner -- it
+        // waits for the eviction, it does not relax the assertion.
+        await until(
+          () => !PaintingBinding.instance.imageCache.containsKey(provider),
+          reason: "item 5's stale tier-2 entry to be evicted by the sweep",
+        );
 
         expect(
           PaintingBinding.instance.imageCache.containsKey(provider),
