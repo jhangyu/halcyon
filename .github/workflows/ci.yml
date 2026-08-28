@@ -1,10 +1,7 @@
-# KNOWN BLOCKERS (as of 2026-08-19, unresolved — read before debugging a run):
-# 1. `flutter pub get` will fail on a fresh checkout: pubspec.yaml has a path
-#    dependency on the sibling repo ../flutter_dng_decoder/dng_processor
-#    (github.com/jhangyu/lucida). Options not yet chosen: git dependency,
-#    submodule, or vendoring.
-# 2. This repo has no git remote configured yet, so this workflow has never
-#    actually run. Only validated locally via yaml.safe_load.
+# pubspec.yaml has a path dependency on the sibling repo ../ceyx/plugin
+# (github.com/jhangyu/ceyx), so CI checks out BOTH repos side by side under the
+# workspace (Halcyon/ + ceyx/) and runs every step from Halcyon/. A bare
+# root-level checkout can never pub get — don't "simplify" this back.
 name: CI
 
 on:
@@ -13,12 +10,23 @@ on:
   pull_request:
     branches: [main]
 
+defaults:
+  run:
+    working-directory: Halcyon
+
 jobs:
   analyze-test:
     name: Analyze & Test
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: Halcyon
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jhangyu/ceyx
+          path: ceyx
 
       - uses: subosito/flutter-action@v2
         with:
@@ -32,13 +40,20 @@ jobs:
         run: flutter analyze
 
       - name: flutter test
-        run: flutter test
+        run: flutter test -j 1
 
   build:
     name: Build macOS (release)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: Halcyon
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jhangyu/ceyx
+          path: ceyx
 
       - uses: subosito/flutter-action@v2
         with:
@@ -50,7 +65,7 @@ jobs:
 
       - name: Install CocoaPods dependencies
         run: pod install
-        working-directory: macos
+        working-directory: Halcyon/macos
 
       - name: Build via single entry point (scripts/build_apps.py)
         run: python3 scripts/build_apps.py
