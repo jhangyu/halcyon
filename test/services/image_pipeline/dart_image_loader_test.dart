@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
@@ -51,7 +52,7 @@ void main() {
 
   test('jpeg returns its exact bytes without decoding', () async {
     final dir = await Directory.systemTemp.createTemp('dart_image_loader');
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     final jpeg = File('${dir.path}/a.jpg');
     await jpeg.writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xD9]); // SOI+EOI only
     final result = await dartImageLoad(
@@ -142,7 +143,7 @@ void main() {
   test('browse-only RAW (.cr2): embedded preview is served, no-preview is an'
       ' explicit unsupported state (never the raw-decode signal)', () async {
     final dir = await Directory.systemTemp.createTemp('dart_image_loader_raw');
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     var hits = 0, misses = 0;
     for (final f in dngs()) {
       final full =
@@ -169,7 +170,7 @@ void main() {
   test('engine-decodable non-DNG RAW (.arw): embedded preview is served,'
       ' no-preview now routes to RAW decode', () async {
     final dir = await Directory.systemTemp.createTemp('dart_image_loader_arw');
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     var hits = 0, misses = 0;
     for (final f in dngs()) {
       final full =
@@ -207,7 +208,7 @@ void main() {
     // (F4) the shipped export path never passes it — see
     // `photo_export_service.dart:57-58`.
     final dir = await Directory.systemTemp.createTemp('dart_image_loader_sb');
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     for (final f in dngs()) {
       final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
       await f.copy(asArw.path);
@@ -259,7 +260,7 @@ void main() {
     final dir = await Directory.systemTemp.createTemp(
       'dart_image_loader_oversized',
     );
-    addTearDown(() => dir.delete(recursive: true));
+    addTempDirTeardown(dir);
     final huge = File('${dir.path}/huge.dng');
     await huge.writeAsBytes(handcraftedOversizedTiff());
     final result = await dartImageLoad(
@@ -668,9 +669,7 @@ void main() {
     setUpAll(() {
       tmp = Directory.systemTemp.createTempSync('halcyon_bitmap_loader');
     });
-    tearDownAll(() {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    });
+    tearDownAll(() => deleteTempDir(tmp));
 
     Future<String> writeBytes(String name, Uint8List bytes) async {
       final file = File('${tmp.path}${Platform.pathSeparator}$name');
@@ -801,9 +800,7 @@ void main() {
     setUpAll(() {
       heicTmp = Directory.systemTemp.createTempSync('halcyon_heic_loader');
     });
-    tearDownAll(() {
-      if (heicTmp.existsSync()) heicTmp.deleteSync(recursive: true);
-    });
+    tearDownAll(() => deleteTempDir(heicTmp));
 
     Future<String> writeHeic(String name) async {
       final file = File('${heicTmp.path}${Platform.pathSeparator}$name');

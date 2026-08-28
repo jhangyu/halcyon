@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
@@ -26,9 +27,7 @@ void main() {
   setUpAll(() {
     tmp = Directory.systemTemp.createTempSync('halcyon_wiring');
   });
-  tearDownAll(() {
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-  });
+  tearDownAll(() => deleteTempDir(tmp));
 
   Future<File> writeContainer(String name) async {
     final file = File('${tmp.path}${Platform.pathSeparator}$name');

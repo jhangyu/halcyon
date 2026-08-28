@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 import 'package:image/image.dart' as img;
 
 import 'package:ceyx/ceyx.dart';
@@ -28,9 +29,7 @@ void main() {
   setUpAll(() {
     tmp = Directory.systemTemp.createTempSync('halcyon_dispatch');
   });
-  tearDownAll(() {
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-  });
+  tearDownAll(() => deleteTempDir(tmp));
 
   Future<String> write(String name, Uint8List bytes) async {
     final file = File('${tmp.path}${Platform.pathSeparator}$name');

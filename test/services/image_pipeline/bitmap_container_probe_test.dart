@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/temp_dirs.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/bitmap_container_probe.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -14,9 +15,7 @@ void main() {
   setUpAll(() {
     tmp = Directory.systemTemp.createTempSync('halcyon_bitmap_probe');
   });
-  tearDownAll(() {
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-  });
+  tearDownAll(() => deleteTempDir(tmp));
 
   Future<String> write(String name, Uint8List bytes) async {
     final file = File('${tmp.path}${Platform.pathSeparator}$name');

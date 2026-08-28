@@ -40,10 +40,16 @@ import 'package:flutter_test/flutter_test.dart';
 /// holds a handle open for >~300ms after its body completes, raise the ceiling
 /// or close the handle explicitly instead of leaning on this backoff.
 void addTempDirTeardown(FileSystemEntity dir) {
-  addTearDown(() => _deleteWithRetry(dir));
+  addTearDown(() => deleteTempDir(dir));
 }
 
-Future<void> _deleteWithRetry(FileSystemEntity dir) async {
+/// Best-effort, Windows-tolerant recursive delete of a scratch temp entity.
+///
+/// Use this directly inside a `tearDown`/`tearDownAll` body (which already IS a
+/// teardown, so [addTempDirTeardown] would double-register). Same contract as
+/// above: retries then gives up silently, never throws. An existence check is
+/// unnecessary — a missing entity is treated as already-cleaned.
+Future<void> deleteTempDir(FileSystemEntity dir) async {
   const delays = <int>[20, 40, 60, 80, 100];
   for (var attempt = 0; ; attempt++) {
     try {
