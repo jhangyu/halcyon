@@ -93,7 +93,13 @@ jobs:
         run: flutter pub get
 
       - name: Build via single entry point (scripts/build_apps.py)
-        run: python3 scripts/build_apps.py windows
+        # --fetch-native, not plain auto: ceyx still carries a committed
+        # dng_decoder_native.dll (1,906,688 bytes, hand-built 2026-08-22, no S4
+        # colour-gate record). Auto-fetch only fires when the destination is
+        # ABSENT, so without this flag Windows would keep shipping that
+        # unvalidated binary while Linux got the pinned CI build. Forcing the
+        # fetch makes both platforms use the same checksum-pinned artifact.
+        run: python3 scripts/build_apps.py windows --fetch-native
 
       - name: Package runner folder
         run: Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "Halcyon-windows-x64-${env:GITHUB_REF_NAME}.zip"
