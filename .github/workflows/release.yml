@@ -12,11 +12,11 @@
 #   windows -> build/windows/x64/runner/Release/
 #   linux   -> build/linux/<arch>/release/bundle/
 #
-# Only the macOS release build is proven green in CI today. The Windows native
-# DNG-decoder build has never been driven end to end by build_apps.py, and the
-# Linux path is likewise unproven here, so those two jobs carry
-# `continue-on-error: true`: an unproven platform must not fail the whole
-# release and block the macOS asset from publishing.
+# Every platform job here is a REAL gate. `continue-on-error: true` was briefly
+# present on the Windows and Linux jobs and was removed on 2026-08-28 by explicit
+# user instruction: a job that cannot fail cannot tell you anything, and it had
+# concealed the fact that the Windows release build had never once been attempted.
+# If a platform breaks, this workflow goes red and we fix it — don't reinstate it.
 name: Release
 
 on:
@@ -74,7 +74,6 @@ jobs:
   windows:
     name: Release Windows (x64)
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,7 +107,6 @@ jobs:
   linux:
     name: Release Linux (x64)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
