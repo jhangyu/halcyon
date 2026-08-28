@@ -189,6 +189,26 @@ void main() {
       return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
     });
 
+    final targetPath = items[2].files.single.path; // IMG_0002
+
+    // Synchronise on the ACTUAL signal — the selected item's loader having
+    // been invoked — not on a fixed number of event-loop turns. Reaching the
+    // loader requires the controller to first `await` an async content probe
+    // (_ensurePayload -> PrefetchScheduler.classify -> PhotoSource.probeSource,
+    // real file I/O on a nonexistent /tmp path). A single `Future.delayed(
+    // Duration.zero)` covers that on a fast runner but loses the race on a
+    // loaded one (green on Linux CI, red on the macOS runner). Polling the
+    // real condition is deterministic regardless of scheduler speed.
+    Future<void> pumpUntil(bool Function() condition, {String? reason}) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!condition()) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('timed out waiting for: ${reason ?? 'condition'}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+    }
+
     // First preload pass selects IMG_0002; this starts (but does not
     // finish) its load and queues the rest of the window.
     final firstPass = controller.preloadImages(
@@ -196,9 +216,11 @@ void main() {
       selectedItemId: 'IMG_0002',
       notifyLoaded: () => firstNotify++,
     );
-    await Future<void>.delayed(Duration.zero);
+    await pumpUntil(
+      () => completers.containsKey(targetPath),
+      reason: "the selected item's loader to be invoked after the async probe",
+    );
 
-    final targetPath = items[2].files.single.path; // IMG_0002
     expect(completers.containsKey(targetPath), isTrue);
     expect(completers[targetPath]!.single.isCompleted, isFalse);
 
