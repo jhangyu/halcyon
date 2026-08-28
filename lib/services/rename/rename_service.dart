@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../../models/photo_item.dart';
 import '../library/photo_file_actions.dart';
+import '../platform/file_retry.dart';
 import '../../models/rename_rule.dart';
 
 /// One file to move. Both paths are absolute.
@@ -167,7 +168,7 @@ Future<RenameOutcome> applyRenames(
       }
       try {
         for (final move in plan.moves) {
-          await File(move.from).rename(move.to);
+          await retryOnSharingViolation(() => File(move.from).rename(move.to));
           sink.writeln(json.encode({'from': move.from, 'to': move.to}));
         }
         // The doc above promises the journal survives a crash mid-batch. An
@@ -228,14 +229,17 @@ Future<RenameOutcome> undoLastRename(Directory dir) async {
       continue;
     }
     try {
-      await File(to).rename(from);
+      await retryOnSharingViolation(() => File(to).rename(from));
       restored++;
     } catch (e) {
       failures.add('${p.basename(to)}: $e');
     }
   }
 
-  await log.delete();
+  // Also retried: the journal lives in the user's photo folder, so an indexer
+  // can hold it just like a photo, and an uncaught throw here would discard the
+  // whole undo outcome after the renames already landed.
+  await retryOnSharingViolation(() => log.delete());
   return RenameOutcome(
     renamedCount: restored,
     failures: failures,

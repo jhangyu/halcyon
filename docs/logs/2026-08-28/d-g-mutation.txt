@@ -1,0 +1,41 @@
+=== MUTATION: rethrow -> swallow (proves TC-338/339 are load-bearing) ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart
+00:00 +0: isSharingViolation matches errno 32 and 33, rejects other OS errors
+00:00 +1: retryOnSharingViolation returns the value without delay when the first attempt succeeds
+00:00 +2: retryOnSharingViolation retries and then SUCCEEDS once the locker releases the file
+00:00 +3: retryOnSharingViolation gives up and RETHROWS the original exception when the budget is spent
+00:00 +3 -1: retryOnSharingViolation gives up and RETHROWS the original exception when the budget is spent [E]
+  Expected: throws same instance as PathAccessException:<PathAccessException: Cannot rename file, path = 'C:\photos\IMG_0001.JPG' (OS Error: The process cannot access the file because it is being used by another process., errno = 32)>
+    Actual: <Instance of 'Future<Never>'>
+     Which: threw _TypeError:<type 'Null' is not a subtype of type 'Never' in type cast>
+            stack package:halcyon_flutter/services/platform/file_retry.dart 82:77  retryOnSharingViolation
+                  ===== asynchronous gap ===========================
+                  package:matcher                                                  expectLater
+                  package:flutter_test/src/widget_tester.dart 507:8                expectLater
+                  test/services/platform/file_retry_test.dart 80:13                main.<fn>.<fn>
+  
+  package:matcher                                    expectLater
+  package:flutter_test/src/widget_tester.dart 507:8  expectLater
+  test/services/platform/file_retry_test.dart 80:13  main.<fn>.<fn>
+  
+00:00 +3 -1: retryOnSharingViolation does NOT retry a non-sharing-violation failure
+00:00 +3 -2: retryOnSharingViolation does NOT retry a non-sharing-violation failure [E]
+  Expected: throws same instance as PathAccessException:<PathAccessException: OS Error: Permission denied, errno = 13, path = 'p'>
+    Actual: <Instance of 'Future<Never>'>
+     Which: threw _TypeError:<type 'Null' is not a subtype of type 'Never' in type cast>
+            stack package:halcyon_flutter/services/platform/file_retry.dart 82:77  retryOnSharingViolation
+                  ===== asynchronous gap ===========================
+                  package:matcher                                                  expectLater
+                  package:flutter_test/src/widget_tester.dart 507:8                expectLater
+                  test/services/platform/file_retry_test.dart 97:13                main.<fn>.<fn>
+  
+  package:matcher                                    expectLater
+  package:flutter_test/src/widget_tester.dart 507:8  expectLater
+  test/services/platform/file_retry_test.dart 97:13  main.<fn>.<fn>
+  
+00:00 +3 -2: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation does NOT retry a non-sharing-violation failure
+  /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation gives up and RETHROWS the original exception when the budget is spent
+MUTATED_RC=1

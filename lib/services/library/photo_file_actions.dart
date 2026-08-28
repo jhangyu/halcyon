@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../models/photo_item.dart';
+import '../platform/file_retry.dart';
 import '../platform/trash_service.dart';
 
 typedef TrashFile = Future<void> Function(File file);
@@ -44,7 +45,7 @@ class PhotoFileActions {
   final MoveFile _moveFile;
 
   static Future<void> _renameFile(File file, String newPath) async {
-    await file.rename(newPath);
+    await retryOnSharingViolation(() => file.rename(newPath));
   }
 
   Future<BatchFileOutcome> processStarred(
@@ -69,11 +70,11 @@ class PhotoFileActions {
         try {
           if (!overwriteExisting && await File(newPath).exists()) continue;
           if (move) {
-            await file.rename(newPath);
+            await retryOnSharingViolation(() => file.rename(newPath));
             await _deleteIfExists(destSidecarPath);
             await _deleteIfExists(srcSidecarPath);
           } else {
-            await file.copy(newPath);
+            await retryOnSharingViolation(() => file.copy(newPath));
             await _deleteIfExists(destSidecarPath);
           }
           processed++;
@@ -180,7 +181,7 @@ class PhotoFileActions {
   Future<void> _deleteIfExists(String path) async {
     final file = File(path);
     if (await file.exists()) {
-      await file.delete();
+      await retryOnSharingViolation(() => file.delete());
     }
   }
 }

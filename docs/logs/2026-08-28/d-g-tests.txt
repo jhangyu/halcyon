@@ -1,0 +1,37 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: isSharingViolation matches errno 32 and 33, rejects other OS errors
+00:00 +1: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation returns the value without delay when the first attempt succeeds
+00:00 +2: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation retries and then SUCCEEDS once the locker releases the file
+00:00 +3: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation gives up and RETHROWS the original exception when the budget is spent
+00:00 +4: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation does NOT retry a non-sharing-violation failure
+00:00 +5: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart
+00:00 +5: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed moves trashed files and sidecars through the trash service
+00:00 +6: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed keeps the source file when trash service fails
+00:00 +7: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed TC-207 deleteTrashed continues past a failing trash call
+00:00 +8: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items
+00:00 +9: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode moves starred items to the destination, removes the source, leaves unstarred untouched
+00:00 +10: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode processes every sibling file in a RAW+JPG group
+00:00 +11: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=false skips a starred file whose destination already exists, source is left alone
+00:00 +12: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=true replaces an existing destination file
+00:00 +13: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode discards a preexisting destination AppleDouble sidecar and keeps the source sidecar
+00:00 +14: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode discards the source AppleDouble sidecar instead of moving it
+00:00 +15: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred does nothing when the destination folder does not exist
+00:00 +16: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred TC-206 processStarred continues past a failing file
+00:00 +17: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed moves every sibling file and sidecar into .trash
+00:00 +18: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed suffixes collisions instead of overwriting
+00:00 +19: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed records per-file failures and keeps processing the rest
+00:00 +20: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: TC-212 sidecarPathFor prefixes the basename only
+00:00 +21: loading /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart
+00:00 +21: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-031 sibling RAW + JPG + sidecar all get the same new base
+00:00 +22: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-032 same-second items with {seq} number in original-name order
+00:00 +23: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-033 collision without {seq} falls back to -1/-2
+00:00 +24: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-034 a name already in the folder is never reused
+00:00 +25: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-035 an item already named correctly produces no moves
+00:00 +26: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-036 missing metadata still renames, using file mtime
+00:00 +27: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-037 renames every file and reports progress
+00:00 +28: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-038 undo restores every original name and drops the log
+00:00 +29: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-039 a missing source is a failure, not an aborted batch
+00:00 +30: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-040 cancel stops the batch and leaves a replayable log
+00:00 +31: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-211 a malformed journal line does not block the undo
+00:00 +32: All tests passed!
+TEST_RC=0
