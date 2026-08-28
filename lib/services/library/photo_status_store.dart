@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../models/photo_item.dart';
+import '../platform/file_retry.dart';
 
 class PhotoStatusSnapshot {
   const PhotoStatusSnapshot({this.lastViewedId});
@@ -69,10 +70,17 @@ class PhotoStatusStore {
   /// half-written `.halcyon_status.json` behind. The tmp file sits in the same
   /// directory as the target, which keeps the rename a same-volume metadata
   /// operation.
+  ///
+  /// The rename is retried on a Windows sharing violation (AD-038): this file
+  /// sits in the user's photo folder, so an indexer or AV scanner can hold it
+  /// open exactly like a photo, and the payload here is the user's star/trash
+  /// marks — loss they would notice and could not reconstruct. The retry
+  /// rethrows once its budget is spent, so a real failure still propagates to
+  /// the caller's error path.
   Future<void> _atomicWrite(File file, String contents) async {
     final tmp = File('${file.path}.tmp');
     await tmp.writeAsString(contents, flush: true);
-    await tmp.rename(file.path);
+    await retryOnSharingViolation(() => tmp.rename(file.path));
   }
 
   /// A locked SD card mounts read-only, so every status write throws and the
@@ -83,6 +91,11 @@ class PhotoStatusStore {
     final probe = File(p.join(dir.path, '.halcyon_write_probe'));
     try {
       await probe.create();
+      // Deliberately NOT wrapped in retryOnSharingViolation, unlike every other
+      // mutation in this file (AD-038). This is a probe, not a payload: it is
+      // already inside `catch (_) => false`, retrying would make a locked folder
+      // take ~300ms to answer a question asked on the folder-open path, and
+      // "not writable" is the right answer while something else holds the file.
       await probe.delete();
       return true;
     } catch (_) {

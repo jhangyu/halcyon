@@ -1,0 +1,83 @@
+=== D-G extension: photo_status_store.dart:75 ===
+Analyzing Halcyon...                                            
+No issues found! (ran in 1.4s)
+ANALYZE_RC=0
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-041 a custom rule survives a round trip
+00:00 +1: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-042 saveStatuses preserves _last_viewed_id and _rename_rule
+00:00 +2: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-043 applySavedStatuses does not treat _rename_rule as a stale key
+00:00 +3: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-044 remapKeys moves marks and the last-viewed id to new ids
+00:00 +4: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-208 a corrupt status file loads as empty instead of throwing
+Halcyon: unreadable .halcyon_status.json (FormatException: Unterminated string (at character 13)
+{"A": "starr
+            ^
+); ignoring it
+00:00 +5: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-209 corrupt JSON degrades on every read entry point
+00:00 +6: /Users/jhangyu/project/Halcyon/test/services/library/photo_status_store_test.dart: TC-210 concurrent saves do not lose each other's keys
+00:00 +7: loading /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart
+00:00 +7: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: isSharingViolation matches errno 32 and 33, rejects other OS errors
+00:00 +8: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation returns the value without delay when the first attempt succeeds
+00:00 +9: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation retries and then SUCCEEDS once the locker releases the file
+00:00 +10: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation gives up and RETHROWS the original exception when the budget is spent
+00:00 +11: /Users/jhangyu/project/Halcyon/test/services/platform/file_retry_test.dart: retryOnSharingViolation does NOT retry a non-sharing-violation failure
+00:00 +12: loading /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart
+00:00 +12: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed moves trashed files and sidecars through the trash service
+00:00 +13: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed keeps the source file when trash service fails
+00:00 +14: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.deleteTrashed TC-207 deleteTrashed continues past a failing trash call
+00:00 +15: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items
+00:00 +16: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode moves starred items to the destination, removes the source, leaves unstarred untouched
+00:00 +17: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode processes every sibling file in a RAW+JPG group
+00:00 +18: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=false skips a starred file whose destination already exists, source is left alone
+00:00 +19: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred overwriteExisting=true replaces an existing destination file
+00:00 +20: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred copy mode discards a preexisting destination AppleDouble sidecar and keeps the source sidecar
+00:00 +21: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred move mode discards the source AppleDouble sidecar instead of moving it
+00:00 +22: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred does nothing when the destination folder does not exist
+00:00 +23: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.processStarred TC-206 processStarred continues past a failing file
+00:00 +24: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed moves every sibling file and sidecar into .trash
+00:00 +25: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed suffixes collisions instead of overwriting
+00:00 +26: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: PhotoFileActions.recycleTrashed records per-file failures and keeps processing the rest
+00:00 +27: /Users/jhangyu/project/Halcyon/test/services/library/photo_file_actions_test.dart: TC-212 sidecarPathFor prefixes the basename only
+00:01 +28: loading /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart
+00:01 +28: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-031 sibling RAW + JPG + sidecar all get the same new base
+00:01 +29: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-032 same-second items with {seq} number in original-name order
+00:01 +30: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-033 collision without {seq} falls back to -1/-2
+00:01 +31: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-034 a name already in the folder is never reused
+00:01 +32: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-035 an item already named correctly produces no moves
+00:01 +33: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: TC-036 missing metadata still renames, using file mtime
+00:01 +34: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-037 renames every file and reports progress
+00:01 +35: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-038 undo restores every original name and drops the log
+00:01 +36: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-039 a missing source is a failure, not an aborted batch
+00:01 +37: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-040 cancel stops the batch and leaves a replayable log
+00:01 +38: /Users/jhangyu/project/Halcyon/test/services/rename/rename_service_test.dart: apply + undo TC-211 a malformed journal line does not block the undo
+00:01 +39: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart
+00:01 +39: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans supported files, ignores hidden files, and groups by photo id
+00:02 +40: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder warns on the status line when the folder is read-only
+00:02 +41: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder restores saved statuses and last viewed id from JSON
+00:02 +42: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans RW2 files into photo groups
+00:02 +43: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder groups CR2/NEF/ORF raw files with their JPG sibling
+00:02 +44: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking auto-advance moves to the next photo after applying a new status
+00:02 +45: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking uses semantic image request purposes for preview and sidebar thumbnail loading
+00:02 +46: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking toggling a status off does not auto-advance even when auto-advance is on
+00:02 +47: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking nextPhoto and previousPhoto move selection within bounds
+00:02 +48: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-222 currentItem returns null for a selection that is gone
+00:02 +49: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-223 currentItem does not throw on an empty item list
+00:02 +50: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-221 a failing copy surfaces a status message
+processStarred failure: IMG_0001.jpg: FileSystemException: Cannot copy file to '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_dest_j4xs9s/IMG_0001.jpg', path = '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_src_oujvdc/IMG_0001.jpg' (OS Error: Is a directory, errno = 21)
+00:02 +51: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-224 a scan failure surfaces a status message
+Error loading directory: FileSystemException: unreadable, path = ''
+00:02 +52: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-225 readMetadataFor chunks once and reports progress
+00:02 +53: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath loads the containing folder and selects the given file
+00:02 +54: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath ignores unsupported files instead of clearing the folder
+00:02 +55: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults on when a folder has same-name sibling groups
+00:02 +56: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults off when every photo has a single extension
+00:02 +57: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode toggles both ways and notifies listeners
+00:02 +58: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode recycle mode moves files to .trash instead of the system trash
+00:02 +59: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode direct mode still routes through the system trash
+00:02 +60: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.processStarred selection restore TC-248 keeps the selected photo, falling back to its index
+00:02 +61: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-049 renames files and moves the star to the new id
+00:02 +62: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-050 undo restores the original names and the star
+00:02 +63: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-051 a custom rule is saved; a preset clears it
+00:02 +64: All tests passed!
+TEST_RC=0
+=== remaining unwrapped mutations in lib/ ===
+lib/services/library/photo_status_store.dart:99:      await probe.delete();
