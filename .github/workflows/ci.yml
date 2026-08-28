@@ -42,6 +42,60 @@ jobs:
       - name: flutter test
         run: flutter test -j 1
 
+  analyze-test-windows:
+    name: Analyze & Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Halcyon
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jhangyu/ceyx
+          path: ceyx
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test -j 1
+
+  analyze-test-linux:
+    name: Analyze & Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Halcyon
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jhangyu/ceyx
+          path: ceyx
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test -j 1
+
   build:
     name: Build macOS (release)
     runs-on: macos-14
