@@ -1,0 +1,178 @@
+############ AC1: --check on macos exits 0, no network fetch ############
+==============================================================
+ Halcyon build_apps.py - native + Flutter, one entry point
+==============================================================
+    halcyon: /Users/jhangyu/project/Halcyon
+    decoder: /Users/jhangyu/project/ceyx
+    host:    macos/arm64  mode: release
+
+==> Target: macos (release)
+
+==> Phase 0: prerequisite checks (macos)
+    [ok]   flutter: /Users/jhangyu/project/flutter/bin/flutter
+    [ok]   decoder package: /Users/jhangyu/project/ceyx
+    [ok]   host macos/arm64 can build 'macos'
+
+==============================================================
+ DONE - no warnings.
+==============================================================
+RC=0
+
+############ AC5: URL / download / checksum-verify / place ############
+===== URL construction =====
+linux -> https://github.com/jhangyu/ceyx/releases/download/v0.1.1/libdng_decoder_native-linux-x86_64.so
+   dest: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/linux/Libraries/libdng_decoder_native.so
+windows -> https://github.com/jhangyu/ceyx/releases/download/v0.1.1/dng_decoder_native-windows-x86_64.dll
+   dest: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/windows/Libraries/dng_decoder_native.dll
+
+===== fetch + verify + place (linux, windows) =====
+
+==> Phase 1: fetch ceyx prebuilt (linux) from release v0.1.1
+    downloading libdng_decoder_native-linux-x86_64.so.part
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.1/libdng_decoder_native-linux-x86_64.so
+      0% (0 MiB / 21 MiB)
+      7% (1 MiB / 21 MiB)
+      14% (3 MiB / 21 MiB)
+      21% (4 MiB / 21 MiB)
+      28% (6 MiB / 21 MiB)
+      36% (7 MiB / 21 MiB)
+      43% (9 MiB / 21 MiB)
+      50% (10 MiB / 21 MiB)
+      57% (12 MiB / 21 MiB)
+      64% (14 MiB / 21 MiB)
+      72% (15 MiB / 21 MiB)
+      79% (17 MiB / 21 MiB)
+      86% (18 MiB / 21 MiB)
+      93% (20 MiB / 21 MiB)
+      100% (21 MiB / 21 MiB)
+    [ok]   downloaded and sha256-verified: /Users/jhangyu/project/Halcyon/build/ceyx-release-cache/v0.1.1/libdng_decoder_native-linux-x86_64.so
+    asset:  libdng_decoder_native-linux-x86_64.so
+    sha256: ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a  (pinned, verified)
+    [ok]   placed: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/linux/Libraries/libdng_decoder_native.so
+PLACED_EXISTS linux True /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/linux/Libraries/libdng_decoder_native.so
+
+==> Phase 1: fetch ceyx prebuilt (windows) from release v0.1.1
+    downloading dng_decoder_native-windows-x86_64.dll.part
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.1/dng_decoder_native-windows-x86_64.dll
+      0% (0 MiB / 4 MiB)
+      32% (1 MiB / 4 MiB)
+      65% (3 MiB / 4 MiB)
+      98% (4 MiB / 4 MiB)
+      100% (4 MiB / 4 MiB)
+    [ok]   downloaded and sha256-verified: /Users/jhangyu/project/Halcyon/build/ceyx-release-cache/v0.1.1/dng_decoder_native-windows-x86_64.dll
+    asset:  dng_decoder_native-windows-x86_64.dll
+    sha256: e7700edb88bc6281daae93706ab179c5cab269bac97880f02cf3313dfa553f55  (pinned, verified)
+    [ok]   placed: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/windows/Libraries/dng_decoder_native.dll
+PLACED_EXISTS windows True /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/windows/Libraries/dng_decoder_native.dll
+
+===== ceyx_fetch_is_due precedence =====
+linux auto due (present) -> False
+linux auto due (absent)  -> True
+linux native=always due  -> False
+RC=0
+
+############ AC3: checksum mismatch fails loudly (corrupt -> capture -> restore) ############
+corrupted linux expected sha256 -> all zeros
+ERROR in Phase 1: fetch ceyx prebuilt (linux) from release v0.1.1: ceyx asset libdng_decoder_native-linux-x86_64.so sha256 MISMATCH - refusing to use it.
+       -> expected: 0000000000000000000000000000000000000000000000000000000000000000
+       -> observed: ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a
+       -> quarantined at: /Users/jhangyu/project/Halcyon/build/ceyx-release-cache/v0.1.1/libdng_decoder_native-linux-x86_64.so.part.REJECTED
+       -> The pinned release v0.1.1 was re-uploaded, or the download is corrupt. Delete the quarantined file and re-run; if it mismatches again the asset changed upstream and the pin in ceyx_release_pin.json must be re-derived deliberately (--ceyx-release latest).
+
+===== URL construction =====
+linux -> https://github.com/jhangyu/ceyx/releases/download/v0.1.1/libdng_decoder_native-linux-x86_64.so
+   dest: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/linux/Libraries/libdng_decoder_native.so
+windows -> https://github.com/jhangyu/ceyx/releases/download/v0.1.1/dng_decoder_native-windows-x86_64.dll
+   dest: /Users/jhangyu/project/Halcyon/scripts/tmp/fake_ceyx/plugin/windows/Libraries/dng_decoder_native.dll
+
+===== fetch + verify + place (linux, windows) =====
+
+==> Phase 1: fetch ceyx prebuilt (linux) from release v0.1.1
+    [warn] cached libdng_decoder_native-linux-x86_64.so sha256 mismatch - re-downloading (was ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a).
+    downloading libdng_decoder_native-linux-x86_64.so.part
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.1/libdng_decoder_native-linux-x86_64.so
+      0% (0 MiB / 21 MiB)
+      7% (1 MiB / 21 MiB)
+      14% (3 MiB / 21 MiB)
+      21% (4 MiB / 21 MiB)
+      28% (6 MiB / 21 MiB)
+      36% (7 MiB / 21 MiB)
+      43% (9 MiB / 21 MiB)
+      50% (10 MiB / 21 MiB)
+      57% (12 MiB / 21 MiB)
+      64% (14 MiB / 21 MiB)
+      72% (15 MiB / 21 MiB)
+      79% (17 MiB / 21 MiB)
+      86% (18 MiB / 21 MiB)
+      93% (20 MiB / 21 MiB)
+      100% (21 MiB / 21 MiB)
+
+MISMATCH_RC=1
+
+############ AC4: --ceyx-release latest resolves via API, writes pin back, no build ############
+==============================================================
+ Halcyon build_apps.py - native + Flutter, one entry point
+==============================================================
+    halcyon: /Users/jhangyu/project/Halcyon
+    decoder: /Users/jhangyu/project/ceyx
+    host:    macos/arm64  mode: release
+
+==> ceyx pin update: resolving the latest release
+    [ok]   latest release: v0.1.1
+    downloading libdng_decoder_native-linux-x86_64.so
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.1/libdng_decoder_native-linux-x86_64.so
+      0% (0 MiB / 21 MiB)
+      7% (1 MiB / 21 MiB)
+      14% (3 MiB / 21 MiB)
+      21% (4 MiB / 21 MiB)
+      28% (6 MiB / 21 MiB)
+      36% (7 MiB / 21 MiB)
+      43% (9 MiB / 21 MiB)
+      50% (10 MiB / 21 MiB)
+      57% (12 MiB / 21 MiB)
+      64% (14 MiB / 21 MiB)
+      72% (15 MiB / 21 MiB)
+      79% (17 MiB / 21 MiB)
+      86% (18 MiB / 21 MiB)
+      93% (20 MiB / 21 MiB)
+      100% (21 MiB / 21 MiB)
+    [ok]   linux: libdng_decoder_native-linux-x86_64.so  sha256 ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a
+    downloading dng_decoder_native-windows-x86_64.dll
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.1/dng_decoder_native-windows-x86_64.dll
+      0% (0 MiB / 4 MiB)
+      32% (1 MiB / 4 MiB)
+      65% (3 MiB / 4 MiB)
+      98% (4 MiB / 4 MiB)
+      100% (4 MiB / 4 MiB)
+    [ok]   windows: dng_decoder_native-windows-x86_64.dll  sha256 e7700edb88bc6281daae93706ab179c5cab269bac97880f02cf3313dfa553f55
+
+    [ok]   rewrote /Users/jhangyu/project/Halcyon/scripts/ceyx_release_pin.json
+    REVIEW the diff and COMMIT it to update the pin. No build was run:
+    --ceyx-release latest only rewrites the pin; a normal pinned build then
+    consumes the reviewed version.
+
+==============================================================
+ DONE - ceyx pin rewritten; review and commit it. No build ran.
+==============================================================
+RC=0
+----- rewritten pin file (assets section) -----
+tag v0.1.1
+{
+  "linux": {
+    "asset": "libdng_decoder_native-linux-x86_64.so",
+    "sha256": "ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a"
+  },
+  "windows": {
+    "asset": "dng_decoder_native-windows-x86_64.dll",
+    "sha256": "e7700edb88bc6281daae93706ab179c5cab269bac97880f02cf3313dfa553f55"
+  }
+}
+
+############ cache-hit on re-run (no re-download) ############
+    [ok]   cache hit: /Users/jhangyu/project/Halcyon/build/ceyx-release-cache/v0.1.1/libdng_decoder_native-linux-x86_64.so (sha256 verified)
+    [ok]   cache hit: /Users/jhangyu/project/Halcyon/build/ceyx-release-cache/v0.1.1/dng_decoder_native-windows-x86_64.dll (sha256 verified)
+
+############ AC6: flutter analyze ############
+Analyzing Halcyon...                                            
+No issues found! (ran in 1.3s)
+ANALYZE_RC=0

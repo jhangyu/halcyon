@@ -169,6 +169,7 @@ import sys
 import tarfile
 import tempfile
 import typing
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -314,6 +315,46 @@ HEIF_RUNTIME_LIBS = {
     "linux": ["libheif.so.1", "libde265.so.0"],
 }
 HEIF_VERIFIED_TARGETS = ("macos",)
+
+# --------------------------------------------------------------------------
+# ceyx prebuilt-library fetch (Linux/Windows) from a PINNED GitHub Release
+# --------------------------------------------------------------------------
+# Historically each platform's native library was committed into the ceyx repo.
+# That broke down: ceyx main now DECLARES linux ffiPlugin but ships only a
+# .gitkeep, so `flutter build linux` fails on the missing .so; and the committed
+# Windows .dll is a stale hand-built binary, not the one ceyx CI now produces.
+# ceyx publishes proper GitHub Releases, so build_apps.py can obtain the correct
+# library for a target from a release and place it where the plugin's packaging
+# CMake expects it.
+#
+# Only Linux and Windows are fetched. macOS is DELIBERATELY excluded: its plugin
+# vendors six interdependent dylibs (ceyx.podspec vendored_libraries) with
+# install-name/codesign wiring that the single-decoder release asset cannot
+# satisfy, so macOS keeps its committed libraries. Android is out of scope.
+CEYX_REPO = "jhangyu/ceyx"
+
+# The pin (tag + per-asset sha256) lives in a committed JSON file, NOT a Python
+# constant, precisely so `--ceyx-release latest` can rewrite it as a small,
+# reviewable, revertible diff without editing this script's source.
+CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
+
+# The release asset filename per platform (which differs from the on-disk
+# filename the plugin expects), and where the library must land inside the ceyx
+# checkout. dest/artifact mirror plugin/<os>/CMakeLists.txt's bundled-library
+# path. The asset<->destination filename mismatch is why an explicit mapping
+# exists here rather than being derived from either name.
+CEYX_FETCH_SPECS = {
+    "linux": {
+        "asset": "libdng_decoder_native-linux-x86_64.so",
+        "dest": Path("plugin") / "linux" / "Libraries",
+        "artifact": "libdng_decoder_native.so",
+    },
+    "windows": {
+        "asset": "dng_decoder_native-windows-x86_64.dll",
+        "dest": Path("plugin") / "windows" / "Libraries",
+        "artifact": "dng_decoder_native.dll",
+    },
+}
 
 WARNING_COUNT = 0
 CURRENT_PHASE = "startup"
@@ -1194,6 +1235,237 @@ def ensure_halide(native_dir, expected_sha256=None):
 
 
 # --------------------------------------------------------------------------
+# ceyx prebuilt fetch from a pinned release
+# --------------------------------------------------------------------------
+def fetch_target_for(target):
+    """Which CEYX_FETCH_SPECS entry a Flutter target consumes (None if none)."""
+    if target == "linux":
+        return "linux"
+    if target == "windows":
+        return "windows"
+    return None
+
+
+def load_ceyx_pin():
+    """The committed pin: {tag, assets:{plat:{asset, sha256}}}. Fails loudly if
+    the file is missing or malformed - a build must never fall back to an
+    unpinned fetch by accident."""
+    if not CEYX_PIN_PATH.exists():
+        fail(
+            f"the ceyx release pin {CEYX_PIN_PATH} is missing.",
+            hints=["This file records the pinned tag and per-asset sha256.",
+                   "Restore it from version control, or regenerate it with "
+                   "`python3 scripts/build_apps.py --ceyx-release latest`."],
+        )
+    try:
+        data = json.loads(CEYX_PIN_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        fail(f"could not parse the ceyx release pin {CEYX_PIN_PATH}: {e}")
+    tag = data.get("tag")
+    assets = data.get("assets")
+    if not tag or not isinstance(assets, dict):
+        fail(f"{CEYX_PIN_PATH} is missing a 'tag' or 'assets' section.")
+    return tag, assets
+
+
+def ceyx_asset_url(tag, asset):
+    # A public repo's release assets download without a token and WITHOUT
+    # touching the rate-limited GitHub API - the anonymous 60 req/hr/IP limit is
+    # shared across CI runners, so a pinned build must never depend on it.
+    return f"https://github.com/{CEYX_REPO}/releases/download/{tag}/{asset}"
+
+
+def ceyx_cache_dir(layout, tag):
+    # Cached under the gitignored build/ tree, keyed by tag so a new pin never
+    # collides with an old download. Invalidation is by content: every use
+    # re-checks the sha256, so a stale or truncated cache entry is re-downloaded
+    # rather than trusted.
+    return layout.halcyon / "build" / "ceyx-release-cache" / tag
+
+
+def fetch_ceyx_asset(tag, asset, expected_sha256, layout):
+    """Return a path to the verified asset bytes, downloading (and caching) as
+    needed. A sha256 mismatch fails the build loudly with expected vs actual."""
+    cache_dir = ceyx_cache_dir(layout, tag)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / asset
+
+    if cached.exists():
+        observed = sha256_of(cached)
+        if observed.lower() == expected_sha256.lower():
+            ok(f"cache hit: {cached} (sha256 verified)")
+            return cached
+        warn(f"cached {asset} sha256 mismatch - re-downloading (was {observed}).")
+
+    url = ceyx_asset_url(tag, asset)
+    tmp = cache_dir / (asset + ".part")
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(60)
+    try:
+        download_with_progress(url, str(tmp))
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+
+    observed = sha256_of(tmp)
+    if observed.lower() != expected_sha256.lower():
+        quarantine = tmp.with_suffix(tmp.suffix + ".REJECTED")
+        try:
+            tmp.rename(quarantine)
+        except OSError:
+            quarantine = tmp
+        fail(
+            f"ceyx asset {asset} sha256 MISMATCH - refusing to use it.",
+            hints=[
+                f"expected: {expected_sha256}",
+                f"observed: {observed}",
+                f"quarantined at: {quarantine}",
+                f"The pinned release {tag} was re-uploaded, or the download is "
+                "corrupt. Delete the quarantined file and re-run; if it "
+                "mismatches again the asset changed upstream and the pin in "
+                f"{CEYX_PIN_PATH.name} must be re-derived deliberately "
+                "(--ceyx-release latest).",
+            ],
+        )
+    tmp.replace(cached)
+    ok(f"downloaded and sha256-verified: {cached}")
+    return cached
+
+
+def ceyx_fetch_is_due(ft, layout, args):
+    """Whether to obtain the prebuilt library for fetch-target `ft` from the
+    release. Precedence, documented so it is not emergent:
+      * --fetch-native  -> always fetch and OVERWRITE (explicit force).
+      * auto (default)  -> fetch only when the destination library is ABSENT.
+                           An already-committed library wins, for reproducibility
+                           (you build exactly what is committed); pass
+                           --fetch-native to replace it with the pinned release.
+    The runbook S4 colour gate is NOT consulted here: it gates LOCALLY COMPILED
+    libraries, and a fetched prebuilt is not compiled on this host. Its integrity
+    control is the pinned per-asset sha256 instead - the same trust model as the
+    committed libraries it replaces."""
+    if args.fetch_native:
+        return True
+    if args.native == "always":
+        # An explicit local-compile request wins over auto-fetch; --fetch-native
+        # (handled above) is the way to force the download instead.
+        return False
+    spec = CEYX_FETCH_SPECS[ft]
+    dest = layout.decoder / spec["dest"] / spec["artifact"]
+    return not dest.exists()
+
+
+def fetch_ceyx_library(ft, layout):
+    """Download the pinned release asset for `ft` and place it at the plugin's
+    expected path. Returns the placed Path."""
+    spec = CEYX_FETCH_SPECS[ft]
+    tag, assets = load_ceyx_pin()
+    if ft not in assets:
+        fail(f"{CEYX_PIN_PATH.name} has no '{ft}' asset entry - cannot fetch.")
+    entry = assets[ft]
+    asset = entry.get("asset") or spec["asset"]
+    sha256 = entry.get("sha256")
+    if not sha256:
+        fail(f"{CEYX_PIN_PATH.name} '{ft}' entry has no sha256 - refusing an "
+             "unpinned fetch.")
+
+    phase(f"Phase 1: fetch ceyx prebuilt ({ft}) from release {tag}")
+    dest_dir = layout.decoder / spec["dest"]
+    if not dest_dir.parent.exists():
+        fail(
+            f"{dest_dir.parent} does not exist - this ceyx checkout has no "
+            f"{spec['dest'].parts[1]} plugin folder, so the fetched library "
+            "would be placed where nothing reads it.",
+        )
+    verified = fetch_ceyx_asset(tag, asset, sha256, layout)
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    placed = dest_dir / spec["artifact"]
+    shutil.copy2(verified, placed)
+    if not placed.exists():
+        fail(f"copy to {dest_dir} did not produce {spec['artifact']}")
+    step(f"asset:  {asset}")
+    step(f"sha256: {sha256}  (pinned, verified)")
+    ok(f"placed: {placed}")
+    return placed
+
+
+def resolve_latest_ceyx_release():
+    """Resolve the newest ceyx release via the GitHub API. Only reached on the
+    explicit --ceyx-release latest opt-in, never on a pinned build."""
+    url = f"https://api.github.com/repos/{CEYX_REPO}/releases/latest"
+    req = urllib.request.Request(
+        url, headers={"Accept": "application/vnd.github+json",
+                      "User-Agent": "halcyon-build_apps"})
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(60)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        fail(
+            f"GitHub API returned HTTP {e.code} resolving the latest ceyx release.",
+            hints=["403 usually means the anonymous 60 req/hr/IP rate limit was "
+                   "hit - wait and retry, or set up an authenticated request.",
+                   "This is why NORMAL builds are pinned and never call the API."],
+        )
+    except (urllib.error.URLError, OSError) as e:
+        fail(f"could not reach the GitHub API: {e}",
+             hints=["Check network connectivity; --ceyx-release latest needs it."])
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+    tag = data.get("tag_name")
+    if not tag:
+        fail("the GitHub API response has no tag_name for the latest release.")
+    return tag
+
+
+def update_ceyx_pin_latest(layout):
+    """--ceyx-release latest: resolve the newest release, download each fetched
+    platform's asset, record its real sha256 in the pin file, and STOP. It never
+    builds against the unpinned version - the maintainer reviews and commits the
+    rewritten pin, then a normal (pinned) build consumes it."""
+    phase("ceyx pin update: resolving the latest release")
+    tag = resolve_latest_ceyx_release()
+    ok(f"latest release: {tag}")
+
+    new_assets = {}
+    for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
+        asset = spec["asset"]
+        url = ceyx_asset_url(tag, asset)
+        cache_dir = ceyx_cache_dir(layout, tag)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        dest = cache_dir / asset
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(60)
+        try:
+            download_with_progress(url, str(dest))
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+        digest = sha256_of(dest)
+        ok(f"{ft}: {asset}  sha256 {digest}")
+        new_assets[ft] = {"asset": asset, "sha256": digest}
+
+    # Preserve the file's comment block; only tag + assets are machine-managed.
+    try:
+        existing = json.loads(CEYX_PIN_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        existing = {}
+    comment = existing.get("_comment")
+    out = {}
+    if comment is not None:
+        out["_comment"] = comment
+    out["tag"] = tag
+    out["assets"] = new_assets
+    CEYX_PIN_PATH.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+
+    print()
+    ok(f"rewrote {CEYX_PIN_PATH}")
+    step("REVIEW the diff and COMMIT it to update the pin. No build was run:")
+    step("--ceyx-release latest only rewrites the pin; a normal pinned build then")
+    step("consumes the reviewed version.")
+
+
+# --------------------------------------------------------------------------
 # Phase 1: native build
 # --------------------------------------------------------------------------
 def native_target_for(target):
@@ -1658,6 +1930,24 @@ def build_target(target, layout, mode, args):
     if args.check:
         return
 
+    # Fetch a prebuilt from the pinned ceyx release (Linux/Windows). This runs
+    # only after --check has already returned, so a preflight never hits the
+    # network. It also precedes the local native build below, so a fetched
+    # library is what a subsequent Flutter build consumes.
+    ft = fetch_target_for(target)
+    if ft is not None:
+        if args.native == "always" and args.fetch_native:
+            fail(
+                "--native always (local compile) and --fetch-native (download the "
+                "pinned prebuilt) both request the same library - pick one.",
+                hints=["--fetch-native downloads the pinned release binary;",
+                       "--native always compiles it locally from the ceyx sources."],
+            )
+        if ceyx_fetch_is_due(ft, layout, args):
+            fetch_ceyx_library(ft, layout)
+            # A fetch just satisfied the destination, so no local build is due.
+            native_due = False
+
     placed_native = None
     if native_due:
         placed_native = build_native(target, layout, args)
@@ -1755,6 +2045,19 @@ def make_parser():
                         "corroborated hash: the built-in values are trust-on-first-use (read "
                         "once from the same server that serves the asset), so they catch a "
                         "future substitution but not one that predates 2026-08-22.")
+    p.add_argument("--fetch-native", action="store_true",
+                   help="Obtain the target's native library from the PINNED ceyx "
+                        "GitHub Release and place it, OVERWRITING any committed "
+                        "copy (Linux/Windows only). Without this flag a fetch "
+                        "still happens automatically when the destination library "
+                        "is absent - which is how a Linux build gets its .so.")
+    p.add_argument("--ceyx-release", choices=["pinned", "latest"], default="pinned",
+                   help="Which ceyx release to use. 'pinned' (default) reads the "
+                        "committed scripts/ceyx_release_pin.json and downloads by "
+                        "tag without touching the rate-limited GitHub API. 'latest' "
+                        "resolves the newest release via the API, records its real "
+                        "per-asset sha256 back into the pin file for review, and "
+                        "exits WITHOUT building - it never builds unpinned.")
     p.add_argument("--clean", action="store_true",
                    help="Delete this target's build output before building (needed after a CMake "
                         "target rename - a cached target name cannot be updated in place).")
@@ -1824,6 +2127,16 @@ def main():
     step(f"halcyon: {layout.halcyon}")
     step(f"decoder: {layout.decoder}")
     step(f"host:    {host_os()}/{host_arch()}  mode: {mode}")
+
+    if args.ceyx_release == "latest":
+        # Opt-in pin update: rewrite the pin from the newest release and STOP.
+        # Never builds against an unpinned version (task decision).
+        update_ceyx_pin_latest(layout)
+        print()
+        print("=" * 62)
+        print(" DONE - ceyx pin rewritten; review and commit it. No build ran.")
+        print("=" * 62)
+        return
 
     aborted = False
     try:

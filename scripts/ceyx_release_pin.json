@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "PINNED ceyx native-decoder release consumed by scripts/build_apps.py.",
+    "The tag fixes WHICH GitHub release the Linux/Windows prebuilt libraries come",
+    "from; the per-asset sha256 fixes WHICH BYTES, because a tag can be moved and",
+    "an asset re-uploaded. build_apps.py downloads the asset directly by tag (no",
+    "GitHub API call, so anonymous rate limits cannot fail a pinned build) and",
+    "refuses to place a library whose sha256 does not match.",
+    "",
+    "This file is edited by hand OR, deliberately, by",
+    "`python3 scripts/build_apps.py --ceyx-release latest`, which resolves the",
+    "newest release, downloads its assets, records their real digests here, and",
+    "STOPS without building. The maintainer then reviews this diff and commits it.",
+    "An upstream release therefore cannot alter Halcyon's decoder without a",
+    "visible, reviewable change to this file.",
+    "",
+    "sha256 provenance: computed on 2026-08-28 by downloading each asset from",
+    "https://github.com/jhangyu/ceyx/releases/download/v0.1.1/<asset> and running",
+    "`shasum -a 256`. Trust-on-first-use (same authority that serves the bytes):",
+    "catches any FUTURE substitution, not one predating this date.",
+    "",
+    "macOS is intentionally ABSENT: its plugin vendors six interdependent dylibs",
+    "(decoder + lcms2 + jpeg + heif + de265 + omp) with install-name/codesign",
+    "wiring the single-decoder release asset cannot satisfy. macOS keeps its",
+    "committed libraries. Android is out of scope for this pin."
+  ],
+  "tag": "v0.1.1",
+  "assets": {
+    "linux": {
+      "asset": "libdng_decoder_native-linux-x86_64.so",
+      "sha256": "ab01feade71476139b6fc5bc939dc1b0e06d29a6a052d5f91871171164bcb16a"
+    },
+    "windows": {
+      "asset": "dng_decoder_native-windows-x86_64.dll",
+      "sha256": "e7700edb88bc6281daae93706ab179c5cab269bac97880f02cf3313dfa553f55"
+    }
+  }
+}
