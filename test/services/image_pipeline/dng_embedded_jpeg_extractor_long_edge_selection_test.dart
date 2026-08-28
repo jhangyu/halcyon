@@ -427,6 +427,7 @@ void main() {
             '(got $totalOnDiskRead)',
       );
     },
+    skip: samplePhotosSkipReason,
   );
 }
 

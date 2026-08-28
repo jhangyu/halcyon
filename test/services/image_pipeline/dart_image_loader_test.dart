@@ -503,7 +503,7 @@ void main() {
         greaterThan(0),
         reason: 'sample set must exercise the valid-miss path',
       );
-    });
+    }, skip: samplePhotosSkipReason);
 
     // ACCEPTANCE #3. The override moved the malformed case; it must not have
     // moved this one. A container that declares NO preview at all still routes
@@ -538,7 +538,7 @@ void main() {
         greaterThan(0),
         reason: 'sample set must exercise the no-preview-declared path',
       );
-    });
+    }, skip: samplePhotosSkipReason);
 
     test('the G-2 undersized rejection is NOT malformed — an intact but small '
         'candidate keeps routing to RAW decode', () async {
