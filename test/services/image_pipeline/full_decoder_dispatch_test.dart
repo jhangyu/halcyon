@@ -187,7 +187,7 @@ void main() {
       await expectLater(
         decodeTiffSized(path, maxDim: 200, decodeBytes: spy),
         throwsA(
-          isA<StateError>().having(
+          isA<ImageTooLargeException>().having(
             (e) => e.message,
             'message',
             contains('IMAGE_TOO_LARGE'),
