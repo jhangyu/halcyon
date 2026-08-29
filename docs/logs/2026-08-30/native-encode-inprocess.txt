@@ -1,0 +1,49 @@
+Resolving dependencies...
+Downloading packages...
+  archive 4.0.9 (4.2.0 available)
+  async 2.13.0 (2.13.1 available)
+  cli_util 0.4.2 (0.6.0 available)
+  cross_file 0.3.5+2 (0.3.5+5 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  desktop_drop 0.8.0 (0.8.2 available)
+  file_selector_android 0.5.2+4 (0.5.2+9 available)
+  file_selector_ios 0.5.3+4 (0.5.3+5 available)
+  file_selector_web 0.9.4+2 (0.9.5 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  json_annotation 4.11.0 (4.12.0 available)
+  lints 5.1.1 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.22 (2.3.1 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  posix 6.0.3 (6.5.2 available)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.28 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 15.0.2 (15.3.0 available)
+Got dependencies!
+27 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/jhangyu/project/Halcyon/scripts/tmp/reencode_bench.dart
+00:00 +0: Phase 13 re-encode benchmark (q80/q90 encode + q80 tier-1 decode)
+Shell: [DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+Shell: [Pipeline] GPU backend: metal (available=yes)
+Shell: [DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+Shell: [DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+Shell: [DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+native_encode|q80|bytes=1986685|ms=89
+raw_native_q80_ms=[89, 124, 76]
+ppmdump|path=scripts/tmp/reencode_fixture.ppm|bytes=37405457
+dims|width=4080|height=3056
+encode|q80|bytes=3219940|ms=2923
+encode|q90|bytes=5415389|ms=3842
+tier1decode|ms=226
+raw_q80_ms=[2695, 3006, 2923] raw_q90_ms=[3842, 3854, 2412] raw_tier1_ms=[122, 260, 226]
+00:20 +1: All tests passed!
+RC=0
