@@ -14,6 +14,7 @@ import '../services/image_pipeline/full_decoder_dispatch.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
+import '../services/image_pipeline/photo_payload.dart';
 import '../services/image_pipeline/retention_policy.dart';
 import '../services/library/photo_file_actions.dart';
 import '../services/library/photo_library_scanner.dart';
@@ -230,8 +231,8 @@ class AppState extends ChangeNotifier {
   /// unsupported). The view shows an error instead of a spinner.
   bool get currentItemFailed => _preloadController.hasFailed(_selectedItemID);
 
-  Uint8List? getThumbnailBytes(String id) =>
-      _preloadController.thumbnailBytesFor(id);
+  SourcePayload? thumbnailPayloadFor(String id) =>
+      _preloadController.thumbnailPayloadFor(id);
 
   /// True once the current item's full-size (tier-2) decode has landed in
   /// ImageCache; the view uses this to switch providers seamlessly instead

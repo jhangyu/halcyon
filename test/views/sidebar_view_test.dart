@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +11,8 @@ import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
+import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 import 'package:halcyon_flutter/views/sidebar_view.dart';
 import 'package:path/path.dart' as p;
@@ -272,7 +273,7 @@ void main() {
 
       expect(loaderCalls, greaterThan(0));
       final anyBytes = state.items.any(
-        (i) => state.getThumbnailBytes(i.id) != null,
+        (i) => state.thumbnailPayloadFor(i.id) != null,
       );
       expect(
         anyBytes,
@@ -341,17 +342,13 @@ void main() {
       expect(decoderCalls, 1);
       expect(capturedMaxDim, 200);
       final id = state.items.single.id;
-      final bytes = state.getThumbnailBytes(id);
-      expect(bytes, isNotNull);
-      // Decodable: a garbage buffer would fail this round-trip.
-      await tester.runAsync(() async {
-        final codec = await ui.instantiateImageCodec(bytes!);
-        final frame = await codec.getNextFrame();
-        // readOrientation on this non-DNG fixture file returns null ->
-        // kDefaultExifOrientation (1, identity) -> no dim swap.
-        expect(frame.image.width, 4);
-        expect(frame.image.height, 2);
-      });
+      final payload = state.thumbnailPayloadFor(id);
+      expect(payload, isA<PixelPayload>());
+      final pixels = payload! as PixelPayload;
+      // readOrientation on this non-DNG fixture file returns null ->
+      // kDefaultExifOrientation (1, identity) -> no dim swap.
+      expect(pixels.width, 4);
+      expect(pixels.height, 2);
     },
   );
 
@@ -382,7 +379,7 @@ void main() {
 
       expect(decoderCalls, 1);
       final id = state.items.single.id;
-      expect(state.getThumbnailBytes(id), isNull);
+      expect(state.thumbnailPayloadFor(id), isNull);
     },
   );
 
@@ -409,7 +406,81 @@ void main() {
 
       expect(decoderCalls, 0);
       final id = state.items.single.id;
-      expect(state.getThumbnailBytes(id), isNull);
+      expect(state.thumbnailPayloadFor(id), isNull);
+    },
+  );
+
+  Future<void> pumpSidebarWithEncodedThumbnail(WidgetTester tester) async {
+    final dir = await tempDirWith(tester, 'd.jpg');
+    final state = AppState(
+      imageLoader: (path, {required purpose}) async {
+        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+      },
+    );
+    await tester.runAsync(() async {
+      await state.loadFolder(dir);
+      await state.preloadThumbnails(0, state.items.length - 1);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await pumpSidebar(tester, state);
+  }
+
+  Future<void> pumpSidebarWithPixelThumbnail(WidgetTester tester) async {
+    final dir = await tempDirWith(tester, 'e.dng');
+    final controller = ImagePreloadController(
+      imageLoader: alwaysFailLoader,
+      sidebarRawDecoder: (path, {required int maxDim}) async =>
+          fourByTwoFixture(),
+    );
+    final state = AppState(preloadController: controller);
+    await tester.runAsync(() async {
+      await state.loadFolder(dir);
+      await state.preloadThumbnails(0, state.items.length - 1);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await pumpSidebar(tester, state);
+  }
+
+  Future<void> pumpSidebarWithAllDecodersThrowing(WidgetTester tester) async {
+    final dir = await tempDirWith(tester, 'f.dng');
+    final controller = ImagePreloadController(
+      imageLoader: alwaysFailLoader,
+      sidebarRawDecoder: (path, {required int maxDim}) async {
+        throw StateError('simulated decode failure');
+      },
+    );
+    final state = AppState(preloadController: controller);
+    await tester.runAsync(() async {
+      await state.loadFolder(dir);
+      await state.preloadThumbnails(0, state.items.length - 1);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await pumpSidebar(tester, state);
+  }
+
+  testWidgets(
+    'TC-376 the JPG / embedded-preview arm still renders through '
+    'ResizeImage + MemoryImage (scope-limit regression guard)',
+    (tester) async {
+      await pumpSidebarWithEncodedThumbnail(tester);
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(image.image, isA<ResizeImage>());
+      expect((image.image as ResizeImage).imageProvider, isA<MemoryImage>());
+    },
+  );
+
+  testWidgets(
+    'TC-377 a decoded preview-less RAW renders an Image; a fully failed one '
+    'renders exactly the existing grey box and nothing new',
+    (tester) async {
+      await pumpSidebarWithPixelThumbnail(tester);
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(image.image, isA<RawPixelsImage>());
+      expect(image.gaplessPlayback, isTrue);
+
+      await pumpSidebarWithAllDecodersThrowing(tester);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byType(Container), findsWidgets); // today's grey box
     },
   );
 

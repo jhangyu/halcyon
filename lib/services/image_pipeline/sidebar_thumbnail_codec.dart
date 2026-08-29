@@ -5,9 +5,6 @@ import 'dart:ui' as ui;
 
 import 'package:image/image.dart' as img;
 
-import 'decoded_rgba_image_provider.dart';
-import 'dng_decode_contract.dart';
-
 /// Bounds what the sidebar byte cache stores (M6 F-10 half 2).
 ///
 /// The native 200px branch used to re-encode; the Dart producer returns
@@ -61,31 +58,6 @@ Future<Uint8List> sidebarCacheBytes(
     // Undecodable input: cache the original rather than dropping the row.
     return encoded;
   }
-}
-
-/// Turns a freshly-decoded RAW frame into sidebar-cache-ready JPEG bytes (M6
-/// P2.5b, the sidebar RAW-decode fallback for bare-CFA DNGs with no embedded
-/// JPEG at any size). Reuses [decodedRgbaToPixelPayload] for the
-/// orientation-bake + downscale (already exercised by the detail-view
-/// pipeline; not reimplemented here), then encodes the resulting pixels as
-/// JPEG at [jpegQuality] -- see [sidebarCacheBytes] for why JPEG.
-Future<Uint8List> jpegFromOrientedPixels(
-  DecodedRgba decoded, {
-  required int exifOrientation,
-  int longEdge = 200, // = ImageRequestPurpose.sidebarThumbnail.targetSize
-  int jpegQuality = 80,
-}) async {
-  final payload = await decodedRgbaToPixelPayload(
-    decoded,
-    exifOrientation: exifOrientation,
-    longEdge: longEdge,
-  );
-  return _encodeJpeg(
-    payload.rgba,
-    width: payload.width,
-    height: payload.height,
-    quality: jpegQuality,
-  );
 }
 
 /// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it on a worker

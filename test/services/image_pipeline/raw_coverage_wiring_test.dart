@@ -328,7 +328,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 250));
 
       expect(sidebarDecoderCalls, 0);
-      expect(controller.thumbnailBytesFor('cr2-2'), isNull);
+      expect(controller.thumbnailPayloadFor('cr2-2'), isNull);
     },
   );
 }

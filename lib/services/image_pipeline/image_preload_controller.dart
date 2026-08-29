@@ -9,6 +9,7 @@ import '../../models/supported_photo_formats.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
 import 'bitmap_container_probe.dart';
+import 'decoded_rgba_image_provider.dart';
 import 'image_source_types.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -105,7 +106,13 @@ class ImagePreloadController {
   /// (user ruling 2026-08-26).
   final SerialDecodeLane _serialLane = SerialDecodeLane();
 
-  final Map<String, Uint8List> _thumbCache = {};
+  // A SUM TYPE, not bytes: the JPG / embedded-preview path stores the encoded
+  // bitstream it already had, and the RAW-decode path stores oriented,
+  // 200px-capped RGBA. The RAW path used to JPEG-re-encode purely to satisfy
+  // this map's old `Uint8List` value type -- a sidebar-exclusive step that had
+  // no counterpart on the preview path and was the primary suspect for the
+  // Windows blank-tile bug (root-cause R2.3.1 step 6).
+  final Map<String, SourcePayload> _thumbCache = {};
 
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
@@ -298,7 +305,16 @@ class ImagePreloadController {
   ImageProvider<Object>? debugTierTwoProviderFor(String id) =>
       _tierTwo.providerFor(id);
 
-  Uint8List? thumbnailBytesFor(String id) => _thumbCache[id];
+  SourcePayload? thumbnailPayloadFor(String id) => _thumbCache[id];
+
+  @visibleForTesting
+  int get debugThumbnailCacheLength => _thumbCache.length;
+
+  /// Sum of `byteCost` over the sidebar cache. Exists so INV-MEM is an
+  /// asserted acceptance condition (TC-374) rather than an estimate in prose.
+  @visibleForTesting
+  int get debugThumbnailCacheByteCost =>
+      _thumbCache.values.fold(0, (sum, p) => sum + p.byteCost);
 
   /// Total retained payload cost. The successor to the old "is that ~50MB
   /// handle disposed?" question: what bounds memory now is the sum over the
@@ -1057,7 +1073,7 @@ class ImagePreloadController {
               // viewport-bound cache-size invariant (round-review blocker,
               // 2026-08-24).
               if (generation != _thumbBatchGeneration) return;
-              _thumbCache[id] = cacheBytes;
+              _thumbCache[id] = EncodedPayload(cacheBytes);
               notifyLoaded();
               // 2026-08-28 (bitmap decoders phase 1): the gate widens from
               // the engine-decodable set to the full-decode-route set so a
@@ -1093,14 +1109,20 @@ class ImagePreloadController {
                 // orientation 1, because it cannot read ISO-BMFF.
                 final orientation =
                     await bitmapContainerOrientation(file.path);
-                final jpeg = await jpegFromOrientedPixels(
+                // NO JPEG re-encode here. Storing oriented pixels removes the
+                // one step the sidebar ran that the preview path never did --
+                // and the preview path is the one the user's Windows evidence
+                // proves healthy. The orientation bake and the 200px
+                // downscale are unchanged; only the encode is gone.
+                final payload = await decodedRgbaToPixelPayload(
                   decoded,
                   exifOrientation: orientation,
+                  longEdge: ImageRequestPurpose.sidebarThumbnail.targetSize,
                 );
                 // Same stale-generation write guard as the bytes branch
                 // above (round-review blocker, 2026-08-24).
                 if (generation != _thumbBatchGeneration) return;
-                _thumbCache[id] = jpeg;
+                _thumbCache[id] = payload;
                 notifyLoaded();
               } catch (_) {
                 // Decode failed too: fall through to the same permanent-miss

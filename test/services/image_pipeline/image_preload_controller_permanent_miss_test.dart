@@ -87,11 +87,11 @@ void main() {
       // Anti-vacuity: a mutant that simply stopped fetching thumbnails would
       // also satisfy the assertion above.
       expect(
-        controller.thumbnailBytesFor(items[1].id),
+        controller.thumbnailPayloadFor(items[1].id),
         isNotNull,
         reason: 'loadable thumbnails must still land',
       );
-      expect(controller.thumbnailBytesFor(items[0].id), isNull);
+      expect(controller.thumbnailPayloadFor(items[0].id), isNull);
     },
   );
 
@@ -134,8 +134,8 @@ void main() {
 
       // The failure really happened -- without this the assertion below could
       // pass because nothing was ever recorded.
-      expect(controller.thumbnailBytesFor(failing.id), isNull);
-      expect(controller.thumbnailBytesFor(victim.id), isNotNull);
+      expect(controller.thumbnailPayloadFor(failing.id), isNull);
+      expect(controller.thumbnailPayloadFor(victim.id), isNotNull);
 
       expect(
         controller.hasFailed(victim.id),
@@ -203,14 +203,14 @@ void main() {
       // item 0 in fetch order, and without try/catch the exception unwinds
       // the whole `for` loop, so neither is ever requested.
       expect(
-        controller.thumbnailBytesFor(items[1].id),
+        controller.thumbnailPayloadFor(items[1].id),
         isNotNull,
         reason:
             'a throwing loader for item 0 must not abort the rest of the '
             'sweep -- item 1 comes after it in fetch order',
       );
       expect(
-        controller.thumbnailBytesFor(items[2].id),
+        controller.thumbnailPayloadFor(items[2].id),
         isNotNull,
         reason: 'item 2 must also still be requested',
       );

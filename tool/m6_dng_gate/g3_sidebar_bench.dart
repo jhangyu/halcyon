@@ -4,15 +4,23 @@
 // route, same pipeline, same timing methodology as the recorded G'''' run
 // (scripts/tmp/m6-r2-verify/g3-regress-p53.txt / p5-3-verify.txt).
 //
-// Timed unit: file path in -> sidebar CACHE BYTES out, covering the shipped
+// Timed unit: file path in -> sidebar CACHE PAYLOAD out, covering the shipped
 // pipeline exactly as image_preload_controller.dart's sweep pays for it:
 //   dartImageLoad(purpose: sidebarThumbnail)
 //     -> NativeImageBytes: sidebarCacheBytes(bytes)
-//     -> otherwise (RAW path only), the P2.5b RAW-decode fallback:
+//     -> otherwise (RAW path only), the RAW-decode fallback:
 //          decodeDngSized(path, maxDim: 200)
 //          readOrientation(path) ?? kDefaultExifOrientation
-//          jpegFromOrientedPixels(decoded, exifOrientation: orientation)
+//          decodedRgbaToPixelPayload(decoded, exifOrientation: orientation)
 // This calls the shipped functions directly, not a reimplementation.
+//
+// 2026-08-30 (win-sidebar-thumbnails Task 2): the RAW-decode fallback no
+// longer JPEG-encodes (jpegFromOrientedPixels was deleted -- the sidebar
+// cache stores PixelPayload/decoded RGBA, not re-encoded bytes). This bench
+// used to also time that encode; that cost no longer exists on the RAW path,
+// so the RAW-path timing below is now decode-only. Minimal compile fix only
+// -- not a redesign; the bench's meaning on the RAW leg has changed and
+// should be re-evaluated by whoever reads its numbers next.
 //
 // Runs under `flutter test` (flutter_tester) because dart:ui image decoding
 // is unavailable to `dart compile exe`. JIT bias runs AGAINST Dart (same
@@ -30,30 +38,39 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
+import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
 
 /// The exact shipped pipeline that lands a row in `_thumbCache`, INCLUDING
-/// the P2.5b RAW-decode fallback (image_preload_controller.dart).
+/// the RAW-decode fallback (image_preload_controller.dart). Returns encoded
+/// bytes on the JPG/embedded-preview leg (unchanged); on the RAW leg it
+/// returns the raw RGBA8 bytes of the stored `PixelPayload` -- there is no
+/// encoded bitstream on that leg any more (see the file header note).
 Future<Uint8List?> cacheBytesFor(String path) async {
   final result =
       await dartImageLoad(path, purpose: ImageRequestPurpose.sidebarThumbnail);
   if (result is NativeImageBytes) {
     return sidebarCacheBytes(result.bytes);
   }
-  // P2.5b fallback: only for engine-decodable RAW paths, mirroring the
-  // sweep's guard exactly (image_preload_controller.dart's isDecodablePath
-  // gate, not isRawPath -- a D2 browse-only RAW, e.g. .cr2/.iiq/.mrw, has no
-  // decode route and must not reach decodeDngSized).
+  // Only for engine-decodable RAW paths, mirroring the sweep's guard exactly
+  // (image_preload_controller.dart's isDecodablePath gate, not isRawPath --
+  // a D2 browse-only RAW, e.g. .cr2/.iiq/.mrw, has no decode route and must
+  // not reach decodeDngSized).
   if (!SupportedPhotoFormats.isDecodablePath(path)) return null;
   try {
     final decoded = await decodeDngSized(path, maxDim: 200);
     final orientation =
         await DngEmbeddedJpegExtractor.readOrientation(path) ??
             kDefaultExifOrientation;
-    return jpegFromOrientedPixels(decoded, exifOrientation: orientation);
+    final payload = await decodedRgbaToPixelPayload(
+      decoded,
+      exifOrientation: orientation,
+      longEdge: 200,
+    );
+    return payload.rgba;
   } catch (_) {
     return null;
   }
