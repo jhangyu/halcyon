@@ -17,7 +17,7 @@ import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
-import 'serial_decode_lane.dart';
+import 'decode_lane.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
@@ -79,8 +79,10 @@ class ImagePreloadController {
     DngFullDecoder? dngDecoder,
     DngSizedDecoder? sidebarRawDecoder,
     this.retention = const RetentionPolicy.floor(),
+    int decodeLaneWidth = 1,
   }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),
        _sidebarRawDecoder = sidebarRawDecoder,
+       _decodeLane = DecodeLane(width: decodeLaneWidth),
        _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -100,10 +102,17 @@ class ImagePreloadController {
 
   /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
   /// production here and by the tier-2 catch-up loads and full-resolution
-  /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most one RAW
-  /// decode in flight" a property of the pipeline rather than of one scheduler
-  /// (user ruling 2026-08-26).
-  final SerialDecodeLane _serialLane = SerialDecodeLane();
+  /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most [width]
+  /// RAW decodes in flight" a property of the pipeline rather than of one
+  /// scheduler (2026-08-26 ruling, width generalised 2026-08-30).
+  final DecodeLane _decodeLane;
+
+  /// Read through to the lane, never a shadow field: the controller and the
+  /// lane can then never disagree (same reasoning as [AppState.retentionPolicy]).
+  int get decodeLaneWidth => _decodeLane.width;
+
+  /// Live setting change from the settings page. Values below 1 clamp to 1.
+  void setDecodeLaneWidth(int width) => _decodeLane.width = width;
 
   final Map<String, Uint8List> _thumbCache = {};
 
@@ -153,7 +162,7 @@ class ImagePreloadController {
   );
   late final TierTwoScheduler _tierTwoScheduler = TierTwoScheduler(
     registry: _tierTwo,
-    lane: _serialLane,
+    lane: _decodeLane,
     currentPayloadFor: _cache.peek,
     fullSizeProviderFor: _fullSizeProviderForPayload,
     ensurePayload: _ensurePayload,
@@ -347,7 +356,7 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _retentionIds = {};
     _tierOneKeys.clear();
-    _serialLane.clearPending();
+    _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
@@ -374,7 +383,7 @@ class ImagePreloadController {
 
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
-    _serialLane.clearPending();
+    _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     for (final key in _tierOneKeys.values) {
       PaintingBinding.instance.imageCache.evict(key);
@@ -799,7 +808,7 @@ class ImagePreloadController {
     if (notifyLoaded != null) {
       _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
     }
-    _serialLane.enqueue(
+    _decodeLane.enqueue(
       (LaneTaskKind.payload, id),
       priority: laneRankFor(distance),
       // `distance` is captured at enqueue time and becomes stale after
