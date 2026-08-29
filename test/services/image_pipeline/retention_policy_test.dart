@@ -70,4 +70,27 @@ void main() {
       greaterThan(floor.payloadByteBudget),
     );
   });
+
+  test('TC-347 lane ceiling follows the memory rung', () {
+    expect(laneCeilingFor(physicalMemoryBytes: null, processors: 28), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 8 * gib, processors: 28), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 16 * gib, processors: 28), 4);
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 28), 5);
+  });
+
+  test('TC-348 lane ceiling is also clamped by core count', () {
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 8), 1,
+        reason: 'one decode measures ~4.7 cores, so 8 cores fit exactly one');
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 10), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 200), 5,
+        reason: 'hard cap, not a bandwidth experiment');
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 1), 1);
+  });
+
+  test('TC-349 default width is the ceiling capped at 3', () {
+    expect(defaultLaneWidthFor(5), 3);
+    expect(defaultLaneWidthFor(3), 3);
+    expect(defaultLaneWidthFor(2), 2);
+    expect(defaultLaneWidthFor(1), 1);
+  });
 }
