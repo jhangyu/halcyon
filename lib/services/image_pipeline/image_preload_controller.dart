@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
@@ -10,6 +11,7 @@ import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
 import 'bitmap_container_probe.dart';
 import 'image_source_types.dart';
+import 'payload_reencoder.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'photo_source.dart';
@@ -21,6 +23,26 @@ import 'serial_decode_lane.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
+
+/// Production binding for [PayloadEncoder] (user ruling 2026-08-30, after the
+/// Task 0 STOP gate): pure-Dart `encodeJpegFromRgba` measured 4102ms median at
+/// q80, 8x over the 500ms lane-budget gate. This calls ceyx's native
+/// libjpeg-turbo encoder instead (in-process gate median 89ms). The pure-Dart
+/// encoder is UNCHANGED and remains the sidebar codec's encoder and the
+/// default test/seam binding -- only the controller's default wiring changes.
+Future<Uint8List> _encodeJpegNative(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) {
+  return CeyxEncodeService().encodeJpegNative(
+    rgba,
+    width: width,
+    height: height,
+    quality: quality,
+  );
+}
 
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
@@ -78,8 +100,13 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     DngSizedDecoder? sidebarRawDecoder,
+    PayloadEncoder? payloadEncoder = _encodeJpegNative,
     this.retention = const RetentionPolicy.floor(),
-  }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),
+  }) : _source = PhotoSource(
+         loader: imageLoader,
+         dngDecoder: dngDecoder,
+         payloadEncoder: payloadEncoder,
+       ),
        _sidebarRawDecoder = sidebarRawDecoder,
        _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
 
@@ -746,9 +773,16 @@ class ImagePreloadController {
       // once" assertions green. Done AFTER the notify above so the window
       // -resolution frame reaches the screen first; the upload itself is a
       // memcpy plus a GPU upload, and it stays on this sequential queue.
+      // PIGGYBACK (design §2.2). Unchanged in purpose: the full-resolution
+      // pixels this very decode produced are uploaded once, for free. The
+      // PixelPayload type test is gone because a re-encoded RAW retains an
+      // EncodedPayload -- the registry anchors on payload object IDENTITY, not
+      // on the payload's kind (raw_full_res_image.dart:45), so this works for
+      // both kinds without touching TierTwoRegistry's containers (AD-027
+      // intact).
       final fullRes = outcome.fullRes;
       if (fullRes != null &&
-          payload is PixelPayload &&
+          payload != null &&
           identical(_cache.peek(id), payload) &&
           _tierTwoScheduler.isInWindow(id) &&
           !_tierTwo.hasFullResEntryFor(id, payload)) {

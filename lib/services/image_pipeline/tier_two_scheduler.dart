@@ -436,7 +436,7 @@ class TierTwoScheduler {
   /// path, which is where the decode that produced these pixels ran.
   Future<void> publishPiggybackFullRes(
     String id,
-    PixelPayload payload,
+    SourcePayload payload,
     ({Uint8List rgba, int width, int height}) fullRes,
     VoidCallback? notifyLoaded,
   ) async {
