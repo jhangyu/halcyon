@@ -497,13 +497,45 @@ class ImagePreloadController {
     _cache.setEvictionPriority([
       for (final i in nearToFarOrder) items[i].id,
     ]);
-    final pendingLoads = <Future<void>>[];
+    // Round-1 review blocker 1 (2026-08-30): the classify probe used to be
+    // interleaved with the lane enqueue inside a single concurrent
+    // `_ensurePayload` call per item, so lane arrival order was whichever
+    // probe's `await` happened to land first -- IO-jittered, not the
+    // near-to-far order this loop hands out. Fixed by splitting the pass
+    // into two phases: probe every item first (all the awaiting happens
+    // here, order-independent), then route them -- including every serial
+    // lane enqueue -- synchronously in ONE burst in near-to-far order below,
+    // so the lane always sees the ruled start order regardless of width.
+    final probeFutures = <
+        Future<
+            ({
+              PhotoItem item,
+              int distance,
+              VoidCallback? notifyLoaded,
+              ProbeResult probe,
+            })?>>[];
     for (final i in nearToFarOrder) {
+      probeFutures.add(
+        _probeWindowItem(items[i], distance: i - currentIndex),
+      );
+    }
+    final probeResults = await Future.wait(probeFutures);
+
+    // Phase 2: route every probed item, in the same near-to-far order the
+    // loop above walked. `_ensurePayload` performs its serial-lane enqueue
+    // (if the probe says expensive) SYNCHRONOUSLY before its first await
+    // when handed a `precomputedProbe`, so this loop's iteration order IS
+    // the lane's start order -- restoring the property width 1 got for free
+    // from serialisation alone.
+    final pendingLoads = <Future<void>>[];
+    for (final result in probeResults) {
+      if (result == null) continue;
       pendingLoads.add(
         _ensurePayload(
-          items[i],
-          distance: i - currentIndex,
-          notifyLoaded: null,
+          result.item,
+          distance: result.distance,
+          notifyLoaded: result.notifyLoaded,
+          precomputedProbe: result.probe,
         ),
       );
     }
@@ -571,13 +603,10 @@ class ImagePreloadController {
   /// [onSerialLane] is true only when this call IS the lane's task body. That
   /// is the one context in which a real RAW decode may run; every other caller
   /// that meets an expensive item enqueues it and returns.
-  Future<void> _ensurePayload(
-    PhotoItem item, {
-    required int distance,
-    required VoidCallback? notifyLoaded,
-    bool onSerialLane = false,
-  }) async {
-    final id = item.id;
+  /// The cache-hit / permanent-miss / already-in-flight fast paths shared by
+  /// [_ensurePayload] and [_probeWindowItem]. Returns true if [id] is
+  /// already resolved (nothing more for the caller to do).
+  bool _earlyResolve(String id, VoidCallback? notifyLoaded) {
     if (_cache.contains(id)) {
       // PERF-INSTRUMENTATION
       PerfLog.log(
@@ -589,14 +618,14 @@ class ImagePreloadController {
       // callbacks are a different matter -- they are waiting for the item to
       // become available at all, and it now is.
       _flushPendingNotifies(id);
-      return;
+      return true;
     }
 
     // An answer that cannot change: do not re-ask any source for it.
     if (_permanentMisses.contains(id)) {
       notifyLoaded?.call();
       _flushPendingNotifies(id);
-      return;
+      return true;
     }
 
     if (_loadingKeys.contains(id)) {
@@ -612,8 +641,45 @@ class ImagePreloadController {
         'loadPreview.skip|$id|cached=false|inFlight=true'
         '|isSelected=${id == _selectedIdForPerf}',
       );
-      return;
+      return true;
     }
+
+    return false;
+  }
+
+  /// Phase 1 of the window pass (round-1 review blocker 1 fix): runs the
+  /// same fast paths and content probe [_ensurePayload] would, but stops
+  /// short of routing -- no lane enqueue, no decode -- so every item's probe
+  /// can be awaited concurrently WITHOUT any of them racing each other onto
+  /// the serial lane. Returns null when [item] was already resolved by a
+  /// fast path (nothing left for phase 2).
+  Future<
+      ({
+        PhotoItem item,
+        int distance,
+        VoidCallback? notifyLoaded,
+        ProbeResult probe,
+      })?> _probeWindowItem(
+    PhotoItem item, {
+    required int distance,
+  }) async {
+    final id = item.id;
+    if (_earlyResolve(id, null)) return null;
+    final file = item.bestFileToLoad;
+    if (file == null) return null;
+    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    return (item: item, distance: distance, notifyLoaded: null, probe: probed);
+  }
+
+  Future<void> _ensurePayload(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback? notifyLoaded,
+    bool onSerialLane = false,
+    ProbeResult? precomputedProbe,
+  }) async {
+    final id = item.id;
+    if (_earlyResolve(id, notifyLoaded)) return;
 
     final file = item.bestFileToLoad;
     if (file == null) return;
@@ -629,7 +695,9 @@ class ImagePreloadController {
     // location-dependent classification the user rejected verbatim. The price
     // of the correction is one bounded open (2 bytes for a JPEG, design §5's
     // hot path intact).
-    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    final probed =
+        precomputedProbe ??
+        await _scheduler.classify(id, file.path, longEdge: _longEdge);
     final cost = probed.cost;
     // First writer wins, and after the change above the probe is the first
     // writer whenever it was conclusive. The bridge's orientation (below)
