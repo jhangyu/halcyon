@@ -568,6 +568,20 @@ class ImagePreloadController {
     }
   }
 
+  /// One line per swallowed sidebar failure. Console output, NOT user-facing
+  /// UI -- the 2026-08-26 "no failure UI" ruling stands, and this is inside
+  /// it. Permanent, not a temporary debug aid: its absence is what turned the
+  /// Windows blank-tile bug into a two-round static-tracing investigation.
+  /// Volume is one line per id per folder load, bounded by
+  /// [_thumbPermanentMisses].
+  void _logThumbFailure(String id, String stage, Object error) {
+    final message = error.toString();
+    debugPrint(
+      'sidebar.thumb|id=$id|stage=$stage|err=${error.runtimeType}|'
+      'msg=${message.substring(0, message.length.clamp(0, 200))}',
+    );
+  }
+
   /// Produces and retains [item]'s payload if it is not retained already.
   ///
   /// [distance] is the SIGNED offset from the selection (negative = before it).
@@ -1124,9 +1138,12 @@ class ImagePreloadController {
                 if (generation != _thumbBatchGeneration) return;
                 _thumbCache[id] = payload;
                 notifyLoaded();
-              } catch (_) {
+              } catch (e) {
                 // Decode failed too: fall through to the same permanent-miss
-                // answer as any other unrecoverable thumbnail.
+                // answer as any other unrecoverable thumbnail -- but keep the
+                // exception. `catch (_)` here is what made this failure
+                // invisible and unreportable.
+                _logThumbFailure(id, 'decode', e);
                 if (generation == _thumbBatchGeneration) {
                   _thumbPermanentMisses.add(id);
                 }
@@ -1138,7 +1155,7 @@ class ImagePreloadController {
               // folder is reloaded (which is what clears the set).
               _thumbPermanentMisses.add(id);
             }
-          } catch (_) {
+          } catch (e) {
             // The loader THREW instead of returning a NativeImageFailure --
             // an unconverted PlatformException/MissingPluginException, or a
             // native TypeError on a non-Uint8List channel reply (round-1
@@ -1148,6 +1165,7 @@ class ImagePreloadController {
             // unwind the whole `for` loop, silently dropping every remaining
             // item in this sweep, on top of leaking `loadingKey` for the rest
             // of the session (the finally below is what fixes that half).
+            _logThumbFailure(id, 'loader', e);
             if (generation == _thumbBatchGeneration) {
               _thumbPermanentMisses.add(id);
             }
