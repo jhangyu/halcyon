@@ -13,6 +13,7 @@ class SettingsDialog extends StatelessWidget {
       title: const Text('Options'),
       content: SizedBox(
         width: 360,
+        child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,7 +49,35 @@ class SettingsDialog extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
             ),
+            const SizedBox(height: 8),
+            const Text('Parallel RAW decodes'),
+            Text(
+              state.maxDecodeLaneWidth > 1
+                  ? 'How many expensive RAW decodes may run at once. Higher is '
+                        'faster on many-core machines and uses more memory. '
+                        'This machine allows up to ${state.maxDecodeLaneWidth}.'
+                  : 'This machine has too few cores (or too little memory) to '
+                        'run RAW decodes in parallel.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Slider(
+              key: const Key('decodeLaneWidthSlider'),
+              min: 1,
+              max: state.maxDecodeLaneWidth.toDouble(),
+              // Flutter asserts divisions > 0, so a ceiling of 1 passes null.
+              divisions: state.maxDecodeLaneWidth > 1
+                  ? state.maxDecodeLaneWidth - 1
+                  : null,
+              label: '${state.decodeLaneWidth}',
+              value: state.decodeLaneWidth.toDouble(),
+              onChanged: state.maxDecodeLaneWidth > 1
+                  ? (double value) => context
+                        .read<AppState>()
+                        .setDecodeLaneWidth(value.round())
+                  : null,
+            ),
           ],
+        ),
         ),
       ),
       actions: [
