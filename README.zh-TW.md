@@ -84,149 +84,113 @@ Halcyon 的建置流程。
 
 ## 挑選工作流程（triage workflow）
 
-核心迴圈很簡單：開啟一個資料夾、瀏覽、標記照片、進下一張。以下描述的是攝影師面對一整張裝滿
-RAW 與 JPG 檔案的記憶卡時，這個 app 實際會做的事。
+核心迴圈很簡單：開啟一個資料夾、用鍵盤瀏覽、標記要留與要丟的照片、進下一張。以下就是你面對
+一整張裝滿 RAW 與 JPG 檔案的記憶卡時，實際會發生的事。
+
+```mermaid
+flowchart TD
+    A(["開啟照片資料夾"]) --> B["掃描資料夾<br/>把 RAW + JPG 姊妹檔分組"]
+    B --> C(["用 ← / → 瀏覽"])
+    C --> D{"這張照片<br/>看起來如何？"}
+    D -- "想留" --> E["按 S 加星號<br/>啟用自動前進就跳下一張"]
+    D -- "想丟" --> F["按 X 標記垃圾桶<br/>啟用自動前進就跳下一張"]
+    D -- "還沒決定" --> C
+    E --> C
+    F --> C
+    E --> G(["每個標記即時寫入磁碟"])
+    F --> G
+
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+    classDef done fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+
+    class A start;
+    class B slow;
+    class C start;
+    class D decision;
+    class E fast;
+    class F slow;
+    class G done;
+```
 
 ### 開啟資料夾
 
-`PhotoLibraryScanner.scan()` 用 `dir.list(followLinks: false)` 列出該目錄的直接內容，
-不會遞迴進子目錄——只有直接放在所選資料夾內的檔案會被抓到。
-<!-- evidence: lib/services/library/photo_library_scanner.dart:8 -->
+把 Halcyon 指向一個資料夾，它會列出**直接放在裡面**的照片——不會遞迴進子資料夾。隱藏檔案
+（任何以點開頭的名稱，包括 macOS 在某些記憶卡上散落的 AppleDouble 側車檔）一律跳過，只有
+支援格式的檔案才會顯示。
 
-每個項目要被算作照片，都得先過篩：必須是一般檔案、名稱不能以 `.` 開頭
-（dotfile／AppleDouble 側寫檔一律跳過），且副檔名要在支援清單內。
-<!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
+支援的格式：
 
-支援的集合是 `.jpg`、`.jpeg`、`.png`、`.webp`、`.tif`、`.tiff`、`.heic`、`.heif`，加上 Ceyx 引擎能解碼的每一個 RAW 副檔名（`.dng`、
-`.arw`、`.cr3`、`.nef`、`.raf`、`.rw2`、`.orf`、`.pef`、`.srw`、`.x3f`，執行期由 Ceyx 自身
-能力常數推導而來），再加三個 Ceyx 解不了、但 Halcyon 仍會列出的 browse-only RAW 格式
-（`.cr2`、`.iiq`、`.mrw`）——這份清單為何是推導而非手寫，完整拆解見下文「RAW 格式支援
-與解碼路由」。
-<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
+| 類別 | 格式 |
+|---|---|
+| 一般影像檔 | JPG、PNG、WebP、TIFF、HEIC／HEIF |
+| RAW，完整解碼 | DNG、ARW、CR3、NEF、RAF、RW2、ORF、PEF、SRW、X3F |
+| RAW，僅供瀏覽 | CR2、IIQ、MRW |
 
-在 JPEG／PNG 之外，另外支援這些點陣圖格式：
+一般影像格式有幾個值得知道的細節：
 
-- **WebP**（`.webp`）——由 Flutter 引擎在所有平台上直接解碼。動態 WebP 只顯示第一個影格；
-  寫在 WebP `EXIF` 區塊裡的方向資訊不會被套用，因此手機以非 1 的方向標記所寫出的檔案，
-  顯示時可能是旋轉的。
-- **TIFF**（`.tif`、`.tiff`）——以 `package:image` 解碼。支援分條式與分塊式 TIFF、
-  8／16／32 位元取樣，以及 LZW／PackBits／Deflate 與未壓縮；16 位元會降轉為 8 位元供顯示。
-  多頁 TIFF 只顯示第 1 頁。少見的壓縮方式（CCITT G3／G4、TIFF 內嵌 JPEG2000、
-  舊式 TIFF 內嵌 JPEG）不支援，會被視為無法讀取的檔案。
-- **HEIC／HEIF**（`.heic`、`.heif`）——交給隨應用程式一起打包的 libheif 加 libde265
-  解碼，因此各平台得到的結果完全一致，不必仰賴作業系統自帶的解碼器。目前只在 **macOS**
-  上驗證過；Windows 與 Linux 的建置規則雖已寫好，卻**尚未實際執行**——在缺少這兩個函式庫
-  的平台上，檔案會被回報為無法讀取，而應用程式仍可正常啟動。含多張影像的檔案（連拍、
-  Live Photo、深度圖與輔助影像）只會顯示主影像；HDR 增益圖與深度圖一律忽略，10／12 位元的
-  HEIC 也會降轉為 8 位元供顯示。以容器旋轉屬性記錄的方向會被套用；但只帶 EXIF `Orientation`
-  標籤、沒有容器旋轉屬性的檔案，顯示時可能不會被轉正。AVIF 不支援。
+- **WebP** 在所有平台都能顯示。動態 WebP 只顯示第一個影格。
+- **TIFF** 支援常見的形式（分條式與分塊式、8／16／32 位元、LZW／PackBits／Deflate／未壓縮）；
+  16 位元以 8 位元顯示，多頁檔只顯示第 1 頁。少數罕見壓縮（CCITT 傳真、TIFF 內嵌 JPEG）不支援，
+  會顯示為無法讀取。
+- **HEIC／HEIF** 使用內建打包的解碼器，因此一張 HEIC 在每個平台看起來都一樣，不必仰賴作業系統。
+  含多張影像的檔案（連拍、Live Photo、深度圖）只顯示主影像；HDR 增益圖與深度圖一律忽略。
+  AVIF 不支援。
 
-符合的檔案分組（見下節）成 `PhotoItem` 後，最終清單依 id 排序，不分大小寫。
-<!-- evidence: lib/services/library/photo_library_scanner.dart:22-26 -->
+RAW 格式，以及「完整解碼」與「僅供瀏覽」之間的差別，詳見下文「RAW 格式支援與解碼路由」。凡是
+會被掃描列出的檔案——包括僅供瀏覽的 RAW 格式——都能像其他照片一樣加星號、標記垃圾桶、重新
+命名與批次搬移。
 
-### RAW 與 JPG 的 sibling 分組
+### RAW 與 JPG 的姊妹檔分組
 
-分組鍵是去掉副檔名後的檔名——`SupportedPhotoFormats.photoIdFor()` 回傳
-`p.basenameWithoutExtension(file.path)`。凡是共用同一個檔名主體的檔案，不管副檔名是什麼，
-都會歸進同一個鍵下的 `List<File>`。
-<!-- evidence: lib/models/supported_photo_formats.dart:41-43 -->
-<!-- evidence: lib/services/library/photo_library_scanner.dart:14-19 -->
+如果你以 RAW+JPG 拍攝，每按一次快門就會寫出兩個檔案，它們共用同一個檔名、只差在副檔名。
+Halcyon 會把它們分組：一張 RAW 與其同名 JPG（以及任何隱藏側車檔）合成側邊欄裡的**一個項目**，
+只有一個星號／垃圾桶標記、一列供你互動的資料，不管背後有幾個檔案。
 
-分組後的清單會變成單一個 `PhotoItem(id: entry.key, files: entry.value)`——不管群組內有
-幾個檔案，都只對應一個側邊欄項目、一個 `PhotoStatus`、一列供使用者互動的資料。
-<!-- evidence: lib/services/library/photo_library_scanner.dart:22-24 -->
-<!-- evidence: lib/models/photo_item.dart:7-16 -->
+顯示時，Halcyon 會優先選同名的 JPG 或 PNG（開啟最快），只在群組全是 RAW 時才退回 RAW。
 
-app 實際載入哪個檔案來顯示，由 `bestFileToLoad()` 決定：它按固定優先順序
-（`.jpg`、`.jpeg`、`.png`）尋找，回傳第一個相符者；群組內沒有這些副檔名，就退回群組中第一個
-支援的檔案；只有整個群組都不受支援時，才會退回任意一個檔案。
-<!-- evidence: lib/models/supported_photo_formats.dart:45-61 -->
+分組也會改變預設的刪除行為：只要資料夾裡有任何 RAW+JPG 配對，就會自動以回收模式（資料夾內的
+`.trash`，見下文）開始，而非永久刪除——正在挑選的記憶卡，不該因為一次誤點就連 RAW 一起丟。
+每個標記或刪除都作用在整個群組上，因此 RAW 與其 JPG 姊妹檔永遠作為同一個單位一起移動。
 
-下游行為上，只要資料夾內存在任何多檔案群組（也就是任何 RAW+JPG 配對），app 就會預設用
-資源回收模式刪除而非永久刪除——理由很直接：正在挑選的記憶卡，不該因為一次誤點就連 RAW 一起丟。
-<!-- evidence: lib/providers/app_state.dart:285-287 -->
+### 標記、導覽與縮放
 
-標記或刪除作用在 `PhotoItem` 上，所以一次星號或垃圾桶動作會套用到群組內每一個檔案——
-RAW 與其 JPG sibling 作為同一個單位一起移動。
-<!-- evidence: lib/models/photo_item.dart:10 -->
+除了「未標記」，一張照片可以被**加星號**（要留）或**標記垃圾桶**（要丟）。標記是切換式的：
+再按一次同一個標記會清除它；按另一個標記則切換過去。清除標記不會移動你的位置；設定新標記時，
+若開啟了**自動前進**（預設關閉，會在不同工作階段間記住），就會前進到下一張。
 
-### 標記
-
-除了「未標記」，還有兩種標記狀態：`starred`（星號）與 `trashed`（垃圾桶）
-（`PhotoStatus` enum）。`markCurrent(status)` 是切換式的：再按一次同一個標記會清回
-`unmarked`；按下不同的標記則會設定它。**切換關閉**時不會自動前進；**設定新標記**時，
-若已啟用自動前進，就會前進。
-<!-- evidence: lib/providers/app_state.dart:367-381 -->
-<!-- evidence: docs/sop/memory.md G-005 -->
-
-自動前進是會被持久化的使用者偏好設定（`SharedPreferences` 鍵值 `autoAdvance`，
-預設為 `false`），由 `setAutoAdvance()` 切換。
-<!-- evidence: lib/providers/app_state.dart:139,151,405-409 -->
-
-浮動操作列（action bar）呼叫的是同一組方法——星號與垃圾桶／回收模式按鈕都呼叫
-`AppState.markCurrent()`，且垃圾桶圖示的圖形與提示文字，會依回收模式在「刪除」與
-「從垃圾桶還原」之間切換。
-<!-- evidence: lib/views/photo_action_bar.dart:49-69 -->
-
-每次標記變更都會即時寫入磁碟（`_saveStatusCache()`）；儲存格式與復原（resume）行為留待
-本文件其他章節說明。
-<!-- evidence: lib/providers/app_state.dart:378 -->
-
-### 導覽與縮放
-
-`←`／`→` 在目前排序好的清單中依索引移到上一張／下一張，並有邊界檢查（頭尾都不會循環）。
-<!-- evidence: lib/providers/app_state.dart:351-365 -->
-
-縮放完全獨立於 `AppState` 之外，由 `MainScreen` 建立並釋放的專屬 `ZoomController` 持有——
-刻意不放進 detail view，因為 detail view 每次切照片都會重建；若放在其內部，使用者按左右鍵
-切換照片時縮放層級就會被重置。
-<!-- evidence: lib/views/zoom_controller.dart:10-15 -->
-<!-- evidence: docs/sop/memory.md AD-015 -->
-
-每次縮放都以固定倍率 `1.25` 乘除目前的縮放比例，上限 `5.0×`。縮小到 `1.05×` 或以下時，
-會直接吸附回單位矩陣（identity matrix），而不是停在剛好超過 `1.0×` 的位置，藉此避免殘留的
-平移偏移。
-<!-- evidence: lib/views/zoom_controller.dart:44,50-58,60-75 -->
+左右鍵依順序在資料夾中移動，頭尾都不會循環。縮放每按一次以 ×1.25 放大或縮小，上限 5×，縮小
+回來時會俐落地吸附回原尺寸，不會讓畫面停在偏移的位置。切換照片時縮放層級會維持不變——從一張
+換到下一張不會把它重置。
 
 ### 鍵盤快捷鍵
 
-觸發挑選流程的所有鍵盤處理都集中在同一處——`MainScreen` 內單一個 `Focus` widget 的
-`onKeyEvent` callback。這是 app 註冊的完整按鍵集合；`lib/` 底下沒有其他檔案掛接鍵盤處理。
-<!-- evidence: lib/views/main_screen.dart:97-135 -->
+整個挑選迴圈的設計，就是讓你不必離開鍵盤：
 
 | 按鍵 | 動作 |
 |---|---|
 | `←` | 上一張照片 |
 | `→` | 下一張照片 |
 | `↑` | 放大（每次 ×1.25，最高 5×）|
-| `↓` | 縮小（每次 ×1.25，縮到約 1.05× 以下會吸附回原尺寸）|
+| `↓` | 縮小（每次 ×1.25，接近 1× 會吸附回原尺寸）|
 | `S` | 切換目前照片的星號標記 |
 | `X` | 切換目前照片的垃圾桶標記 |
-| `R` | 切換回收模式（資料夾內的 `.trash/` vs. 永久／系統刪除）|
+| `R` | 切換回收模式（資料夾內的 `.trash` vs. 系統／永久刪除）|
 
-<!-- evidence: lib/views/main_screen.dart:104-129 -->
-
-回收模式也能用右鍵點擊操作列中的垃圾桶圖示來切換；左鍵點擊該圖示則維持原本
-「標記這張照片」的意思。
-<!-- evidence: lib/views/photo_action_bar.dart:60-68 -->
+如果你偏好用滑鼠，星號與垃圾桶按鈕也會浮在影像上方。回收模式可以用鍵盤的 `R` 切換，或用右鍵
+點擊垃圾桶按鈕——左鍵點它只是照常標記目前這張照片。
 
 ### 挑選過程中的畫面回饋
 
-即時狀態訊息由自訂的 `StatusLine` widget 顯示（位於視窗底部），取代了 Flutter 的
-`SnackBar`，改用固定且明確的時序：完全顯示 2.5 秒，接著淡出 0.5 秒，然後移除。
-<!-- evidence: lib/views/status_line.dart:25-26 -->
-<!-- evidence: docs/sop/memory.md AD-009 -->
+簡短的狀態訊息會出現在視窗底部，完整顯示幾秒後淡出，因此它們不會堆積或擋住畫面。其中兩則
+直接來自挑選迴圈：
 
-挑選流程本身會直接觸發兩則回饋訊息：
-
-- 開啟資料夾時，若發現資料夾不可寫入，會顯示一次性警告——每次呼叫 `loadFolder()`
-  只出現一次，不會每次標記都跳出來。可寫性的檢查方式是實際建立再刪除一個探測檔案，而非讀取
-  Unix 權限位元，因為在以 `noowners` 掛載的 exFAT 記憶卡上，權限位元並不可靠。
-  <!-- evidence: lib/providers/app_state.dart:288-289 -->
-  <!-- evidence: docs/sop/memory.md AD-009 -->
-- 若資料夾掃描本身拋出例外（例如遍歷目錄時發生的權限錯誤），會顯示錯誤訊息，並附上底層
-  例外文字。
-  <!-- evidence: lib/providers/app_state.dart:324-326 -->
+- 若你開啟的資料夾是**唯讀**的，會顯示一次性警告——在資料夾開啟時出現一次，不會每次標記都跳。
+  Halcyon 的判斷方式是實際嘗試寫入一個小檔案再刪除，因為記憶卡的權限位元可能說謊（一張 exFAT
+  記憶卡可能看起來可寫，實體防寫鎖卻擋下每一次寫入）。
+- 若資料夾根本無法掃描（例如權限錯誤），會顯示錯誤訊息，說明哪裡出了問題。
 
 ---
 
@@ -234,205 +198,168 @@ RAW 與其 JPG sibling 作為同一個單位一起移動。
 
 ### 一次篩選作業永遠不會遺失
 
-在資料夾整理到一半時關閉 Halcyon，之後再重新開啟同一個資料夾，畫面會回到原本瀏覽的
-那張照片，所有星號與垃圾桶標記都完好無缺。標記不是只存在記憶體裡：每一次變動都會寫入
-照片旁的狀態檔，上次瀏覽到的照片也會在下次開啟時還原。
+在資料夾整理到一半時關閉 Halcyon，之後再重新開啟同一個資料夾，畫面會回到原本那張照片，所有
+星號與垃圾桶標記都完好無缺。標記不是只存在記憶體裡——你一做出標記就會立刻寫入磁碟，你當時
+所在的照片也會被記住。
+
+```mermaid
+flowchart TD
+    A(["標記或導覽"]) --> B["更新資料夾的<br/>狀態檔到磁碟"]
+    B --> C["先寫暫存檔，<br/>再更名就定位"]
+    C --> D(["資料夾永遠只保有<br/>一份完整的狀態檔"])
+    D -. "之後" .-> E(["重新開啟同一個資料夾"])
+    E --> F{"上次那張照片<br/>還在資料夾裡嗎？"}
+    F -- "在" --> G["回到那張照片<br/>所有標記都還原"]
+    F -- "不在" --> H["從頭開啟<br/>標記仍會還原"]
+
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+    classDef done fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+
+    class A,E start;
+    class B,C slow;
+    class D done;
+    class F decision;
+    class G fast;
+    class H slow;
+```
 
 #### 狀態檔
 
-Halcyon 開啟的每個資料夾都有自己專屬的 `.halcyon_status.json`，寫在該資料夾的根目錄，
-與照片放在一起。
-<!-- evidence: lib/services/library/photo_status_store.dart:22-24 -->
-這是一個扁平的 JSON 物件：每個照片 id（其檔名）對應到 `"starred"` 或 `"trashed"`——
-未標記的照片單純不會出現在裡面，而不是寫成 `"unmarked"`——另外加上兩個保留鍵：
-`_last_viewed_id` 用於還原瀏覽位置，`_rename_rule` 用於儲存該資料夾的重新命名規則。
-<!-- evidence: lib/services/library/photo_status_store.dart:18,132-148 -->
-選擇純 JSON 而非資料庫，是為了讓這個檔案能直接放在照片資料夾裡，複製到別台機器或備份時
-一併跟著走，而且在 diff 中也能被人直接讀懂。
-<!-- evidence: docs/sop/memory.md AD-004 -->
+Halcyon 開啟的每個資料夾都有自己專屬的小狀態檔（`.halcyon_status.json`），就寫在照片旁邊。
+它是純粹、人類可讀的 JSON：每張被標記的照片對應到「starred」或「trashed」（未標記的照片單純
+不列入），再加上一筆記錄你上次看到哪張照片，以及該資料夾儲存的重新命名規則。刻意選純 JSON
+而非資料庫——這個檔案跟照片放在一起，因此當你把資料夾複製到別台機器或備份時，它會一併跟著走，
+你也能在 diff 裡直接讀懂它。
 
-這個檔案存在資料夾內部而非集中式的 app 資料庫，所以每個資料夾的標記都是自成一體：
-開啟第二個資料夾會建立第二份、獨立的 `.halcyon_status.json`，不同拍攝場次之間的標記
-不會互相污染。
-<!-- evidence: lib/services/library/photo_status_store.dart:22-24 -->
-
-損毀或無法讀取的狀態檔只會降級為空白標記集合，不會連整個資料夾都打不開——遺失標記
-可以復原，但無法存取照片就不行了。
-<!-- evidence: lib/services/library/photo_status_store.dart:34-53 -->
+因為標記存在每個資料夾內部，它們始終自成一體：開啟第二個資料夾，它會保有自己獨立的標記——
+不同拍攝場次之間永不互相污染。而且萬一狀態檔損毀或無法讀取，資料夾仍能開啟（只是不還原標記）
+——遺失標記可以復原，無法存取照片就不行了。
 
 #### 重新開啟時還原
 
-重新開啟資料夾時，Halcyon 會還原先前選取的照片：如果沒有指定明確的選取目標，就會退回
-使用 `_last_viewed_id` 底下記錄的 id，前提是那張照片在剛掃描完的資料夾裡仍然存在。
-<!-- evidence: lib/providers/app_state.dart:291-316 -->
-瀏覽位置會在導覽動作穩定五秒後才寫入，這個防彈跳設計讓快速用方向鍵瀏覽時不會每按一次
-就寫入一次。
-<!-- evidence: lib/providers/app_state.dart:342-343,394-400 -->
+重新開啟資料夾時，只要你上次看到的那張照片還在，Halcyon 就會帶你回到它。它會在你停留在一張
+照片幾秒後才記錄位置，因此快速用方向鍵瀏覽時不會每按一次就狂寫磁碟。
 
-#### 耐用性：原子寫入、同一時間只有一條寫入鏈
+#### 耐用性：能扛住當機與拔卡
 
-App 裡有兩個獨立的計時器都可能寫入這個檔案——一個對應星號/垃圾桶標記，一個對應上次
-瀏覽位置指標——兩者都是先讀再改再寫。把所有寫入都串成單一佇列，先開始的那次寫入就
-絕不可能比另一個計時器晚結束，進而覆蓋掉對方已經寫入的變動。
-<!-- evidence: docs/sop/memory.md G-019 -->
-<!-- evidence: lib/services/library/photo_status_store.dart:55-66 -->
-每一次寫入本身都是透過「先寫暫存檔、再更名」完成，所以就算拔卡或在寫入途中當機，也絕不會
-留下寫到一半的狀態檔——資料夾裡永遠只會是舊的完整檔案，或新的完整檔案，不會是撕裂中的
-半成品。
-<!-- evidence: lib/services/library/photo_status_store.dart:68-76 -->
-
-#### 誠實偵測唯讀資料夾
-
-某些掛載方式下，目錄的權限位元並不可靠——一張 exFAT 記憶卡可能回報看似可寫的權限模式，
-但實體防寫鎖卻讓每一次寫入都失敗。Halcyon 不相信這些權限位元，而是實際在資料夾裡建立
-並刪除一個小檔案來探測可寫性，唯有確認資料夾真的是唯讀時，才會顯示一次性警告。
-<!-- evidence: lib/services/library/photo_status_store.dart:78-91 -->
-<!-- evidence: docs/sop/memory.md AD-009 -->
-<!-- evidence: docs/sop/memory.md G-006 -->
+標記與瀏覽位置指標都透過單一有序佇列儲存，因此兩次儲存絕不會互相競爭而覆蓋彼此。每一次儲存
+都先寫進暫存檔、再更名就定位，因此拔卡或寫到一半當機也絕不會留下寫到一半的檔案——資料夾裡
+永遠只會是完整的舊檔，或完整的新檔，不會是撕裂中的半成品。
 
 #### 重新命名與標記
 
-標記是以檔名為 key，沒有其他身分識別依據。如果照片是透過不經過 Halcyon 內建重新命名
-功能的工具改名，綁在舊檔名上的標記就會靜默孤立——不再對應資料夾裡任何一張照片。
-Halcyon 自己的重新命名功能會在重新命名操作的同時，把狀態檔裡的每一個 key 都重新對應
-到新檔名，藉此避免這個問題，因此星號、垃圾桶標記與瀏覽位置指標都能在 app 內完成的重新
-命名之後存活下來。
-<!-- evidence: docs/sop/memory.md G-011 -->
-<!-- evidence: lib/services/library/photo_status_store.dart:185-203 -->
+標記是綁在檔名上的。如果你用**其他**工具改照片的名字，綁在舊檔名上的標記就會孤立——不再對應
+資料夾裡任何東西。Halcyon 自己的重新命名功能會避免這件事：在重新命名的同時把每個標記（與瀏覽
+位置指標）搬到新檔名上，因此星號與垃圾桶標記都能在 app 內完成的重新命名之後存活下來。
 
 ### 批次操作
 
+一旦你把要留的照片加了星號，Halcyon 就會把它們當成一批來處理：
+
+```mermaid
+flowchart TD
+    A(["已加星號的留存照片"]) --> B{"你想<br/>做什麼？"}
+    B -- "複製／移動" --> C["複製或移動到<br/>目的地資料夾"]
+    B -- "分享" --> D["匯出縮放後的 JPEG<br/>供社群媒體使用"]
+    A2(["標記垃圾桶的照片"]) --> E{"用哪條<br/>刪除路徑？"}
+    E -- "系統垃圾桶<br/>（macOS／Windows）" --> F["可從作業系統的<br/>垃圾桶救回"]
+    E -- "回收模式<br/>（任何平台）" --> G["移到資料夾內的<br/>.trash 子資料夾"]
+
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+
+    class A,A2 start;
+    class B,E decision;
+    class C,F fast;
+    class D,G slow;
+```
+
 #### 複製與移動已加星號的照片
 
-已加星號的照片可以整批複製或移動到指定的目的地資料夾。
-<!-- evidence: lib/services/library/photo_file_actions.dart:50-87 -->
-一張 RAW 檔與其同名的 JPG 姐妹檔會被當成同一個單位一起搬動——星號標記掛在這個項目
-上，而不是掛在單一檔案上——macOS 在某些磁碟（exFAT、網路磁碟）上自動產生的
-AppleDouble 側寫檔，也會一併清除，不會殘留在目的地。
-<!-- evidence: lib/services/library/photo_file_actions.dart:63-84 -->
-<!-- evidence: docs/sop/memory.md G-006 -->
-預設情況下，目的地已存在的檔案會保留不動（略過，而非覆蓋）；批次作業不會因單一失敗
-而中止——其餘每個檔案仍會繼續嘗試，所有失敗都會收集起來顯示給使用者看，不會被靜默
-吞掉。
-<!-- evidence: lib/services/library/photo_file_actions.dart:56-70,28-36 -->
+你加了星號的照片可以整批複製或移動到你選定的資料夾。一張 RAW 與其同名 JPG 會作為同一個單位
+一起搬動（macOS 產生的任何隱藏側車檔也會一併清除，不會殘留在目的地）。若目的地已有同名檔案，
+它會保留不動而非被覆蓋；一次失敗也不會中止整批——其餘每個檔案仍會嘗試，任何失敗都會收集起來
+顯示給你，而不是被靜默吞掉。
 
 #### 社群媒體匯出
 
-已加星號的照片也可以匯出為適合社群媒體的縮圖 JPEG，一個項目對應一個檔案，解碼、縮放、
-重新編碼全部在 Dart 端完成。長邊上限為 `2048` px，維持長寬比，輸出以 JPEG 品質 `90`
-編碼。
-<!-- evidence: lib/services/library/photo_export_service.dart:82,126,141 -->
-核心 EXIF 欄位——相機廠牌/型號、拍攝日期、作者、曝光時間、光圈值、焦距、鏡頭型號、ISO
-與 GPS 座標——會從原始來源檔重新讀出，附加回縮放後的輸出檔；這是一組經過篩選的標籤，
-不是完整中繼資料區塊的複製。
-<!-- evidence: lib/services/library/photo_export_service.dart:144-216 -->
-最多同時執行 `4` 個匯出工作，之所以設這個上限，是因為一次完整的 RAW 解碼可能佔用數百
-MB 記憶體，若讓所有已加星號的項目在大批次中同時解碼，會有記憶體耗盡的風險。
-<!-- evidence: lib/services/library/photo_export_service.dart:218-223,287-288 -->
+已加星號的照片也可以匯出為適合社群媒體尺寸的 JPEG——一張照片一個檔案，長邊上限 2048px，維持
+長寬比，以 JPEG 品質 90 編碼。重要的 EXIF 欄位（相機廠牌與型號、拍攝日期、作者、曝光、光圈、
+焦距、鏡頭、ISO 與 GPS）會從原始檔重新讀出，附加回縮放後的副本。匯出一次只跑幾個，以在大批次
+時控制記憶體用量。
 
 #### 兩種刪除路徑
 
-Halcyon 提供兩種截然不同的刪除方式，而且它們確實是兩種不同的產品體驗：
+Halcyon 提供兩種截然不同的刪除方式：
 
-| 路徑 | 作用 | 平台 |
-|---|---|---|
-| 系統垃圾桶 | 透過原生橋接把檔案移到作業系統的垃圾桶 | macOS、Windows |
-| 資料夾內回收模式 | 把檔案移到照片資料夾內的 `.trash` 子資料夾 | 任何平台 |
+| 路徑 | 作用 | 可救回？ | 平台 |
+|---|---|---|---|
+| 系統垃圾桶 | 把檔案移到作業系統的垃圾桶 | 可，從作業系統垃圾桶救回 | macOS、Windows |
+| 資料夾內回收模式 | 把檔案移到照片旁的 `.trash` 子資料夾 | 可，仍在記憶卡上 | 任何平台 |
 
-系統垃圾桶路徑是由 `halcyon/trash` method channel 支撐的。在 macOS 上，它註冊於
-`AppDelegate.swift`，呼叫 `FileManager.default.trashItem`；在 Windows 上，它註冊於
-`windows/runner/halcyon_channels.cpp`。
-<!-- evidence: macos/Runner/AppDelegate.swift:23-24 -->
-<!-- evidence: windows/runner/halcyon_channels.cpp:49-51 -->
-<!-- evidence: docs/sop/memory.md AD-008 -->
-在 Android、iOS、Linux 與 web 這幾個 runner 目錄中搜尋 `halcyon/trash`，找不到任何
-註冊，因此系統垃圾桶路徑僅限 macOS 與 Windows。資料夾內回收模式是一個使用者可切換、
-以資料夾為單位的預設值（對含有 RAW+JPG 姐妹檔的資料夾會自動開啟），而不是自動的
-後備方案；在沒有原生 channel 的平台上，若選擇直接走系統垃圾桶刪除，會拋出
-`TrashException`，而不是靜默地什麼都不做。
-<!-- evidence: lib/providers/app_state.dart:130,166,287,498-515 -->
-<!-- evidence: lib/services/platform/trash_service.dart:9-19 -->
+回收模式是最保險的選項：它把要丟照片的每一個檔案——包括其 RAW 姊妹檔與任何隱藏側車檔——移到
+照片旁的 `.trash` 子資料夾。因為那是同一個磁碟內的移動，所以是即時的（不複製任何資料），即使
+在系統垃圾桶不可用的記憶卡上也能運作。若檔名與先前的回收批次相撞，檔案絕不會被覆蓋——會依序
+加上 `-1`、`-2` 後綴，直到找到可用的檔名。回收模式以資料夾為單位，對含有 RAW+JPG 配對的資料夾
+會自動開啟；你隨時可以用 `R` 切換。
 
-資料夾內回收模式會把已標記刪除項目的每一個檔案——包括其 RAW 姐妹檔與任何 AppleDouble
-側寫檔——移到照片旁的 `.trash` 子資料夾，不經過作業系統。這是同一個磁碟區內的更名
-操作，因此即使在系統垃圾桶 API 不可用的記憶卡上也能運作，而且因為不涉及資料複製，
-速度是即時的。
-<!-- evidence: lib/services/library/photo_file_actions.dart:114-155 -->
-<!-- evidence: docs/sop/memory.md AD-013 -->
-與先前回收批次的檔名碰撞絕不會被覆蓋：移動程序會依序附加 `-1`、`-2`……直到找到一個
-可用的檔名為止。
-<!-- evidence: lib/services/library/photo_file_actions.dart:157-171 -->
-
-批次刪除的失敗會擋下流程：任何失敗的檔案都會跳出一個對話框，清楚列出哪些檔案失敗及
-原因，因為一次靜默無效的刪除，跟一個壞掉的 app 看起來沒有兩樣。成功的回收模式批次則
-會在狀態列顯示一則暫時性訊息，附上移動的檔案數，提醒使用者這些檔案仍在磁碟上的
-`.trash` 裡，並未被永久刪除。
-<!-- evidence: lib/views/batch_delete_feedback.dart:12-40 -->
+若刪除失敗，Halcyon 會停下來，清楚列出哪些檔案失敗及原因——一次靜默無效的刪除，看起來跟正常
+運作的 app 沒有兩樣。成功的回收模式批次則會顯示一則簡短訊息，附上移動的檔案數，提醒你這些檔案
+仍在磁碟上的 `.trash` 裡，並未被永久刪除。
 
 ---
 
 ## 依 EXIF 重新命名
 
-攝影師依拍攝日期、相機、鏡頭或序號為檔案命名，命名格式通常是自家慣例，不會是相機寫入
-記憶卡的原始檔名。Halcyon 的重新命名功能是一套針對 EXIF 與檔案系統中繼資料的小型樣板引擎：
-寫一次樣板、套用到整個資料夾，每個 RAW 檔、它的 JPG 對應檔，以及任何側車檔（AppleDouble
-格式的 `._DSC_0431.NEF` 之類）都會一起改成相同的新基底檔名。
-<!-- evidence: lib/models/rename_rule.dart:30-35 -->
+攝影師習慣依拍攝日期、相機、鏡頭或序號為檔案命名，而且命名格式通常是自家慣例，不會是相機
+寫入記憶卡的原始檔名。Halcyon 的重新命名功能讓你寫一次命名樣板，就能套用到整個資料夾。每個
+RAW 檔、它的 JPG 對應檔，以及任何隱藏的側車檔，都會一起改成相同的新基底檔名，所以 RAW+JPG
+配對絕不會被拆散。
 
-### 樣板模型
+### 樣板怎麼運作
 
-規則就是一個字串樣板，例如 `{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}`。渲染樣板是純函式——完全不
-碰檔案系統——因此整套命名策略無需在硬碟上放任何照片就能單元測試。
-<!-- evidence: lib/models/rename_rule.dart:30-39 -->
+樣板就是一段夾帶 `{佔位符}` 的文字，例如 `{YYYY}-{MM}-{DD}-{hh}-{mm}-{ss}`。Halcyon 會用
+照片的 EXIF 中繼資料（日期則以檔案本身的時間戳作為後備）填入每個佔位符。以下是你可以使用的
+所有佔位符，分組方式與「Insert variable」面板一致：
 
-渲染器認得的每個 `{token}`，分組方式與規則編輯器「Insert variable」面板完全一致：
-<!-- evidence: lib/views/rename_dialog/rule_editor.dart:70-90 -->
-
-| 分組 | 變數 | 對應內容 | 範例 |
+| 分組 | 佔位符 | 會變成什麼 | 範例 |
 |---|---|---|---|
-| Date/time | `{YYYY}` | 拍攝年份，4 位數 | `2026` |
-| Date/time | `{MM}` | 拍攝月份，2 位數 | `08` |
-| Date/time | `{DD}` | 拍攝日期，2 位數 | `26` |
-| Date/time | `{hh}` | 拍攝小時，2 位數 | `14` |
-| Date/time | `{mm}` | 拍攝分鐘，2 位數 | `07` |
-| Date/time | `{ss}` | 拍攝秒數，2 位數 | `33` |
-| Camera | `{camera}` | EXIF 相機型號，缺值為空字串 | `Z 8` |
-| Camera | `{lens}` | EXIF 鏡頭型號，缺值為空字串 | `NIKKOR Z 24-70mm f_2.8 S` |
-| Camera | `{make}` | EXIF 相機製造商，缺值為空字串 | `NIKON CORPORATION` |
-| Camera | `{artist}` | EXIF artist/copyright 標籤，缺值為空字串 | `J. Chen` |
-| Shooting | `{f}` | 光圈值，格式為 `f<數值>`，缺值為空字串 | `f2.8` |
-| Shooting | `{focal}` | 焦距，格式為 `<數值>mm`，缺值為空字串 | `35mm` |
-| Shooting | `{iso}` | ISO 值，格式為 `ISO<數值>`，缺值為空字串 | `ISO400` |
-| Shooting | `{shutter}` | 快門速度，依 EXIF 印出的原始寫法，缺值為空字串 | `1/250` |
-| Shooting | `{direction}` | GPS 拍攝方向，四捨五入至整數度，缺值為空字串 | `187` |
-| File | `{seq}` | 在套用 `{seq}` 前渲染結果相同（會碰撞）的檔案之間，依 1 起算的序號；支援補零寬度，如 `{seq:3}` → `007` | `1` |
-| File | `{orig}` | 原始檔名的基底（不含副檔名） | `DSC_0431` |
-<!-- evidence: lib/models/rename_rule.dart:50-124 -->
+| 日期與時間 | `{YYYY}` | 拍攝年份，4 位數 | `2026` |
+| 日期與時間 | `{MM}` | 拍攝月份，2 位數 | `08` |
+| 日期與時間 | `{DD}` | 拍攝日期，2 位數 | `26` |
+| 日期與時間 | `{hh}` | 拍攝小時，2 位數 | `14` |
+| 日期與時間 | `{mm}` | 拍攝分鐘，2 位數 | `07` |
+| 日期與時間 | `{ss}` | 拍攝秒數，2 位數 | `33` |
+| 相機 | `{camera}` | 相機型號 | `Z 8` |
+| 相機 | `{lens}` | 鏡頭型號 | `NIKKOR Z 24-70mm f_2.8 S` |
+| 相機 | `{make}` | 相機製造商 | `NIKON CORPORATION` |
+| 相機 | `{artist}` | 作者／版權標籤 | `J. Chen` |
+| 拍攝參數 | `{f}` | 光圈，格式為 `f<數值>` | `f2.8` |
+| 拍攝參數 | `{focal}` | 焦距，格式為 `<數值>mm` | `35mm` |
+| 拍攝參數 | `{iso}` | ISO，格式為 `ISO<數值>` | `ISO400` |
+| 拍攝參數 | `{shutter}` | 快門速度 | `1/250` |
+| 拍攝參數 | `{direction}` | GPS 拍攝方向，取整數度 | `187` |
+| 檔案 | `{seq}` | 會撞名的檔案之間的序號；可補零，如 `{seq:3}` → `007` | `1` |
+| 檔案 | `{orig}` | 原始檔名（不含副檔名） | `DSC_0431` |
 
-EXIF 沒有拍攝日期（或整個 EXIF 讀取失敗）時，日期/時間欄位會退回使用檔案的檔案系統
-修改時間——渲染器一定有某個日期可用，只是在這種情況下不一定是實際拍攝日期。
-<!-- evidence: lib/models/rename_rule.dart:96 -->
+有幾點值得知道：
 
-任何沒有 EXIF 值的欄位會渲染為空字串，而不是佔位符——重新命名對話框的預覽清單也明白寫著
-「缺失的中繼資料會渲染為空字串」。
-<!-- evidence: lib/models/rename_rule.dart:107-119 -->
-<!-- evidence: lib/views/rename_dialog/preview_list.dart:87-92 -->
+- **日期一定填得出來**——EXIF 沒有拍攝日期或讀不到時，日期與時間佔位符退回檔案的修改時間。
+- **缺失的標籤會留白**，不會把 `{camera}` 原封不動留在檔名裡。
+- **打錯字會在動手前被攔下**——用到未知佔位符的樣板會標示「Unknown variable {name}」，
+  「Run」按鈕維持停用。
+- **檔名一定合法**——會破壞檔名的字元（`/`、`:`、`\`、NUL）替換成 `_`，所以 `1/250` 這樣的
+  快門速度不會不小心建出子資料夾。
 
-樣板中若含有這張表以外的任何 token，在能執行之前就會被拒絕：編輯器會顯示「Unknown
-variable {name}」，且「Run」按鈕會被停用。
-<!-- evidence: lib/models/rename_rule.dart:65-77 -->
-<!-- evidence: lib/views/rename_dialog/actions.dart:52-53 -->
+### 內建預設樣板
 
-渲染出來的檔名會經過檔案系統安全性清理：`/`、`:`、`\` 與 NUL 一律替換為 `_`（`:` 之所以
-重要，是因為它在傳統 Mac OS 層是路徑分隔符，在 Finder 裡仍會顯示成 `/`，而 `1/250` 這類
-未經處理的快門速度渲染結果，本會建立出一個子目錄），並移除頭尾的空白與句點。
-<!-- evidence: lib/models/rename_rule.dart:128-134 -->
-
-### 預設樣板
-
-應用程式內建四組預設樣板，可在對話框的預設清單中選取。以一張 2026-08-26 14:07:33 拍攝、
-基底檔名為 `DSC_0431`、且不與其他項目在中繼資料上碰撞（`{seq}` = 1）的檔案為例，渲染結果
-如下：
+應用程式內建四組現成的預設樣板。以一張 2026-08-26 14:07:33 拍攝、原始檔名為 `DSC_0431`
+的照片為例，渲染結果如下：
 
 | 預設 | 樣板 | 渲染範例 |
 |---|---|---|
@@ -440,635 +367,287 @@ variable {name}」，且「Run」按鈕會被停用。
 | Compact | `{YYYY}{MM}{DD}_{hh}{mm}{ss}` | `20260826_140733` |
 | Camera-style | `IMG_{YYYY}{MM}{DD}_{hh}{mm}{ss}` | `IMG_20260826_140733` |
 | Date + sequence | `{YYYY}-{MM}-{DD}_{seq}` | `2026-08-26_1` |
-<!-- evidence: lib/models/rename_rule.dart:43-48 -->
 
-「Date & time」同時也是全新對話框開啟時的預設樣板。
-<!-- evidence: lib/models/rename_rule.dart:41 -->
-<!-- evidence: lib/views/rename_dialog/rename_dialog.dart:33-35 -->
-
-在選取某個預設樣板的狀態下編輯樣板文字（或插入變數 chip），選取狀態會切換到名為
-`Custom...` 的偽預設項目；只有自訂規則會依資料夾記住，重新開啟一個最後一次是以自訂規則
-重新命名過的資料夾時，會還原成當初那個確切的樣板。
-<!-- evidence: lib/views/rename_dialog/rename_dialog.dart:61-70 -->
-<!-- evidence: lib/views/rename_dialog/rename_dialog.dart:101-113 -->
+「Date & time」也是全新對話框開啟時的預設樣板。一旦你編輯了樣板文字（或點了變數 chip），
+選取狀態就會切換到 `Custom...`。你的自訂規則會依資料夾記住——重新開啟一個上次以自訂規則
+重新命名過的資料夾，那個確切的樣板就會回來。
 
 ### 對話框與即時預覽
 
-對話框分為兩個窗格：左側是預設選擇器、規則文字欄位與變數 chip（`RuleEditor`），右側是
-即時預覽清單（`RenamePreviewList`）。開啟對話框時會從目前資料夾隨機抽取五個項目，並讀取
-一次它們的 EXIF；規則欄位每次按鍵都會針對這已讀取的中繼資料重新渲染這五列預覽，不會重新
-讀取 EXIF。
-<!-- evidence: lib/views/rename_dialog/rename_dialog.dart:72-84 -->
-<!-- evidence: lib/views/rename_dialog/preview_list.dart:98-107 -->
+重新命名對話框分為兩個窗格：左側是預設選擇器、樣板欄位與變數 chip，右側是即時預覽。
 
-「Re-roll」控制項會重新抽取五個隨機項目並重新讀取一次中繼資料。每一列預覽會顯示目前檔名
-（加上刪除線）、一個箭頭、渲染後的新基底檔名加上副檔名、該項目擁有的每個附屬副檔名各一個
-徽章（讓使用者在送出前就能看到 RAW+JPG 這類配對會一起移動），以及當樣板引用 `{camera}`
-而此項目沒有該標籤時的「no camera tag」徽章。
-<!-- evidence: lib/views/rename_dialog/preview_list.dart:98-116 -->
+```mermaid
+flowchart TD
+    A(["開啟重新命名對話框"]) --> B["Halcyon 抽樣五張照片<br/>並讀取一次它們的 EXIF"]
+    B --> C["選一個預設<br/>或自己輸入樣板"]
+    C --> D{"樣板有效嗎？"}
+    D -- "有效" --> E["即時預覽立刻更新<br/>逐張顯示 舊檔名 → 新檔名"]
+    D -- "無效（打錯字／空白）" --> F["Run 按鈕停用<br/>編輯器顯示錯誤"]
+    E --> G["按下 Run Rename<br/>套用到整個資料夾"]
+    F --> C
+    G --> H(["檔案已重新命名<br/>可還原（Undo）"])
 
-只要目前樣板有驗證錯誤（未知變數、空樣板，或渲染結果為空字串的樣板），「Run Rename」按鈕
-就會被停用，無效規則因此無法套用。
-<!-- evidence: lib/models/rename_rule.dart:73-87 -->
-<!-- evidence: lib/views/rename_dialog/actions.dart:52-53 -->
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+    classDef limited fill:#fda4af,stroke:#fb7185,stroke-width:2px,color:#40101a;
+    classDef done fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
 
-此對話框只能套用到整個資料夾——沒有逐項選取，頁尾也明白寫著項目數量是套用到整個資料夾。
-<!-- evidence: lib/views/rename_dialog/rename_dialog.dart:200 -->
-<!-- evidence: lib/views/rename_dialog/actions.dart:29-34 -->
+    class A start;
+    class D decision;
+    class B,C,E slow;
+    class G fast;
+    class F limited;
+    class H done;
+```
 
-### EXIF 從哪裡來，以及成本模型
+初次讀取後，樣板欄位每次按鍵都會立即重新渲染這五列預覽，不會重新讀取中繼資料，所以即使是
+大型資料夾，打字也保持流暢。「Re-roll」按鈕會重新抽取五張隨機照片並重新讀取中繼資料。
 
-EXIF 是以「每個項目一次」而非「每個檔案一次」讀取：`PhotoItem.bestFileToLoad` 選出要讀取
-EXIF 的來源檔案，執行重新命名時，這單一一次讀取結果會套用到該群組中的每一個附屬檔案（RAW、
-JPG、側車檔）。
-<!-- evidence: docs/sop/memory.md AD-017 -->
-<!-- evidence: lib/providers/app_state.dart:547-564 -->
+每一列預覽顯示舊檔名 → 新檔名，加上附屬副檔名徽章（讓你在送出前看到 RAW+JPG 配對會一起
+移動）與「no camera tag」徽章。重新命名一律套用到整個資料夾，沒有逐項選取。
 
-`bestFileToLoad` 在有 `.jpg`/`.jpeg`/`.png` 對應檔時會優先選它，而不是 RAW 檔本身；找不到
-時退回本應用程式可解碼的第一個檔案，若群組內完全沒有可解碼的檔案，再退回該群組的第一個檔案。
-<!-- evidence: lib/models/supported_photo_formats.dart:18-22 -->
-<!-- evidence: lib/models/supported_photo_formats.dart:45-61 -->
+### EXIF 從哪裡來
 
-使用者可見的後果是：沒有 JPG 對應檔的 RAW 拍攝，EXIF 會直接透過 `exif` 套件從 RAW 檔
-自己的檔頭讀取，且因為解析 RAW 檔頭需要掃描數 MB 的資料，這個讀取會在 UI isolate 之外執行。
-若這次讀取失敗，或該 RAW 格式的檔頭不是 `exif` 套件能解析的格式，該項目的中繼資料就會是
-`null`，樣板中的每個 EXIF token 對它而言都會渲染為空字串——只有日期/時間 token 仍會解出
-結果，退回使用該檔案的修改時間。
-<!-- evidence: lib/services/rename/exif_metadata_service.dart:66-75 -->
-<!-- evidence: lib/models/rename_rule.dart:96 -->
+Halcyon 以「每張照片一次」讀取 EXIF，涵蓋 RAW、JPG 對應檔與側車檔整組；有 JPG 對應檔時優先
+從它讀取，否則讀 RAW 檔頭。讀取 RAW 檔頭在背景分批執行、狀態列顯示進度，不會凍結介面。
 
-EXIF 讀取以每批 500 個路徑為單位分批進行，讓大型資料夾仍能回報漸進式進度，不會卡在單一
-巨大批次上；對話框會將此進度顯示為狀態列文字「讀取 EXIF *done/total*…」。
-<!-- evidence: lib/services/rename/exif_metadata_service.dart:18-42 -->
-<!-- evidence: lib/services/rename/rename_coordinator.dart:86-91 -->
+若 RAW 格式的檔頭無法解析，該照片的 EXIF 佔位符留白，但日期與時間仍從檔案時間戳解出。
 
-### 如何套用重新命名
+### 套用重新命名——以及還原
 
-命名策略與檔案 I/O 是兩個各自獨立的函式：`planRenames` 在完全不碰硬碟的情況下計算每一步
-搬移動作，只有 `applyRenames` 才會真正執行 `File.rename` 呼叫。`planRenames` 是純函式，因此
-整套碰撞規避策略無需在硬碟上放任何照片就能測試。
-<!-- evidence: docs/sop/memory.md AD-016 -->
-<!-- evidence: lib/services/rename/rename_service.dart:32-41 -->
+按下 Run 後，Halcyon 先算出每一步搬移，再逐一執行：
 
-重新命名以序列方式逐一計畫執行。`File.rename` 是同一 volume 內的中繼資料操作，平行化沒有
-效益，反而會讓 planner 的碰撞規避退化成 race。
-<!-- evidence: lib/services/rename/rename_service.dart:143-146 -->
+- 會撞名的照片以 `{seq}` 編號，順序穩定；仍衝突的附加 `-1`、`-2`…… 後綴。
+- 新檔名與目前檔名相同的照片會整個略過。
+- 屬於同一張照片的所有檔案都改成相同基底檔名並各自保留副檔名，配對不會被拆開。
 
-**實作中的碰撞規則。** 項目先依它們在 `{seq}` = 1 時會渲染出的結果分組；同一組內每個彼此
-碰撞的項目，會依排序後的項目 id 取得其在組內的位置，指派一個確定性的、1 起算的序號——因此
-編號結果不受掃描順序影響。若最終候選檔名仍與資料夾中已存在的檔名（或本批次中已被稍早項目
-佔用的檔名）碰撞，就會附加數字後綴 `-1`、`-2`……直到取得未被佔用的檔名為止。若某項目最終
-渲染出的檔名與它目前的檔名相同，就會從計畫中剔除——沒有實際變化的重新命名不會產生一筆
-undo 紀錄。
-<!-- evidence: lib/services/rename/rename_service.dart:58-85 -->
-
-屬於同一個項目的所有檔案——RAW 檔、JPG 對應檔，以及資料夾中若存在的 AppleDouble 側車檔
-（`._<name>`）——都會改成相同的新基底檔名，各自保留原本的副檔名，因此 RAW+JPG 配對或
-RAW+側車檔配對在重新命名過程中絕不會被拆散。
-<!-- evidence: lib/services/rename/rename_service.dart:87-105 -->
-
-每一步搬移動作在完成的當下就會被附加寫入資料夾中的 `.halcyon_rename_log.jsonl`（這是一個
-只附加、一行一個 JSON 物件的日誌，而不是每次重寫整個陣列，因此批次執行到一半當機也不會
-損毀或遺失先前的搬移紀錄），這也是對話框「Undo」動作背後的機制——日誌會被倒著重播，然後
-刪除。
-<!-- evidence: lib/services/rename/rename_service.dart:123-192 -->
-<!-- evidence: lib/services/rename/rename_service.dart:194-244 -->
-
-`.halcyon_status.json`（星號、垃圾桶標記、最後檢視的 id）是以檔名為 key，所以協調器會在
-每次重新命名批次完成後、以及每次還原（undo，方向相反）之後，立即重新映射每一個變動過的
-key——否則每一個標記都會靜默孤立在一個已不存在的檔名底下。
-<!-- evidence: docs/sop/memory.md G-011 -->
-<!-- evidence: lib/services/rename/rename_coordinator.dart:136-141 -->
-<!-- evidence: lib/services/rename/rename_coordinator.dart:182-189 -->
-
-若 Halcyon 已判定某資料夾無法寫入，重新命名對話框本身就無法開啟——對話框自己的頁尾也
-明白寫著這一點。
-<!-- evidence: lib/views/rename_dialog/actions.dart:29-34 -->
+每一步搬移都會寫入日誌，這正是**還原（Undo）**的機制（倒著重播日誌）。星號／垃圾桶標記與
+最後檢視的照片會自動跟著移動。無法寫入的資料夾無法開啟重新命名對話框。
 
 ### 已知限制
 
-- 沒有對應 EXIF 標籤的欄位——或整個 EXIF 根本讀取失敗的照片——會在檔名該位置渲染為空
-  字串；樣板不會退回使用其他欄位。
-  <!-- evidence: lib/models/rename_rule.dart:107-119 -->
-- 只有 RAW、沒有 JPG 對應檔的項目，其 EXIF 完全仰賴 `exif` 套件能否解析該 RAW 檔自己的
-  檔頭；這條路徑上沒有專用的 RAW EXIF 解析器，若某個 RAW 格式是該套件無法解析的，該項目
-  就得不到任何中繼資料，而不是部分讀取結果。
-  <!-- evidence: lib/services/rename/exif_metadata_service.dart:66-93 -->
+- 沒有對應 EXIF 標籤的佔位符會留白，不會改用其他欄位替代。
+- 沒有 JPG 對應檔且檔頭無法解析的 RAW，得不到任何相機中繼資料。
 
 ---
 
 ## RAW 格式支援與解碼路由
 
-一張照片會不會出現、又會怎麼被轉換成像素，取決於兩件各自獨立的事：Halcyon 的資料夾掃描
-器實際列出了哪些檔案，以及這些檔案裡有多少張是姊妹解碼引擎 Ceyx 真的懂得解碼。這兩個集合
-並不相同，兩者之間的落差，對任何把 Halcyon 指向相機原始檔資料夾的人都很重要。
+Halcyon 幾乎支援所有主流相機的 RAW 格式，也支援通用的 Adobe DNG：
 
-### Halcyon 掃描並列出哪些檔案
-
-側欄只顯示副檔名列在 `SupportedPhotoFormats.supportedExtensions` 裡的檔案，這項檢查在
-資料夾掃描時對每個目錄項目各跑一次。自 2026-08-26 的 RAW 涵蓋率契約起，這份清單不再手寫，
-而是在執行期由 Ceyx 自己的 `kSupportedDecodeExtensions` 常數**推導**而來，聯集一組小型
-手寫的 browse-only 集合與兩種已編碼位元流副檔名：
-
-| 副檔名 | 分類 |
-|---|---|
-| `.jpg`, `.jpeg` | 已編碼位元流 |
-| `.png` | 已編碼位元流 |
-| `.dng`、`.arw`、`.cr3`、`.nef`、`.raf`、`.rw2`、`.orf`、`.pef`、`.srw`、`.x3f` | RAW，引擎可解碼——由 Ceyx 的 `kSupportedDecodeExtensions` 推導而來 |
-| `.cr2`、`.iiq`、`.mrw` | RAW，僅可瀏覽——Ceyx 完全無法解碼這些容器（契約裁決 D2）；它們仍可被掃描、加星號、批次搬移，載入器也會對它們嘗試與其他 RAW 相同的內嵌預覽路徑——這個嘗試能不能真的找到可用預覽，取決於各廠牌檔案自身的版面配置，這份白名單條目本身不保證找得到 |
-
-<!-- evidence: lib/models/supported_photo_formats.dart:6-32 -->
-
-改用推導而非手寫清單，是為了讓 Ceyx 未來新增的能力自動觸達 Halcyon 瀏覽的每一個檔案，不必
-再靠人記得同步編輯這份清單。這正是先前手寫清單失敗過的地方——Panasonic 的 `.rw2` 曾靜默
-漏列在清單外，直到缺口被發現並修補（`docs/sop/memory.md` G-007）——而由引擎自身能力常數
-推導出的白名單，不可能再以同樣方式與引擎失去同步。
-<!-- evidence: docs/sop/memory.md G-007 -->
-
-`PhotoLibraryScanner.scan` 會在任何目錄項目被分組成 `PhotoItem` 之前，先丟掉未通過
-`SupportedPhotoFormats.isSupportedPath` 的項目，因此不在清單上的副檔名永遠不會進入應用
-程式後續任何階段，無論是否涉及解碼。
-<!-- evidence: lib/services/library/photo_library_scanner.dart:11-16 -->
-
-同一組共用檔名（basename）的檔案中（例如同一次快門寫出的一張 JPG 與一張 RAW），
-`SupportedPhotoFormats.preferredLoadExtensions`（依序為 `.jpg`、`.jpeg`、`.png`）決定
-哪個檔案優先載入；純 RAW 的組別則退回為該組中第一個受支援的檔案。
-<!-- evidence: lib/models/supported_photo_formats.dart:34-46,56-72 -->
-
-### Ceyx 能解碼哪些格式
-
-RAW 解碼能力歸屬於 Ceyx，不屬於 Halcyon。它靠探測檔案表頭將每個檔案路由到兩個前端之一
-——絕不比對副檔名：
-
-| 路由 | 容器 | 前端 |
+| 相機品牌 | 格式 | 顯示方式 |
 |---|---|---|
-| DNG | 以 TIFF 為基礎、IFD0 中帶有 `DNGVersion` 標籤 | Adobe DNG SDK |
-| 通用 RAW | ARW、CR3、NEF、RAF、ORF、RW2、PEF、SRW、X3F | LibRaw，並以 RawSpeed3 作為優先解碼後端 |
+| Sony | ARW | 完整解碼 |
+| Canon | CR3 | 完整解碼 |
+| Nikon | NEF | 完整解碼 |
+| Fujifilm | RAF | 完整解碼 |
+| Panasonic | RW2 | 完整解碼 |
+| Olympus | ORF | 完整解碼 |
+| Pentax | PEF | 完整解碼 |
+| Samsung | SRW | 完整解碼 |
+| Sigma | X3F | 完整解碼 |
+| Adobe（通用） | DNG | 完整解碼 |
+| Canon（較舊） | CR2 | 僅縮圖瀏覽 |
+| Phase One | IIQ | 僅縮圖瀏覽 |
+| Minolta | MRW | 僅縮圖瀏覽 |
 
-<!-- evidence: ceyx README.md:69-76; ../ceyx/plugin/lib/src/raw_route.dart -->
+「僅縮圖瀏覽」的三種格式一樣可以打星、刪除、搬移，只是目前還看不到完整解碼後的畫質。
 
-**CR2、IIQ 與 MRW 不在這份清單裡。** Canon 較舊的 CR2 容器、Phase One IIQ 與 Minolta MRW
-是 Ceyx 完全無法解碼的格式；Halcyon 仍然列出它們（契約裁決 D2，「保留可瀏覽——移除等於能
-力倒退」），並讓它們走與其他無解碼路由 RAW 相同的內嵌預覽嘗試。這個嘗試不保證成功：能不
-能成功取決於 walker 認不認得該容器自己的預覽標籤，而真實 CR2 檔案這一點尚未證實——語料庫
-裡沒有 CR2 樣本，也不確定真實 CR2 內嵌預覽是否使用 walker 尋找候選圖所依賴的標籤。本文件
-的任何敘述都不應被讀成「已經觀察到真實 CR2 檔案在 Halcyon 中顯示內嵌預覽」；程式碼只是會
-嘗試，不會落到解碼。
+大部分情況下你不會感覺到差異：Halcyon 會自動判斷用哪種方式顯示照片。
 
-Fujifilm 的 X-Trans 與 Sigma 的 Foveon X3F 都可解碼，這不是與清單其他部分分開的另一個問
-題：Ceyx 的 GPU 派工在檔案解包之後，依感光元件排列方式決定（Bayer 2×2 對應絕大多數 RGGB
-家族、X-Trans 6×6 對應 Fujifilm、線性 RGB/無彩色濾鏡陣列對應 Foveon)，這兩種非 Bayer 排
-列都已有可運作的 GPU 路徑——不存在「支不支援」的懸而未決問題，只有已解碼檔案該落在哪一種
-排列派工上的問題。
-<!-- evidence: ceyx README.md:107-117 -->
+```mermaid
+flowchart TD
+    A(["開啟一張 RAW 照片"]) --> B{"檔案裡有現成的<br/>預覽縮圖嗎？"}
+    B -- "有，而且夠大張" --> C["直接讀取內建預覽<br/>速度快"]
+    B -- "沒有，或太小張" --> D{"這個格式<br/>支援完整解碼嗎？"}
+    D -- "支援" --> E["完整解碼 RAW 感光資料<br/>速度較慢、畫質完整"]
+    D -- "不支援（CR2／IIQ／MRW）" --> F["顯示縮圖<br/>無法看到完整畫質"]
+    C --> G(["照片顯示在畫面上"])
+    E --> G
+    F --> G
 
-### 完整 RAW 解碼路由
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+    classDef limited fill:#fda4af,stroke:#fb7185,stroke-width:2px,color:#40101a;
+    classDef done fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
 
-過去有兩個 Halcyon 端的落差，卡在「Ceyx 能解碼這個容器」與「Halcyon 真的會請它解碼」之間
-：較窄的掃描白名單（已於上文關閉）與一個硬編碼到 `.dng` 的解碼路由決策。本契約下兩者都已
-關閉。
+    class A start;
+    class B,D decision;
+    class C fast;
+    class E slow;
+    class F limited;
+    class G done;
+```
 
-解碼派工本身——把檔案交給 Ceyx 解碼器的那段程式碼，發生在載入器已經判定「這需要真正的 RAW
-解碼」之後——在這一輪之前**就已經與格式無關**；狀態協調器與預載控制器全尺寸那一半內都沒
-有 `.dng` 專屬分支。整個路由缺口只存在於一處：純 Dart 的影像載入器過去只在路徑以 `.dng`
-結尾時才發出「需要 RAW 解碼」訊號，導致其他每一個缺乏可用內嵌預覽的 RAW 副檔名都落到
-`RAW_NO_EMBEDDED_PREVIEW` 失敗，從未真正抵達解碼器。這道閘現在改成
-`SupportedPhotoFormats.isDecodablePath`——對 Ceyx 能力常數內的每個副檔名為真，對 D2
-browse-only 集合與其餘一切為假——因此該訊號會對任何引擎可解碼的 RAW 觸發，不只 DNG。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:12-27,126-137; lib/services/image_pipeline/photo_source.dart:143-163 -->
+簡單說：
 
-過去同樣寫死 `.dng` 的兩道守衛，也一併重新推導到同一道閘上，而非留在舊行為裡：把尺寸不足
-的預覽候選圖送去解碼、而非直接端出的最小長邊嚴格性（`docs/sop/memory.md` AD-021），以及
-「容器只宣告了讀不到的候選圖」的 malformed 判定（`docs/sop/memory.md` AD-022）。兩者現在
-都適用於每個引擎可解碼的 RAW，不只 DNG；browse-only RAW（D2）刻意被排除在外，因為在那裡
-拒絕一個候選圖，除了落到 `RAW_NO_EMBEDDED_PREVIEW` 之外沒有其他去處——沒有解碼器在另一端
-等著。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:69-137 -->
+- **有內建預覽 → 用預覽**：很多 RAW 檔（尤其是用 Lightroom 或 DxO PureRAW 處理過的 DNG，還有 Panasonic 的 RW2）裡面其實藏著一張現成的 JPEG 縮圖，Halcyon 找得到就直接用。
+- **沒有內建預覽 → 完整解碼**：找不到夠大張的預覽，且格式支援完整解碼，就去解完整的 RAW 資料，畫質更完整但稍微慢一點。
+- **格式不支援完整解碼 → 只能看縮圖**：CR2、IIQ、MRW 目前只能瀏覽，還沒辦法完整解碼。
 
-**順手修好的一個既有 bug。** 側欄縮圖的 RAW 解碼備援，過去的閘門是「這是不是 RAW 檔」，而
-非「引擎能不能解碼這個 RAW 檔」，導致每次資料夾載入都會對 browse-only RAW
-（`.cr2`/`.iiq`/`.mrw`）觸發一次注定失敗的原生解碼呼叫——這個呼叫永遠不會成功，被靜默吞
-掉後退化成一格空白的側欄縮圖。這道閘現在改用與其他地方相同的 `isDecodablePath` 檢查：程
-式碼仍會嘗試解碼的格式，從來就稱不上真正的 browse-only。
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:875-888 -->
+平台支援現況：
 
-### Panasonic RW2：另一種容器版面，不只是版本字不同
+| 平台 | 完整 RAW 解碼 |
+|---|---|
+| macOS | ✅ 支援 |
+| Windows | ✅ 支援 |
+| Android | ✅ 支援 |
+| Linux | ✅ 支援 |
+| iOS | ⏳ 尚未支援 |
+| 網頁版 | ⏳ 尚未支援 |
 
-接受 Panasonic 的 TIFF 版本字（85，相對於 Adobe/標準的 42）是必要條件，但還不夠。RW2 的
-IFD0 是一條普通的 TIFF 鏈，卻不帶 walker 原本尋找候選圖所依賴的六個標籤中任何一個
-(Compression、PhotometricInterpretation、寬/高、StripOffsets/StripByteCounts)——它的
-內嵌預覽是整段 JPEG 位元流直接塞在兩個廠商標籤裡（`0x002E`「JpgFromRaw」小圖、`0x0127`
-「JpgFromRaw2」全尺寸圖），尺寸不寫在 IFD 任何地方。walker 現在會對每個 blob 自己的 JPEG
-frame header 做有界掃描以取得尺寸，並在判斷候選圖是否為全尺寸時，退回使用 Panasonic 自己
-的寬高 IFD 標籤（而非 RW2 沒有的 Adobe `DefaultCropSize` 標籤）。
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:19-24,314-327,731-834 -->
-
-在真實樣本檔
-（`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/2026-08-10-17-47-27.rw2`）上，
-全尺寸預覽路徑選中 `0x0127` blob——6000×4000，3,593,728 bytes——側欄路徑選中較小的
-`0x002E` blob——1920×1280——探測成本實測為 24,578 bytes、共 4 次讀取。
-<!-- evidence: test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart:396-448 -->
-
-非 TIFF 的 RAW 容器（Fujifilm RAF、Sigma X3F、Canon CR3）刻意不由這個 walker 處理；它們
-本來就不是以 TIFF 為基礎，直接抵達 Ceyx 解碼器即可。
-
-### 此平台無原生解碼器的狀態（D3）
-
-並非 Halcyon 支援的每個平台都能使用完整 RAW 解碼。建置腳本的原生函式庫對照表，只為
-macOS、Windows 與 Android 建置並封裝 Ceyx 解碼器函式庫；不在這張表裡的目標平台就沒有原生
-解碼器，而該表明確點名 iOS、Linux 與 web 屬於這類目標平台。
-<!-- evidence: scripts/build_apps.py:265-290 -->
-
-在這三個平台上，需要真正解碼（沒有可用內嵌預覽）的 RAW 檔案，現在在內部與一般解碼失敗是
-可以區分的。純 Dart 載入器依然不做任何 `Platform` 檢查：它照樣發出一般的「需要 RAW 解碼」
-訊號，由持有 decoder seam 的那一層在嘗試任何動作**之前**偵測到解碼器缺席，並記錄為帶有
-`NO_NATIVE_DECODER` 代碼的 `NativeImageFailure`——這是靜態的平台屬性，絕非從捕捉到的例
-外推斷出來，也絕不會與存在但對壞資料拋出例外的解碼器混淆。`NativeImageResult` 仍然只有三
-個變體；這只是表達在既有失敗變體上的一個失敗代碼，不是第四個變體（`docs/sop/memory.md`
-AD-010/AD-011）。**這只是資料層級的區分**：目前 app 的 views 裡沒有任何地方讀取這個代碼，
-所以這個項目呈現的方式與其他永久失敗完全相同，沒有「此平台無原生解碼器」的專屬畫面訊息。
-<!-- evidence: lib/services/image_pipeline/image_source_types.dart:120-132; lib/services/image_pipeline/photo_source.dart:147-162; lib/services/image_pipeline/image_preload_controller.dart:297,309-316; lib/providers/app_state.dart:219 -->
-
-### 兩條讀取路徑
-
-Halcyon 用三種方式之一顯示一張 RAW 照片的像素，選哪一條在任何 GPU 運算開始之前就已經決
-定。下文的路徑二，依賴只在 macOS、Windows 與 Android 上才有的原生 Ceyx 函式庫（見上方「此
-平台無原生解碼器的狀態（D3）」）；在 iOS、Linux 與 web 上，沒有可用內嵌預覽的引擎可解碼
-RAW 會回報 D3 狀態，而不會執行路徑二。
-
-**路徑一——內嵌預覽。** 許多 RAW 容器（尤其是 Lightroom Classic 或 DxO PureRAW 產出的
-DNG，以及透過廠商標籤 blob 的 Panasonic RW2）在感光元件資料旁還帶著一張或多張 JPEG 成品。
-一旦找到大小足以滿足請求的候選圖，Halcyon 會直接讀取那張 JPEG——一次有邊界檢查的定位讀取
-（seek）與切片，完全不對 RAW 馬賽克做影像解碼——並徹底跳過 RAW 解碼。
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:6-24 -->
-
-**路徑二——完整 RAW 解碼。** 當沒有任何預覽候選圖符合條件、且該副檔名在 Ceyx 可解碼集合
-內時，檔案會交給 Ceyx 的解碼器（`DngFullDecoder` seam；這個名字早於本輪的一般化改動，不
-在本輪重新命名範圍內——見 `docs/sop/memory.md` AD-032 的架構決策條目）。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-195; lib/services/image_pipeline/photo_source.dart:143-192 -->
-
-**路徑三——此平台無原生解碼器（D3）。** 在 iOS、Linux 與 web 上，路徑二完全無法執行；原
-本需要它的 RAW 會在內部被記錄為上述的 `NO_NATIVE_DECODER` 代碼，不會有另外的畫面呈現。
-
-決定走路徑一或路徑二的規則是最小長邊要求，而且刻意不統一套用。任何引擎可解碼 RAW 的
-`preview` 請求用途（長邊 2800px）會把這個值當作 `minLongEdge` 傳入：若選中的候選圖長邊小
-於 2800px，就直接被拒絕，改把該檔案送進路徑二，而不是端出尺寸不足的圖像。
-<!-- evidence: lib/services/image_pipeline/image_source_types.dart:19; lib/services/image_pipeline/dart_image_loader.dart:126-137 -->
-
-側欄縮圖路徑刻意不套用這個下限：它維持「先選最小、再退而求其次選最大」的寬鬆候選圖選擇邏
-輯，讓縮圖永遠不會落到需要完整 RAW 解碼的地步。
-<!-- evidence: lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:96-100; lib/services/image_pipeline/dart_image_loader.dart:58-67; docs/sop/memory.md AD-021 -->
-
-`PhotoExportService.exportBytesFor` 以 `preview` 這個用途呼叫載入器——正是嚴格下限所依
-據的同一個用途——因此這個下限現在同樣適用於匯出：最佳內嵌候選圖長邊不到 2800px 的匯出來
-源，會被送進完整 RAW 解碼，而不是以較小尺寸匯出。
-<!-- evidence: lib/services/library/photo_export_service.dart:53-58 -->
-
-還有一個與尺寸下限無關、獨立生效的拒絕門檻：若一個 RAW 宣告的裁切範圍會讓解碼出來的 RGBA
-緩衝區超過大約 1.5 GB，就直接拒絕解碼，藉此限制記憶體使用量的最壞情況。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:171-182 -->
-
-### 「還沒有全尺寸像素」時不會被混為一談的兩件事
-
-一個容器宣告的預覽候選圖全部讀不到——例如某個資料條的偏移量或位元組數落在檔案範圍之外—
-—過去會在嘗試任何解碼之前就立刻被回報為損毀。這個搶先攔截現已移除：這類容器現在會先被送
-進真正的 RAW 解碼，和一般沒有預覽的檔案走同一條路，只有在解碼**也**失敗時才會被回報為損
-毀（`DNG_PARSE_FAILED`）。這個改動源自一次實測：處於此狀態的某個檔案被判定為損毀，但引擎
-其實在 383 毫秒內成功解碼了它真正的感光元件資料。
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart:138-170; lib/services/image_pipeline/image_source_types.dart:76-104; lib/services/image_pipeline/photo_source.dart:193-222 -->
-
-「每個宣告的預覽都讀不到」這個發現本身仍會被往下傳遞；它沒有被丟棄，只是不再提早觸發動
-作。它搭載在同一個「需要 RAW 解碼」訊號的一個欄位上
-(`NativeImageNeedsRawDecode.declaredPreviewsUnreadable`)，由持有解碼器的那一層最終判
-定，因為只有它才知道解碼是否成功：
-
-- **容器完全沒有宣告任何預覽**（裸感光元件擷取檔，或每個候選圖都缺席、或都因尺寸不足而
-  被拒絕），且解碼失敗——這是通用的 miss，沒有損毀代碼。
-- **容器宣告了預覽但全部讀不到**，且解碼也失敗——直到此刻才會被回報為損毀
-  (`DNG_PARSE_FAILED`);AD-022 的兩狀態區分原則保留，只是判定時機從解碼前移到了解碼
-  嘗試之後。
-- **容器宣告了預覽但全部讀不到**，但解碼**成功**——檔案正常顯示，從未被判定為損毀，這正
-  是本次改動的重點。
-- **此平台沒有原生解碼器**（D3，見上文）——這是建置的屬性，不是檔案的屬性，在嘗試任何解
-  碼之前就已決定，且絕不會與上述任一狀態、或存在但拋出例外的解碼器混淆。
-
-Browse-only RAW（D2）在任何方向都不受影響：它從未被舊的搶先攔截處理過，現在也沒有解碼可
-以路由過去，所以損毀的 `.cr2`/`.iiq`/`.mrw` 全程維持通用的 `RAW_NO_EMBEDDED_PREVIEW`
-狀態。
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dart_image_loader.dart:159-170,196-203; lib/services/image_pipeline/photo_source.dart:193-222 -->
-
-一個讀不到的候選圖，若旁邊還有讀得到的候選圖，並不會觸發「容器損毀」這個發現——只有在
-*沒有任何*宣告的候選圖可讀時，才會被判定為 malformed。
-<!-- evidence: docs/sop/memory.md AD-022; lib/services/image_pipeline/dng_embedded_jpeg_extractor.dart:521-528 -->
-
-### 已證實的部分，以及尚未證實的部分
-
-上述路由改動已經實作，並以替身解碼器的單元測試覆蓋
-（`test/services/image_pipeline/raw_coverage_wiring_test.dart`、
-`test/services/image_pipeline/dart_image_loader_test.dart`、
-`test/services/image_pipeline/photo_source_test.dart`）。它**尚未**針對真實的、非 DNG
-格式無預覽檔案完成端到端證實：本專案唯一擁有的真實 Panasonic 樣本帶有內嵌預覽，因此走的
-是路徑一，不是路徑二。請勿把上文的路由描述讀成「已經觀察到真實通用 RAW 檔案在 Halcyon 自
-己的 app 殼層內經過 Ceyx 解碼器」的宣稱——這一點只對 DNG 證實過（見下文「實測效能」）。
-
-真實樣本檔僅有 Panasonic、Sony、Fujifilm、Sigma
-（`/Users/jhangyu/project/ceyx/image_samples/raw_corpus/`）。Nikon、Canon CR3、Olympus、
-Pentax、Samsung 只有路由邏輯測試——沒有真實檔案佐證。這是目前測試語料庫的既定限制，不是
-被靜默掩蓋的缺口。
-
-驗證結果，HEAD `0a32c50`：`flutter analyze` 在 `lib/`、`test/`、`tool/` 全範圍回報 0
-issues；`flutter test -j 1` 在整合後的樹上通過 403 個測試案例（需要序列化執行——平行執
-行器會遺失檔名並算錯數量）。
+在還沒支援完整解碼的平台上，如果一張 RAW 檔剛好沒有內建預覽，會暫時顯示成無法預覽，這是平台功能還沒補齊，不是照片壞了。
 
 ---
 
 ## 實測效能
 
-照片篩選的迴圈是「看、判斷、按下一張」：真正重要的數字是從按鍵到畫面上出現可用全解析度影像的時間，而不是抽象的解碼吞吐量。這個數字背後藏著兩種完全不同的成本。含內嵌 JPEG 預覽的照片走便宜路徑——直接擷取並顯示預覽位元組，完全不做 RAW 解碼。沒有可用內嵌預覽的照片（多半來自手機的 bare-CFA DNG）則會走姊妹專案 Ceyx 的完整 RAW 解碼路徑，經由
-`DngFullDecoder` 縫合處
-（`lib/services/image_pipeline/dng_decode_contract.dart`）
-<!-- evidence: lib/services/image_pipeline/dng_decode_contract.dart -->。第一層（tier-1，供即時顯示用的視窗解析度解碼）與第二層（tier-2，全尺寸解碼，於導覽靜止 250 毫秒後觸發，
-`lib/services/image_pipeline/image_preload_controller.dart:49`
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:49 -->）成本並不相同，所以量測數字若沒標明是哪一層、哪一條路徑、冷啟動還是暖啟動，彼此就無法互相比較。
+篩選照片時的迴圈很單純：看、判斷、按下一張。真正重要的數字，是從按下方向鍵到畫面上出現
+可用全解析度影像所花的時間——而不是抽象的解碼吞吐量。
 
-### 已記錄的量測結果
+這個數字背後藏著兩種完全不同的成本：
 
-| 路徑／階段 | 數值 | 條件 | 來源 |
-|---|---|---|---|
-| 完整 RAW 解碼，端到端，第二層（tier-2）上屏（4080×3056 bare-CFA DNG，6 檔沙箱化執行） | 冷啟動 491–601 毫秒；暖啟動 150–159 毫秒 | macOS，**release** `.app` 建置，沙箱化，2026-08-17，未記錄機型 | `docs/logs/2026-08-17/round-3b-reintegration-handover.md:27` <!-- evidence: docs/logs/2026-08-17/round-3b-reintegration-handover.md:27 --> |
-| 同一次執行，`rawDecode.ready` 區間，9 個事件 | 61–406 毫秒 | 條件同上 | `docs/logs/2026-08-17/round-3b-reintegration-handover.md:72` <!-- evidence: docs/logs/2026-08-17/round-3b-reintegration-handover.md:72 --> |
-| 側欄縮圖用途（200 px）解碼，bare-CFA DNG，無內嵌預覽的回退路徑，13 個樣本 | 暖啟動中位數每樣本 55.6–100.2 毫秒 | 在 `flutter test`（`flutter_tester`，非 release app 建置）下執行，多次程序內重跑的暖啟動中位數，目標長邊 200 px | `tool/m6_dng_gate/verdict_dng_extract.py:41-73` <!-- evidence: tool/m6_dng_gate/verdict_dng_extract.py:41 -->，方法見 `tool/m6_dng_gate/g3_sidebar_bench.dart:42` <!-- evidence: tool/m6_dng_gate/g3_sidebar_bench.dart:42 --> |
-| 同一閘門，含可用內嵌預覽的 DNG（快速路徑，無 RAW 解碼），12 個樣本 | 暖啟動中位數 0.30–0.40 毫秒 | 沿用上列同一套量測工具 | `tool/m6_dng_gate/verdict_dng_extract.py:41-73` <!-- evidence: tool/m6_dng_gate/verdict_dng_extract.py:41 --> |
-| 同一閘門，JPEG 樣本，7 個檔案 | 暖啟動中位數 22.4–25.9 毫秒 | 沿用上列同一套量測工具 | `tool/m6_dng_gate/verdict_dng_extract.py:41-73` <!-- evidence: tool/m6_dng_gate/verdict_dng_extract.py:41 --> |
-| Ceyx：端到端 24 MP DNG，無損 | ~177 毫秒 | macOS（Metal），2026-07-05，未記錄機型 | ceyx `README.md:403` <!-- evidence: /Users/jhangyu/project/ceyx/README.md:403 --> |
-| Ceyx：端到端 24 MP DNG，有損 | ~105 毫秒 | macOS（Metal），2026-07-05，未記錄機型 | ceyx `README.md:404` <!-- evidence: /Users/jhangyu/project/ceyx/README.md:404 --> |
-| Ceyx：GUI app 內的冷啟動首次解碼，6000×4000 無損 DNG | 291 毫秒 | Apple M3 Ultra，macOS 15.6.1，release 建置，2026-08-26，明確為**冷啟動**，與上列暖啟動數字不可比較 | ceyx `README.md:410-413` <!-- evidence: /Users/jhangyu/project/ceyx/README.md:410 --> |
-| Halcyon JPEG 預覽切換延遲（無 RAW 解碼） | 2.8 毫秒（優化前為 127.5 毫秒） | 歷史基準值，memory 標記 `image-switch-latency-round2-shipped`；架構已被取代，保留僅為呈現優化幅度的參考 | `docs/logs/2026-08-22/thumbnail-dart-first-plan.md:229` <!-- evidence: docs/logs/2026-08-22/thumbnail-dart-first-plan.md:229 --> |
+- **含內嵌 JPEG 預覽的照片走便宜路徑**——Halcyon 直接顯示預覽，完全不做 RAW 解碼。這在
+  一般資料夾裡是大多數檔案，落在個位數毫秒。
+- **沒有可用預覽的照片**（多半來自手機的裸感光元件 DNG）則會走姊妹解碼器 Ceyx 的完整 RAW
+  解碼。這是昂貴路徑。
 
-上表中的 4080×3056 樣本，是本專案自有樣本庫（`local_data/photo_samples/`）裡的手機相機
-bare-CFA DNG，並非棚拍／全片幅 RAW；目前找到的所有記錄中，沒有一筆是在 Halcyon 自身的
-app 殼層內量測解析度高於 24 MP 的樣本（Ceyx 自己的量測雖用了 24 MP 與 6000×4000 的樣本，
-但那些數字只是 Ceyx 自身的執行結果，並不代表 Halcyon 的 app 管線）。
+正因為有這個分岔，再加上**冷啟動**首次解碼與**暖啟動**重複解碼之間的差異，任何單一數字都
+必須附上條件才有意義。以下是實際記錄下來的結果。
 
-### 未測量的項目
+### 數字
 
-- 沒有任何記錄顯示目前仍在出貨的完整 RAW 解碼路徑（Ceyx 的靜態連結建置，2026-08-17 之後）
-  在解除 libjpeg 沙箱阻斷後重新量測過——上表 61–406 毫秒／冷啟動 491–601、暖啟動
-  150–159 毫秒那一列，本身就是修復驗證的執行結果，同一份文件也標記需要在解碼器端的樹不再
-  變動後重新執行一次
-  （`docs/logs/2026-08-17/round-3b-reintegration-handover.md:29`）
-  <!-- evidence: docs/logs/2026-08-17/round-3b-reintegration-handover.md:29 -->；但未找到後續
-  重新執行的記錄。
-- 上表 Halcyon 端的任何一列都沒有記錄機型（晶片、記憶體）。Ceyx 自己的 README 對 macOS
-  數字同樣有這個缺口，唯一的例外是那一筆 M3 Ultra 的資料點。
-- 沒有記錄量測過大片幅（例如全片幅、40+ MP）RAW 檔案在 Halcyon 自身管線中的全尺寸解碼
-  延遲；Ceyx 的 README 另外提到了特定格式的離群值（Fujifilm X-T5 40 MP RAF、Foveon X3F），
-  但這些同樣沒有在 Halcyon 內重新量測。
-- 由 UI 驅動的切換延遲與記憶體（RSS）量測，明確保留給專案擁有者親自執行，不開放給 agent
-  （`lib/perf/perf_driver.dart:1-6`）
-  <!-- evidence: lib/perf/perf_driver.dart:1 -->，所以即使量測工具存在，本節也無法針對這項
-  回報目前的數字。
-- 匯出路徑的計時（解碼 → 縮放 → 重新編碼為 JPEG q90，
-  `lib/services/library/photo_export_service.dart`）沒有任何記錄可查：**TBD（未量測）**。
+| 量測的是什麼 | 時間 | 條件 |
+|---|---|---|
+| 完整 RAW 解碼，從按鍵到全解析度上屏（12 MP 手機 DNG） | 冷啟動 491–601 毫秒；暖啟動 150–159 毫秒 | macOS release 建置，2026-08-17，未記錄機型 |
+| 側欄縮圖解碼，裸感光元件 DNG（無內嵌預覽） | 暖啟動每張約 56–100 毫秒 | 測試環境，目標長邊 200 px |
+| 側欄縮圖，*含*內嵌預覽的 DNG（快速路徑） | 暖啟動約 0.3–0.4 毫秒 | 同一套量測工具 |
+| 側欄縮圖，JPEG 檔案 | 暖啟動約 22–26 毫秒 | 同一套量測工具 |
+| Ceyx 完整解碼，24 MP DNG，無損 | ~177 毫秒 | macOS（Metal），暖啟動 |
+| Ceyx 完整解碼，24 MP DNG，有損 | ~105 毫秒 | macOS（Metal），暖啟動 |
+| Ceyx 在 GUI app 內的冷啟動首次解碼，24 MP（6000×4000）無損 DNG | 291 毫秒 | Apple M3 Ultra，macOS 15.6.1，release，**冷啟動** |
+| 在 JPEG 預覽照片之間切換（無 RAW 解碼） | 2.8 毫秒（優化前為 127.5 毫秒） | 歷史基準值，保留以呈現優化幅度 |
 
-### 該引用哪個數字
+### 該記住哪個數字
 
-若只能給一個數字，答案是 **GPU 加速完整 RAW 解碼在冷啟動下約 300 毫秒**。這個數字來自
-一次實際記錄的執行，不是為了方便挑選出來的範圍：Ceyx 在 GUI 應用程式內冷啟動首次解碼一張
-6000×4000 無損 DNG，量得 291 毫秒，機器為 Apple M3 Ultra、macOS 15.6.1、release 建置、
-2026-08-26。
-<!-- evidence: /Users/jhangyu/project/ceyx/README.md:410 -->
+若只能給一個數字，答案是 **GPU 加速的完整 RAW 解碼在冷啟動下約 300 毫秒**——來自一次乾淨
+記錄的執行：Ceyx 在真實 app 內冷啟動解碼一張 24 MP 無損 DNG，於 Apple M3 Ultra 上量得
+291 毫秒。
 
-上表其餘數字回答的是不同的問題，這個區別值得記住：
+上表其餘數字回答的是略有不同的問題，這些差異值得記住：
 
-- **暖啟動大約是它的一半。** 唯一一次完整跑到第二層上屏、涵蓋 Halcyon 端到端流程的執行，
-  暖啟動量得 150–159 毫秒；Ceyx 的暖啟動矩陣在 24 MP 下量得 105–177 毫秒。攝影師在少數
-  幾張照片之間來回移動時，落在的是暖啟動這一區，不是冷啟動。
-- **Halcyon 端的冷啟動量到的數字比 300 毫秒更高**——2026-08-17 那次執行量得 491–601 毫秒，
-  且未記錄機型。該次執行所屬的文件本身就註明需要在解碼端的樹穩定後重跑，而後續並沒有
-  重跑紀錄，因此它是上表中證據力最弱的一列，而不是對 300 毫秒這個數字的反證。
-- **大多數檔案根本不會進入解碼。** 帶有可用內嵌 JPEG 預覽的 RAW 完全跳過解碼器，落在
-  個位數毫秒。300 毫秒描述的是昂貴路徑，而在一般資料夾裡那只是少數檔案。
+- **暖啟動大約是它的一半。** 唯一一次完整跑到全解析度上屏的端到端執行，暖啟動量得
+  150–159 毫秒；Ceyx 的暖啟動數字在 24 MP 下落在 105–177 毫秒。攝影師在少數幾張照片之間
+  來回快速翻看時，落在的是暖啟動這一區，不是冷啟動。
+- **在較舊／未記錄機型上的冷啟動量得更高**——某次 2026 年執行量得 491–601 毫秒。請把它
+  當作一個證據力較弱的資料點（其註記標明需要重跑，但一直沒發生），而不是對 300 毫秒這個
+  數字的反證。
+- **大多數檔案根本不會進入解碼。** 帶有可用內嵌 JPEG 預覽的 RAW 完全跳過解碼器，落在個位數
+  毫秒。300 毫秒只描述昂貴路徑，而那在一般資料夾裡只是少數檔案。
 
-誠實的總結：把 300 毫秒當作指名機型下的冷啟動完整解碼數字來引用，暖啟動約 150 毫秒，
-且不要把任何一個當成通用基準——現有記錄都無法在跨機型、跨感光元件尺寸的條件下，
-把冷啟動與暖啟動乾淨地分離開來。
+誠實的總結：完整 RAW 解碼引用 **冷啟動約 300 毫秒／暖啟動約 150 毫秒**，且不要把任何一個
+當成通用基準——現有量測都無法在跨機型、跨感光元件尺寸的條件下，把冷啟動與暖啟動乾淨地
+分離開來。
 
-### 如何重現這些數字
+### 尚未量測的項目
 
-- `lib/perf/perf_driver.dart` 與 `lib/perf/perf_log.dart` 是 app 自身的量測工具：由
-  `HALCYON_PERF_DIR` 環境變數啟用（未設定時在結構上是空操作，
-  `lib/perf/perf_log.dart:38`）<!-- evidence: lib/perf/perf_log.dart:38 -->，會驅動 app
-  逐張切換照片，並寫下 `PERF|<us>|<name>|key=value` 格式的紀錄，其中包含完整 RAW 解碼的
-  `rawDecode.ready|...|dur=` 事件
-  （`lib/perf/perf_driver.dart:19-24`）<!-- evidence: lib/perf/perf_driver.dart:19 -->。
-  依同一檔案標頭所述，這個量測工具保留給專案擁有者親自執行，不開放給自動化或 agent 執行。
-- `tool/m6_dng_gate/` 是一個已納入版本控管、可重複執行的閘門，用於側欄縮圖解碼路徑：
-  `bash tool/m6_dng_gate/run_gate.sh <sample-dir> <out-file>`，接著執行
-  `python3 tool/m6_dng_gate/verdict_dng_extract.py <out-file>`
-  （`tool/m6_dng_gate/README.md:32-37`）<!-- evidence: tool/m6_dng_gate/README.md:32 -->。
-  需要本地樣本庫（`local_data/photo_samples/`，未納入版本控管）與已 vendor 的 Ceyx 原生
-  動態函式庫；它會在寫下任何數字之前，先記錄 git commit、工作樹狀態，並對該動態函式庫做
-  符號檢查，為的正是避免量測到不含受測程式碼的二進位檔
-  （`tool/m6_dng_gate/README.md:69-86`）
-  <!-- evidence: tool/m6_dng_gate/README.md:69 -->。
-- `python3 native/tests/run_decode_matrix.py --repeat 3` 可在 Ceyx 專案的儲存庫中重現 Ceyx
-  自身的暖啟動量測矩陣數字
-  （`/Users/jhangyu/project/ceyx/README.md:391-393`）
-  <!-- evidence: /Users/jhangyu/project/ceyx/README.md:391 -->。
+有幾件事目前根本沒有記錄下來的數字，與其猜測不如直說：
+
+- 大片幅 RAW 檔案（全片幅、40+ MP）在 Halcyon 自身管線中的完整解碼計時。現有記錄的樣本
+  大約止於 24 MP。
+- 大多數 Halcyon 端數字背後的機型（晶片、記憶體）——只有那筆 291 毫秒的 M3 Ultra 資料點
+  指明了硬體。
+- 匯出計時（解碼 → 縮放 → 重新編碼為 JPEG）。
+- 真實 UI 導覽下的切換延遲與記憶體用量——這些保留給專案擁有者親自量測，而非自動化執行。
 
 ---
 
 ## 快取與記憶體管理
 
-### 問題所在
+### 為什麼這對挑選很重要
 
-現代感光元件全尺寸解碼後的影格非常大——以 24 MP RAW 為例，解碼後大約是
-91.55 MiB 的 RGBA 像素
-<!-- evidence: lib/services/image_pipeline/cache_budget.dart:20 -->。
-攝影師瀏覽資料夾時，經常按住方向鍵不放，每秒切換數十張照片。若每次按鍵都
-以全尺寸重新解碼一次，瀏覽迴圈會卡頓；若完全不設驅逐（eviction）策略，任何
-稍具規模的資料夾都會耗盡記憶體。Halcyon 影像管線的存在目的，就是讓連續、
-全視窗的瀏覽同時避開這兩種失效模式——做法是採用數個各自獨立、各自量身
-訂定大小的快取，而不是單一個通用快取。
+檢視一次拍攝，往往就是按住方向鍵、每秒飛掠數十張照片。要讓這件事順手，得同時
+成立兩件事：每張照片在你停到它的瞬間就出現，而且不論資料夾多大，瀏覽都不會把
+記憶體吃光。這兩個目標其實是互相拉扯的——現代 24 MP 感光元件的一張照片，全尺寸
+解碼後大約要 90 MB，所以每按一次鍵就全品質解碼一次會卡頓，而把看過的每一張都
+留著又終究會耗盡記憶體。
 
-### 側邊欄縮圖層
+Halcyon 的做法是：只保留你目光附近的照片，依你當下的動作用「剛好合適」的清晰度
+顯示每一張，並在你一停下來就悄悄升級成全品質。移動的時候，你永遠不會為「粗重」
+的解碼工作等待。
 
-側邊欄縮圖的預載並非由 `ScrollController` 監聽器驅動，而是由 `ListView.builder`
-的 `itemBuilder` 驅動——每一幀由它回報自己實際建置到的索引範圍，
-`ImagePreloadController` 再把這些回報彙整成可視範圍並依此發出請求
-<!-- evidence: docs/sop/memory.md AD-014 -->。
-較早的 scroll-listener 設計只有在使用者實際捲動時才會重新計算所需範圍，因此
-資料夾重新載入後（標星／垃圾桶標記／複製／搬移都會觸發重新載入資料夾），若清單
-沒有回到頂端就會維持空白，直到使用者再次捲動；而 `itemBuilder` 每次重建都
-會免費重新算出範圍，讓側邊欄在快取被清空後的重新載入中能自我修復
-<!-- evidence: docs/sop/memory.md AD-014 -->。
-100ms 的防抖（debounce）計時器仍會緩衝這些請求（`_thumbnailDebounceTimer`），
-現在還搭配一個批次世代（generation）計數器：某個批次一旦因快速捲動或資料夾
-重新載入而被取代，就會在下一次 `await` 之前自我中止，不再為已不存在的清單
-浪費一次 channel 往返
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:779-781 -->
-<!-- evidence: docs/sop/memory.md G-001 -->。
+### 主圖用兩種清晰度顯示
 
-請求順序是先由上到下取可視列，再向視窗兩側外擴 `thumbnailPrefetchMargin`
-＝20 列的 prefetch margin，方向為下方一列、上方一列交錯進行
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:53 -->
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:783-793 -->。
-抓取到的縮圖位元組存放在一個記憶體內的位元組快取（`_thumbCache`，一個以照片
-id 為 key 的普通 `Map<String, Uint8List>`），每個批次都會修剪成恰好目前所需
-的範圍——可視範圍加上 margin
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:91 -->
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:795-796 -->。
+主要預覽分兩趟畫出來：
 
-小於等於 512 KiB 的內容會原樣進入這個快取——內嵌 DNG 預覽候選本身就已經是
-縮圖大小。超過這個門檻的內容則會被解碼一次，縮小到 200px 長邊，並以品質 80
-重新編碼為 JPEG
-<!-- evidence: lib/services/image_pipeline/sidebar_thumbnail_codec.dart:26-30 -->。
-選用 JPEG 而非 PNG，是針對照片內容特有的選擇：在這個專案用來比對的真實 DNG
-樣本上，JPEG q80 的體積大約只有 PNG 的四分之一到六分之一。但有一份由純色色塊
-組成的合成測試圖，卻讓結論反轉——PNG 在那份 fixture 上贏過 JPEG——原因是
-大面積平坦色塊接近 PNG 的 filter+deflate 步驟的理想輸入，而尖銳的合成邊緣則
-接近 JPEG DCT 步驟的最差輸入；這個反轉是那份 fixture 內容本身的性質，並不能
-證明側邊欄實際顯示的真實照片選用 JPEG 是錯的
-<!-- evidence: docs/sop/memory.md G-016 -->。
+- **第一層——即時。** 你一停到某張照片，Halcyon 就先以你視窗的解析度顯示它。
+  這一步很快，所以連續按方向鍵瀏覽依然順滑，每張照片都立刻有畫面。
+- **第二層——全品質。** 如果你在某張照片上停留約四分之一秒，Halcyon 就解碼出
+  全解析度版本並換上去。正因為它要等這個短暫的停頓，掃過上百張照片時，並不會
+  為你只是瞥過的影像同時啟動上百次粗重的全畫面解碼。
 
-### 主圖層——兩個層級
+```mermaid
+flowchart TD
+    A(["停到一張照片"]) --> B["立即顯示視窗解析度預覽<br/>（第一層）"]
+    B --> C{"你在這裡<br/>停留約四分之一秒了嗎？"}
+    C -- "沒有，還在瀏覽" --> D["維持快速預覽<br/>保持流暢"]
+    C -- "有，你停下來了" --> E["解碼全解析度<br/>並換上去（第二層）"]
+    D --> F(["下一張照片"])
+    E --> G(["全品質影像顯示在畫面上"])
 
-主要預覽採用兩個解碼層級，而非單一層級。第一層（tier one）是視窗解析度解碼
-——用目前視窗的像素尺寸包裝來源位元組的 `ResizeImage`——用於瀏覽時的即時顯示
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:28-39 -->。
-第二層（tier two）是同一張照片的全尺寸解碼，會延後到瀏覽動作靜止滿
-`tierTwoNavigationDebounce`＝250ms 之後才觸發，讓連續按方向鍵瀏覽時，不會為
-那些只是被使用者掃過、並未停留的影像觸發一連串全畫面解碼
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:49 -->。
-第二層的排程——防抖計時器、±`kTierTwoRadius` 視窗，以及單一序列化解碼佇列
-——由 `TierTwoScheduler` 持有
-<!-- evidence: lib/services/image_pipeline/tier_two_scheduler.dart:58-73 -->；
-就緒性（readiness）的記帳——哪個 id 有一個常駐的第二層 `ImageCache` 條目、
-針對哪一個 payload 物件、其解碼監聽器是否已經真的觸發——則獨立存放在
-`TierTwoRegistry`，它是純粹的狀態，本身不含任何計時器與非同步邏輯
-<!-- evidence: lib/services/image_pipeline/tier_two_registry.dart:26-58 -->。
-第二層解碼視窗以目前照片為中心，`kTierTwoRadius`＝2 個項目
-<!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:32 -->
-（該檔案在目前這棵樹的佈局下位於
-`lib/services/image_pipeline/prefetch_scheduler.dart`）。
+    classDef start fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
+    classDef decision fill:#fde68a,stroke:#fbbf24,stroke-width:2px,color:#3a2a04;
+    classDef fast fill:#86efac,stroke:#4ade80,stroke-width:2px,color:#0b3320;
+    classDef slow fill:#c4b5fd,stroke:#a78bfa,stroke-width:2px,color:#2a1c4d;
+    classDef done fill:#a5f3fc,stroke:#22d3ee,stroke-width:2px,color:#0e2a33;
 
-### 兩個不得合併的視窗常數
+    class A start;
+    class C decision;
+    class B,D fast;
+    class E slow;
+    class F,G done;
+```
 
-有兩個常數看起來可以互換，實際上不行：`kTierTwoRadius`＝2 決定哪些項目要做
-全尺寸解碼，`kExpensiveStartupRadius`＝1 則決定哪些項目才允許啟動昂貴的 RAW
-解碼
-<!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:12 -->
-<!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:32 -->。
-在這個拆分之前，兩種語意共用同一個常數，放寬它以擴大全尺寸預覽視窗，會同時
-悄悄放寬一次可以啟動多少昂貴 RAW 解碼——從三個循序項目變成五個——在一個沒有
-內嵌預覽的 RAW 資料夾上，這實測會讓冷啟動安定時間從大約 25 秒拉長到大約 42 秒，
-以每次昂貴循序解碼實測 8.5 秒計算
-<!-- evidence: docs/sop/memory.md AD-018 -->。
-這兩個常數也是以相反的樣本組推導出來的，不能互相驗算：`kTierTwoRadius`
-不受解碼成本限制，而 `kExpensiveStartupRadius` 的存在正是為了限制一波瀏覽
-動作能同時觸發多少個昂貴的 FFI 解碼
-<!-- evidence: docs/sop/memory.md AD-019 -->
-<!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:5-12 -->。
-哪些項目算「昂貴」是從檔案內容實測出來的，而非從副檔名推斷——舊的副檔名
-分類規則平均每 14 個檔案就有 13 個判斷錯誤
-<!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:44-47 -->。
-未來的貢獻者很可能會直覺地把這兩個常數合併回一個，因為它們看起來是同一個
-數字；**但不得這樣做**——這是一條設計上的不變式，不是可斟酌的偏好：
-「要為多少張照片預先解碼全尺寸預覽」與「一次可以啟動多少個昂貴的 FFI 呼叫」
-是兩個不同的問題，只是目前答案的數值剛好接近，並不是同一個問題被問了兩次。
+### 側邊欄縮圖
 
-### 保留快取與其驅逐策略
+側邊那條縮圖膠捲是跟主圖分開載入的。Halcyon 只抓目前實際在畫面上的縮圖，外加
+上下各一小段邊界，讓捲動時預載能跑在你前面；一旦縮圖捲離視野夠遠就把它丟掉。
+只要做了會重新載入資料夾的動作——標星、丟垃圾桶、複製或搬移——縮圖都會自己
+重新出現，所以側邊欄不會卡在空白。小張的內嵌預覽會直接沿用；較大的影像則只縮成
+一張精簡縮圖並以這個輕量形式保存，因此即使是很大的資料夾，側邊欄也依然省資源。
 
-`PhotoPayloadCache` 以目前選取的照片為中心，保留一個 payload 位元組的視窗：
-前面 3 張、後面 5 張，之所以不對稱是因為瀏覽行為絕大多數是往前
-<!-- evidence: lib/services/image_pipeline/photo_payload_cache.dart:6-10 -->，
-並依常駐位元組總成本對一個預算上限做驅逐，`kPayloadByteBudget`＝224 MiB
-<!-- evidence: lib/services/image_pipeline/photo_payload_cache.dart:31 -->。
+### 只留下附近的照片
 
-這是一個**視窗內先進先出（window FIFO）**策略，**不是**最近最少使用式的快取。
-唯一一個原本會在讀取時更新條目順序的介面，在整個程式碼庫裡完全沒有任何呼叫
-端在用，已經被刪除；因此迭代順序就是插入順序，視窗本身超出預算時，預算路徑
-會先驅逐最早進入的條目
-<!-- evidence: docs/sop/memory.md AD-023 -->
-<!-- evidence: lib/services/image_pipeline/photo_payload_cache.dart:54-60 -->。
-這裡採用單純的先進先出而不是其他策略，並非少做了什麼，而是有其道理：對
-這個快取的存取模式是一支持續前進的游標，走過一份已排序的清單，而不是隨機
-存取一個以 key 索引的儲存體。在這種存取模式下，插入順序與最近使用的順序其實
-是同一種排序——結構上，最早進入視窗的項目，正好也是使用者目前距離最遠的
-項目——因此在其上額外追蹤「最後存取時間」，只會增加記帳負擔，不會改變
-最終驅逐掉的是哪一個條目。
-
-### 影像快取預算
-
-Flutter 自身的 `ImageCache` 位元組上限並非寫死的常數，而是由實體記憶體推導
-而來：實體記憶體的四分之一，並夾在下限 256 MiB、上限 768 MiB 之間
-<!-- evidence: lib/services/image_pipeline/cache_budget.dart:32-38 -->。
-下限是這條管線「不重新解碼」保證會失效的臨界點；上限則是目前這個 app 桌面
-目標平台出貨時所配備的記憶體規模。這個專案所建置的 Dart 版本，其 `dart:io`
-並未提供跨平台通用的「取得實體記憶體總量」API，因此這個推導函式把實體記憶體
-當作一個可選的注入參數，沒有提供讀數時，預設退回 768 MiB 這個上限
-<!-- evidence: lib/services/image_pipeline/cache_budget.dart:4-10 -->。
-
-224 MiB 的 payload 預算與 768 MiB 的 `ImageCache` 上限，是依相反的樣本組算出來
-的，不能拿其中一個當作另一個的驗算依據：payload 預算是依「昂貴、沒有內嵌
-預覽」的 RAW 樣本組估算（每項實測約 22.4 MiB 的視窗解析度 RGBA 像素）；而
-`ImageCache` 上限則是依「便宜、有內嵌預覽」的樣本組估算，該樣本組中單一項目
-會同時持有一個完整原生尺寸的第二層條目（24 MP 約 91.55 MiB）與另一個獨立的
-第一層條目
-<!-- evidence: docs/sop/memory.md AD-019 -->
-<!-- evidence: lib/services/image_pipeline/cache_budget.dart:18-25 -->。
-若有人拿其中一個數字去「簡化」另一個，就會在不自覺的情況下弄壞沒被看到的那一個。
-
-### 快取鍵身分陷阱
-
-第一層與第二層的 provider 工廠函式 `tierOneProviderFor` 與 `fullSizeProviderFor`
-，在任何用來顯示或預先快取某個 payload 的地方，都必須以完全相同的 `bytes`
-物件身分呼叫——就第一層而言，還必須傳入相同的 `width`／`height`
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:23-44 -->。
-Flutter 的 `ImageProvider` 快取鍵（第一層是 `ResizeImageKey`，第二層則是
-`MemoryImage` 本身）只有在上述所有輸入都完全一致時才會相等——也就是說，只有
-在這種情況下才會命中快取；若某個呼叫端用一份複製的位元組、或不同的目標尺寸
-重新建構一個 provider，得到的會是一次悄悄發生的第二次解碼，寫進第二個快取
-條目，而不是命中既有條目。這正是為什麼這兩個 provider 工廠函式被保留成並排
-的自由函式，而不是在各個呼叫點臨時建構；也是為什麼 `TierTwoScheduler` 是以
-注入的 supplier closure 形式接收 `fullSizeProviderFor`，而不是自行重建一份
-副本
-<!-- evidence: lib/services/image_pipeline/tier_two_scheduler.dart:29-37 -->。
-未來任何要為這兩個層級新增呼叫點的人，都必須重用同一個 payload 物件與同一個
-工廠函式，而不是重新建構一個外觀相同的 provider。
+Halcyon 不會把你開過的每一張照片都留著，而是圍繞你當下這張，保留一個會移動的
+視窗——後面留幾張、前面多留幾張，因為瀏覽絕大多數是往前走。當你移動時，進入
+視窗的照片會被載入，落到後方的則被釋放。這個視窗同時還受一個整體記憶體預算的
+上限約束，所以即使遇到特別大的檔案，app 也會先釋放最舊的那張、維持在界線內。
+最終效果是：不論資料夾多長、你瀏覽多久，記憶體使用量大致維持平穩。
 
 ### 摘要
 
-| 快取 | 所屬層級 | 內容 | 依據何者決定大小 | 驅逐方式 |
-|---|---|---|---|---|
-| 側邊欄位元組快取（`_thumbCache`） | 側邊欄縮圖 | 每個可視＋prefetch id 的小型編碼位元組（原樣通過或重新編碼為 JPEG q80） | 可視範圍＋兩側各 `thumbnailPrefetchMargin`（20）列 <!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:53 --> | 每個批次都修剪成目前實際所需的 id 集合 <!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:795-796 --> |
-| `PhotoPayloadCache` | 主圖，兩個層級皆適用 | 保留的 `SourcePayload` 位元組／像素，每個照片 id 一份 | -3..+5 項目視窗，`kPayloadByteBudget`＝224 MiB 總量 <!-- evidence: lib/services/image_pipeline/photo_payload_cache.dart:6-10,31 --> | 超出預算時依插入順序先進先出驅逐；硬性視窗掃描則不論預算，直接丟棄視窗外的一切 <!-- evidence: docs/sop/memory.md AD-023 --> |
-| `TierTwoRegistry` 狀態 | 主圖，第二層 | 純記帳：哪個 id 有一個常駐的第二層 `ImageCache` 條目、是針對哪一個 payload 物件、以及是否已就緒 | ±`kTierTwoRadius`（2）視窗 <!-- evidence: lib/services/image_pipeline/prefetch_scheduler.dart:32 --> | 項目離開視窗時逐一明確 `evict()`，或在 reset 時整體 `clear()` <!-- evidence: lib/services/image_pipeline/tier_two_registry.dart:221-240 --> |
-| Flutter `ImageCache` | 兩個層級，已解碼影格 | 以 provider 身分為 key 的已解碼 `ui.Image` 影格 | 由實體記憶體推導，夾在 [256 MiB, 768 MiB] 之間 <!-- evidence: lib/services/image_pipeline/cache_budget.dart:32-38 --> | Flutter 自身依位元組預算運作的 LRU 引擎；此外，當其第一層／第二層記帳的 id 離開視窗時，也會被明確驅逐 |
-
-<!-- evidence: lib/services/image_pipeline/image_preload_controller.dart:699-707 -->
+| 通道 | 保留什麼 | 保留多少 | 何時釋放 |
+|---|---|---|---|
+| 側邊欄縮圖 | 膠捲用的小張縮圖 | 畫面上的列，加上上下各一段邊界 | 每次更新都修剪成目前實際所需 |
+| 主圖，兩個層級 | 你正在看的那張附近的照片 | 一個移動視窗：後面幾張、前面多幾張，受記憶體預算上限約束 | 移動時或超出預算時，先釋放最舊／距離最遠的那張 |
+| 已解碼影格 | 實際正在顯示的視窗解析度與全解析度影像 | 受機器記憶體的一部分約束 | 照片一離開作用中的視窗就自動釋放 |
 
 ---
 
 ## 架構
 
-Halcyon 分層為 `views/` → `providers/app_state.dart` → `services/` → `models/`，
-相依方向單向流動。本節說明這個分層在程式碼中如何維繫、貢獻者不可隨意打破的兩道
-縫，以及每樣東西在硬碟上的位置。
+Halcyon 是一個嚴格單向分層的應用程式——`views/` → `providers/app_state.dart` → `services/` → `models/`——並有少數幾道不宜隨意更動形狀的凍結介面。
 
 ### 分層與相依方向
 
-`views/` 負責建構 UI 並持有 view 本地狀態——鍵盤快捷鍵、縮放變換、對話框骨架，
-透過 `provider` 套件讀取 `AppState` 並呼叫其方法，不該知道照片是怎麼被掃描、解碼或
-刪除的。
+`views/` 負責建構 UI，只持有 view 本地狀態（鍵盤快捷鍵、縮放變換、對話框骨架），透過 `provider` 套件讀取 `AppState` 並呼叫其方法，完全不知道照片是怎麼被掃描、解碼或刪除的。由動畫驅動的 view 本地狀態（縮放、指標位置）放在 view 持有的 controller（例如 `lib/views/zoom_controller.dart` 的 `ZoomController extends ChangeNotifier`，由 `MainScreen` 持有並負責釋放），而不是放進 `AppState`——`AppState` 只保存代表相簿模型的狀態。
 
-`providers/app_state.dart` 定義了 `AppState extends ChangeNotifier`
-（`lib/providers/app_state.dart:61`），是應用程式邏輯的唯一協調點——資料夾載入、
-選取、星標/垃圾桶標記、設定，以及派送到服務層。它靠建構子注入組合協作者，
-而非把協作者寫死成欄位：
+`providers/app_state.dart` 定義了 `AppState extends ChangeNotifier`（`lib/providers/app_state.dart:61`），是應用程式邏輯的唯一協調點——資料夾載入、選取、星標/垃圾桶標記、設定，以及派送到服務層。它靠建構子注入取得協作者，而非寫死成欄位：
 
-<!-- evidence: lib/providers/app_state.dart:62-104 -->
 ```dart
 AppState({
   PhotoLibraryScanner? scanner,
@@ -1082,140 +661,52 @@ AppState({
 })
 ```
 
-每個參數省略時都會退回真實實作（例如
-`_scanner = scanner ?? PhotoLibraryScanner()`），正式環境的程式碼因此免費取得真實
-的協作者，測試則可以把其中任何一個換成假物件。
-<!-- evidence: lib/providers/app_state.dart:71-91 -->
+每個參數省略時都退回真實實作（例如 `_scanner = scanner ?? PhotoLibraryScanner()`），正式環境因此免費取得真實協作者，測試則可把任一個換成假物件——這也是協調層能脫離真實檔案系統或平台通道獨立受測的原因。
 
-協調層能脫離真實檔案系統或平台通道獨立受測，靠的就是這套機制。
-`test/providers/app_state_test.dart` 透過 `_testState()` 輔助函式建構每一個受測的
-`AppState`，注入回傳固定 bytes 的假 `imageLoader` closure 取代真的解碼檔案，
-同一檔案其他地方也注入 `PhotoFileActions(trashFile: (file) async { ... })` 來記錄
-呼叫而不真的觸碰系統垃圾桶，以及一個 `PhotoLibraryScanner` 子類別（`_FixedScanner`、
-`_ThrowingScanner`），依需求回傳固定項目清單或拋出例外，取代走訪目錄。
-<!-- evidence: test/providers/app_state_test.dart:577-597 -->
-<!-- evidence: test/providers/app_state_test.dart:420 -->
+`services/` 實作實際工作——檔案系統掃描、狀態持久化、影像解碼/快取、檔案操作、EXIF/重新命名、兩個平台橋接——並禁止回頭直接呼叫 `views/` 或 `AppState`；它只被呼叫，只透過 `AppState` 明確交付的 callback/supplier 參數回呼。`models/` 持有純粹資料形狀與無 I/O 的純函式——`PhotoItem`、格式註冊表、`RenameRule` 的樣板渲染——不從 `services/` 或 `views/` 匯入。
 
-`services/` 實作實際的工作——檔案系統掃描、狀態持久化、影像解碼/快取、檔案操作、
-EXIF/重新命名，以及兩個平台橋接——並且禁止回頭直接呼叫 `views/` 或 `AppState`；
-它只被呼叫、不會回呼，除非是透過 `AppState` 明確交付的 callback/supplier 參數（見下方
-`RenameCoordinator` 的說明）。`models/` 持有純粹的資料形狀與無 I/O 的純函式——
-`PhotoItem`、格式註冊表，以及 `RenameRule` 的樣板渲染——不該從 `services/` 或
-`views/` 匯入。
-
-**反向資料流危害。** `docs/sop/memory.md` G-010 記錄了 `main_detail_view.dart` 曾經從 widget
-的 build/callback 程式碼直接寫入 `AppState` 的公開縮放欄位
-（`context.read<AppState>().pointerPosition = event.localPosition` 之類），打破了
-單向流動——一個 view 在方法呼叫之外變動 provider 狀態。修法是抽出獨立的
-`ZoomController extends ChangeNotifier`（`lib/views/zoom_controller.dart`），由
-`MainScreen` 持有並負責釋放，現在 `AppState` 完全不帶任何縮放欄位。目前的規則
-是：view 本地、由動畫驅動的狀態（縮放、指標位置、變換矩陣）應該放在 view 持有的
-controller 裡，而不是 `AppState`；`AppState` 只保存代表應用程式相簿模型的狀態。
-<!-- evidence: docs/sop/memory.md G-010 -->
-
-**四個服務子資料夾。** `services/` 拆成四個按用途命名的子資料夾，而不是留成一個
-扁平的目錄：
+`services/` 拆成四個按用途命名的子資料夾：
 
 | 資料夾 | 負責範圍 |
 |---|---|
-| `image_pipeline/` | 第一層/第二層滑動視窗預載、DNG 解碼整合、影像快取記帳（18 個檔案） |
+| `image_pipeline/` | 第一層/第二層滑動視窗預載、DNG 解碼整合、影像快取記帳 |
 | `library/` | 資料夾掃描、狀態持久化、檔案複製/搬移/丟垃圾桶、星標照片匯出 |
 | `rename/` | EXIF 驅動的重新命名規劃、EXIF 中繼資料讀取、重新命名協調器 |
 | `platform/` | 兩個 macOS `MethodChannel` 橋接 |
 
-同一次重新組織中，`rename_rule.dart` 也從 `services/` 改分類進了
-`models/rename_rule.dart`，因為它是純樣板渲染、沒有 I/O，比較符合 `models/`
-的定義而非 `services/`。
-<!-- evidence: docs/sop/memory.md AD-030 -->
-
 ### 縫與不變量
 
-以下是影像管線中承重的限制條件；隨意更動會打破本 README 其他地方描述的
-第一層/第二層契約。
+以下是影像管線中承重的限制條件；隨意更動會打破本 README 其他地方描述的第一層/第二層契約。
 
-**Ceyx 整合縫。** DNG 全尺寸解碼——針對沒有可用內嵌預覽圖的 DNG——委派給姊妹專案
-Ceyx，靠的是一個 typedef，而非具體類別：
+**Ceyx 整合縫。** DNG 全尺寸解碼（針對沒有可用內嵌預覽圖的 DNG）委派給姊妹專案 Ceyx，靠的是一個 typedef，而非具體類別：
 
-<!-- evidence: lib/services/image_pipeline/dng_decode_contract.dart:30 -->
 ```dart
 typedef DngFullDecoder = Future<DecodedRgba> Function(String path);
 ```
 
-這道縫存在的目的，就是讓影像管線可以針對假解碼器做單元測試，不必載入真正的
-native dylib。
-<!-- evidence: lib/services/image_pipeline/dng_decode_contract.dart:3-8 -->
+這道縫讓影像管線能針對假解碼器做單元測試，不必載入真正的 native dylib。
 
-與其搭配的 `image_source_types.dart` 宣告了一個恰好有三個變體的 sealed class，
-描述任何影像位元組請求的結果：`NativeImageBytes`（已編碼的位元組，正常路徑）、
-`NativeImageNeedsRawDecode`（沒有內嵌預覽圖的 DNG——這不是失敗，而是要跑真正
-RAW 解碼器的訊號）、以及 `NativeImageFailure`（真正的失敗）。文件明確把這個型別
-標記為凍結狀態：「恰好三個變體；未經 squad lead 簽核不得新增第四個。」
-<!-- evidence: lib/services/image_pipeline/image_source_types.dart:41-87 -->
+與其搭配的 `image_source_types.dart` 宣告了一個恰好三個變體的 sealed class，描述任何影像位元組請求的結果：`NativeImageBytes`（已編碼位元組，正常路徑）、`NativeImageNeedsRawDecode`（無內嵌預覽圖的 DNG——非失敗，是要跑真正 RAW 解碼器的訊號）、`NativeImageFailure`（真正的失敗）。這個集合凍結在三個變體。
 
-**影像載入在每個平台上都是純 Dart。** `dartImageLoad`
-（`lib/services/image_pipeline/dart_image_loader.dart:17`）是影像位元組的唯一產生
-來源；沒有任何平台存在原生縮圖通道。`docs/sop/memory.md` AD-020 記錄了這個決策背後的契約：
-照片相關行為（哪些檔案會被載入、畫面上出現什麼像素、刪除做了什麼、匯出產出什麼）
-只在 Dart 中實作一次，且必須在每個支援的平台上產生相同的可觀察結果，唯一的例外是
-三個封閉、不可再擴充的原生橋接：系統垃圾桶（macOS/Windows 原生）、Open With 傳輸層
-（macOS/Windows/Android/iOS，不含 Linux），以及檔案關聯註冊（Windows/macOS）。
-文件明確聲明這份清單是封閉的——不得以這三項為先例再新增平台差異。
-<!-- evidence: docs/sop/memory.md AD-020 -->
+**影像載入在每個平台上都是純 Dart。** `dartImageLoad`（`lib/services/image_pipeline/dart_image_loader.dart:17`）是影像位元組的唯一產生來源；沒有任何平台存在原生縮圖通道。照片相關行為——哪些檔案會被載入、畫面上出現什麼像素、刪除做了什麼、匯出產出什麼——只在 Dart 中實作一次，並在每個支援平台產生相同結果，只有三個封閉的原生橋接例外：系統垃圾桶（macOS/Windows 原生）、Open With 傳輸層（macOS/Windows/Android/iOS，不含 Linux）、檔案關聯註冊（Windows/macOS）。
 
-**單一持有者不變量。** 有兩個類別各自持有恰好一份第二層狀態，讓這個不變量能在單一
-位置推理與測試，不至於散落到各個呼叫點：
+**單一持有者不變量。** 兩個類別各自持有恰好一份第二層狀態，讓不變量能在單一位置推理與測試，不至於散落到各個呼叫點：
 
-- `TierTwoRegistry`（`lib/services/image_pipeline/tier_two_registry.dart:26`）是
-  第二層*就緒狀態*記帳的唯一持有者——哪些 id 有全尺寸快取項目、它是針對哪個 payload
-  物件解碼的，以及該次解碼是否已失敗。
-- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:58`）是
-  第二層*排程*的唯一持有者——±2 視窗、250ms 導覽 debounce，以及序列化的解碼佇列。
+- `TierTwoRegistry`（`lib/services/image_pipeline/tier_two_registry.dart:26`）是第二層*就緒狀態*記帳的唯一持有者——哪些 id 有全尺寸快取項目、它是針對哪個 payload 物件解碼的，以及該次解碼是否已失敗。
+- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:58`）是第二層*排程*的唯一持有者——±2 視窗、250ms 導覽 debounce，以及序列化的解碼佇列。
 
-`docs/sop/memory.md` AD-027 與 AD-028 記錄了為何要拆成兩個類別而非一個：拆分之前，
-兩個經審查標記出的 bug（一個過期的就緒旗標，以及一個對仍在處理中的項目回傳 true 的
-`containsKey` 檢查）只靠註解防範；把四個就緒容器抽進自己的類別後，它們可以獨立
-測試，排程則留在另一個第三個類別中——若把兩者合併回去，就會悄悄重新耦合狀態與
-時序。
-<!-- evidence: docs/sop/memory.md AD-027 -->
-<!-- evidence: docs/sop/memory.md AD-028 -->
-
-**原生橋接。** `macos/Runner/AppDelegate.swift` 恰好註冊了兩個 `MethodChannel`——
-以 `grep -n "FlutterMethodChannel(name:" macos/Runner/AppDelegate.swift` 驗證，
-回傳兩筆相符結果，`halcyon/trash`（第 23 行）與 `halcyon/open_with`（第 42 行）：
-<!-- evidence: macos/Runner/AppDelegate.swift:23,42 -->
+**原生橋接。** `macos/Runner/AppDelegate.swift` 恰好註冊兩個 `MethodChannel`：
 
 ```dart
 FlutterMethodChannel(name: "halcyon/trash", ...)
 FlutterMethodChannel(name: "halcyon/open_with", ...)
 ```
 
-`halcyon/open_with` 是純推送式的：由原生端呼叫進 Dart 端遞送檔案路徑，Dart 端
-在這個通道上沒有方法可以主動詢問原生端「有沒有東西還在等待」。原因是冷啟動時序——
-檔案抵達的那一刻，Flutter engine 可能還沒註冊好 Dart 端的 handler；若在那個
-時間窗內由 Dart 端主動發起查詢會拋出例外。Flutter 的通道實作會緩衝原生→Dart 方向
-送出的訊息，直到 Dart 端的 handler 註冊完成為止，因此推送式在啟動時是可靠的方向。
-在通道物件本身建立之前抵達的事件，會暫存在 `pendingOpenFile` 變數中，並在
-通道建立的當下立即清空送出。
-<!-- evidence: macos/Runner/AppDelegate.swift:12-49 -->
-<!-- evidence: docs/sop/memory.md AD-012 -->
+`halcyon/open_with` 是純推送式的：原生端呼叫進 Dart 端遞送檔案路徑，Dart 端在這個通道上無法主動詢問「有沒有東西還在等待」。Flutter 會緩衝原生→Dart 方向的訊息直到 Dart handler 註冊完成，這讓推送式即使在冷啟動時也可靠；通道物件建立前抵達的事件，暫存在 `pendingOpenFile` 變數中，於通道建立當下立即送出。
 
-這個以 grep 驗證的步驟之所以特別重要，是因為 `docs/sop/memory.md` G-017：這個
-repository 自己的文件曾經整整描述過一個里程碑份量的 `halcyon/thumbnail` 通道與一個
-`NativeThumbnailService`，但它們其實早就被刪除了，其中還留著一個過期的行號
-引用。記錄下來的規則是：用 `grep -n "MethodChannel"` 對照 `AppDelegate.swift` 來
-檢查原生橋接的說法，而不是憑說法讀起來合不合理來判斷。
-<!-- evidence: docs/sop/memory.md G-017 -->
-
-**唯一一份 EXIF 方向表。** `exif_orientation.dart` 的 `exifTransformFor` 是這個
-專案唯一的 8 case Orientation 標籤對照表；不論是以 `package:image` 為基礎的匯出
-路徑，還是以 `dart:ui` 為基礎的全尺寸 RGBA provider，都透過這唯一一張表轉換，
-不各自實作自己的方向邏輯，而且兩者都以固定順序先旋轉再鏡像。
-<!-- evidence: docs/sop/memory.md AD-024 -->
+**唯一一份 EXIF 方向表。** `exif_orientation.dart` 的 `exifTransformFor` 是本專案唯一的 8 case Orientation 標籤對照表；`package:image` 匯出路徑與 `dart:ui` 全尺寸 RGBA provider 都透過這張表轉換，不各自實作方向邏輯，且都以固定順序先旋轉再鏡像。
 
 ### 目錄結構
-
-以下的頂層目錄結構標註，已對照目前實際的樹狀結構驗證過——而不是只對照
-內部目錄地圖文件（見下方說明），因為地圖文件可能落後於同一天內發生的重新組織：
 
 ```
 Halcyon/
@@ -1240,13 +731,8 @@ Halcyon/
 │   └── sop/                   # 未受版控追蹤的內部維護文件；全新 clone 不會包含
 └── README.md
 ```
-<!-- evidence: docs/sop/file_index.md:44-102 -->
 
-**內部維護文件。** Halcyon 在工作副本（working checkout）的 `docs/sop/` 目錄下維護
-一組內部流程文件——架構決策與踩坑經驗、任務追蹤、階段里程碑、短期交接摘要，
-以及測試策略與測試案例矩陣。這些文件刻意不受版本控制（已加入 `.gitignore`），
-全新 clone 這個 repository 因此不會包含它們。本 README 的部分陳述
-（包含影像管線與原生橋接相關章節）取材自這些文件。
+Halcyon 也在工作副本的 `docs/sop/` 目錄下維護一組內部流程文件——架構決策與踩坑經驗、任務追蹤、階段里程碑、短期交接摘要，以及測試策略與測試案例矩陣。這些文件已加入 `.gitignore`，全新 clone 不會包含它們。
 
 授權與第三方歸屬說明收錄在本文件結尾的
 [第三方歸屬](#第三方歸屬)一節。
@@ -1255,7 +741,7 @@ Halcyon/
 
 ## 架構圖
 
-三張圖涵蓋整個系統：模組之間如何相依、一張照片的位元組如何從磁碟走到螢幕、以及一次按鍵如何變成標記並進而驅動檔案系統上的批次操作。三張圖合起來，應該能讓一位新讀者在三十秒內定位 `lib/` 底下的任何檔案。
+三張圖涵蓋整個系統：模組之間如何相依、一張照片的位元組如何從磁碟走到螢幕，以及一次按鍵如何變成標記、再驅動檔案系統上的批次操作。三張合起來看，應該能讓初次接觸的讀者在三十秒內，在 `lib/` 底下找到任何一個檔案的位置。
 
 ### 圖例
 
@@ -1458,7 +944,7 @@ flowchart TD
   ImageCacheNode --> Render
 ```
 
-**圖說：** 掃描階段把 RAW／JPG 的同名檔案分組成一個 `PhotoItem`；選取某個項目時，會先跑一次有邊界的內容探測才決定要不要解碼，把檔案分類為「便宜」或「昂貴」。便宜的檔案（JPEG、內嵌預覽圖已經夠大的 DNG）完全跳過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界進入 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個解碼結果——不論是編碼位元組還是縮小過的像素——都落入同一個有位元組預算上限的保留快取；顯示路徑一律從那裡繪製，先立即顯示視窗解析度（第一階），等導覽靜止 250 毫秒後，再升級到完整解析度（第二階）。
+**圖說：** 掃描階段會把 RAW／JPG 的同名檔案併成一個 `PhotoItem`。選取某個項目時，會先做一次有邊界的內容探測，據此把檔案分成「便宜」或「昂貴」再決定怎麼解碼：便宜的檔案（JPEG，或內嵌預覽圖已經夠大的 DNG）完全不經過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界交給 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個解碼結果——不論是編碼位元組還是縮小過的像素——都會落進同一個有位元組預算上限的保留快取，而顯示路徑一律從這裡取圖繪製：先立刻顯示視窗解析度（第一階），等導覽靜止 250 毫秒後，再升級到完整解析度（第二階）。
 
 **證據：**
 - 依 `basenameWithoutExtension` 分組同名檔案 —
@@ -1559,41 +1045,41 @@ flowchart TD
 
 ## 平台支援
 
-Halcyon 本質上是一款桌面應用程式。六個 Flutter 目標平台皆可編譯，但地位並不相同：介面設計時鎖定的是桌面目標，行動目標雖能建置執行，卻沒有針對觸控調整版面，另外三個目標則完全沒有原生 RAW 解碼器。
+Halcyon 骨子裡是桌面應用程式，但能跑的平台不只桌面。完整 RAW 解碼目前在
+macOS、Windows、Android **以及 Linux** 上都能用，只有 iOS 與網頁版還沒有原生
+解碼器。介面是為桌面平台設計的；行動與網頁版雖然跑得起來，但還沒針對觸控調整過。
 
 ### 支援矩陣
 
-| 目標平台 | 可建置 | 介面 | 原生 RAW 解碼 | 系統資源回收筒 | 從檔案管理員「開啟方式」 |
+| 平台 | 可執行 | 介面 | 完整 RAW 解碼 | 系統垃圾桶／資源回收筒 | 從檔案管理員「開啟方式」 |
 |---|---|---|---|---|---|
-| macOS | 可以，僅限 arm64 | 為此平台設計 | 有 | 有 | 有 |
-| Windows | 可以，需在 Windows 主機上 | 桌面版面，測試較少 | 有 | 有，透過 `IFileOperation` | 無 |
-| Linux | 可以，需在 Linux 主機上 | 桌面版面，測試較少 | 無 | 無 — 退回資料夾內回收模式 | 無 |
-| Android | 可以 | 可編譯；未針對觸控適配 | 有 | 無 | 無 |
-| iOS | 可以，預設未簽署 | 可編譯；未針對觸控適配 | 無 | 無 | 無 |
-| Web | 可以 | 可編譯；未適配 | 無 | 無 | 無 |
-
-<!-- evidence: scripts/build_apps.py:249-266 (TARGET_HELP / ALL_TARGETS) -->
-<!-- evidence: scripts/build_apps.py:265-270 (NATIVE_SPECS covers macos, windows, android only; the comment names web, ios and linux as having no native decoder) -->
-<!-- evidence: macos/Runner/AppDelegate.swift:23,42 (exactly two channels: halcyon/trash, halcyon/open_with) -->
+| macOS | ✅（arm64） | 為此平台設計 | ✅ 支援 | ✅ 支援 | ✅ 支援 |
+| Windows | ✅ | 桌面版面，測試較少 | ✅ 支援 | ✅ 支援 | ➖ 無 |
+| Linux | ✅ | 桌面版面，測試較少 | ✅ 支援 | ➖ 資料夾內回收模式 | ➖ 無 |
+| Android | ✅ | 可執行；未針對觸控適配 | ✅ 支援 | ➖ 資料夾內回收模式 | ➖ 無 |
+| iOS | ✅ | 可執行；未針對觸控適配 | ⏳ 尚未支援 | ➖ 資料夾內回收模式 | ➖ 無 |
+| Web | ✅ | 可執行；未適配 | ⏳ 尚未支援 | ➖ 資料夾內回收模式 | ➖ 無 |
 
 ### 這些缺口在實務上代表什麼
 
-**Linux、iOS 與 web 沒有原生解碼器。** Ceyx 解碼函式庫僅為 macOS、Windows 與 Android 建置，其餘三個平台完全沒有完整的 RAW 解碼路徑，因此 RAW 檔案唯有容器內含足夠大的內嵌 JPEG 預覽才看得到。多數現代相機都會寫入這類預覽，瀏覽通常還是行得通——但沒有內嵌預覽的檔案，在這些平台上就是看不了。
+**完整 RAW 解碼在四個平台上都已就緒。** macOS、Windows、Android 與 Linux 都能把
+RAW 檔案完整解碼。Linux 比較特別：解碼器不在你的機器上編譯，而是由建置工具自動
+下載一份預先編好、版本鎖定的副本——但拿到的結果和其他三個平台一樣，都是全品質的完整解碼。
 
-<!-- evidence: scripts/build_apps.py:265-270 -->
+**目前只有 iOS 與網頁版還沒有原生解碼器。** 在這兩個平台上，RAW 檔案只有在本身
+帶有夠大的內嵌 JPEG 預覽時才顯示得出來。多數現代相機都會寫入這類預覽，所以瀏覽
+通常沒問題——但沒有內嵌預覽的 RAW 檔，目前在這兩個平台上就是看不了。
 
-**兩座原生橋接，實作深淺不一。** macOS 在 `macos/Runner/AppDelegate.swift` 中註冊了兩座 `MethodChannel` 橋接：`halcyon/trash` 負責把檔案移進系統垃圾桶，`halcyon/open_with` 負責接收透過 Finder 開啟照片時傳入的檔案路徑。Windows 則在 Win32 的 `IFileOperation` API 之上實作了 `halcyon/trash`，系統資源回收筒因此在該平台同樣能用。Android、iOS、Linux 與 web 這兩座橋接都沒有，刪除一律走資料夾內回收模式——這是完整功能，不是打折的替代方案。
+**系統垃圾桶只有 macOS 與 Windows；其餘平台一律走回收模式。** 在 macOS 與 Windows
+上，刪除會把檔案送進真正的系統垃圾桶／資源回收筒。在 Linux、Android、iOS 與 web
+上，刪除改用 Halcyon 的資料夾內回收模式——檔案會移到同一處的 `.trash` 子資料夾。
+這是完整功能，不是打折的替代方案：什麼都不會遺失，你也能手動把檔案救回來。
 
-<!-- evidence: macos/Runner/AppDelegate.swift:12,23,42 -->
-<!-- evidence: windows/runner/halcyon_channels.cpp:51, windows/runner/halcyon_trash.cpp:1, windows/runner/halcyon_native.h:53 -->
+**從檔案管理員「開啟方式」只有 macOS 支援。** 在 Finder 裡開啟一張照片就直接啟動
+Halcyon，這條路只在 macOS 上接好了；其他平台請改從 app 裡開啟資料夾。
 
-**macOS 建置只支援 arm64，** 原因是隨附的解碼器函式庫本身僅相容 arm64。要建置 Intel Mac 版本，得先備妥 x86_64 或通用架構的解碼器函式庫。
-
-<!-- evidence: CLAUDE.md, scripts/build_apps.py --macos-arch option at scripts/build_apps.py:1636 -->
-
-**影像載入在每個平台上都是純 Dart 實作。** 並沒有原生縮圖通道，單一 Dart 進入點就能在所有平台上產出影像位元組，平台差異只集中在上述兩座 macOS 橋接。
-
-<!-- evidence: lib/services/image_pipeline/dart_image_loader.dart, docs/sop/memory.md AD-020 -->
+**macOS 建置只支援 arm64，** 原因是隨附的解碼器是為 Apple Silicon 建置的。要建置
+Intel Mac 版本，得先備妥 x86_64 的解碼器。
 
 ---
 
@@ -1614,7 +1100,7 @@ Halcyon 本質上是一款桌面應用程式。六個 Flutter 目標平台皆可
 <!-- evidence: scripts/build_apps.py:232-234 (JDK search order), scripts/build_apps.py:448 (PATH fallback warning) -->
 <!-- evidence: android/gradle/wrapper/gradle-wrapper.properties:5, android/settings.gradle.kts:22-23 -->
 
-**Ceyx 的相鄰簽出不是可有可無的東西。** `pubspec.yaml` 把解碼器宣告成指向 `../ceyx/plugin` 的相對路徑相依套件，該目錄一旦不存在，`flutter pub get` 就會直接失敗。請把 Ceyx 複製到 Halcyon 旁邊，而不是放進 Halcyon 裡面。
+**Ceyx 必須簽出在相鄰目錄，這不是可有可無的。** `pubspec.yaml` 把解碼器宣告成指向 `../ceyx/plugin` 的相對路徑相依套件，只要該目錄不存在，`flutter pub get` 就會直接失敗。請把 Ceyx 複製到 Halcyon 隔壁，而不是放進 Halcyon 裡面。
 
 <!-- evidence: pubspec.yaml:46-47 -->
 
@@ -1695,7 +1181,7 @@ flutter test --coverage
 
 ### 測試策略文件
 
-本專案在工作副本的 `docs/sop/` 目錄下維護一份內部測試策略文件——以 TC-NNN 編號的測試案例矩陣、每個案例的通過/失敗歷史，以及涵蓋範圍的優先順序；這份文件不受版控追蹤，全新 clone 裡不會有。在擁有這份文件的工作副本中，本儲存庫新增的任何測試都該在矩陣裡對應一筆條目；它同時記錄了嘗試過卻刻意放棄的案例——例如某個會讓測試執行器的計時器卡死的完整鍵盤元件測試——重新嘗試同類測試前，值得先翻一翻。
+本專案在工作副本的 `docs/sop/` 目錄下維護一份內部測試策略文件：以 TC-NNN 編號的測試案例矩陣，記錄每個案例的通過/失敗歷史與涵蓋範圍的優先順序。這份文件不受版控追蹤，全新 clone 裡不會有。手上有這份文件時，本儲存庫新增的任何測試都應該在矩陣裡對應一筆條目。它也記下了試過卻刻意放棄的案例，例如某個把測試執行器計時器卡死的完整鍵盤元件測試——想重試同類測試前，值得先翻一翻。
 
 <!-- evidence: docs/sop/unit_test.md:1-3, docs/sop/unit_test.md:197 -->
 
@@ -1716,9 +1202,9 @@ flutter test --coverage
 Halcyon 自己在這個 repository 裡的原始碼並未宣告任何授權條款——repository 根目錄
 沒有 `LICENSE` 檔案，`pubspec.yaml` 裡也沒有 `license:` 欄位。
 <!-- evidence: pubspec.yaml:1-19 -->
-Halcyon *實際*綑綁的東西，是一組在 `pubspec.yaml` 中宣告的 Dart 套件，再加上——透過
-姊妹專案 Ceyx 間接引入的——原生 RAW/DNG 解碼堆疊；這個堆疊由 Ceyx 編譯，Halcyon 在
-每個平台上都把它一起打包進自己的 app 執行檔。
+Halcyon *實際*綑綁的，是一組在 `pubspec.yaml` 中宣告的 Dart 套件，外加透過姊妹專案
+Ceyx 間接引入的原生 RAW/DNG 解碼堆疊。這個堆疊由 Ceyx 編譯，而 Halcyon 在每個平台上
+都把它一起打包進自己的 app 執行檔。
 
 | 元件 | 授權 | 備註 |
 |---|---|---|
@@ -1731,12 +1217,11 @@ Halcyon *實際*綑綁的東西，是一組在 `pubspec.yaml` 中宣告的 Dart 
 完整清點——確切版本、各套件授權文字的來源，以及每項歸屬背後的推理——都收錄在
 [`docs/legal/THIRD_PARTY_LICENSES.md`](docs/legal/THIRD_PARTY_LICENSES.md)。
 
-其中有一項還不是定案的事實，該文件明確把它標記成未解決的法律問題，而非在此處給出
-結論：LibRaw 與 RawSpeed3 採 LGPL-2.1 授權，且靜態連結進 Halcyon 出貨的原生函式庫，
-這代表 Halcyon 有義務向執行檔的接收者提供原始碼或可重新連結的目的檔（object）。
-Ceyx 自身的原始碼提供是否已經涵蓋 Halcyon 的發行版建置，還是 Halcyon 的發行流程
-需要一份獨立的原始碼提供，目前尚未確定，得在 Halcyon 散布到這個開發環境之外前
-先經過法律審查。
+其中有一項還沒有定案，該文件把它標記成未解決的法律問題，而不是在這裡直接下結論。
+LibRaw 與 RawSpeed3 採 LGPL-2.1 授權，並靜態連結進 Halcyon 出貨的原生函式庫，這代表
+Halcyon 有義務向拿到執行檔的人提供原始碼或可重新連結的目的檔（object）。目前還不清楚
+Ceyx 自己的原始碼提供是否已經涵蓋 Halcyon 的發行版建置，還是 Halcyon 的發行流程需要
+另外準備一份。這件事得在 Halcyon 散布到這個開發環境之外以前先經過法律審查。
 
 ---
 
