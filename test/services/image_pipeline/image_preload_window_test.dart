@@ -633,4 +633,74 @@ void main() {
       reason: 'the default controller must not reach past +5',
     );
   });
+
+  test('TC-356 a width-3 controller runs more than one expensive decode at '
+      'once, and never more than three', () async {
+    var inFlight = 0;
+    var maxInFlight = 0;
+    var call = 0;
+    final wide = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+      dngDecoder: (path) async {
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        // Deliberately uneven, so completion order differs from start order.
+        await Future<void>.delayed(Duration(milliseconds: 5 + (call++ % 3) * 7));
+        inFlight--;
+        return fakeDecoded();
+      },
+      decodeLaneWidth: 3,
+    );
+    addTearDown(wide.dispose);
+    wide.updateTargetSize(10, 10);
+    final raws = rawItems(14);
+    await wide.preloadImages(
+      items: raws,
+      selectedItemId: raws[5].id,
+      notifyLoaded: () {},
+    );
+    await _until(
+      () => controllerWindowFilled(wide, raws, 5),
+      reason: 'the whole expensive window to land',
+    );
+    expect(maxInFlight, greaterThan(1),
+        reason: 'width 3 must actually overlap decodes');
+    expect(maxInFlight, lessThanOrEqualTo(3),
+        reason: 'and must never exceed the configured width');
+  });
+
+  test('TC-357 width 3 keeps the near-to-far START order: the first three '
+      'starts are distances 0, +1, -1', () async {
+    final starts = <String>[];
+    final wide = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+      dngDecoder: (path) async {
+        starts.add(path);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        return fakeDecoded();
+      },
+      decodeLaneWidth: 3,
+    );
+    addTearDown(wide.dispose);
+    wide.updateTargetSize(10, 10);
+    final raws = rawItems(14);
+    await wide.preloadImages(
+      items: raws,
+      selectedItemId: raws[5].id,
+      notifyLoaded: () {},
+    );
+    await _until(() => starts.length >= 3, reason: 'three starts');
+    expect(
+      starts.take(3).toList(),
+      [
+        raws[5].files.single.path,
+        raws[6].files.single.path,
+        raws[4].files.single.path,
+      ],
+      reason: 'the 2026-08-26 near-to-far ruling is unchanged by width; only '
+          'how many of the ranked entries start at once changed',
+    );
+  });
 }
