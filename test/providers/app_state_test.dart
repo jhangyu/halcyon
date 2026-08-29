@@ -9,6 +9,7 @@ import '../support/fs_permissions.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
@@ -606,6 +607,46 @@ void main() {
         isCustom: false,
       );
       expect(await state.loadSavedRenameRule(), isNull);
+    });
+  });
+
+  group('AppState.decodeLaneWidth', () {
+    test('TC-351 lane width defaults to 1 with no ceiling injected', () async {
+      SharedPreferences.setMockInitialValues({});
+      final state = AppState();
+      addTearDown(state.dispose);
+      expect(state.maxDecodeLaneWidth, 1);
+      expect(state.decodeLaneWidth, 1);
+    });
+
+    test('TC-352 a persisted width is read back and pushed to the controller',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 4});
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+      );
+      addTearDown(controller.dispose);
+      final state = AppState(preloadController: controller, laneCeiling: 5);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, 4);
+      expect(controller.decodeLaneWidth, 4);
+    });
+
+    test(
+        'TC-353 a persisted width above this machine ceiling is clamped on read',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 9});
+      final state = AppState(laneCeiling: 2);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, 2);
+
+      state.setDecodeLaneWidth(1);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('decodeLaneWidth'), 1);
+      expect(state.decodeLaneWidth, 1);
     });
   });
 }

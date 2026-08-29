@@ -70,7 +70,13 @@ class AppState extends ChangeNotifier {
     PhotoExportService? exportService,
     ExifBatchReader? exifReader,
     RetentionPolicy retention = const RetentionPolicy.floor(),
-  }) : _scanner = scanner ?? PhotoLibraryScanner(),
+    // Defaults to 1 for the same reason `retention` defaults to the shipped
+    // floor: a test or a platform with no hardware reading behaves exactly as
+    // it did before this setting existed.
+    int laneCeiling = 1,
+  }) : _laneCeiling = laneCeiling,
+       _decodeLaneWidth = defaultLaneWidthFor(laneCeiling),
+       _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
        _fileActions = fileActions ?? PhotoFileActions(),
@@ -96,6 +102,7 @@ class AppState extends ChangeNotifier {
                  ? null
                  : halcyonSizedDecoder,
              retention: retention,
+             decodeLaneWidth: defaultLaneWidthFor(laneCeiling),
            ) {
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
@@ -135,6 +142,8 @@ class AppState extends ChangeNotifier {
   // Settings
   bool _autoAdvance = false;
   bool _overwriteExisting = true;
+  final int _laneCeiling;
+  int _decodeLaneWidth;
   SharedPreferences? _prefs;
 
   // Per-folder, deliberately NOT persisted: every loadFolder re-detects, so
@@ -150,6 +159,12 @@ class AppState extends ChangeNotifier {
     _prefs = await SharedPreferences.getInstance();
     _autoAdvance = _prefs?.getBool('autoAdvance') ?? false;
     _overwriteExisting = _prefs?.getBool('overwriteExisting') ?? true;
+    // Clamp on READ, not only on write: a value persisted on a 28-core desktop
+    // must not be applied verbatim after the folder moves to an 8-core laptop.
+    _decodeLaneWidth =
+        (_prefs?.getInt('decodeLaneWidth') ?? defaultLaneWidthFor(_laneCeiling))
+            .clamp(1, _laneCeiling);
+    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
     notifyListeners();
   }
 
@@ -164,6 +179,11 @@ class AppState extends ChangeNotifier {
   bool get overwriteExisting => _overwriteExisting;
 
   bool get recycleMode => _recycleMode;
+
+  int get decodeLaneWidth => _decodeLaneWidth;
+
+  /// The largest width this machine allows (memory rung AND core count).
+  int get maxDecodeLaneWidth => _laneCeiling;
 
   StatusMessage? get status => _status;
   int get statusSeq => _statusSeq;
@@ -423,6 +443,13 @@ class AppState extends ChangeNotifier {
   void setOverwriteExisting(bool value) {
     _overwriteExisting = value;
     _prefs?.setBool('overwriteExisting', value);
+    notifyListeners();
+  }
+
+  void setDecodeLaneWidth(int value) {
+    _decodeLaneWidth = value.clamp(1, _laneCeiling);
+    _prefs?.setInt('decodeLaneWidth', _decodeLaneWidth);
+    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
     notifyListeners();
   }
 
