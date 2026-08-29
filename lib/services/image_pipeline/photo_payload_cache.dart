@@ -21,6 +21,10 @@ const int kRetentionAfter = 5;
 /// preview-bearing payload retains compressed JPEG bytes (~2.6 MiB, 23.22 MiB
 /// for the window). 224 MiB carries ~11% headroom over the 201.59 MiB row.
 ///
+/// AMENDMENT (Phase 13, AD-040): the 22.4 MiB figure above now describes only
+/// the encode-failure fallback path. A re-encoded RAW payload retains one
+/// full-resolution JPEG; this budget is deliberately NOT re-derived in that phase.
+///
 /// Below ~202 MiB an in-window RAW payload is dropped and re-entering that slot
 /// costs a full sequential RAW decode (~8.5 s measured) instead of a cache hit
 /// -- which is the one cost this retention design exists to avoid. Unused

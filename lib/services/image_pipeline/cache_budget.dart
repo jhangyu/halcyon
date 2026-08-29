@@ -29,6 +29,12 @@ import 'retention_policy.dart';
 /// duplicated as a decorative `imageCacheMaxBytes` const in main.dart that
 /// nothing read.
 ///
+/// AMENDMENT (Phase 13, AD-040): `kPayloadByteBudget`'s companion 22.4 MiB
+/// per-item figure (photo_payload_cache.dart:19-30, retention_policy.dart:51-53)
+/// now describes only the encode-failure fallback path; a re-encoded RAW
+/// payload retains one full-resolution JPEG instead. This budget is
+/// deliberately NOT re-derived in that phase.
+///
 /// This is NOT interchangeable with `kPayloadByteBudget`: the two are sized
 /// against different corpora and neither can sanity-check the other.
 ///

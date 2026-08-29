@@ -53,6 +53,10 @@ class RetentionPolicy {
 /// 22.4 MiB is the measured window-resolution RGBA cost of one no-preview RAW
 /// item and the 11% is headroom above the row the cache must hold.
 ///
+/// AMENDMENT (Phase 13, AD-040): the 22.4 MiB figure above now describes only
+/// the encode-failure fallback path. A re-encoded RAW payload retains one
+/// full-resolution JPEG; this budget is deliberately NOT re-derived in that phase.
+///
 /// The rung DEPTHS are byte arithmetic, not UI measurement -- UI measurement
 /// in this repo is the user's to run. They are deliberately conservative
 /// (at most 384 MiB of held `Uint8List`) and are expected to be tuned.
