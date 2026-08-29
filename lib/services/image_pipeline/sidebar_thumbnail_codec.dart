@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:image/image.dart' as img;
-
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'jpeg_encoder.dart';
 
 /// Bounds what the sidebar byte cache stores (M6 F-10 half 2).
 ///
@@ -51,7 +49,7 @@ Future<Uint8List> sidebarCacheBytes(
     final height = frame.image.height;
     frame.image.dispose();
     if (data == null) return encoded;
-    return _encodeJpeg(
+    return encodeJpegFromRgba(
       data.buffer.asUint8List(),
       width: width,
       height: height,
@@ -80,37 +78,10 @@ Future<Uint8List> jpegFromOrientedPixels(
     exifOrientation: exifOrientation,
     longEdge: longEdge,
   );
-  return _encodeJpeg(
+  return encodeJpegFromRgba(
     payload.rgba,
     width: payload.width,
     height: payload.height,
     quality: jpegQuality,
   );
-}
-
-/// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it on a worker
-/// isolate. `numChannels: 4` + [img.ChannelOrder.rgba] match `dart:ui`'s
-/// `rawRgba` byte order exactly, so no channel shuffle happens here; the
-/// encoder drops alpha, which JPEG cannot represent.
-///
-/// `Isolate.run` because a 200px q80 encode is pure CPU on the UI isolate
-/// otherwise, once per sidebar row. Only sendable values cross the boundary:
-/// a `Uint8List` and three ints.
-Future<Uint8List> _encodeJpeg(
-  Uint8List rgba, {
-  required int width,
-  required int height,
-  required int quality,
-}) {
-  return Isolate.run(() {
-    final image = img.Image.fromBytes(
-      width: width,
-      height: height,
-      bytes: rgba.buffer,
-      bytesOffset: rgba.offsetInBytes,
-      numChannels: 4,
-      order: img.ChannelOrder.rgba,
-    );
-    return Uint8List.fromList(img.encodeJpg(image, quality: quality));
-  });
 }
