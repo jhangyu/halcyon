@@ -88,7 +88,14 @@ const int kCoresPerDecode = 5;
 const int kMaxDecodeLaneWidth = 5;
 
 /// Width a machine gets before the user touches the setting (capped by ceiling).
-const int kDefaultDecodeLaneWidth = 3;
+///
+/// Was 3 at authoring time; lowered to 1 per the pre-registered Sec 9.3
+/// verdict rule after the post-landing re-benchmark measured
+/// Speedup(3) = 1.167 < 1.3 on a 28-core/256 GiB machine
+/// (docs/logs/2026-08-30/decode-lane-width-sweep.txt). The setting stays
+/// user-adjustable up to [laneCeilingFor]'s ceiling; it is just no longer
+/// on by default.
+const int kDefaultDecodeLaneWidth = 1;
 
 /// How many expensive decodes may run at once on this machine.
 ///

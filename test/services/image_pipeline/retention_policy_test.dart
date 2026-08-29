@@ -87,10 +87,11 @@ void main() {
     expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 1), 1);
   });
 
-  test('TC-349 default width is the ceiling capped at 3', () {
-    expect(defaultLaneWidthFor(5), 3);
-    expect(defaultLaneWidthFor(3), 3);
-    expect(defaultLaneWidthFor(2), 2);
+  test('TC-349 default width is the ceiling capped at kDefaultDecodeLaneWidth '
+      '(1, per the Task 7 re-benchmark verdict)', () {
+    expect(defaultLaneWidthFor(5), 1);
+    expect(defaultLaneWidthFor(3), 1);
+    expect(defaultLaneWidthFor(2), 1);
     expect(defaultLaneWidthFor(1), 1);
   });
 }
