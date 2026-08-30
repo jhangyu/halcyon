@@ -13,9 +13,14 @@ import 'settings_section_label.dart';
 /// using the same 2-column grid pattern the mockups already establish
 /// (D1.html/E1.html `.grid`). Workflow (unaffected by this round's width
 /// request) stays full-width, placed after the paired row so the two named
-/// sections are visually adjacent. Round-4 also restored the Workflow row's
-/// original D1 fidelity: each checkbox sizes to its own label instead of
-/// being force-stretched to 50% width (see `_workflow` below).
+/// sections are visually adjacent. Round-5 (real-build review) ruling:
+/// each block in the paired row is wrapped in `Expanded` so it stretches
+/// to the shared `IntrinsicHeight` row's full height, keeping the two
+/// blocks' top/bottom edges aligned even when their content heights
+/// differ. Round-5 also reverted the Workflow section back to its
+/// pre-round-4 (commit 297d6c3) look -- the user reviewed round-4's
+/// IntrinsicWidth+Wrap attempt in a real build and preferred the original
+/// two-Expanded-CheckboxListTile Row (see `_workflow` below).
 class PerformanceMemoryTab extends StatelessWidget {
   const PerformanceMemoryTab({super.key});
 
@@ -48,36 +53,46 @@ class PerformanceMemoryTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         settingsSectionLabel(t, 'Parallelism'),
-        settingsBlock(
-          t,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              settingsRowLabel(t, 'Concurrent RAW decodes'),
-              settingsCaption(
-                t,
-                state.maxDecodeLaneWidth > 1
-                    ? '${state.decodeLaneWidth} of ${state.maxDecodeLaneWidth} max'
-                    : 'This machine can only decode one RAW at a time',
-              ),
-              settingsSlider(
-                key: const Key('decodeLaneWidthSlider'),
-                min: 1,
-                max: state.maxDecodeLaneWidth.toDouble(),
-                // Flutter asserts divisions > 0, so a ceiling of 1 passes null.
-                divisions: state.maxDecodeLaneWidth > 1
-                    ? state.maxDecodeLaneWidth - 1
-                    : null,
-                label: '${state.decodeLaneWidth}',
-                value: state.decodeLaneWidth.toDouble(),
-                activeColor: t.accent,
-                inactiveColor: t.border,
-                onChanged: state.maxDecodeLaneWidth > 1
-                    ? (double value) =>
-                          context.read<AppState>().setDecodeLaneWidth(value.round())
-                    : null,
-              ),
-            ],
+        // Expanded (not a bare settingsBlock() call) so this block stretches
+        // to fill the paired row's full IntrinsicHeight -- otherwise, since
+        // Column doesn't vertically stretch its children by default, the
+        // shorter block's Container stays at its own natural (content)
+        // height and any leftover row height goes to blank space below it
+        // instead of being absorbed by the block's border/background,
+        // leaving the two blocks' top/bottom edges visibly misaligned.
+        Expanded(
+          child: settingsBlock(
+            t,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                settingsRowLabel(t, 'Concurrent RAW decodes'),
+                settingsCaption(
+                  t,
+                  state.maxDecodeLaneWidth > 1
+                      ? '${state.decodeLaneWidth} of ${state.maxDecodeLaneWidth} max'
+                      : 'This machine can only decode one RAW at a time',
+                ),
+                settingsSlider(
+                  key: const Key('decodeLaneWidthSlider'),
+                  min: 1,
+                  max: state.maxDecodeLaneWidth.toDouble(),
+                  // Flutter asserts divisions > 0, so a ceiling of 1 passes null.
+                  divisions: state.maxDecodeLaneWidth > 1
+                      ? state.maxDecodeLaneWidth - 1
+                      : null,
+                  label: '${state.decodeLaneWidth}',
+                  value: state.decodeLaneWidth.toDouble(),
+                  activeColor: t.accent,
+                  inactiveColor: t.border,
+                  onChanged: state.maxDecodeLaneWidth > 1
+                      ? (double value) => context
+                            .read<AppState>()
+                            .setDecodeLaneWidth(value.round())
+                      : null,
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -91,28 +106,16 @@ class PerformanceMemoryTab extends StatelessWidget {
         settingsSectionLabel(t, 'Workflow'),
         settingsBlock(
           t,
-          // D1's `.row` (D1.html:67) is a plain flex row -- `align-items:
-          // center; justify-content: space-between` -- where each item
-          // sizes to its own label, not two forced-equal halves. Wrapping
-          // each CheckboxListTile in `Expanded` (round 1 through round 3)
-          // squeezed both to 50% of the block width, which wraps the
-          // longer "Overwrite existing files on Copy/Move" label onto a
-          // second line while the shorter label stays on one -- the two
-          // tiles then end up different heights and Row's default
-          // vertical centring makes their checkboxes visibly misaligned.
-          // A plain natural-width `Row` (tried first) overflows instead:
-          // `CheckboxListTile`'s 48px touch target + built-in content
-          // padding makes both labels together wider than the block at
-          // this dialog's fixed 920px width, something the mockup's plain
-          // "☑ label" text glyphs never accounted for. `Wrap` gives each
-          // tile its natural single-line width and drops the second tile
-          // to its own line if it doesn't fit, instead of either
-          // stretching (round 1-3's bug) or overflowing.
-          Wrap(
-            spacing: 16,
-            runSpacing: 4,
+          // Round-5 user ruling: reverted to the pre-round-4 (297d6c3)
+          // structure -- two equal-width Expanded CheckboxListTiles in a
+          // plain Row. Round 4's IntrinsicWidth+Wrap swap (9394a9e) was an
+          // attempt to fix a perceived checkbox misalignment, but the user
+          // reviewed a real build and preferred the original two-column
+          // look; TC-484 (which pinned the round-4 single-line height
+          // guard) is removed accordingly -- see settings_dialog_test.dart.
+          Row(
             children: [
-              IntrinsicWidth(
+              Expanded(
                 child: Material(
                   type: MaterialType.transparency,
                   child: CheckboxListTile(
@@ -132,7 +135,7 @@ class PerformanceMemoryTab extends StatelessWidget {
                   ),
                 ),
               ),
-              IntrinsicWidth(
+              Expanded(
                 child: Material(
                   type: MaterialType.transparency,
                   child: CheckboxListTile(
@@ -164,53 +167,58 @@ class PerformanceMemoryTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         settingsSectionLabel(t, 'Memory Retention'),
-        settingsBlock(
-          t,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  for (var i = 0; i < RetentionTier.values.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 6),
-                    Expanded(
-                      child: _tierCard(
-                        context,
-                        t,
-                        state,
-                        RetentionTier.values[i],
+        // See the matching Expanded wrap in _parallelism above for why this
+        // is needed to keep the two paired blocks' heights equal.
+        Expanded(
+          child: settingsBlock(
+            t,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    for (var i = 0; i < RetentionTier.values.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      Expanded(
+                        child: _tierCard(
+                          context,
+                          t,
+                          state,
+                          RetentionTier.values[i],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
-              ),
-              const SizedBox(height: 10),
-              // A Row here would overflow once the column is half-width
-              // (this round's layout change): the caption text plus the
-              // reset button no longer both fit on one line at half the
-              // dialog's content width. Wrap lets the button drop to its
-              // own line instead of clipping/overflowing.
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                runSpacing: 4,
-                children: [
-                  settingsCaption(
-                    t,
-                    state.isRetentionTierOverridden
-                        ? 'Overriding the detected default '
-                              '(${state.autoRetentionTier.label}).'
-                        : 'Auto-picked from detected RAM; override anytime.',
-                  ),
-                  if (state.isRetentionTierOverridden)
-                    settingsSmallButton(
+                ),
+                const SizedBox(height: 10),
+                // A Row here would overflow once the column is half-width
+                // (this round's layout change): the caption text plus the
+                // reset button no longer both fit on one line at half the
+                // dialog's content width. Wrap lets the button drop to its
+                // own line instead of clipping/overflowing.
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 4,
+                  children: [
+                    settingsCaption(
                       t,
-                      'Use detected default',
-                      () => context.read<AppState>().resetRetentionTierToAuto(),
-                      key: const Key('retentionResetToAuto'),
+                      state.isRetentionTierOverridden
+                          ? 'Overriding the detected default '
+                                '(${state.autoRetentionTier.label}).'
+                          : 'Auto-picked from detected RAM; override anytime.',
                     ),
-                ],
-              ),
-            ],
+                    if (state.isRetentionTierOverridden)
+                      settingsSmallButton(
+                        t,
+                        'Use detected default',
+                        () =>
+                            context.read<AppState>().resetRetentionTierToAuto(),
+                        key: const Key('retentionResetToAuto'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ],

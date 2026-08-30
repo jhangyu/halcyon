@@ -438,46 +438,39 @@ void main() {
             '(round-4 user ruling, was 50/50)');
   });
 
-  testWidgets(
-      'TC-484 round-4: the Workflow row lays out both checkboxes without '
-      'overflow and without wrapping a label to a second line',
-      (tester) async {
-    // The dialog is a fixed 920px wide SizedBox (settings_dialog.dart:91);
-    // flutter test's default 800x600 logical surface is narrower than
-    // that and compresses it via Dialog's insetPadding, which is a test
-    // environment artifact, not something either the old or new Workflow
-    // layout can control. Widen the surface so the dialog gets its
-    // designed width, matching how it will actually render on any
-    // reasonably sized desktop window.
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  // TC-484 (round-4) pinned the IntrinsicWidth+Wrap Workflow layout's
+  // single-line-label guarantee. Round-5 (real-build review) reverted the
+  // Workflow section to its pre-round-4 (297d6c3) two-Expanded-
+  // CheckboxListTile Row -- which can legitimately wrap the longer label
+  // to a second line at narrower widths, the exact behaviour TC-484 was
+  // written to forbid -- so TC-484 is removed rather than re-pinned.
 
+  testWidgets(
+      'TC-486 round-5: Parallelism and Memory Retention blocks in the paired '
+      'row render at equal height', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final state = AppState(laneCeiling: 5);
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
-    // No RenderFlex overflow / other rendering exceptions were thrown
-    // during the pump above (tester.takeException would surface them).
-    expect(tester.takeException(), isNull);
+    // The Parallelism block is flex:2, Memory Retention is flex:3 (see
+    // TC-483). Measure each Expanded's own render box height directly --
+    // this sidesteps matching sub-widgets like the tier-card Containers
+    // that also live inside the IntrinsicHeight row.
+    final expandedRow = tester
+        .widgetList<Expanded>(find.byType(Expanded))
+        .where((w) => w.flex == 2 || w.flex == 3);
+    expect(expandedRow.length, 2,
+        reason: 'expected exactly the Parallelism (flex:2) and Memory '
+            'Retention (flex:3) Expanded widgets');
 
-    expect(find.text('Auto-advance on mark'), findsOneWidget);
-    expect(
-      find.text('Overwrite existing files on Copy/Move'),
-      findsOneWidget,
-    );
+    final heights = expandedRow
+        .map((w) => tester.renderObject<RenderBox>(find.byWidget(w)).size.height)
+        .toList();
 
-    // Each label renders on a single line: single-line Text has one
-    // TextSpan line, i.e. its rendered height matches one line of 12.5px
-    // text (~19px), not the ~38px two lines would produce.
-    final overwriteBox = tester.renderObject<RenderBox>(
-      find.text('Overwrite existing files on Copy/Move'),
-    );
-    expect(overwriteBox.size.height, lessThan(25),
-        reason: 'the longer label must stay on one line, not wrap the way '
-            'the old 50/50 Expanded layout forced it to');
+    expect(heights[0], closeTo(heights[1], 0.5),
+        reason: 'Parallelism and Memory Retention blocks must stretch to '
+            'the same height so their top/bottom edges line up');
   });
 
   testWidgets(
