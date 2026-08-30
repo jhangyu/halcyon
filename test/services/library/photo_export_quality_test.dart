@@ -38,4 +38,30 @@ void main() {
     expect(high, isNotNull);
     expect(low!.length, lessThan(high!.length));
   });
+
+  test('TC-470 the service defaults to the 2048 long edge and the field is '
+      'settable, independently of jpegQuality', () {
+    final service = PhotoExportService();
+    expect(service.longEdge, kDefaultExportLongEdge);
+    expect(kDefaultExportLongEdge, 2048);
+    service.longEdge = 480;
+    expect(service.longEdge, 480);
+    expect(service.jpegQuality, kDefaultExportJpegQuality,
+        reason: 'setting longEdge must not disturb jpegQuality');
+  });
+
+  test('TC-471 kExportLongEdgeStops has exactly the 8 named round-2 stops, '
+      'Original (sentinel 0) last', () {
+    expect(kExportLongEdgeStops,
+        [480, 720, 1080, 1440, 2048, 2560, 3840, 0]);
+    expect(kOriginalExportLongEdge, 0);
+  });
+
+  test('TC-472 exportLongEdgeLabel formats every stop, Original spelled out',
+      () {
+    expect(exportLongEdgeLabel(480), '480px');
+    expect(exportLongEdgeLabel(2048), '2048px');
+    expect(exportLongEdgeLabel(3840), '3840px');
+    expect(exportLongEdgeLabel(kOriginalExportLongEdge), 'Original');
+  });
 }

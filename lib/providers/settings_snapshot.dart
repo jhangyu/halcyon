@@ -12,6 +12,7 @@ class SettingsSnapshot {
     required this.overwriteExisting,
     required this.decodeLaneWidth,
     required this.exportJpegQuality,
+    required this.exportLongEdge,
     required this.retentionTierOverride,
     required this.shortcuts,
   });
@@ -20,6 +21,7 @@ class SettingsSnapshot {
   final bool overwriteExisting;
   final int decodeLaneWidth;
   final int exportJpegQuality;
+  final int exportLongEdge;
 
   /// Null means "no override, follow the machine-derived tier".
   final RetentionTier? retentionTierOverride;

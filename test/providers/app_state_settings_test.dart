@@ -44,16 +44,42 @@ void main() {
     expect(bad.shortcutBindings.keyFor(ShortcutAction.starPhoto), LogicalKeyboardKey.keyS);
   });
 
-  test('TC-450 export quality is normalised to a 5-step in 70..100 and persisted', () async {
+  test('TC-450 export quality is normalised to a 5-step in 50..100 (round 2: '
+      'floor dropped from 70) and persisted', () async {
     final state = await hydrated();
     state.setExportJpegQuality(73);
     expect(state.exportJpegQuality, 75);
     state.setExportJpegQuality(200);
     expect(state.exportJpegQuality, 100);
     state.setExportJpegQuality(12);
-    expect(state.exportJpegQuality, 70);
+    expect(state.exportJpegQuality, 50);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getInt('exportJpegQuality'), 70);
+    expect(prefs.getInt('exportJpegQuality'), 50);
+  });
+
+  test('TC-468 export long edge hydrates, is set-membership normalised '
+      '(not rounded to nearest), and persists', () async {
+    final good = await hydrated(prefs: {'exportLongEdge': 1440});
+    expect(good.exportLongEdge, 1440);
+
+    final missing = await hydrated();
+    expect(missing.exportLongEdge, 2048, reason: 'default stop');
+
+    final garbageType = await hydrated(prefs: {'exportLongEdge': 'nope'});
+    expect(garbageType.exportLongEdge, 2048);
+
+    final notAStop = await hydrated(prefs: {'exportLongEdge': 1999});
+    expect(notAStop.exportLongEdge, 2048,
+        reason: 'unrecognised values fall back to the default, they do not '
+            'snap to the nearest stop');
+
+    final state = await hydrated();
+    state.setExportLongEdge(480);
+    expect(state.exportLongEdge, 480);
+    state.setExportLongEdge(0);
+    expect(state.exportLongEdge, 0, reason: 'Original sentinel round-trips');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('exportLongEdge'), 0);
   });
 
   test('TC-451 the tier reaches the pipeline, and reset returns to the auto tier', () async {
@@ -83,6 +109,7 @@ void main() {
     state.setOverwriteExisting(false);
     state.setDecodeLaneWidth(5);
     state.setExportJpegQuality(70);
+    state.setExportLongEdge(480);
     state.setRetentionTier(RetentionTier.generous);
     state.setShortcutBinding(ShortcutAction.starPhoto, LogicalKeyboardKey.keyF);
 
@@ -92,6 +119,7 @@ void main() {
     expect(state.overwriteExisting, before.overwriteExisting);
     expect(state.decodeLaneWidth, before.decodeLaneWidth);
     expect(state.exportJpegQuality, before.exportJpegQuality);
+    expect(state.exportLongEdge, before.exportLongEdge);
     expect(state.isRetentionTierOverridden, isFalse);
     expect(state.shortcutBindings, ShortcutBindings.defaults());
 
@@ -99,5 +127,6 @@ void main() {
     expect(prefs.getString('retentionTier'), isNull);
     expect(prefs.getInt('shortcut.starPhoto'), isNull);
     expect(prefs.getInt('exportJpegQuality'), before.exportJpegQuality);
+    expect(prefs.getInt('exportLongEdge'), before.exportLongEdge);
   });
 }

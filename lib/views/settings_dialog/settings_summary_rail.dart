@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/shortcut_bindings.dart';
 import '../../providers/app_state.dart';
 import '../../services/image_pipeline/retention_policy.dart';
+import '../../services/library/photo_export_service.dart';
 import '../theme_tokens.dart';
 
 /// D1's `.summary-rail` (D1.html:48), visible on every tab (§1.5.4).
@@ -59,6 +60,19 @@ class SettingsSummaryRail extends StatelessWidget {
               'Export quality',
               Text(
                 '${state.exportJpegQuality}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: t.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _item(
+              t,
+              'Export size',
+              Text(
+                exportLongEdgeLabel(state.exportLongEdge),
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'monospace',

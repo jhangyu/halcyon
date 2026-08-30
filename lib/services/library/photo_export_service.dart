@@ -40,10 +40,47 @@ typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
 /// which the settings panel writes through (`AppState.setExportJpegQuality`).
 const int kDefaultExportJpegQuality = 90;
 
+/// Sentinel for [PhotoExportService.longEdge] / [ExportBytesFetch] callers:
+/// "Original" -- re-encode at the source's own resolution, skipping the
+/// resize step entirely. 0 is used because every real long-edge stop is a
+/// positive pixel count, so it can never collide with a real target.
+const int kOriginalExportLongEdge = 0;
+
+/// Default long edge (px) an export is resized to before re-encoding, unless
+/// the user picked [kOriginalExportLongEdge]. Matches the pre-existing
+/// hardcoded `2048` this replaced (`ImageRequestPurpose.export.targetSize`
+/// remains 2048 and is unrelated -- it sizes the PRE-resize decode/preview
+/// fetch, not this service's own resize target).
+const int kDefaultExportLongEdge = 2048;
+
+/// The complete, ordered set of stops the "Export JPEG Size" slider offers.
+/// [kOriginalExportLongEdge] (0) is deliberately last: it means "skip
+/// resizing", not "the smallest stop".
+const List<int> kExportLongEdgeStops = [
+  480,
+  720,
+  1080,
+  1440,
+  kDefaultExportLongEdge,
+  2560,
+  3840,
+  kOriginalExportLongEdge,
+];
+
+/// Human-readable label for one [kExportLongEdgeStops] entry, shared by the
+/// settings panel's slider caption and the summary rail.
+String exportLongEdgeLabel(int longEdge) =>
+    longEdge == kOriginalExportLongEdge ? 'Original' : '${longEdge}px';
+
 class PhotoExportService {
   PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder}) {
     _fetchBytes = fetchBytes ??
-        ((path) => exportBytesFor(path, decoder: decoder, quality: jpegQuality));
+        ((path) => exportBytesFor(
+              path,
+              decoder: decoder,
+              quality: jpegQuality,
+              longEdge: longEdge,
+            ));
   }
 
   late final ExportBytesFetch _fetchBytes;
@@ -55,6 +92,12 @@ class PhotoExportService {
   /// Unrelated to `kDisplayJpegQuality` (`jpeg_encoder.dart`), which governs
   /// display-only bytes that never reach disk.
   int jpegQuality = kDefaultExportJpegQuality;
+
+  /// Long edge (px) the export is resized to, or [kOriginalExportLongEdge]
+  /// to skip resizing. Set from the app-wide setting
+  /// (`AppState.setExportLongEdge`); read at call time, same reasoning as
+  /// [jpegQuality].
+  int longEdge = kDefaultExportLongEdge;
 
   /// Byte source = the same producer the detail view uses (P2.1). Purpose is
   /// PREVIEW deliberately: that branch returns full-size bytes OR the
@@ -70,6 +113,7 @@ class PhotoExportService {
     String path, {
     DngFullDecoder? decoder,
     int quality = kDefaultExportJpegQuality,
+    int longEdge = kDefaultExportLongEdge,
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
@@ -96,7 +140,10 @@ class PhotoExportService {
     }
 
     final transform = exifTransformFor(orientation);
-    final maxEdge = ImageRequestPurpose.export.targetSize;
+    // ImageRequestPurpose.export.targetSize (2048) sizes the PRE-resize
+    // fetch/decode above via dartImageLoad; it is unrelated to this
+    // service's own resize target, which is the user-settable [longEdge].
+    final maxEdge = longEdge;
 
     // Everything below is pure CPU on `package:image`, so it runs on a worker
     // isolate (the pattern `exif_metadata_service.dart:63-70` already uses).
@@ -132,7 +179,8 @@ class PhotoExportService {
         if (mirrored) frame = img.flipHorizontal(frame);
       }
       if (frame == null) return null;
-      if (frame.width > maxEdge || frame.height > maxEdge) {
+      if (maxEdge != kOriginalExportLongEdge &&
+          (frame.width > maxEdge || frame.height > maxEdge)) {
         frame = img.copyResize(
           frame,
           width: frame.width >= frame.height ? maxEdge : null,

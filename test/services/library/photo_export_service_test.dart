@@ -654,4 +654,92 @@ void main() {
     expect(outputTags['Image Orientation']?.values.firstAsInt(), 1,
         reason: 'pixels are already rotated; the tag must not double-apply');
   });
+
+  group('round 2: settable export longEdge (docs/logs/2026-08-30 spec)', () {
+    Future<String> tiffFixture(String name) async {
+      final tmp = Directory.systemTemp.createTempSync('halcyon_size_export');
+      addTempDirTeardown(tmp);
+      final path = '${tmp.path}${Platform.pathSeparator}$name.tif';
+      File(path)
+          .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
+      return path;
+    }
+
+    Future<Uint8List> rgbaFixture(int width, int height) async {
+      final rgba = Uint8List(width * height * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255; // opaque
+      }
+      return rgba;
+    }
+
+    test('TC-473 a non-default stop (480) resizes to that long edge, not '
+        '2048', () async {
+      final path = await tiffFixture('scan480');
+      final rgba = await rgbaFixture(3000, 2000);
+
+      final jpeg = await PhotoExportService.exportBytesFor(
+        path,
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+        longEdge: 480,
+      );
+
+      expect(jpeg, isNotNull);
+      final out = img.decodeJpg(jpeg!)!;
+      expect(out.width, lessThanOrEqualTo(480));
+      expect(out.height, lessThanOrEqualTo(480));
+      expect(out.width == 480 || out.height == 480, isTrue,
+          reason: 'the long edge is capped AT the chosen stop, not below it');
+    });
+
+    test('TC-474 the Original sentinel (0) skips resizing entirely: a '
+        'source larger than every named stop comes out unresized', () async {
+      final path = await tiffFixture('scanOriginal');
+      final rgba = await rgbaFixture(5000, 3000);
+
+      final jpeg = await PhotoExportService.exportBytesFor(
+        path,
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 5000, height: 3000),
+        longEdge: kOriginalExportLongEdge,
+      );
+
+      expect(jpeg, isNotNull);
+      final out = img.decodeJpg(jpeg!)!;
+      expect(out.width, 5000);
+      expect(out.height, 3000);
+    });
+
+    test('TC-475 PhotoExportService.exportStarred reads longEdge at call '
+        'time via the default fetch (no fetchBytes injected)', () async {
+      final path = await tiffFixture('scanServiceLevel');
+      final rgba = await rgbaFixture(3000, 2000);
+
+      final destDir = Directory(p.join(tempDir.path, 'out'));
+      await destDir.create();
+      final items = [
+        PhotoItem(
+          id: 'sample',
+          status: PhotoStatus.starred,
+          files: [File(path)],
+        ),
+      ];
+
+      final service = PhotoExportService(
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+      );
+      service.longEdge = 720;
+      final outcome = await service.exportStarred(items, destDir);
+
+      expect(outcome.failures, isEmpty);
+      expect(outcome.exportedCount, 1);
+      final outFile =
+          File(p.join(destDir.path, '${p.basenameWithoutExtension(path)}.jpg'));
+      final out = img.decodeJpg(await outFile.readAsBytes())!;
+      expect(out.width <= 720 && out.height <= 720, isTrue);
+      expect(out.width == 720 || out.height == 720, isTrue);
+    });
+  });
 }

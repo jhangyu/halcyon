@@ -147,6 +147,7 @@ class AppState extends ChangeNotifier {
   final int _laneCeiling;
   int _decodeLaneWidth;
   int _exportJpegQuality = kDefaultExportJpegQuality;
+  int _exportLongEdge = kDefaultExportLongEdge;
   RetentionTier? _retentionTierOverride;
   late final RetentionTier _autoRetentionTier;
   ShortcutBindings _shortcuts = ShortcutBindings.defaults();
@@ -181,6 +182,9 @@ class AppState extends ChangeNotifier {
     // down the retention tier, and one bad shortcut entry costs one binding.
     _exportJpegQuality = _normaliseExportQuality(_readIntPref('exportJpegQuality'));
     _exportService.jpegQuality = _exportJpegQuality;
+
+    _exportLongEdge = _normaliseExportLongEdge(_readIntPref('exportLongEdge'));
+    _exportService.longEdge = _exportLongEdge;
 
     final tierId = _readStringPref('retentionTier');
     _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
@@ -220,7 +224,16 @@ class AppState extends ChangeNotifier {
   }
 
   int _normaliseExportQuality(int? raw) =>
-      raw == null ? kDefaultExportJpegQuality : ((raw / 5).round() * 5).clamp(70, 100);
+      raw == null ? kDefaultExportJpegQuality : ((raw / 5).round() * 5).clamp(50, 100);
+
+  /// Unlike quality, the size stops are not evenly spaced (and 0 is a
+  /// sentinel, not a size), so this is a set-membership check rather than a
+  /// round-to-nearest -- an unrecognised stored value falls back to the
+  /// default instead of snapping to a neighbour.
+  int _normaliseExportLongEdge(int? raw) =>
+      raw != null && kExportLongEdgeStops.contains(raw)
+          ? raw
+          : kDefaultExportLongEdge;
 
   // Zoom/animation state deliberately does NOT live here: it is pure view
   // state, owned by ZoomController (lib/views/zoom_controller.dart), which
@@ -240,6 +253,8 @@ class AppState extends ChangeNotifier {
   int get maxDecodeLaneWidth => _laneCeiling;
 
   int get exportJpegQuality => _exportJpegQuality;
+
+  int get exportLongEdge => _exportLongEdge;
 
   /// The tier this machine derives from its own RAM, i.e. what "Auto" means.
   RetentionTier get autoRetentionTier => _autoRetentionTier;
@@ -522,6 +537,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setExportLongEdge(int longEdge) {
+    _exportLongEdge = _normaliseExportLongEdge(longEdge);
+    _prefs?.setInt('exportLongEdge', _exportLongEdge);
+    _exportService.longEdge = _exportLongEdge;
+    notifyListeners();
+  }
+
   void setRetentionTier(RetentionTier tier) {
     _retentionTierOverride = tier;
     _prefs?.setString('retentionTier', tier.id);
@@ -564,6 +586,7 @@ class AppState extends ChangeNotifier {
         overwriteExisting: _overwriteExisting,
         decodeLaneWidth: _decodeLaneWidth,
         exportJpegQuality: _exportJpegQuality,
+        exportLongEdge: _exportLongEdge,
         retentionTierOverride: _retentionTierOverride,
         shortcuts: _shortcuts,
       );
@@ -582,6 +605,9 @@ class AppState extends ChangeNotifier {
     }
     if (snapshot.exportJpegQuality != _exportJpegQuality) {
       setExportJpegQuality(snapshot.exportJpegQuality);
+    }
+    if (snapshot.exportLongEdge != _exportLongEdge) {
+      setExportLongEdge(snapshot.exportLongEdge);
     }
     if (snapshot.retentionTierOverride != _retentionTierOverride) {
       final tier = snapshot.retentionTierOverride;

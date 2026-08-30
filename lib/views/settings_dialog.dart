@@ -3,16 +3,18 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../providers/settings_snapshot.dart';
 import '../services/image_pipeline/retention_policy.dart';
-import 'settings_dialog/memory_tab.dart';
-import 'settings_dialog/performance_tab.dart';
+import 'settings_dialog/export_tab.dart';
+import 'settings_dialog/performance_memory_tab.dart';
 import 'settings_dialog/settings_primitives.dart';
 import 'settings_dialog/settings_summary_rail.dart';
 import 'settings_dialog/shortcuts_tab.dart';
 import 'theme_tokens.dart';
 
-/// D1's tabbed settings panel (docs/logs/2026-08-30/mockups/D1.html):
-/// concurrent RAW decodes, export JPEG quality, memory retention tier and
-/// keyboard shortcuts, with a live "at a glance" summary rail.
+/// D1/E1's tabbed settings panel (docs/logs/2026-08-30/mockups/E1.html):
+/// concurrent RAW decodes, memory retention tier, export JPEG quality/size
+/// and keyboard shortcuts, with a live "at a glance" summary rail. The
+/// round-2 tab restructure folds Performance+Memory into one tab and gives
+/// Export (quality + size) its own tab.
 ///
 /// The panel applies every change live so the rail and the pipeline reflect
 /// it immediately (§1.6); Cancel, the barrier tap and Escape all revert via
@@ -102,8 +104,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         vertical: 18,
                       ),
                       child: switch (_tab) {
-                        0 => const PerformanceTab(),
-                        1 => const MemoryTab(),
+                        0 => const PerformanceMemoryTab(),
+                        1 => const ExportTab(),
                         _ => const ShortcutsTab(),
                       },
                     ),
@@ -168,10 +170,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
             ),
             padding: const EdgeInsets.only(bottom: 14),
             child: SettingsTabBar(
-              labels: const ['Performance', 'Memory', 'Shortcuts'],
+              labels: const ['Performance & Memory', 'Export', 'Shortcuts'],
               keys: const [
-                Key('settingsTab.performance'),
-                Key('settingsTab.memory'),
+                Key('settingsTab.performanceMemory'),
+                Key('settingsTab.export'),
                 Key('settingsTab.shortcuts'),
               ],
               selectedIndex: _tab,

@@ -45,19 +45,20 @@ Future<void> pumpDialogViaShowDialog(WidgetTester tester, AppState state) async 
 }
 
 void main() {
-  testWidgets('TC-458 the dialog renders the three tabs and the rail on every tab',
-      (tester) async {
+  testWidgets(
+      'TC-458 (round 2: supersedes tab labels) the dialog renders the '
+      'three restructured tabs and the rail on every tab', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final state = AppState(laneCeiling: 5);
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
-    expect(find.text('Performance'), findsOneWidget);
-    expect(find.text('Memory'), findsOneWidget);
+    expect(find.text('Performance & Memory'), findsOneWidget);
+    expect(find.text('Export'), findsOneWidget);
     expect(find.text('Shortcuts'), findsOneWidget);
     expect(find.text('AT A GLANCE'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('settingsTab.memory')));
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
     await tester.pump();
     expect(find.text('AT A GLANCE'), findsOneWidget);
 
@@ -108,22 +109,57 @@ void main() {
   });
 
   testWidgets(
-      'TC-461 the export-quality slider is 70..100 step 5 and rounds to '
-      'the nearest stop', (tester) async {
+      'TC-461 (round 2: supersedes 70..100) the export-quality slider is '
+      '50..100 step 5 and rounds to the nearest stop', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final state = AppState(laneCeiling: 5);
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
+    await tester.pump();
+
     final slider = tester.widget<Slider>(
       find.byKey(const Key('exportQualitySlider')),
     );
-    expect(slider.min, 70);
+    expect(slider.min, 50);
     expect(slider.max, 100);
-    expect(slider.divisions, 6);
+    expect(slider.divisions, 10);
     slider.onChanged!(73);
     await tester.pump();
     expect(state.exportJpegQuality, 75);
+  });
+
+  testWidgets(
+      'TC-469 the export-size slider offers the 8 named stops, rounds to '
+      'the nearest one, and Original is reachable', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
+    await tester.pump();
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const Key('exportSizeSlider')),
+    );
+    expect(slider.min, 0);
+    expect(slider.max, 7);
+    expect(slider.divisions, 7);
+
+    // Index 4 is the default stop (2048).
+    expect(state.exportLongEdge, 2048);
+    expect(slider.value, 4);
+
+    slider.onChanged!(0);
+    await tester.pump();
+    expect(state.exportLongEdge, 480);
+
+    slider.onChanged!(7);
+    await tester.pump();
+    expect(state.exportLongEdge, 0, reason: 'last stop is the Original sentinel');
+    expect(find.text('Original'), findsWidgets);
   });
 
   testWidgets(
@@ -134,11 +170,12 @@ void main() {
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
-    await tester.tap(find.byKey(const Key('settingsTab.memory')));
-    await tester.pump();
-
     expect(find.byKey(const Key('retentionResetToAuto')), findsNothing);
 
+    // The merged Performance & Memory tab (round 2) is taller than the
+    // dialog's viewport, so Memory Retention needs scrolling into view.
+    await tester.ensureVisible(find.byKey(const Key('retentionTier.generous')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('retentionTier.generous')));
     await tester.pump();
 
@@ -161,7 +198,9 @@ void main() {
     await pumpDialog(tester, state);
 
     expect(find.text('3 / 5'), findsOneWidget);
-    expect(find.text('90'), findsWidgets); // rail value + export caption
+    expect(find.text('90'), findsOneWidget); // rail value only -- Export
+    // quality's own caption lives on the Export tab now, not this one.
+    expect(find.text('2048px'), findsOneWidget); // rail's Export size value
     expect(
       find.text(
         '${state.retentionTier.label} · '
