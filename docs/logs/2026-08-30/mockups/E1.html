@@ -87,9 +87,10 @@
   - Tab 1 renamed "Performance & Memory" (merges old Performance + Memory tab
     bodies, unchanged section labels inside — not shown active in this
     mockup, content unchanged from D1's two tabs stacked).
-  - Tab 2 renamed "Export", now holds: Quality slider (min now 50, step 5),
-    Size slider (discrete named stops), and the NEW Filetype row (segmented
-    control: JPEG / HEIF / WebP lossy / WebP lossless).
+  - Tab 2 renamed "Export", now holds: the NEW Filetype row (segmented
+    control -- JPEG / WebP lossy, the only two actually encodable options),
+    Quality slider (min now 50, step 5), Size slider (discrete named
+    stops).
   - Tab 3 "Shortcuts" unchanged.
   - Rail gains "Export filetype" and "Export size" rows.
   - Round-2b label pass: row labels shortened to "Export Quality" / "Export
@@ -97,15 +98,13 @@
     now).
   This file shows the Export tab active, per the task instruction.
 
-  FEASIBILITY NOTE (reported to lead alongside this mockup): the ceyx
-  native encode surface (native/include/ceyx_encode_api.h) only exports
-  ceyx_encode_jpeg_rgba8 and ceyx_encode_webp_rgba8 (WebPEncodeRGBA --
-  lossy only, no lossless config). There is no HEIF encode entry point
-  anywhere in ceyx (heif_bindings.dart is decode-only). This mockup shows
-  all 4 filetype options for completeness of the visual language, but HEIF
-  and WebP-lossless are NOT implementable against the current native build
-  without native-side changes (out of this task's file ownership) -- see
-  the "Implementation status" chip added to each disabled segment below.
+  ROUND 2c (user ruling): HEIF and WebP (lossless) are DROPPED from the UI
+  entirely rather than shown disabled -- ceyx has no HEIF encode entry
+  point anywhere, and its WebP encoder (ceyx_encode_webp_rgba8,
+  encode_ffi_api.cpp:185-186) only calls libwebp's lossy one-shot
+  WebPEncodeRGBA, no lossless config threaded through. See
+  docs/logs/2026-08-30/ceyx-encode-handoff.md for the full feasibility
+  writeup and what a future round needs from ceyx to add them back.
 -->
 
 <div class="backdrop">
@@ -140,9 +139,7 @@
               </div>
               <div class="segmented">
                 <div class="segment selected">JPEG</div>
-                <div class="segment disabled" title="No native HEIF encoder in this build">HEIF</div>
                 <div class="segment">WebP (lossy)</div>
-                <div class="segment disabled" title="ceyx_encode_webp_rgba8 is lossy-only (WebPEncodeRGBA); no lossless entry point">WebP (lossless)</div>
               </div>
             </div>
           </div>

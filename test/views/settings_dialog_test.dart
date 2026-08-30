@@ -164,8 +164,10 @@ void main() {
   });
 
   testWidgets(
-      'TC-477 the filetype segmented control selects an available type, '
-      'refuses unavailable ones, and updates the rail', (tester) async {
+      'TC-477 (round 2c: supersedes disabled-segment assertions) the '
+      'filetype segmented control shows exactly JPEG and WebP (lossy) -- '
+      'HEIF/WebP(lossless) are not rendered at all -- and selecting WebP '
+      '(lossy) updates the rail', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final state = AppState(laneCeiling: 5);
     addTearDown(state.dispose);
@@ -175,21 +177,25 @@ void main() {
     await tester.pump();
 
     expect(state.exportFiletype, ExportFiletype.jpeg);
+    expect(find.byKey(const Key('exportFiletype.jpeg')), findsOneWidget);
+    expect(find.byKey(const Key('exportFiletype.webpLossy')), findsOneWidget);
+    expect(find.byKey(const Key('exportFiletype.heif')), findsNothing,
+        reason: 'unavailable filetypes are dropped entirely, not shown '
+            'disabled (user ruling, round 2c)');
+    expect(find.byKey(const Key('exportFiletype.webpLossless')), findsNothing);
 
-    // webpLossy is available: tapping it must select it.
     await tester.tap(find.byKey(const Key('exportFiletype.webpLossy')));
     await tester.pump();
     expect(state.exportFiletype, ExportFiletype.webpLossy);
 
-    // heif is NOT available: its InkWell has no onTap, so tapping it must
-    // be a no-op rather than throwing or silently selecting it.
-    await tester.tap(find.byKey(const Key('exportFiletype.heif')));
-    await tester.pump();
-    expect(state.exportFiletype, ExportFiletype.webpLossy,
-        reason: 'an unavailable segment must not be selectable');
-
     // Rail reflects the live selection on every tab.
     expect(find.text('WebP (lossy)'), findsWidgets); // segment + rail
+
+    // Quality slider stays enabled for WebP-lossy too (no disabled state
+    // this round -- both available filetypes are quality-driven).
+    final slider =
+        tester.widget<Slider>(find.byKey(const Key('exportQualitySlider')));
+    expect(slider.onChanged, isNotNull);
   });
 
   testWidgets(

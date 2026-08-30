@@ -31,6 +31,13 @@ class ExportTab extends StatelessWidget {
   }
 
   Widget _filetype(BuildContext context, HalcyonTokens t, AppState state) {
+    // Round 2c (user ruling): only the two ACTUALLY encodable filetypes are
+    // shown. HEIF and WebP-lossless are dropped from the UI entirely rather
+    // than shown disabled -- see docs/logs/2026-08-30/ceyx-encode-handoff.md
+    // for what ceyx needs to grow before a future round can add them back.
+    // Filtering on [ExportFiletype.available] means the day they become
+    // available this loop needs no change.
+    final available = ExportFiletype.values.where((f) => f.available).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -45,15 +52,10 @@ class ExportTab extends StatelessWidget {
               const SizedBox(height: 4),
               Row(
                 children: [
-                  for (var i = 0; i < ExportFiletype.values.length; i++) ...[
+                  for (var i = 0; i < available.length; i++) ...[
                     if (i > 0) const SizedBox(width: 6),
                     Expanded(
-                      child: _filetypeSegment(
-                        context,
-                        t,
-                        state,
-                        ExportFiletype.values[i],
-                      ),
+                      child: _filetypeSegment(context, t, state, available[i]),
                     ),
                   ],
                 ],
@@ -72,42 +74,26 @@ class ExportTab extends StatelessWidget {
     ExportFiletype type,
   ) {
     final selected = state.exportFiletype == type;
-    // Unavailable filetypes (round-2b feasibility gap: ceyx has no HEIF
-    // encoder and no lossless WebP entry point) render disabled rather than
-    // hidden -- a hidden control reads as a missing feature (matches the
-    // decode-lane-width row's existing precedent, TC-460).
-    return Tooltip(
-      message: type.available
-          ? ''
-          : 'Not available in this build: no native encoder for '
-              '${type.label}',
-      child: Material(
-        key: Key('exportFiletype.${type.name}'),
-        color: selected ? t.accent.withValues(alpha: 0.18) : t.surface,
+    return Material(
+      key: Key('exportFiletype.${type.name}'),
+      color: selected ? t.accent.withValues(alpha: 0.18) : t.surface,
+      borderRadius: BorderRadius.circular(5),
+      child: InkWell(
+        onTap: () => context.read<AppState>().setExportFiletype(type),
         borderRadius: BorderRadius.circular(5),
-        child: InkWell(
-          onTap: type.available
-              ? () => context.read<AppState>().setExportFiletype(type)
-              : null,
-          borderRadius: BorderRadius.circular(5),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: selected ? t.accent : t.borderSoft,
-              ),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Text(
-              type.label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: type.available
-                    ? (selected ? t.text : t.textDim)
-                    : t.textFaint,
-              ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            border: Border.all(color: selected ? t.accent : t.borderSoft),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            type.label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: selected ? t.text : t.textDim,
             ),
           ),
         ),
@@ -116,12 +102,9 @@ class ExportTab extends StatelessWidget {
   }
 
   Widget _quality(BuildContext context, HalcyonTokens t, AppState state) {
-    // Quality only means something for lossy codecs; JPEG and WebP-lossy are
-    // the two available filetypes today, and both are quality-driven, so
-    // this is currently always enabled -- but written against `available &&
-    // type != webpLossless` (rather than hardcoding "always on") so a future
-    // lossless option disables it without another round of UI changes.
-    final qualityApplies = state.exportFiletype != ExportFiletype.webpLossless;
+    // Both available filetypes (JPEG, WebP-lossy) are quality-driven, so
+    // this round the slider is unconditionally enabled -- no disabled state
+    // needed (user ruling, round 2c).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -131,12 +114,7 @@ class ExportTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               settingsRowLabel(t, 'Export Quality'),
-              settingsCaption(
-                t,
-                qualityApplies
-                    ? '${state.exportJpegQuality}'
-                    : 'Not applicable -- lossless encodes at fixed quality',
-              ),
+              settingsCaption(t, '${state.exportJpegQuality}'),
               Slider(
                 key: const Key('exportQualitySlider'),
                 min: 50,
@@ -146,11 +124,9 @@ class ExportTab extends StatelessWidget {
                 value: state.exportJpegQuality.toDouble(),
                 activeColor: t.accent,
                 inactiveColor: t.border,
-                onChanged: qualityApplies
-                    ? (double value) => context
-                          .read<AppState>()
-                          .setExportJpegQuality(value.round())
-                    : null,
+                onChanged: (double value) => context
+                    .read<AppState>()
+                    .setExportJpegQuality(value.round()),
               ),
             ],
           ),
