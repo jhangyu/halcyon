@@ -8,7 +8,7 @@
     "refuses to place a library whose sha256 does not match.",
     "",
     "Each platform holds a LIST of libraries, not a single one. Windows ships",
-    "three: the decoder plus heif.dll and de265.dll, which it dynamically imports",
+    "three: the decoder plus heif.dll and libde265.dll, which it dynamically imports",
     "(LGPL-3 requires libheif/libde265 stay separate shared libraries -- see",
     "ceyx native/third_party/heif-dist-windows/PROVENANCE.md). A Windows install",
     "missing either dependency fails at DynamicLibrary.open with an error naming",
@@ -24,27 +24,26 @@
     "",
     "sha256 provenance: pin moved to v0.1.4 on 2026-08-30 via",
     "`python3 scripts/build_apps.py --ceyx-release latest`, which downloaded each",
-    "asset from https://github.com/jhangyu/ceyx/releases/download/v0.1.4/<asset>",
+    "asset from https://github.com/jhangyu/ceyx/releases/download/v0.1.5/<asset>",
     "and recorded the digests below; cross-checked by hand against the downloaded",
     "assets with `shasum -a 256`. Trust-on-first-use (same authority that serves",
     "the bytes): catches any FUTURE substitution, not one predating this date.",
-    "The two Windows heif/de265 entries below are PLACEHOLDERS pending a WP-B",
-    "release tag that publishes them (see docs/logs/2026-08-30/plan-windows-heif-impl.md",
-    "WP-C Task 7) -- re-run `--ceyx-release latest` once that tag exists.",
+    "All three Windows digests are real values from the v0.1.5 release (Windows",
+    "HEIF round, docs/logs/2026-08-30/plan-windows-heif-impl.md).",
     "",
     "macOS is intentionally ABSENT: its plugin vendors six interdependent dylibs",
     "(decoder + lcms2 + jpeg + heif + de265 + omp) with install-name/codesign",
     "wiring the release assets cannot satisfy. macOS keeps its committed",
     "libraries. Android is out of scope for this pin."
   ],
-  "tag": "v0.1.4",
+  "tag": "v0.1.5",
   "assets": {
     "linux": {
       "libraries": [
         {
           "asset": "libdng_decoder_native-linux-x86_64.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "296fa3d9324242fd1a163b18f3e399007fa946c53e3d75fa2b24e583211b351e"
+          "sha256": "817fbd69b1b9a31aae19147228bd21113c0b8753c0b2f93c8dd3105b41e7807a"
         }
       ]
     },
@@ -53,17 +52,17 @@
         {
           "asset": "dng_decoder_native-windows-x86_64.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "4759923823a55845b03d2556291482fe8fed4391462becc34757ac195bda4f3d"
+          "sha256": "c2fd85fb664308e63542b4cb30119f1a6166bad263d012cd1af70c670d287575"
         },
         {
           "asset": "heif-windows-x86_64.dll",
           "artifact": "heif.dll",
-          "sha256": "PLACEHOLDER_PENDING_WPB_RELEASE_0000000000000000000000000000000000000000000000"
+          "sha256": "e8c84ae257941c85f05a8236cb012f3090484d93ed541cd78139083e982e7d4a"
         },
         {
-          "asset": "de265-windows-x86_64.dll",
-          "artifact": "de265.dll",
-          "sha256": "PLACEHOLDER_PENDING_WPB_RELEASE_0000000000000000000000000000000000000000000000"
+          "asset": "libde265-windows-x86_64.dll",
+          "artifact": "libde265.dll",
+          "sha256": "339ac370586d78f5ba1550f4a1ffbb39f7076f897c41c5b75e0e80daec41466d"
         }
       ]
     }
