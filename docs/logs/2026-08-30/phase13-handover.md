@@ -51,13 +51,16 @@ tier-2 重建不再需要第二次 FFI 解碼（TC-366，含紅燈證明）。�
 - docs/sop/ 與 CLAUDE.md 在 Halcyon 均為 gitignored（repo 慣例：本地維護）；AD-040、TC-360..368 矩陣列已寫入本地檔。
 - 全套件驗證方式：`flutter test -j 1` 全套超過前景 timeout → 枚舉 57+ 測試檔分批跑、逐批自捕 RC、檔數對帳（artifacts `tmp/verify/task3-*`、`cleanup-*`）。
 
-## 未完成（撰寫當下）
+## 未完成 →（後記 2026-08-30：全數完成）
 
-1. **ceyx v0.1.4 CI**（run：Windows 33290696111 / Linux 33290696119 / macOS 33290696105 / Android 33290696148）執行中。收斂後：下載 Windows/Linux 資產→符號驗證（輸出落檔再 grep）→記 digest。
-2. **Halcyon pin 重釘**：`python3 scripts/build_apps.py --ceyx-release latest` → 審 pin diff → 僅本地 pathspec commit `scripts/ceyx_release_pin.json`。
-3. 上述完成即簽收 task #2、關閉 reencode-cleanup 團隊（shutdown protocol 四步）。
+1. ceyx v0.1.4 **四平台 CI 全綠**（Windows 首次接觸一次過，含新 AC-W4 匯出閘門）。資產獨立驗證：Linux `nm -D` 四符號＋符號位址與 CI log 逐位元組一致；Windows 以 PE export directory 解析（非 strings），並以 v0.1.3 舊 DLL 做負對照——差集恰為四個 encode 符號。
+2. Halcyon pin 重釘完成：commit `22cb75b`（僅 `scripts/ceyx_release_pin.json`，digest 與手算逐位元組相符，**本地未推送**）。
+3. 誠實界定：Windows/Linux 的證據＝CI 閘門綠＋資產符號檢驗；未在任何機器上實際呼叫過那兩平台的 runtime encode。
 
 ## Parking lot（無人排程，僅記錄）
+
+- **Halcyon 本地 main 領先 origin/main 23 個 commit**——一次 `git push` 會全部發佈，需使用者刻意決定（本輪任何成員都未推 Halcyon）。
+- `scripts/ceyx_release_pin.json` 的 `_comment` 散文仍說 digest 來自 v0.1.1（機讀欄位正確，散文過時）。
 
 - `heif_ffi_api.cpp` 有與 encode 相同的缺 FFI_EXPORT 問題（Windows 因 HEIF=OFF 未爆；新 CI 閘門不涵蓋它）。
 - 每次 RAW 編碼重新 spawn isolate 探測可用性（reviewer nit，效能型，需量測後再議）。
