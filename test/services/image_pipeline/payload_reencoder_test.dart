@@ -78,4 +78,35 @@ void main() {
     expect(encoderCalled, isFalse, reason: 'must not reach the native encoder');
     expect(reencodeFallbacks, 1);
   });
+
+  // TC-412
+  test('reencodePayload defaults to quality 70', () async {
+    resetReencodeCounters();
+    final seen = <int>[];
+    Future<Uint8List> spy(
+      Uint8List rgba, {
+      required int width,
+      required int height,
+      required int quality,
+    }) async {
+      seen.add(quality);
+      return Uint8List.fromList(<int>[1, 2, 3]);
+    }
+
+    final fallback = PixelPayload(
+      rgba: Uint8List(2 * 2 * 4),
+      width: 2,
+      height: 2,
+    );
+    final out = await reencodePayload(
+      encoder: spy,
+      fallback: fallback,
+      fullRes: (rgba: Uint8List(2 * 2 * 4), width: 2, height: 2),
+    );
+
+    expect(kReencodeJpegQuality, 70);
+    expect(seen, <int>[70]);
+    expect(out, isA<EncodedPayload>());
+    expect(reencodeFallbacks, 0);
+  });
 }

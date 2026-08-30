@@ -4,6 +4,7 @@ import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
+import 'payload_normalizer.dart';
 import 'payload_reencoder.dart';
 import 'photo_payload.dart';
 
@@ -116,6 +117,19 @@ class PhotoSource {
   /// decode-only test keeps exercising.
   final PayloadEncoder? payloadEncoder;
 
+  /// Every ENCODED bitstream this class emits goes through here, so a JPG's
+  /// bytes, an embedded preview and a decoded RAW all become the same q70
+  /// payload (USER RULING 2026-08-30, contract D5: "ALL items").
+  ///
+  /// A null [payloadEncoder] is the pre-change behaviour, byte-for-byte: the
+  /// bytes are wrapped and nothing is decoded. That is the binding every
+  /// decode-only test uses and it must stay a true no-op.
+  Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async {
+    final encoder = payloadEncoder;
+    if (encoder == null) return EncodedPayload(bytes);
+    return normalizeEncodedPayload(encoded: bytes, encoder: encoder);
+  }
+
   /// Produces the payload for [path] at [longEdge], plus what that attempt
   /// revealed about the file's cost.
   ///
@@ -148,10 +162,17 @@ class PhotoSource {
     switch (result) {
       case NativeImageBytes(:final bytes):
         return (
-          payload: EncodedPayload(bytes),
+          payload: await _normalizedEncoded(bytes),
           observedCost: SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
+          // Deliberately NULL. `fullRes` means "pixels from the SAME FFI
+          // decode that produced this payload" and feeds the tier-2
+          // piggyback; the normaliser's ENGINE decode is not that, and
+          // piggybacking it would upload a full-resolution frame for every
+          // cheap item in the window -- `imageCacheBudgetBytes` is sized for
+          // five, and this plan may not re-derive it. Cheap items keep
+          // reaching tier-2 through TierTwoScheduler's ordinary upgrade.
           fullRes: null,
           failureCode: null,
         );
@@ -265,7 +286,9 @@ class PhotoSource {
         // last resort; a null here is a genuine "unreadable".
         final recovered = await fallbackAfterNativeFailure(path);
         return (
-          payload: recovered == null ? null : EncodedPayload(recovered),
+          payload: recovered == null
+              ? null
+              : await _normalizedEncoded(recovered),
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
           exifOrientation: null,

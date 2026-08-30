@@ -15,15 +15,23 @@ typedef PayloadEncoder =
       required int quality,
     });
 
-/// q80 -- the same quality the sidebar codec uses (`sidebar_thumbnail_codec.dart`).
+/// q70 -- what EVERY retained payload is encoded at, RAW and JPG alike.
 ///
-/// USER RULING 2026-08-30, superseding an earlier q90 default: these bytes are
-/// display-only (export re-reads the original file), so the extra q90 bytes buy
-/// detail nothing writes back to disk. Under the one-buffer design this SAME
-/// bitstream serves both the 100%-zoom view and the downscaled tier-1 view, so
-/// there is no higher-fidelity copy anywhere -- which is exactly why the
-/// quality is a user decision and not an implementer's default.
-const int kReencodeJpegQuality = 80;
+/// USER RULING 2026-08-30 (contract D5), superseding the q80 default recorded
+/// below: under the shared-payload design one q70 bitstream serves the main
+/// preview, the tier-1 downscale AND the sidebar tile, and the sidebar tile is
+/// a 200px resample where q70 vs q80 is invisible. The bytes are display-only
+/// (export re-reads the original file, `photo_export_service.dart`), so the
+/// extra q80 bytes buy detail nothing writes back to disk -- and they are
+/// bytes the payload budget has to hold for every item a scroll touches.
+///
+/// Superseded history, kept because the reasoning still applies one step down:
+/// q90 -> q80 (2026-08-30, same ruling family) for the same display-only
+/// argument.
+///
+/// NOT the same number as `sidebar_thumbnail_codec.dart`'s `jpegQuality: 80`:
+/// that one encodes a 200px tile and was only ever coincidentally equal.
+const int kReencodeJpegQuality = 70;
 
 /// How many times re-encoding degraded to the retained-pixels fallback.
 ///
@@ -49,12 +57,14 @@ void resetReencodeCounters() {
 /// afterwards: payload object identity is the tier-1 ImageCache key and the
 /// tier-2 registry's readiness anchor, so a later swap orphans both.
 ///
-/// Every failure degrades to [fallback] -- the window-resolution pixels the
-/// decode already produced -- so the item renders exactly as it did before this
-/// phase existed. Failure is never an error and never a permanent miss.
+/// Every failure degrades to [fallback] -- window-resolution pixels for the
+/// RAW decode path, or the original encoded bytes for `normalizeEncodedPayload`
+/// (Task 2), depending on the caller -- so the item renders exactly as it did
+/// before this phase existed. Failure is never an error and never a permanent
+/// miss.
 Future<SourcePayload> reencodePayload({
   required PayloadEncoder encoder,
-  required PixelPayload fallback,
+  required SourcePayload fallback,
   required ({Uint8List rgba, int width, int height})? fullRes,
   int quality = kReencodeJpegQuality,
 }) async {
