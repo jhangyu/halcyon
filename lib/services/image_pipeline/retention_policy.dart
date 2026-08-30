@@ -59,7 +59,7 @@ class RetentionPolicy {
 ///
 /// The rung DEPTHS are byte arithmetic, not UI measurement -- UI measurement
 /// in this repo is the user's to run. They are deliberately conservative
-/// (at most 384 MiB of held `Uint8List`) and are expected to be tuned.
+/// (at most 512 MiB of held `Uint8List`) and are expected to be tuned.
 RetentionPolicy retentionPolicyFor({int? physicalMemoryBytes}) =>
     retentionPolicyForTier(
       retentionTierFor(physicalMemoryBytes: physicalMemoryBytes),
