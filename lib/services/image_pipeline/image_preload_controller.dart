@@ -1071,13 +1071,31 @@ class ImagePreloadController {
 
           _thumbLoadingKeys.add(id);
           try {
-            // Native only ever emits the raw-decode signal for purpose ==
-            // preview, so for thumbnails anything that is not bytes is simply
-            // "no thumbnail", exactly as null was before.
-            final result = await _source.loader(
-              file.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
+            NativeImageResult result;
+            try {
+              // Native only ever emits the raw-decode signal for purpose ==
+              // preview, so for thumbnails anything that is not bytes is
+              // simply "no thumbnail", exactly as null was before.
+              result = await _source.loader(
+                file.path,
+                purpose: ImageRequestPurpose.sidebarThumbnail,
+              );
+            } catch (e) {
+              // The loader THREW instead of returning a NativeImageFailure --
+              // an unconverted PlatformException/MissingPluginException, or a
+              // native TypeError on a non-Uint8List channel reply (round-1
+              // parking-lot PL-1/PL-2/PL-10). Treat it exactly like a
+              // non-bytes result: an answer that cannot change until the
+              // folder reloads, so no later sweep re-asks. Isolated to just
+              // this await -- a failure in the encoded-leg processing below
+              // (sidebarCacheBytes, cache write) is NOT a loader failure and
+              // must not share this label (parking-lot item 3).
+              _logThumbFailure(id, 'loader', e);
+              if (generation == _thumbBatchGeneration) {
+                _thumbPermanentMisses.add(id);
+              }
+              continue;
+            }
             if (generation != _thumbBatchGeneration) return;
             if (result is NativeImageBytes) {
               final cacheBytes = await sidebarCacheBytes(result.bytes);
@@ -1156,16 +1174,17 @@ class ImagePreloadController {
               _thumbPermanentMisses.add(id);
             }
           } catch (e) {
-            // The loader THREW instead of returning a NativeImageFailure --
-            // an unconverted PlatformException/MissingPluginException, or a
-            // native TypeError on a non-Uint8List channel reply (round-1
-            // parking-lot PL-1/PL-2/PL-10). Treat it exactly like a non-bytes
-            // result: an answer that cannot change until the folder reloads,
-            // so no later sweep re-asks. Without this the exception used to
-            // unwind the whole `for` loop, silently dropping every remaining
-            // item in this sweep, on top of leaking `loadingKey` for the rest
-            // of the session (the finally below is what fixes that half).
-            _logThumbFailure(id, 'loader', e);
+            // Anything past the loader await (the encoded-leg processing:
+            // sidebarCacheBytes, the cache write, or an unforeseen failure in
+            // the raw branch's own dispatch) lands here. This is NOT a loader
+            // failure -- the loader already answered successfully -- so it
+            // must not share that label (parking-lot item 3: a future
+            // Windows diagnosis round routes on the `stage` value). Without
+            // this catch the exception used to unwind the whole `for` loop,
+            // silently dropping every remaining item in this sweep, on top
+            // of leaking `loadingKey` for the rest of the session (the
+            // finally below is what fixes that half).
+            _logThumbFailure(id, 'sweep', e);
             if (generation == _thumbBatchGeneration) {
               _thumbPermanentMisses.add(id);
             }
