@@ -14,12 +14,19 @@ const int kRetentionAfter = 5;
 /// ponytail: one global number, not a per-kind budget. Make it configurable
 /// per-cache (the constructor argument) before making it adaptive.
 ///
-/// 224 MiB = 234,881,024 B. Sized against the EXPENSIVE (no-preview RAW)
+/// 256 MiB = 268,435,456 B. Sized against the EXPENSIVE (no-preview RAW)
 /// corpus, which is the opposite corpus from the one that sizes
 /// `imageCacheBudgetBytes`: a RAW payload retains window-resolution RGBA (22.4 MiB
 /// measured per item, so a full -3..+5 window is 201.59 MiB), while a
 /// preview-bearing payload retains compressed JPEG bytes (~2.6 MiB, 23.22 MiB
-/// for the window). 224 MiB carries ~11% headroom over the 201.59 MiB row.
+/// for the window). 224 MiB used to carry ~11% headroom over the 201.59 MiB row;
+/// raised to 256 MiB (2026-08-30, AD-042/AD-043) after a measured fill report
+/// (docs/logs/2026-08-30/shared-payload-fill-report.md) showed the shipped
+/// embedded-JPEG-normalised path needs 316.61 MiB for a top-60 set, exceeding
+/// this floor even after the raise -- see
+/// docs/logs/2026-08-30/cache-rung-raise-rederivation.md for the accepted
+/// residual gap, absorbed by existing eviction-on-overflow (no proactive
+/// shrink eviction, ruling E-M5).
 ///
 /// AMENDMENT (Phase 13, AD-040): the 22.4 MiB figure above now describes only
 /// the encode-failure fallback path. A re-encoded RAW payload retains one
@@ -31,8 +38,9 @@ const int kRetentionAfter = 5;
 /// budget is not free either: it is headroom the cache will fill before
 /// evicting anything, which is why this sits just above the row it must hold
 /// rather than at a round larger number. Derivation:
-/// docs/logs/2026-08-23/cache-sizing-estimate.md §A.5/§A.6.
-const int kPayloadByteBudget = 224 * 1024 * 1024;
+/// docs/logs/2026-08-23/cache-sizing-estimate.md §A.5/§A.6;
+/// re-derived docs/logs/2026-08-30/cache-rung-raise-rederivation.md.
+const int kPayloadByteBudget = 256 * 1024 * 1024;
 
 /// The one place the pipeline decides WHAT TO KEEP.
 ///

@@ -65,7 +65,7 @@ void main() {
 
     state.setRetentionTier(RetentionTier.generous);
     expect(state.retentionPolicy.after, 11);
-    expect(state.retentionPolicy.payloadByteBudget, 384 * 1024 * 1024);
+    expect(state.retentionPolicy.payloadByteBudget, 512 * 1024 * 1024);
     expect(state.isRetentionTierOverridden, isTrue);
 
     state.resetRetentionTierToAuto();

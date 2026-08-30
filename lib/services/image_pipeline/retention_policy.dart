@@ -99,17 +99,19 @@ RetentionTier? retentionTierFromId(String id) {
 RetentionPolicy retentionPolicyForTier(RetentionTier tier) => switch (tier) {
   // Exactly the shipped floor, by reference so the two cannot drift.
   RetentionTier.conservative => const RetentionPolicy.floor(),
-  // 12 slots -> 268.80 MiB required, 304 MiB budgeted.
+  // 12 slots -> 268.80 MiB required, 384 MiB budgeted (raised 2026-08-30,
+  // AD-042/AD-043; see docs/logs/2026-08-30/cache-rung-raise-rederivation.md).
   RetentionTier.balanced => const RetentionPolicy(
     before: 3,
     after: 8,
-    payloadByteBudget: 304 * 1024 * 1024,
+    payloadByteBudget: 384 * 1024 * 1024,
   ),
-  // 15 slots -> 336.00 MiB required, 384 MiB budgeted.
+  // 15 slots -> 336.00 MiB required, 512 MiB budgeted (raised 2026-08-30,
+  // AD-042/AD-043; see docs/logs/2026-08-30/cache-rung-raise-rederivation.md).
   RetentionTier.generous => const RetentionPolicy(
     before: 3,
     after: 11,
-    payloadByteBudget: 384 * 1024 * 1024,
+    payloadByteBudget: 512 * 1024 * 1024,
   ),
 };
 

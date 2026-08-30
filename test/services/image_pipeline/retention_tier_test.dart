@@ -26,7 +26,7 @@ void main() {
       const RetentionPolicy(
         before: 3,
         after: 5,
-        payloadByteBudget: 224 * 1024 * 1024,
+        payloadByteBudget: 256 * 1024 * 1024,
       ),
     );
     expect(
@@ -34,7 +34,7 @@ void main() {
       const RetentionPolicy(
         before: 3,
         after: 8,
-        payloadByteBudget: 304 * 1024 * 1024,
+        payloadByteBudget: 384 * 1024 * 1024,
       ),
     );
     expect(
@@ -42,7 +42,7 @@ void main() {
       const RetentionPolicy(
         before: 3,
         after: 11,
-        payloadByteBudget: 384 * 1024 * 1024,
+        payloadByteBudget: 512 * 1024 * 1024,
       ),
     );
 
@@ -105,6 +105,6 @@ void main() {
     controller.setRetention(retentionPolicyForTier(RetentionTier.generous));
 
     expect(controller.retention.after, 11);
-    expect(controller.debugPayloadCacheByteBudget, 384 * 1024 * 1024);
+    expect(controller.debugPayloadCacheByteBudget, 512 * 1024 * 1024);
   });
 }

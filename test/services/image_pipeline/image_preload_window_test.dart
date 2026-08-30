@@ -576,13 +576,13 @@ void main() {
     // drift, and 768 decimal MB (768,000,000) or 224 decimal MB (224,000,000)
     // would both still read as "768"/"224" in a review.
     expect(kImageCacheCeilingBytes, 805306368, reason: '768 MiB exactly');
-    expect(kPayloadByteBudget, 234881024, reason: '224 MiB exactly');
+    expect(kPayloadByteBudget, 268435456, reason: '256 MiB exactly');
     // The two are sized against OPPOSITE corpora -- the cache figure by the
     // cheap mix (two entries per item, full-size decode), the payload figure by
     // the expensive mix (window-resolution RGBA retained per slot). Neither can
     // sanity-check the other, so both are asserted independently.
     expect(kImageCacheCeilingBytes, 768 * 1024 * 1024);
-    expect(kPayloadByteBudget, 224 * 1024 * 1024);
+    expect(kPayloadByteBudget, 256 * 1024 * 1024);
   });
 
   test('TC-318 a mid-rung policy fills out to +8 and retains nothing at +9',
@@ -590,7 +590,7 @@ void main() {
     const midRung = RetentionPolicy(
       before: 3,
       after: 8,
-      payloadByteBudget: 318767104,
+      payloadByteBudget: 402653184,
     );
     final controller = ImagePreloadController(
       imageLoader: (path, {required purpose}) async =>

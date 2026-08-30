@@ -10,12 +10,12 @@ void main() {
   const mid = RetentionPolicy(
     before: 3,
     after: 8,
-    payloadByteBudget: 318767104, // 304 MiB
+    payloadByteBudget: 402653184, // 384 MiB
   );
   const high = RetentionPolicy(
     before: 3,
     after: 11,
-    payloadByteBudget: 402653184, // 384 MiB
+    payloadByteBudget: 536870912, // 512 MiB
   );
 
   test('TC-315: no reading and low-RAM machines get today shipped floor', () {
@@ -26,7 +26,7 @@ void main() {
     expect(floor.before, kRetentionBefore);
     expect(floor.after, kRetentionAfter);
     expect(floor.payloadByteBudget, kPayloadByteBudget);
-    expect(floor.payloadByteBudget, 234881024, reason: '224 MiB exactly');
+    expect(floor.payloadByteBudget, 268435456, reason: '256 MiB exactly');
   });
 
   test('TC-316: the mid and high rungs trigger at 12 GiB and 32 GiB', () {
