@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:typed_data';
+// dart:typed_data is not imported: package:flutter/services.dart (added for
+// LogicalKeyboardKey) already re-exports Uint8List.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +22,8 @@ import '../services/library/photo_library_scanner.dart';
 import '../services/library/photo_status_store.dart';
 import '../services/image_pipeline/raw_pixels_image.dart';
 import '../models/rename_rule.dart';
+import '../models/shortcut_bindings.dart';
+import 'settings_snapshot.dart';
 import '../services/library/photo_export_service.dart';
 import '../services/rename/rename_coordinator.dart';
 
@@ -109,6 +113,9 @@ class AppState extends ChangeNotifier {
       reloadFolder: loadFolder,
       notify: notifyListeners,
     );
+    // Derived once, from the policy main.dart already probed for. No second
+    // RAM probe, and an injected controller cannot drift from it.
+    _autoRetentionTier = tierForPolicy(retention);
     _initPrefs();
   }
 
@@ -139,6 +146,10 @@ class AppState extends ChangeNotifier {
   bool _overwriteExisting = true;
   final int _laneCeiling;
   int _decodeLaneWidth;
+  int _exportJpegQuality = kDefaultExportJpegQuality;
+  RetentionTier? _retentionTierOverride;
+  late final RetentionTier _autoRetentionTier;
+  ShortcutBindings _shortcuts = ShortcutBindings.defaults();
   SharedPreferences? _prefs;
 
   // Per-folder, deliberately NOT persisted: every loadFolder re-detects, so
@@ -160,18 +171,56 @@ class AppState extends ChangeNotifier {
     // different type (e.g. a corrupted or hand-edited prefs store) -- guard
     // that so a bad stored value falls back to the default width instead of
     // crashing app startup.
-    int? storedLaneWidth;
-    try {
-      storedLaneWidth = _prefs?.getInt('decodeLaneWidth');
-    } catch (_) {
-      storedLaneWidth = null;
-    }
+    final storedLaneWidth = _readIntPref('decodeLaneWidth');
     _decodeLaneWidth =
         (storedLaneWidth ?? defaultLaneWidthFor(_laneCeiling))
             .clamp(1, _laneCeiling);
     _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
+
+    // Each read below stands alone: a corrupt export quality must not take
+    // down the retention tier, and one bad shortcut entry costs one binding.
+    _exportJpegQuality = _normaliseExportQuality(_readIntPref('exportJpegQuality'));
+    _exportService.jpegQuality = _exportJpegQuality;
+
+    final tierId = _readStringPref('retentionTier');
+    _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
+    _preloadController.setRetention(retentionPolicyForTier(retentionTier));
+
+    var bindings = ShortcutBindings.defaults();
+    for (final action in ShortcutAction.values) {
+      final keyId = _readIntPref(action.prefsKey);
+      if (keyId != null) {
+        // An unknown keyId yields a synthetic key that matches nothing; that
+        // is strictly better than dropping the other six bindings.
+        bindings = bindings.withBinding(action, LogicalKeyboardKey(keyId));
+      }
+    }
+    _shortcuts = bindings;
+
     notifyListeners();
   }
+
+  /// getInt/getString throw a TypeError when the stored value was written
+  /// under a different type (a corrupted or hand-edited prefs store); one
+  /// guarded-read idiom instead of six copies of the try/catch.
+  int? _readIntPref(String key) {
+    try {
+      return _prefs?.getInt(key);
+    } catch (_) {
+      return null; // wrong stored type; fall back to the default
+    }
+  }
+
+  String? _readStringPref(String key) {
+    try {
+      return _prefs?.getString(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int _normaliseExportQuality(int? raw) =>
+      raw == null ? kDefaultExportJpegQuality : ((raw / 5).round() * 5).clamp(70, 100);
 
   // Zoom/animation state deliberately does NOT live here: it is pure view
   // state, owned by ZoomController (lib/views/zoom_controller.dart), which
@@ -189,6 +238,14 @@ class AppState extends ChangeNotifier {
 
   /// The largest width this machine allows (memory rung AND core count).
   int get maxDecodeLaneWidth => _laneCeiling;
+
+  int get exportJpegQuality => _exportJpegQuality;
+
+  /// The tier this machine derives from its own RAM, i.e. what "Auto" means.
+  RetentionTier get autoRetentionTier => _autoRetentionTier;
+  RetentionTier get retentionTier => _retentionTierOverride ?? _autoRetentionTier;
+  bool get isRetentionTierOverridden => _retentionTierOverride != null;
+  ShortcutBindings get shortcutBindings => _shortcuts;
 
   StatusMessage? get status => _status;
   int get statusSeq => _statusSeq;
@@ -455,6 +512,96 @@ class AppState extends ChangeNotifier {
     _decodeLaneWidth = value.clamp(1, _laneCeiling);
     _prefs?.setInt('decodeLaneWidth', _decodeLaneWidth);
     _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
+    notifyListeners();
+  }
+
+  void setExportJpegQuality(int quality) {
+    _exportJpegQuality = _normaliseExportQuality(quality);
+    _prefs?.setInt('exportJpegQuality', _exportJpegQuality);
+    _exportService.jpegQuality = _exportJpegQuality;
+    notifyListeners();
+  }
+
+  void setRetentionTier(RetentionTier tier) {
+    _retentionTierOverride = tier;
+    _prefs?.setString('retentionTier', tier.id);
+    _preloadController.setRetention(retentionPolicyForTier(tier));
+    notifyListeners();
+  }
+
+  void resetRetentionTierToAuto() {
+    _retentionTierOverride = null;
+    _prefs?.remove('retentionTier');
+    _preloadController.setRetention(retentionPolicyForTier(_autoRetentionTier));
+    notifyListeners();
+  }
+
+  void setShortcutBinding(ShortcutAction action, LogicalKeyboardKey key) {
+    // Conflicts are ACCEPTED here by design: the panel warns and dispatch has
+    // a deterministic winner (ShortcutBindings.actionFor). Blocking would make
+    // the mockup's warning state unreachable.
+    _shortcuts = _shortcuts.withBinding(action, key);
+    _prefs?.setInt(action.prefsKey, key.keyId);
+    notifyListeners();
+  }
+
+  void resetShortcutBinding(ShortcutAction action) {
+    _shortcuts = _shortcuts.withDefault(action);
+    _prefs?.remove(action.prefsKey);
+    notifyListeners();
+  }
+
+  void resetAllShortcutBindings() {
+    _shortcuts = ShortcutBindings.defaults();
+    for (final action in ShortcutAction.values) {
+      _prefs?.remove(action.prefsKey);
+    }
+    notifyListeners();
+  }
+
+  SettingsSnapshot settingsSnapshot() => SettingsSnapshot(
+        autoAdvance: _autoAdvance,
+        overwriteExisting: _overwriteExisting,
+        decodeLaneWidth: _decodeLaneWidth,
+        exportJpegQuality: _exportJpegQuality,
+        retentionTierOverride: _retentionTierOverride,
+        shortcuts: _shortcuts,
+      );
+
+  /// Puts every panel-changeable field back, prefs included.
+  ///
+  /// Each field goes back through its ordinary setter, so no path can revert
+  /// in-memory state while leaving the persisted value changed.
+  void restoreSettings(SettingsSnapshot snapshot) {
+    if (snapshot.autoAdvance != _autoAdvance) setAutoAdvance(snapshot.autoAdvance);
+    if (snapshot.overwriteExisting != _overwriteExisting) {
+      setOverwriteExisting(snapshot.overwriteExisting);
+    }
+    if (snapshot.decodeLaneWidth != _decodeLaneWidth) {
+      setDecodeLaneWidth(snapshot.decodeLaneWidth);
+    }
+    if (snapshot.exportJpegQuality != _exportJpegQuality) {
+      setExportJpegQuality(snapshot.exportJpegQuality);
+    }
+    if (snapshot.retentionTierOverride != _retentionTierOverride) {
+      final tier = snapshot.retentionTierOverride;
+      if (tier == null) {
+        resetRetentionTierToAuto();
+      } else {
+        setRetentionTier(tier);
+      }
+    }
+    if (snapshot.shortcuts != _shortcuts) {
+      for (final action in ShortcutAction.values) {
+        final key = snapshot.shortcuts.keyFor(action);
+        if (_shortcuts.keyFor(action) == key) continue;
+        if (key == action.defaultKey) {
+          resetShortcutBinding(action);
+        } else {
+          setShortcutBinding(action, key);
+        }
+      }
+    }
     notifyListeners();
   }
 
