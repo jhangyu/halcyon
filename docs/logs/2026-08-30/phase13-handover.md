@@ -1,0 +1,76 @@
+# Phase 13 交接檔 — RAW payload 重編碼（一緩衝區、原生 libjpeg-turbo）＋ 清理輪 ＋ ceyx v0.1.4 釋出
+
+日期：2026-08-30。撰寫時 ceyx v0.1.4 四平台 CI 仍在跑（見「未完成」節）。
+計畫：`docs/logs/2026-08-30/plan-payload-reencode.md`（spec 同目錄）。AD 記錄：`docs/sop/memory.md` AD-040。
+
+## 終態（已達成）
+
+無預覽 RAW 經一次 FFI 解碼後，全解析度像素以 ceyx 原生 libjpeg-turbo 重編碼為 q80 JPEG，
+以單一 `EncodedPayload` 發佈一次（publish-once），tier-1/tier-2 與 JPG 同路徑；
+tier-2 重建不再需要第二次 FFI 解碼（TC-366，含紅燈證明）。編碼失敗一律退回 `PixelPayload`（維持 Phase 13 前行為）。
+
+## 使用者裁決（依時序）
+
+1. **一緩衝區**（否決 two-buffer `fullSizeBytes` 設計）；q80 出貨。
+2. Task 0 閘門觸發（純 Dart encodeJpg q80 全幅中位數 4102ms > 500ms）→ **STOP**。
+3. 裁決：**libjpeg-turbo 為主路徑**（CLI 實測 62ms vs libwebp 2876ms）；**libwebp 也編入 ceyx**（能力對齊，不擋主線）。
+4. 授權：清 parking-lot 1+2+3+5（sonnet）、ceyx 釋出＋pin 更新（opus）、寫本交接檔。
+
+## Commits
+
+### Halcyon（main，未推送）
+| hash | 內容 |
+|---|---|
+| aeff7b4 / b244eec | Task 0 預註冊量測（STOP 判定證據） |
+| fc514b3 | Task 0b CLI 編碼器比較（cjpeg 62ms / cwebp 2876ms） |
+| 595c5ff | 程序內原生編碼重測：q80 中位數 89ms PASS（`native-encode-inprocess.txt`） |
+| ee8725f | Task 1：共用 isolate JPEG 編碼器抽取（TC-360） |
+| 89ee22c | Task 2：`payload_reencoder.dart` 降級階梯（TC-361..363） |
+| 7da596b | Task 3：PhotoSource 兩解碼路徑接編碼 seam（TC-364/364b/365） |
+| 41e8424 | Task 4：控制器整合、piggyback guard 放寬、tier-2 免二次 FFI（TC-366/367＋紅燈 artifact） |
+| e121647 | Task 5：AD-040 修正註記＋baton-2 |
+| 624df21 | 清理輪：rgba 長度守門（TC-368）＋TC-366 解析度斷言強化 |
+| （待落地） | ceyx v0.1.4 pin 重釘（release 成員完成後，本地 commit、不推送） |
+
+### ceyx（main，**已推送** github.com/jhangyu/ceyx，tag v0.1.4 已上）
+| hash | 內容 |
+|---|---|
+| 1764a8f | C ABI encode FFI：`ceyx_encode_{jpeg_rgba8,webp_rgba8,free,error_name}`，vendored 靜態 libwebp 1.6.0（pinned dist＋PROVENANCE），harness 8/8 |
+| 04aa709 | Dart 綁定：`plugin/lib/src/encode_bindings.dart` / `encode_service.dart`（`CeyxEncodeService.encodeJpegNative/encodeWebpNative`） |
+| fd18306 | volatile row_scratch across setjmp；移除死的長度 out-param |
+| f2bf987 | **FFI_EXPORT 補上四個 encode 符號**（Windows DLL 匯出缺陷，release 成員審查攔獲） |
+| bfd4c43 | CI 符號存在閘門（linux/windows workflow；先於 v0.1.3 舊資產驗證會亮紅） |
+| 0be87d6 | plugin 版本 bump 0.1.4 |
+
+## 關鍵架構事實（後續 session 必知）
+
+- 生產編碼器綁定：`image_preload_controller.dart` 預設 `PayloadEncoder` = `_encodeJpegNative` → `CeyxEncodeService().encodeJpegNative`（ceyx plugin）。純 Dart `encodeJpegFromRgba`（`jpeg_encoder.dart`）只服務 sidebar codec 與測試。
+- **Halcyon 依賴是 `ceyx: path: ../ceyx/plugin`**。任何 `dng_processor` / `../flutter_dng_decoder` 字樣都是 2026-08-26 改名前遺跡（CLAUDE.md 本地已修，該檔在此 repo 為 gitignored）。
+- 凍結決策全數未動：AD-010/011（NativeImageResult 三變體）、D4（cache 不認 payload 子類）、AD-033/034（lane/窗口）、AD-027/028（registry 容器）。tier_two_registry 本來就是 SourcePayload 型別，僅 scheduler 參數放寬。
+- 計畫的 TC-366 導航腳本 0→9→0 **不可滿足**（index 9 連 retention 都逐出 payload）；出貨測試用 0→3→0（僅逐出 tier-2），理由在測試檔頭註解。
+- docs/sop/ 與 CLAUDE.md 在 Halcyon 均為 gitignored（repo 慣例：本地維護）；AD-040、TC-360..368 矩陣列已寫入本地檔。
+- 全套件驗證方式：`flutter test -j 1` 全套超過前景 timeout → 枚舉 57+ 測試檔分批跑、逐批自捕 RC、檔數對帳（artifacts `tmp/verify/task3-*`、`cleanup-*`）。
+
+## 未完成（撰寫當下）
+
+1. **ceyx v0.1.4 CI**（run：Windows 33290696111 / Linux 33290696119 / macOS 33290696105 / Android 33290696148）執行中。收斂後：下載 Windows/Linux 資產→符號驗證（輸出落檔再 grep）→記 digest。
+2. **Halcyon pin 重釘**：`python3 scripts/build_apps.py --ceyx-release latest` → 審 pin diff → 僅本地 pathspec commit `scripts/ceyx_release_pin.json`。
+3. 上述完成即簽收 task #2、關閉 reencode-cleanup 團隊（shutdown protocol 四步）。
+
+## Parking lot（無人排程，僅記錄）
+
+- `heif_ffi_api.cpp` 有與 encode 相同的缺 FFI_EXPORT 問題（Windows 因 HEIF=OFF 未爆；新 CI 閘門不涵蓋它）。
+- 每次 RAW 編碼重新 spawn isolate 探測可用性（reviewer nit，效能型，需量測後再議）。
+- combined-memory 重量測：等 parallel-decode-lane（`plan-parallel-decode-lane.md`，另一 worktree `Halcyon-decode-lane` 進行中）落地後，app 側備妥情境、**使用者親量 RSS/UI**（本專案鐵律：agent 不量 UI/RSS）。
+- 已知限制：v0.1.4 Windows/Linux 的 WebP 編碼符號存在但回 `kCeyxEncodeErrUnsupported`（無 libwebp dist，設計性降級，release notes 已記）。
+
+## 驗活命令
+
+```bash
+# 原生編碼鏈路（macOS）
+cd /Users/jhangyu/project/ceyx && ./native/build/ceyx_encode_harness   # 8/8 PASS
+# Halcyon 重編碼測試
+cd /Users/jhangyu/project/Halcyon && flutter test -j 1 \
+  test/services/image_pipeline/payload_reencoder_test.dart \
+  test/services/image_pipeline/image_preload_reencode_tier_two_test.dart
+```
