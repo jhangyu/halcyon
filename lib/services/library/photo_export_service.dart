@@ -34,11 +34,27 @@ class PhotoExportOutcome {
 /// touches a real decode/encode pipeline.
 typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
 
-class PhotoExportService {
-  PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder})
-    : _fetchBytes = fetchBytes ?? ((path) => exportBytesFor(path, decoder: decoder));
+/// Default quality every JPEG export is encoded at, matching today's three
+/// hardcoded literals (formerly `90` at every `img.encodeJpg` call site in
+/// this file). Overridable per-app via [PhotoExportService.jpegQuality],
+/// which the settings panel writes through (`AppState.setExportJpegQuality`).
+const int kDefaultExportJpegQuality = 90;
 
-  final ExportBytesFetch _fetchBytes;
+class PhotoExportService {
+  PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder}) {
+    _fetchBytes = fetchBytes ??
+        ((path) => exportBytesFor(path, decoder: decoder, quality: jpegQuality));
+  }
+
+  late final ExportBytesFetch _fetchBytes;
+
+  /// Quality of the JPEG the user EXPORTS. Set from the app-wide setting
+  /// (`AppState.setExportJpegQuality`); read at call time, not at
+  /// construction, because this service is built before prefs are hydrated.
+  ///
+  /// Unrelated to `kDisplayJpegQuality` (`jpeg_encoder.dart`), which governs
+  /// display-only bytes that never reach disk.
+  int jpegQuality = kDefaultExportJpegQuality;
 
   /// Byte source = the same producer the detail view uses (P2.1). Purpose is
   /// PREVIEW deliberately: that branch returns full-size bytes OR the
@@ -53,6 +69,7 @@ class PhotoExportService {
   static Future<Uint8List?> exportBytesFor(
     String path, {
     DngFullDecoder? decoder,
+    int quality = kDefaultExportJpegQuality,
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
@@ -123,7 +140,7 @@ class PhotoExportService {
           interpolation: img.Interpolation.linear,
         );
       }
-      return Uint8List.fromList(img.encodeJpg(frame, quality: 90));
+      return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
     });
     if (jpeg == null) return null;
 
@@ -138,7 +155,7 @@ class PhotoExportService {
     if (resized == null) return jpeg;
     await _attachSourceExif(resized, path);
     resized.exif.imageIfd['Orientation'] = 1;
-    return Uint8List.fromList(img.encodeJpg(resized, quality: 90));
+    return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
   }
 
   /// Reads EXIF from [sourcePath] via `package:exif` (the same reader
@@ -324,11 +341,12 @@ img.Image? imageFromDecodedRgba(DecodedRgba decoded) {
 Future<Uint8List?> exportJpegForTest(
   DecodedRgba decoded, {
   int exifOrientation = 1,
+  int quality = kDefaultExportJpegQuality,
 }) async {
   final frame = imageFromDecodedRgba(decoded);
   if (frame == null) return null;
   return Uint8List.fromList(
-    img.encodeJpg(bakeExifOnDecoded(frame, exifOrientation), quality: 90),
+    img.encodeJpg(bakeExifOnDecoded(frame, exifOrientation), quality: quality),
   );
 }
 
