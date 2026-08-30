@@ -1995,29 +1995,34 @@ def build_target(target, layout, mode, args):
         phase(f"Phase 0: clean ({target})")
         clean_target(target, layout)
 
-    native_due = native_is_due(target, layout, args.native)
+    # Whether a prebuilt from the pinned ceyx release (Linux/Windows) will
+    # supply the library. Decided BEFORE Phase 0 because it decides whether a
+    # LOCAL native build is due at all, and Phase 0's native prerequisites
+    # (Vulkan SDK, HEIF dist, the runbook S4 colour gate) only apply to a local
+    # compile. Deciding it afterwards made `windows --fetch-native` fail Phase 0
+    # on a clean checkout for prerequisites it was never going to need. The
+    # decision is purely local (pin file + destination paths), so no network
+    # traffic happens here; the download itself still runs after --check has
+    # returned, and still precedes the Flutter build that consumes the library.
+    ft = fetch_target_for(target)
+    if ft is not None and args.native == "always" and args.fetch_native:
+        fail(
+            "--native always (local compile) and --fetch-native (download the "
+            "pinned prebuilt) both request the same library - pick one.",
+            hints=["--fetch-native downloads the pinned release binary;",
+                   "--native always compiles it locally from the ceyx sources."],
+        )
+    fetch_due = ft is not None and ceyx_fetch_is_due(ft, layout, args)
+
+    # A due fetch satisfies the destination, so no local build is due.
+    native_due = native_is_due(target, layout, args.native) and not fetch_due
     phase(f"Phase 0: prerequisite checks ({target})")
     check_target(target, layout, args, native_due)
     if args.check:
         return
 
-    # Fetch a prebuilt from the pinned ceyx release (Linux/Windows). This runs
-    # only after --check has already returned, so a preflight never hits the
-    # network. It also precedes the local native build below, so a fetched
-    # library is what a subsequent Flutter build consumes.
-    ft = fetch_target_for(target)
-    if ft is not None:
-        if args.native == "always" and args.fetch_native:
-            fail(
-                "--native always (local compile) and --fetch-native (download the "
-                "pinned prebuilt) both request the same library - pick one.",
-                hints=["--fetch-native downloads the pinned release binary;",
-                       "--native always compiles it locally from the ceyx sources."],
-            )
-        if ceyx_fetch_is_due(ft, layout, args):
-            fetch_ceyx_library(ft, layout)
-            # A fetch just satisfied the destination, so no local build is due.
-            native_due = False
+    if fetch_due:
+        fetch_ceyx_library(ft, layout)
 
     placed_native = None
     if native_due:

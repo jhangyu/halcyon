@@ -1,0 +1,27 @@
+LOADED_OLD_FROM /var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/tmp.FMkf6tOL5A/scripts/build_apps.py
+
+==> Target: windows (release)
+
+==> Phase 0: prerequisite checks (windows)
+
+==> Target: windows (release)
+
+==> Phase 0: prerequisite checks (windows)
+
+==> Target: windows (release)
+
+==> Phase 0: prerequisite checks (windows)
+
+==> Target: macos (release)
+
+==> Phase 0: prerequisite checks (macos)
+
+==> Target: linux (release)
+
+==> Phase 0: prerequisite checks (linux)
+[FAIL] windows fetch_native (clean checkout): native_due passed to check_target = True (want False)
+[FAIL] windows auto, libs absent: native_due passed to check_target = True (want False)
+[PASS] windows --native always: native_due passed to check_target = True (want True)
+[PASS] macos auto (dylib absent in temp tree): native_due passed to check_target = True (want True)
+[PASS] linux fetch_native: native_due passed to check_target = False (want False)
+OLD_RC=1
