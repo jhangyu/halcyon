@@ -60,8 +60,14 @@ SYMBOL = "dng_decode_and_process_sized"
 # what to build or where to look.
 _HOST_BY_SYS_PLATFORM = {"darwin": "macos", "linux": "linux", "win32": "windows"}
 
-# Names the Flutter runner executable can have inside a packaged artefact.
-_APP_EXECUTABLE_NAMES = ("Halcyon", "Halcyon.exe")
+# The runner executable's basename is a per-platform FACT and therefore lives in
+# targets.py (G-5), never here: only macOS is named after the product, Windows is
+# lowercase and Linux still carries the pre-rename project name. A hardcoded
+# ("Halcyon", "Halcyon.exe") tuple used to live here and made H-ARCH unfalsifiable
+# on two of the three platforms it claims to be valid_on.
+
+# How many observed executable-bit members a failure message may list.
+_MAX_OBSERVED_LISTED = 10
 
 
 @dataclass(frozen=True)
@@ -342,6 +348,15 @@ class _Source:
         wanted = set(basenames)
         return [n for n in self.members() if n.rsplit("/", 1)[-1] in wanted]
 
+    def executable_members(self):
+        """Member names carrying an executable permission bit.
+
+        Only used to make an H-ARCH failure diagnosable: "expected X, found
+        [...]" tells a reader whether the runner was renamed or simply absent,
+        instead of leaving them to unpack the artefact by hand.
+        """
+        raise NotImplementedError
+
 
 class _TreeSource(_Source):
     def __init__(self, root, base):
@@ -365,6 +380,9 @@ class _TreeSource(_Source):
     def materialise(self, workdir):
         return self._base
 
+    def executable_members(self):
+        return [n for n in self.members() if os.access(self._path(n), os.X_OK)]
+
 
 class _ZipSource(_Source):
     def __init__(self, archive):
@@ -383,6 +401,14 @@ class _ZipSource(_Source):
         with zipfile.ZipFile(self._archive) as zf:
             zf.extractall(workdir)
         return Path(workdir)
+
+    def executable_members(self):
+        with zipfile.ZipFile(self._archive) as zf:
+            return [
+                i.filename
+                for i in zf.infolist()
+                if not i.is_dir() and (i.external_attr >> 16) & 0o111
+            ]
 
 
 class _TarSource(_Source):
@@ -405,6 +431,10 @@ class _TarSource(_Source):
         with tarfile.open(self._archive, "r:gz") as tf:
             tf.extractall(workdir)
         return Path(workdir)
+
+    def executable_members(self):
+        with tarfile.open(self._archive, "r:gz") as tf:
+            return [m.name for m in tf.getmembers() if m.isfile() and m.mode & 0o111]
 
 
 def _archive_candidates(repo_root, spec):
@@ -471,11 +501,23 @@ def _assert_arch(ctx):
     if entry is None:
         return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
     expected = entry["expected_arch"]
-    hits = ctx["source"].find(_APP_EXECUTABLE_NAMES)
+    # Per-platform fact, looked up as data (G-5). Exact, case-sensitive basename
+    # match: the artefact is inspected with Python on every host, so the match
+    # must not inherit the host filesystem's case-folding behaviour.
+    executable = ctx["spec"]["app_executable"]
+    if not executable:
+        return "skip", "this target declares no app_executable"
+    hits = ctx["source"].find([executable])
     if not hits:
+        observed = ctx["source"].executable_members()
+        shown = observed[:_MAX_OBSERVED_LISTED]
+        suffix = (
+            f" (+{len(observed) - len(shown)} more)" if len(observed) > len(shown) else ""
+        )
         return "fail", (
-            f"no app executable named {' or '.join(_APP_EXECUTABLE_NAMES)} found "
-            f"in {ctx['source'].describe()}"
+            f"no app executable named {executable!r} found in "
+            f"{ctx['source'].describe()}; expected {executable!r}, found "
+            f"executable-bit members {shown!r}{suffix}"
         )
     observed = []
     for name in hits:

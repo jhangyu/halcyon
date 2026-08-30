@@ -11,6 +11,15 @@ Provenance of every value below (transcribed byte-for-byte, not re-derived):
   provision     release.yml:137 (apt), ci.yml:121 / release.yml:57 (pod install)
   artifact_path build_apps.py:1730-1752 (flutter_artifact)
   archive_name  release.yml:66/105/144
+  app_executable macos/Runner/Configs/AppInfo.xcconfig:8 (PRODUCT_NAME),
+                 windows/CMakeLists.txt:7 and linux/CMakeLists.txt:7 (BINARY_NAME)
+
+``app_executable`` is the basename of the Flutter runner binary inside the
+shipped artefact, and it is NOT the same string on every platform: only macOS
+is named after the product ("Halcyon"); Windows is lowercase ("halcyon.exe")
+and Linux still carries the pre-rename project name
+("photo_selector_flutter"). ``archive_name`` above names the *zip/tarball* and
+is deliberately product-branded on all targets — the two must not be conflated.
 """
 
 from __future__ import annotations
@@ -32,6 +41,9 @@ TARGETS: dict = {
         "provision": [["flutter", "pub", "get"], ["pod", "install"]],
         "artifact_kind": "app_bundle",
         "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
+        # macos/Runner/Configs/AppInfo.xcconfig:8 — PRODUCT_NAME = Halcyon;
+        # the binary lives at Halcyon.app/Contents/MacOS/Halcyon.
+        "app_executable": "Halcyon",
         "archive_name": "Halcyon-macos-arm64-{version}.zip",
         "archive_format": "zip",
         "assertions": [
@@ -52,6 +64,9 @@ TARGETS: dict = {
         "provision": [],
         "artifact_kind": "dir",
         "artifact_path": "build/windows/x64/runner/Release",
+        # windows/CMakeLists.txt:7 — set(BINARY_NAME "halcyon"); LOWERCASE, and
+        # the runner is emitted as <BINARY_NAME>.exe.
+        "app_executable": "halcyon.exe",
         "archive_name": "Halcyon-windows-x64-{version}.zip",
         "archive_format": "zip",
         # H-SIZED-SYMBOL-NM is deliberately absent: the symbol-table instrument is
@@ -75,6 +90,10 @@ TARGETS: dict = {
         # The arch segment is host-dependent (build_apps.py:1748-1751), hence glob.
         "artifact_kind": "glob_dir",
         "artifact_path": "build/linux/*/release/bundle",
+        # linux/CMakeLists.txt:7 — set(BINARY_NAME "photo_selector_flutter").
+        # The Linux runner was never renamed to the product name; the bundle
+        # ships bundle/photo_selector_flutter.
+        "app_executable": "photo_selector_flutter",
         "archive_name": "Halcyon-linux-x64-{version}.tar.gz",
         "archive_format": "gztar",
         "assertions": [
@@ -92,6 +111,9 @@ TARGETS: dict = {
         "provision": [],
         "artifact_kind": "dir",
         "artifact_path": "build/app/outputs/flutter-apk",
+        # No host executable in an APK (the runner is a Dalvik app plus .so
+        # payloads), and "assertions" below is empty so H-ARCH never runs here.
+        "app_executable": None,
         "archive_name": "Halcyon-android-apk-{version}.zip",
         "archive_format": "zip",
         # Not a release target this round: no desktop decoder library ships here,
@@ -105,6 +127,8 @@ TARGETS: dict = {
         "provision": [],
         "artifact_kind": "dir",
         "artifact_path": "build/web",
+        # A web bundle has no native executable at all; "assertions" is empty.
+        "app_executable": None,
         "archive_name": "Halcyon-web-{version}.zip",
         "archive_format": "zip",
         "assertions": [],
@@ -119,6 +143,7 @@ REQUIRED_KEYS = (
     "provision",
     "artifact_kind",
     "artifact_path",
+    "app_executable",
     "archive_name",
     "archive_format",
     "assertions",
