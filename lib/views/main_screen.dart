@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
+import '../models/shortcut_bindings.dart';
 import 'sidebar_view.dart';
 import 'main_detail_view.dart';
 import 'status_line.dart';
@@ -98,37 +99,31 @@ class _MainScreenState extends State<MainScreen> {
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: (node, event) {
-        if (event is KeyDownEvent) {
-          final state = context.read<AppState>();
-
-          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final state = context.read<AppState>();
+        final action = state.shortcutBindings.actionFor(event.logicalKey);
+        if (action == null) return KeyEventResult.ignored;
+        switch (action) {
+          case ShortcutAction.previousPhoto:
             state.previousPhoto();
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          case ShortcutAction.nextPhoto:
             state.nextPhoto();
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.keyS) {
+          case ShortcutAction.starPhoto:
             if (state.selectedItemID != null) {
               state.markCurrent(PhotoStatus.starred);
             }
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.keyX) {
+          case ShortcutAction.trashMarkPhoto:
             if (state.selectedItemID != null) {
               state.markCurrent(PhotoStatus.trashed);
             }
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          case ShortcutAction.zoomIn:
             _zoom.stepZoomIn();
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          case ShortcutAction.zoomOut:
             _zoom.stepZoomOut();
-            return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.keyR) {
+          case ShortcutAction.toggleRecycleMode:
             state.toggleRecycleMode();
-            return KeyEventResult.handled;
-          }
         }
-        return KeyEventResult.ignored;
+        return KeyEventResult.handled;
       },
       child: child,
     );
