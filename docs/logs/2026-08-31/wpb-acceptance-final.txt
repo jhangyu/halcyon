@@ -1,0 +1,24 @@
+== print-plan windows ==
+PLAN build: ['python3', '/Users/jhangyu/project/Halcyon/scripts/build_apps.py', 'windows', '--fetch-native']
+PLAN package: {'artifact_kind': 'dir', 'artifact_path': 'build/windows/x64/runner/Release', 'archive_name': 'Halcyon-windows-x64-{version}.zip', 'archive_format': 'zip'}
+== print-plan macos (no --fetch-native check) ==
+PLAN provision: ['pod', 'install']
+PLAN build: ['python3', '/Users/jhangyu/project/Halcyon/scripts/build_apps.py', 'macos']
+PLAN package: {'artifact_kind': 'app_bundle', 'artifact_path': 'build/macos/Build/Products/Release/Halcyon.app', 'archive_name': 'Halcyon-macos-arm64-{version}.zip', 'archive_format': 'zip'}
+== grep if target == ==
+0
+== package macos ==
+PACKAGE-OK: /Users/jhangyu/project/Halcyon/Halcyon-macos-arm64-v0.0.0-test.zip
+RC=0
+Archive:  Halcyon-macos-arm64-v0.0.0-test.zip
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+        3  08-31-2026 00:48   Halcyon.app/Contents/MacOS/Halcyon
+---------                     -------
+        3                     1 file
+== release-preflight present ==
+PREFLIGHT-OK: /Users/jhangyu/project/Halcyon/Halcyon-macos-arm64-v0.0.0-test.zip 171 bytes
+RC=0
+== release-preflight missing ==
+ERROR: missing archive /Users/jhangyu/project/Halcyon/Halcyon-macos-arm64-v0.0.0-test.zip
+RC=1
