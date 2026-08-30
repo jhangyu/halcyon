@@ -148,6 +148,7 @@ class AppState extends ChangeNotifier {
   int _decodeLaneWidth;
   int _exportJpegQuality = kDefaultExportJpegQuality;
   int _exportLongEdge = kDefaultExportLongEdge;
+  ExportFiletype _exportFiletype = kDefaultExportFiletype;
   RetentionTier? _retentionTierOverride;
   late final RetentionTier _autoRetentionTier;
   ShortcutBindings _shortcuts = ShortcutBindings.defaults();
@@ -185,6 +186,9 @@ class AppState extends ChangeNotifier {
 
     _exportLongEdge = _normaliseExportLongEdge(_readIntPref('exportLongEdge'));
     _exportService.longEdge = _exportLongEdge;
+
+    _exportFiletype = _normaliseExportFiletype(_readStringPref('exportFiletype'));
+    _exportService.filetype = _exportFiletype;
 
     final tierId = _readStringPref('retentionTier');
     _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
@@ -235,6 +239,20 @@ class AppState extends ChangeNotifier {
           ? raw
           : kDefaultExportLongEdge;
 
+  /// Falls back to the default for a garbage/unknown name AND for a
+  /// recognised-but-unavailable one (`heif`/`webpLossless` -- see
+  /// [ExportFiletype]'s doc): a value this build cannot encode must never be
+  /// applied, whether it arrived from a corrupt pref or from an older build
+  /// of this app that had a filetype ceyx has since dropped.
+  ExportFiletype _normaliseExportFiletype(String? raw) {
+    for (final type in ExportFiletype.values) {
+      if (type.name == raw) {
+        return type.available ? type : kDefaultExportFiletype;
+      }
+    }
+    return kDefaultExportFiletype;
+  }
+
   // Zoom/animation state deliberately does NOT live here: it is pure view
   // state, owned by ZoomController (lib/views/zoom_controller.dart), which
   // MainScreen creates. See gotcha G-010 / Task 19.
@@ -255,6 +273,8 @@ class AppState extends ChangeNotifier {
   int get exportJpegQuality => _exportJpegQuality;
 
   int get exportLongEdge => _exportLongEdge;
+
+  ExportFiletype get exportFiletype => _exportFiletype;
 
   /// The tier this machine derives from its own RAM, i.e. what "Auto" means.
   RetentionTier get autoRetentionTier => _autoRetentionTier;
@@ -544,6 +564,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setExportFiletype(ExportFiletype filetype) {
+    _exportFiletype = filetype.available ? filetype : kDefaultExportFiletype;
+    _prefs?.setString('exportFiletype', _exportFiletype.name);
+    _exportService.filetype = _exportFiletype;
+    notifyListeners();
+  }
+
   void setRetentionTier(RetentionTier tier) {
     _retentionTierOverride = tier;
     _prefs?.setString('retentionTier', tier.id);
@@ -587,6 +614,7 @@ class AppState extends ChangeNotifier {
         decodeLaneWidth: _decodeLaneWidth,
         exportJpegQuality: _exportJpegQuality,
         exportLongEdge: _exportLongEdge,
+        exportFiletype: _exportFiletype,
         retentionTierOverride: _retentionTierOverride,
         shortcuts: _shortcuts,
       );
@@ -608,6 +636,9 @@ class AppState extends ChangeNotifier {
     }
     if (snapshot.exportLongEdge != _exportLongEdge) {
       setExportLongEdge(snapshot.exportLongEdge);
+    }
+    if (snapshot.exportFiletype != _exportFiletype) {
+      setExportFiletype(snapshot.exportFiletype);
     }
     if (snapshot.retentionTierOverride != _retentionTierOverride) {
       final tier = snapshot.retentionTierOverride;

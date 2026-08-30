@@ -1,5 +1,6 @@
 import '../models/shortcut_bindings.dart';
 import '../services/image_pipeline/retention_policy.dart';
+import '../services/library/photo_export_service.dart';
 
 /// Everything the settings panel can change, captured when it opens.
 ///
@@ -13,6 +14,7 @@ class SettingsSnapshot {
     required this.decodeLaneWidth,
     required this.exportJpegQuality,
     required this.exportLongEdge,
+    required this.exportFiletype,
     required this.retentionTierOverride,
     required this.shortcuts,
   });
@@ -22,6 +24,7 @@ class SettingsSnapshot {
   final int decodeLaneWidth;
   final int exportJpegQuality;
   final int exportLongEdge;
+  final ExportFiletype exportFiletype;
 
   /// Null means "no override, follow the machine-derived tier".
   final RetentionTier? retentionTierOverride;

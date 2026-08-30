@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:image/image.dart' as img;
@@ -33,6 +34,19 @@ class PhotoExportOutcome {
 /// (M6 F-11, [exportBytesFor]); tests inject a fake so this service never
 /// touches a real decode/encode pipeline.
 typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
+
+/// Injection seam for the WebP-lossy encode step of [exportBytesFor]
+/// (round-2b Export Filetype). The default implementation is
+/// `CeyxEncodeService().encodeWebpNative`, a real native FFI call that
+/// `flutter test` cannot resolve outside an app bundle (its dylib search
+/// path assumes ceyx's own repo layout) -- tests inject a fake here the same
+/// way [DngFullDecoder] lets RAW-decode tests avoid the real native decoder.
+typedef WebpEncode = Future<Uint8List> Function(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+});
 
 /// Default quality every JPEG export is encoded at, matching today's three
 /// hardcoded literals (formerly `90` at every `img.encodeJpg` call site in
@@ -72,14 +86,67 @@ const List<int> kExportLongEdgeStops = [
 String exportLongEdgeLabel(int longEdge) =>
     longEdge == kOriginalExportLongEdge ? 'Original' : '${longEdge}px';
 
+/// The output codec an export is encoded as (round-2b "Export Filetype"
+/// setting). [available] gates which options the settings panel offers as
+/// selectable: [heif] and [webpLossless] are NOT wired up because the ceyx
+/// native encode surface (`native/include/ceyx_encode_api.h`, 2026-08-30
+/// drop) exports exactly two encoders -- `ceyx_encode_jpeg_rgba8` and
+/// `ceyx_encode_webp_rgba8` (which itself calls libwebp's one-shot LOSSY
+/// `WebPEncodeRGBA`, no `WebPConfig`/lossless knob threaded through the FFI
+/// signature) -- and no HEIF encode entry point exists anywhere in ceyx (its
+/// heif_bindings.dart/heif_decoder_service.dart are decode-only). Both gaps
+/// need native-side ceyx work before they can be real options here; this
+/// enum keeps their identity (for the UI's disabled segment + a stable pref
+/// value that degrades cleanly) without faking an encode path.
+enum ExportFiletype {
+  jpeg(label: 'JPEG', extension: 'jpg', available: true),
+  heif(label: 'HEIF', extension: 'heic', available: false),
+  webpLossy(label: 'WebP (lossy)', extension: 'webp', available: true),
+  webpLossless(label: 'WebP (lossless)', extension: 'webp', available: false);
+
+  const ExportFiletype({
+    required this.label,
+    required this.extension,
+    required this.available,
+  });
+
+  final String label;
+  final String extension;
+
+  /// False for [heif] and [webpLossless] -- see the enum doc. The settings
+  /// panel must not let the user select an unavailable filetype; AppState's
+  /// normaliser falls back to [kDefaultExportFiletype] for any unavailable
+  /// or unrecognised persisted value.
+  final bool available;
+}
+
+const ExportFiletype kDefaultExportFiletype = ExportFiletype.jpeg;
+
+/// Default [WebpEncode]: the real native call, off the caller's isolate
+/// (matches [CeyxEncodeService]'s own off-UI-isolate contract).
+Future<Uint8List> _defaultWebpEncode(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) =>
+    CeyxEncodeService()
+        .encodeWebpNative(rgba, width: width, height: height, quality: quality);
+
 class PhotoExportService {
-  PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder}) {
+  PhotoExportService({
+    ExportBytesFetch? fetchBytes,
+    DngFullDecoder? decoder,
+    WebpEncode webpEncode = _defaultWebpEncode,
+  }) {
     _fetchBytes = fetchBytes ??
         ((path) => exportBytesFor(
               path,
               decoder: decoder,
               quality: jpegQuality,
               longEdge: longEdge,
+              filetype: filetype,
+              webpEncode: webpEncode,
             ));
   }
 
@@ -99,6 +166,12 @@ class PhotoExportService {
   /// [jpegQuality].
   int longEdge = kDefaultExportLongEdge;
 
+  /// Output codec the export is encoded as. Set from the app-wide setting
+  /// (`AppState.setExportFiletype`); read at call time, same reasoning as
+  /// [jpegQuality]. Only [ExportFiletype.jpeg] and [ExportFiletype.webpLossy]
+  /// are actually encodable today -- see the enum doc.
+  ExportFiletype filetype = kDefaultExportFiletype;
+
   /// Byte source = the same producer the detail view uses (P2.1). Purpose is
   /// PREVIEW deliberately: that branch returns full-size bytes OR the
   /// raw-decode signal for a no-preview DNG (the export purpose never emits
@@ -114,6 +187,8 @@ class PhotoExportService {
     DngFullDecoder? decoder,
     int quality = kDefaultExportJpegQuality,
     int longEdge = kDefaultExportLongEdge,
+    ExportFiletype filetype = kDefaultExportFiletype,
+    WebpEncode webpEncode = _defaultWebpEncode,
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
@@ -151,43 +226,55 @@ class PhotoExportService {
     // and a bool.
     final quarterTurnsCw = transform.quarterTurnsCw;
     final mirrored = transform.mirrored;
+
+    if (filetype == ExportFiletype.webpLossy) {
+      // WebP has no EXIF re-embed path here: `ceyx_encode_webp_rgba8` takes
+      // no metadata pointer, and `_attachSourceExif` only knows how to
+      // mutate an `img.Image` that then gets re-encoded as JPEG. A WebP
+      // export therefore ships with NO EXIF (round-2b feasibility finding,
+      // reported to the team lead) -- this is a real limitation, not an
+      // oversight, until ceyx grows a WebP metadata mux entry point.
+      final resized = await Isolate.run<(Uint8List, int, int)?>(() {
+        final frame = _decodeAndResizeFrame(
+          encodedSource: encodedSource,
+          rgba: rgba,
+          rgbaWidth: rgbaWidth,
+          rgbaHeight: rgbaHeight,
+          quarterTurnsCw: quarterTurnsCw,
+          mirrored: mirrored,
+          maxEdge: maxEdge,
+        );
+        if (frame == null) return null;
+        return (frame.getBytes(order: img.ChannelOrder.rgba), frame.width, frame.height);
+      });
+      if (resized == null) return null;
+      final (rgbaBytes, width, height) = resized;
+      try {
+        return await webpEncode(
+          rgbaBytes,
+          width: width,
+          height: height,
+          quality: quality,
+        );
+      } catch (_) {
+        // Native encode unavailable/failed (e.g. this dylib predates the
+        // encode symbols, or was built without libwebp) -- reported to the
+        // caller the same way a null decode does: no file written, no crash.
+        return null;
+      }
+    }
+
     final jpeg = await Isolate.run<Uint8List?>(() {
-      img.Image? frame;
-      if (encodedSource != null) {
-        frame = img.decodeImage(encodedSource);
-        // `image`'s own JPEG decoder already physically bakes EXIF
-        // orientation into pixel layout at decode time and clears the
-        // Orientation tag before this ever runs (verified against
-        // image-4.9.2's bake_orientation.dart early-return path) -- this
-        // call is a no-op safeguard for that case, and the real rotation
-        // for any other decoded format that still carries an Orientation
-        // tag.
-        if (frame != null) frame = img.bakeOrientation(frame);
-      } else {
-        frame = img.Image.fromBytes(
-          width: rgbaWidth,
-          height: rgbaHeight,
-          bytes: rgba!.buffer,
-          bytesOffset: rgba.offsetInBytes,
-          numChannels: 4,
-          order: img.ChannelOrder.rgba,
-        );
-        // FFI output is unrotated; bake from the signal's orientation.
-        if (quarterTurnsCw != 0) {
-          frame = img.copyRotate(frame, angle: quarterTurnsCw * 90);
-        }
-        if (mirrored) frame = img.flipHorizontal(frame);
-      }
+      final frame = _decodeAndResizeFrame(
+        encodedSource: encodedSource,
+        rgba: rgba,
+        rgbaWidth: rgbaWidth,
+        rgbaHeight: rgbaHeight,
+        quarterTurnsCw: quarterTurnsCw,
+        mirrored: mirrored,
+        maxEdge: maxEdge,
+      );
       if (frame == null) return null;
-      if (maxEdge != kOriginalExportLongEdge &&
-          (frame.width > maxEdge || frame.height > maxEdge)) {
-        frame = img.copyResize(
-          frame,
-          width: frame.width >= frame.height ? maxEdge : null,
-          height: frame.height > frame.width ? maxEdge : null,
-          interpolation: img.Interpolation.linear,
-        );
-      }
       return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
     });
     if (jpeg == null) return null;
@@ -204,6 +291,59 @@ class PhotoExportService {
     await _attachSourceExif(resized, path);
     resized.exif.imageIfd['Orientation'] = 1;
     return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+  }
+
+  /// Shared decode -> orient -> resize step for both the JPEG and WebP
+  /// export paths (extracted round-2b so the two isolate closures below stay
+  /// in sync instead of hand-duplicating this logic). Only sendable
+  /// arguments (nullable `Uint8List`s, ints, a bool) so it can run inside
+  /// either `Isolate.run` closure unchanged.
+  static img.Image? _decodeAndResizeFrame({
+    required Uint8List? encodedSource,
+    required Uint8List? rgba,
+    required int rgbaWidth,
+    required int rgbaHeight,
+    required int quarterTurnsCw,
+    required bool mirrored,
+    required int maxEdge,
+  }) {
+    img.Image? frame;
+    if (encodedSource != null) {
+      frame = img.decodeImage(encodedSource);
+      // `image`'s own JPEG decoder already physically bakes EXIF
+      // orientation into pixel layout at decode time and clears the
+      // Orientation tag before this ever runs (verified against
+      // image-4.9.2's bake_orientation.dart early-return path) -- this
+      // call is a no-op safeguard for that case, and the real rotation
+      // for any other decoded format that still carries an Orientation
+      // tag.
+      if (frame != null) frame = img.bakeOrientation(frame);
+    } else {
+      frame = img.Image.fromBytes(
+        width: rgbaWidth,
+        height: rgbaHeight,
+        bytes: rgba!.buffer,
+        bytesOffset: rgba.offsetInBytes,
+        numChannels: 4,
+        order: img.ChannelOrder.rgba,
+      );
+      // FFI output is unrotated; bake from the signal's orientation.
+      if (quarterTurnsCw != 0) {
+        frame = img.copyRotate(frame, angle: quarterTurnsCw * 90);
+      }
+      if (mirrored) frame = img.flipHorizontal(frame);
+    }
+    if (frame == null) return null;
+    if (maxEdge != kOriginalExportLongEdge &&
+        (frame.width > maxEdge || frame.height > maxEdge)) {
+      frame = img.copyResize(
+        frame,
+        width: frame.width >= frame.height ? maxEdge : null,
+        height: frame.height > frame.width ? maxEdge : null,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+    return frame;
   }
 
   /// Reads EXIF from [sourcePath] via `package:exif` (the same reader
@@ -336,7 +476,7 @@ class PhotoExportService {
           }
           final outPath = p.join(
             dest.path,
-            '${p.basenameWithoutExtension(source.path)}.jpg',
+            '${p.basenameWithoutExtension(source.path)}.${filetype.extension}',
           );
           await File(outPath).writeAsBytes(bytes);
           exportedCount++;

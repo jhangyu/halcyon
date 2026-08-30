@@ -74,6 +74,11 @@
   .btn { padding: 7px 16px; border-radius: 5px; font-size: 12.5px; cursor: pointer; border: 1px solid var(--border); }
   .btn.secondary { background: var(--surface); color: var(--text); }
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .segmented { display: flex; gap: 6px; margin-top: 10px; }
+  .segment { flex: 1; text-align: center; padding: 7px 10px; border-radius: 5px; border: 1px solid var(--border-soft); font-size: 11.5px; color: var(--text-dim); background: var(--surface); cursor: pointer; }
+  .segment.selected { background: rgba(10,132,255,0.18); border-color: var(--accent); color: var(--text); }
+  .segment.disabled { opacity: 0.4; cursor: default; }
 </style>
 </head>
 <body>
@@ -82,12 +87,27 @@
   - Tab 1 renamed "Performance & Memory" (merges old Performance + Memory tab
     bodies, unchanged section labels inside — not shown active in this
     mockup, content unchanged from D1's two tabs stacked).
-  - Tab 2 renamed "Export", now holds BOTH sliders: JPEG quality (min now 50,
-    step 5) and the new JPEG Size (discrete named stops).
+  - Tab 2 renamed "Export", now holds: Quality slider (min now 50, step 5),
+    Size slider (discrete named stops), and the NEW Filetype row (segmented
+    control: JPEG / HEIF / WebP lossy / WebP lossless).
   - Tab 3 "Shortcuts" unchanged.
-  - Rail gains "Export size" between "Export quality" and "Retention tier".
+  - Rail gains "Export filetype" and "Export size" rows.
+  - Round-2b label pass: row labels shortened to "Export Quality" / "Export
+    Size" (title case, no filetype in the label -- filetype is its own row
+    now).
   This file shows the Export tab active, per the task instruction.
+
+  FEASIBILITY NOTE (reported to lead alongside this mockup): the ceyx
+  native encode surface (native/include/ceyx_encode_api.h) only exports
+  ceyx_encode_jpeg_rgba8 and ceyx_encode_webp_rgba8 (WebPEncodeRGBA --
+  lossy only, no lossless config). There is no HEIF encode entry point
+  anywhere in ceyx (heif_bindings.dart is decode-only). This mockup shows
+  all 4 filetype options for completeness of the visual language, but HEIF
+  and WebP-lossless are NOT implementable against the current native build
+  without native-side changes (out of this task's file ownership) -- see
+  the "Implementation status" chip added to each disabled segment below.
 -->
+
 <div class="backdrop">
   <div class="dialog">
     <div class="header">
@@ -114,7 +134,24 @@
             <div class="block">
               <div class="row">
                 <div>
-                  <div class="row-label">Export JPEG quality</div>
+                  <div class="row-label">Export Filetype</div>
+                  <div class="row-caption">JPEG</div>
+                </div>
+              </div>
+              <div class="segmented">
+                <div class="segment selected">JPEG</div>
+                <div class="segment disabled" title="No native HEIF encoder in this build">HEIF</div>
+                <div class="segment">WebP (lossy)</div>
+                <div class="segment disabled" title="ceyx_encode_webp_rgba8 is lossy-only (WebPEncodeRGBA); no lossless entry point">WebP (lossless)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section full">
+            <div class="block" style="margin-top:-10px;">
+              <div class="row">
+                <div>
+                  <div class="row-label">Export Quality</div>
                   <div class="row-caption">90</div>
                 </div>
               </div>
@@ -127,7 +164,7 @@
             <div class="block">
               <div class="row">
                 <div>
-                  <div class="row-label">Export JPEG size</div>
+                  <div class="row-label">Export Size</div>
                   <div class="row-caption">2048px (long edge)</div>
                 </div>
               </div>
@@ -140,6 +177,7 @@
       <div class="summary-rail">
         <h2>At a glance</h2>
         <div class="summary-item"><div class="label">Concurrent decodes</div><div class="val">3 / 5</div></div>
+        <div class="summary-item"><div class="label">Export filetype</div><div class="val">JPEG</div></div>
         <div class="summary-item"><div class="label">Export quality</div><div class="val">90</div></div>
         <div class="summary-item"><div class="label">Export size</div><div class="val">2048px</div></div>
         <div class="summary-item"><div class="label">Retention tier</div><div class="val">Balanced · 304 MiB</div></div>

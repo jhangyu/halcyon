@@ -64,4 +64,31 @@ void main() {
     expect(exportLongEdgeLabel(3840), '3840px');
     expect(exportLongEdgeLabel(kOriginalExportLongEdge), 'Original');
   });
+
+  test('TC-476b the service defaults to JPEG filetype and the field is '
+      'settable, independently of quality/longEdge', () {
+    final service = PhotoExportService();
+    expect(service.filetype, kDefaultExportFiletype);
+    expect(kDefaultExportFiletype, ExportFiletype.jpeg);
+    service.filetype = ExportFiletype.webpLossy;
+    expect(service.filetype, ExportFiletype.webpLossy);
+    expect(service.jpegQuality, kDefaultExportJpegQuality);
+    expect(service.longEdge, kDefaultExportLongEdge);
+  });
+
+  test('TC-477b exactly JPEG and WebP(lossy) are available -- HEIF and '
+      'WebP(lossless) are NOT, per the round-2b ceyx feasibility finding',
+      () {
+    expect(ExportFiletype.jpeg.available, isTrue);
+    expect(ExportFiletype.webpLossy.available, isTrue);
+    expect(ExportFiletype.heif.available, isFalse);
+    expect(ExportFiletype.webpLossless.available, isFalse);
+  });
+
+  test('TC-478 every filetype has the correct output extension', () {
+    expect(ExportFiletype.jpeg.extension, 'jpg');
+    expect(ExportFiletype.heif.extension, 'heic');
+    expect(ExportFiletype.webpLossy.extension, 'webp');
+    expect(ExportFiletype.webpLossless.extension, 'webp');
+  });
 }

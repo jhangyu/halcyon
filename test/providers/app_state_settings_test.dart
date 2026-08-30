@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:halcyon_flutter/models/shortcut_bindings.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
+import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -82,6 +83,34 @@ void main() {
     expect(prefs.getInt('exportLongEdge'), 0);
   });
 
+  test('TC-476 export filetype hydrates, normalises garbage AND recognised-'
+      'but-unavailable names to the default, and persists by name', () async {
+    final good = await hydrated(prefs: {'exportFiletype': 'webpLossy'});
+    expect(good.exportFiletype, ExportFiletype.webpLossy);
+
+    final missing = await hydrated();
+    expect(missing.exportFiletype, ExportFiletype.jpeg);
+
+    final garbage = await hydrated(prefs: {'exportFiletype': 'not-a-type'});
+    expect(garbage.exportFiletype, ExportFiletype.jpeg);
+
+    final unavailable = await hydrated(prefs: {'exportFiletype': 'heif'});
+    expect(unavailable.exportFiletype, ExportFiletype.jpeg,
+        reason: 'a recognised-but-unencodable name must fall back too, not '
+            'just an unrecognised one');
+
+    final state = await hydrated();
+    state.setExportFiletype(ExportFiletype.webpLossy);
+    expect(state.exportFiletype, ExportFiletype.webpLossy);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('exportFiletype'), 'webpLossy');
+
+    // setExportFiletype itself refuses an unavailable value rather than
+    // trusting the caller -- defence in depth alongside the hydration guard.
+    state.setExportFiletype(ExportFiletype.heif);
+    expect(state.exportFiletype, ExportFiletype.jpeg);
+  });
+
   test('TC-451 the tier reaches the pipeline, and reset returns to the auto tier', () async {
     final state = await hydrated(
       retention: retentionPolicyForTier(RetentionTier.balanced),
@@ -110,6 +139,7 @@ void main() {
     state.setDecodeLaneWidth(5);
     state.setExportJpegQuality(70);
     state.setExportLongEdge(480);
+    state.setExportFiletype(ExportFiletype.webpLossy);
     state.setRetentionTier(RetentionTier.generous);
     state.setShortcutBinding(ShortcutAction.starPhoto, LogicalKeyboardKey.keyF);
 
@@ -120,6 +150,7 @@ void main() {
     expect(state.decodeLaneWidth, before.decodeLaneWidth);
     expect(state.exportJpegQuality, before.exportJpegQuality);
     expect(state.exportLongEdge, before.exportLongEdge);
+    expect(state.exportFiletype, before.exportFiletype);
     expect(state.isRetentionTierOverridden, isFalse);
     expect(state.shortcutBindings, ShortcutBindings.defaults());
 
@@ -128,5 +159,6 @@ void main() {
     expect(prefs.getInt('shortcut.starPhoto'), isNull);
     expect(prefs.getInt('exportJpegQuality'), before.exportJpegQuality);
     expect(prefs.getInt('exportLongEdge'), before.exportLongEdge);
+    expect(prefs.getString('exportFiletype'), before.exportFiletype.name);
   });
 }

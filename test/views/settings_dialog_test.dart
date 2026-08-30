@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:halcyon_flutter/models/shortcut_bindings.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
+import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:halcyon_flutter/views/settings_dialog.dart';
 
 Future<void> pumpDialog(WidgetTester tester, AppState state) async {
@@ -160,6 +161,35 @@ void main() {
     await tester.pump();
     expect(state.exportLongEdge, 0, reason: 'last stop is the Original sentinel');
     expect(find.text('Original'), findsWidgets);
+  });
+
+  testWidgets(
+      'TC-477 the filetype segmented control selects an available type, '
+      'refuses unavailable ones, and updates the rail', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
+    await tester.pump();
+
+    expect(state.exportFiletype, ExportFiletype.jpeg);
+
+    // webpLossy is available: tapping it must select it.
+    await tester.tap(find.byKey(const Key('exportFiletype.webpLossy')));
+    await tester.pump();
+    expect(state.exportFiletype, ExportFiletype.webpLossy);
+
+    // heif is NOT available: its InkWell has no onTap, so tapping it must
+    // be a no-op rather than throwing or silently selecting it.
+    await tester.tap(find.byKey(const Key('exportFiletype.heif')));
+    await tester.pump();
+    expect(state.exportFiletype, ExportFiletype.webpLossy,
+        reason: 'an unavailable segment must not be selectable');
+
+    // Rail reflects the live selection on every tab.
+    expect(find.text('WebP (lossy)'), findsWidgets); // segment + rail
   });
 
   testWidgets(

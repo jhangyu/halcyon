@@ -44,6 +44,19 @@ class SettingsSummaryRail extends StatelessWidget {
             const SizedBox(height: 12), // D1.html:49 h2 margin-bottom
             _item(
               t,
+              'Export filetype',
+              Text(
+                state.exportFiletype.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: t.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _item(
+              t,
               'Concurrent decodes',
               Text(
                 '${state.decodeLaneWidth} / ${state.maxDecodeLaneWidth}',

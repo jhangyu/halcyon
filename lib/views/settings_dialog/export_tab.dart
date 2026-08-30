@@ -21,6 +21,8 @@ class ExportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _filetype(context, t, state),
+        const SizedBox(height: 10),
         _quality(context, t, state),
         const SizedBox(height: 18),
         _size(context, t, state),
@@ -28,7 +30,7 @@ class ExportTab extends StatelessWidget {
     );
   }
 
-  Widget _quality(BuildContext context, HalcyonTokens t, AppState state) {
+  Widget _filetype(BuildContext context, HalcyonTokens t, AppState state) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -38,8 +40,103 @@ class ExportTab extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              settingsRowLabel(t, 'Export JPEG quality'),
-              settingsCaption(t, '${state.exportJpegQuality}'),
+              settingsRowLabel(t, 'Export Filetype'),
+              settingsCaption(t, state.exportFiletype.label),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  for (var i = 0; i < ExportFiletype.values.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 6),
+                    Expanded(
+                      child: _filetypeSegment(
+                        context,
+                        t,
+                        state,
+                        ExportFiletype.values[i],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _filetypeSegment(
+    BuildContext context,
+    HalcyonTokens t,
+    AppState state,
+    ExportFiletype type,
+  ) {
+    final selected = state.exportFiletype == type;
+    // Unavailable filetypes (round-2b feasibility gap: ceyx has no HEIF
+    // encoder and no lossless WebP entry point) render disabled rather than
+    // hidden -- a hidden control reads as a missing feature (matches the
+    // decode-lane-width row's existing precedent, TC-460).
+    return Tooltip(
+      message: type.available
+          ? ''
+          : 'Not available in this build: no native encoder for '
+              '${type.label}',
+      child: Material(
+        key: Key('exportFiletype.${type.name}'),
+        color: selected ? t.accent.withValues(alpha: 0.18) : t.surface,
+        borderRadius: BorderRadius.circular(5),
+        child: InkWell(
+          onTap: type.available
+              ? () => context.read<AppState>().setExportFiletype(type)
+              : null,
+          borderRadius: BorderRadius.circular(5),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: selected ? t.accent : t.borderSoft,
+              ),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              type.label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: type.available
+                    ? (selected ? t.text : t.textDim)
+                    : t.textFaint,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _quality(BuildContext context, HalcyonTokens t, AppState state) {
+    // Quality only means something for lossy codecs; JPEG and WebP-lossy are
+    // the two available filetypes today, and both are quality-driven, so
+    // this is currently always enabled -- but written against `available &&
+    // type != webpLossless` (rather than hardcoding "always on") so a future
+    // lossless option disables it without another round of UI changes.
+    final qualityApplies = state.exportFiletype != ExportFiletype.webpLossless;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        settingsBlock(
+          t,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              settingsRowLabel(t, 'Export Quality'),
+              settingsCaption(
+                t,
+                qualityApplies
+                    ? '${state.exportJpegQuality}'
+                    : 'Not applicable -- lossless encodes at fixed quality',
+              ),
               Slider(
                 key: const Key('exportQualitySlider'),
                 min: 50,
@@ -49,8 +146,11 @@ class ExportTab extends StatelessWidget {
                 value: state.exportJpegQuality.toDouble(),
                 activeColor: t.accent,
                 inactiveColor: t.border,
-                onChanged: (double value) =>
-                    context.read<AppState>().setExportJpegQuality(value.round()),
+                onChanged: qualityApplies
+                    ? (double value) => context
+                          .read<AppState>()
+                          .setExportJpegQuality(value.round())
+                    : null,
               ),
             ],
           ),
@@ -75,7 +175,7 @@ class ExportTab extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              settingsRowLabel(t, 'Export JPEG size'),
+              settingsRowLabel(t, 'Export Size'),
               settingsCaption(
                 t,
                 state.exportLongEdge == kDefaultExportLongEdge
