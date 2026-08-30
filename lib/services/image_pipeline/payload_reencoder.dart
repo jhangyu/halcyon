@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'jpeg_encoder.dart';
 import 'photo_payload.dart';
 
 /// The seam through which decoded RAW pixels become an encoded bitstream.
@@ -29,9 +30,12 @@ typedef PayloadEncoder =
 /// q90 -> q80 (2026-08-30, same ruling family) for the same display-only
 /// argument.
 ///
-/// NOT the same number as `sidebar_thumbnail_codec.dart`'s `jpegQuality: 80`:
-/// that one encodes a 200px tile and was only ever coincidentally equal.
-const int kReencodeJpegQuality = 70;
+/// The SAME number as `sidebar_thumbnail_codec.dart`'s tile quality, by
+/// construction rather than by coincidence: both are display-only encodes and
+/// both read [kDisplayJpegQuality] (`jpeg_encoder.dart`), the single source of
+/// truth introduced on 2026-08-30. The historical note above records why the
+/// value walked 90 -> 80 -> 70; the value itself now lives in one place.
+const int kReencodeJpegQuality = kDisplayJpegQuality;
 
 /// How many times re-encoding degraded to the retained-pixels fallback.
 ///

@@ -3,6 +3,19 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+/// The ONE quality every DISPLAY-ONLY JPEG in the pipeline is encoded at.
+///
+/// Display-only means: never written back to disk. Both consumers -- the
+/// retained full-resolution payload (`payload_reencoder.dart`) and the 200px
+/// sidebar tile (`sidebar_thumbnail_codec.dart`) -- feed pixels the user looks
+/// at and nothing else; export re-reads the ORIGINAL file
+/// (`photo_export_service.dart`) at its own, user-chosen quality.
+///
+/// USER RULING 2026-08-30: one constant, not two literals that happen to
+/// match. The sidebar tile was 80 and is now 70; at a 200px resample the
+/// difference is invisible, and the payload budget has to hold these bytes.
+const int kDisplayJpegQuality = 70;
+
 /// Wraps RGBA8 [rgba] in an [img.Image] and JPEG-encodes it on a worker
 /// isolate. `numChannels: 4` + [img.ChannelOrder.rgba] match `dart:ui`'s
 /// `rawRgba` byte order exactly, so no channel shuffle happens here; the

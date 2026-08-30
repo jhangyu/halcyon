@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 
 import 'jpeg_encoder.dart';
 
@@ -15,7 +16,7 @@ import 'jpeg_encoder.dart';
 /// JPEG, not PNG: this used to encode PNG because `dart:ui` is PNG-only, with
 /// a note to switch once the `image` package landed for export. It has
 /// (P3.6, `dd1edcb`), so M7 cashes that in -- PNG is lossless and several
-/// times larger than q80 JPEG on photographic content, which is all the
+/// times larger than q70 JPEG on photographic content, which is all the
 /// sidebar ever holds. The generational loss is irrelevant: these bytes are
 /// display-only thumbnails and are never written back to disk. JPEG cannot
 /// carry alpha, which is likewise fine for photographic sources.
@@ -23,7 +24,7 @@ Future<Uint8List> sidebarCacheBytes(
   Uint8List encoded, {
   int longEdge = 200, // = ImageRequestPurpose.sidebarThumbnail.targetSize
   int reencodeThreshold = 512 * 1024,
-  int jpegQuality = 80,
+  int jpegQuality = kDisplayJpegQuality,
 }) async {
   if (encoded.length <= reencodeThreshold) return encoded;
   try {
@@ -58,3 +59,9 @@ Future<Uint8List> sidebarCacheBytes(
     return encoded;
   }
 }
+
+/// The default [sidebarCacheBytes] uses, exposed so a test can assert the
+/// shared-constant wiring: a default parameter value is not otherwise
+/// reachable from outside the function.
+@visibleForTesting
+const int defaultSidebarJpegQuality = kDisplayJpegQuality;
