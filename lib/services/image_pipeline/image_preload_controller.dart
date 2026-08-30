@@ -310,14 +310,16 @@ class ImagePreloadController {
     return payload is PixelPayload ? RawPixelsImage(payload) : null;
   }
 
-  /// The FULL-RESOLUTION tier-2 provider for a pixel-backed item, or null when
-  /// there is no resident full-resolution entry for the item's current payload.
+  /// The full-resolution tier-2 provider for [id], for EITHER tier-2 family
+  /// (pixel-backed [RawFullResImage] or encoded-payload `MemoryImage`), or
+  /// null when there is no resident full-resolution entry for the item's
+  /// current payload.
   ///
   /// Unlike [pixelsProviderFor], this must NOT be rebuilt at the display site:
-  /// [RawFullResImage] is one-shot (it carries the decoded image exactly once),
-  /// so the object handed out here is the very object the controller registered
-  /// as the ImageCache key. Resolving it while [isFullSizeReady] is true is a
-  /// plain cache hit -- `loadImage` is never reached, so the one-shot nature is
+  /// every tier-2 key IS its own provider, so the object handed out here is
+  /// the very object the controller registered as the ImageCache key.
+  /// Resolving it while [isFullSizeReady] is true is a plain cache hit --
+  /// `loadImage` is never reached, so [RawFullResImage]'s one-shot nature is
   /// never exercised on the display path (design §2.3).
   ImageProvider? fullResProviderFor(String? id) =>
       id == null ? null : _tierTwo.fullResProviderFor(id);
