@@ -1,0 +1,159 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart
+test/models/shortcut_bindings_test.dart:3:8: Error: Error when reading 'lib/models/shortcut_bindings.dart': No such file or directory
+import 'package:halcyon_flutter/models/shortcut_bindings.dart';
+       ^
+test/models/shortcut_bindings_test.dart:7:12: Error: Undefined name 'ShortcutAction'.
+    expect(ShortcutAction.values.map((a) => a.defaultKey).toList(), [
+           ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:16:12: Error: Undefined name 'ShortcutAction'.
+    expect(ShortcutAction.trashMarkPhoto.prefsKey, 'shortcut.trashMarkPhoto');
+           ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:17:12: Error: Method not found: 'shortcutActionFromId'.
+    expect(shortcutActionFromId('zoomIn'), ShortcutAction.zoomIn);
+           ^^^^^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:17:44: Error: Undefined name 'ShortcutAction'.
+    expect(shortcutActionFromId('zoomIn'), ShortcutAction.zoomIn);
+                                           ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:18:12: Error: Method not found: 'shortcutActionFromId'.
+    expect(shortcutActionFromId('nope'), isNull);
+           ^^^^^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:22:22: Error: Undefined name 'ShortcutBindings'.
+    final defaults = ShortcutBindings.defaults();
+                     ^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:26:9: Error: Undefined name 'ShortcutAction'.
+        ShortcutAction.toggleRecycleMode, LogicalKeyboardKey.keyX);
+        ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:29:10: Error: Undefined name 'ShortcutAction'.
+        [ShortcutAction.trashMarkPhoto, ShortcutAction.toggleRecycleMode]);
+         ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:29:41: Error: Undefined name 'ShortcutAction'.
+        [ShortcutAction.trashMarkPhoto, ShortcutAction.toggleRecycleMode]);
+                                        ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:33:22: Error: Undefined name 'ShortcutBindings'.
+    final clashing = ShortcutBindings.defaults()
+                     ^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:34:22: Error: Undefined name 'ShortcutAction'.
+        .withBinding(ShortcutAction.toggleRecycleMode, LogicalKeyboardKey.keyX);
+                     ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:35:57: Error: Undefined name 'ShortcutAction'.
+    expect(clashing.actionFor(LogicalKeyboardKey.keyX), ShortcutAction.trashMarkPhoto);
+                                                        ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:37:31: Error: Undefined name 'ShortcutAction'.
+    expect(clashing.isDefault(ShortcutAction.toggleRecycleMode), isFalse);
+                              ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:38:33: Error: Undefined name 'ShortcutAction'.
+    expect(clashing.withDefault(ShortcutAction.toggleRecycleMode), ShortcutBindings.defaults());
+                                ^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:38:68: Error: Undefined name 'ShortcutBindings'.
+    expect(clashing.withDefault(ShortcutAction.toggleRecycleMode), ShortcutBindings.defaults());
+                                                                   ^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:42:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.arrowLeft), '←');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:43:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.arrowRight), '→');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:44:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.arrowUp), '↑');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:45:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.arrowDown), '↓');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:46:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.keyS), 'S');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:47:12: Error: Method not found: 'keyLabelFor'.
+    expect(keyLabelFor(LogicalKeyboardKey.space), 'Space');
+           ^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:48:12: Error: Undefined name 'kReservedShortcutKeys'.
+    expect(kReservedShortcutKeys, contains(LogicalKeyboardKey.escape));
+           ^^^^^^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:49:12: Error: Undefined name 'kReservedShortcutKeys'.
+    expect(kReservedShortcutKeys, contains(LogicalKeyboardKey.tab));
+           ^^^^^^^^^^^^^^^^^^^^^
+test/models/shortcut_bindings_test.dart:50:12: Error: Undefined name 'kReservedShortcutKeys'.
+    expect(kReservedShortcutKeys, isNot(contains(LogicalKeyboardKey.keyS)));
+           ^^^^^^^^^^^^^^^^^^^^^
+00:00 +0 -1: loading /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart [E]
+  Failed to load "/Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart":
+  Compilation failed for testPath=/Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: test/models/shortcut_bindings_test.dart:3:8: Error: Error when reading 'lib/models/shortcut_bindings.dart': No such file or directory
+  import 'package:halcyon_flutter/models/shortcut_bindings.dart';
+         ^
+  test/models/shortcut_bindings_test.dart:7:12: Error: Undefined name 'ShortcutAction'.
+      expect(ShortcutAction.values.map((a) => a.defaultKey).toList(), [
+             ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:16:12: Error: Undefined name 'ShortcutAction'.
+      expect(ShortcutAction.trashMarkPhoto.prefsKey, 'shortcut.trashMarkPhoto');
+             ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:17:12: Error: Method not found: 'shortcutActionFromId'.
+      expect(shortcutActionFromId('zoomIn'), ShortcutAction.zoomIn);
+             ^^^^^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:17:44: Error: Undefined name 'ShortcutAction'.
+      expect(shortcutActionFromId('zoomIn'), ShortcutAction.zoomIn);
+                                             ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:18:12: Error: Method not found: 'shortcutActionFromId'.
+      expect(shortcutActionFromId('nope'), isNull);
+             ^^^^^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:22:22: Error: Undefined name 'ShortcutBindings'.
+      final defaults = ShortcutBindings.defaults();
+                       ^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:26:9: Error: Undefined name 'ShortcutAction'.
+          ShortcutAction.toggleRecycleMode, LogicalKeyboardKey.keyX);
+          ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:29:10: Error: Undefined name 'ShortcutAction'.
+          [ShortcutAction.trashMarkPhoto, ShortcutAction.toggleRecycleMode]);
+           ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:29:41: Error: Undefined name 'ShortcutAction'.
+          [ShortcutAction.trashMarkPhoto, ShortcutAction.toggleRecycleMode]);
+                                          ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:33:22: Error: Undefined name 'ShortcutBindings'.
+      final clashing = ShortcutBindings.defaults()
+                       ^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:34:22: Error: Undefined name 'ShortcutAction'.
+          .withBinding(ShortcutAction.toggleRecycleMode, LogicalKeyboardKey.keyX);
+                       ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:35:57: Error: Undefined name 'ShortcutAction'.
+      expect(clashing.actionFor(LogicalKeyboardKey.keyX), ShortcutAction.trashMarkPhoto);
+                                                          ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:37:31: Error: Undefined name 'ShortcutAction'.
+      expect(clashing.isDefault(ShortcutAction.toggleRecycleMode), isFalse);
+                                ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:38:33: Error: Undefined name 'ShortcutAction'.
+      expect(clashing.withDefault(ShortcutAction.toggleRecycleMode), ShortcutBindings.defaults());
+                                  ^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:38:68: Error: Undefined name 'ShortcutBindings'.
+      expect(clashing.withDefault(ShortcutAction.toggleRecycleMode), ShortcutBindings.defaults());
+                                                                     ^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:42:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.arrowLeft), '←');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:43:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.arrowRight), '→');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:44:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.arrowUp), '↑');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:45:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.arrowDown), '↓');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:46:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.keyS), 'S');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:47:12: Error: Method not found: 'keyLabelFor'.
+      expect(keyLabelFor(LogicalKeyboardKey.space), 'Space');
+             ^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:48:12: Error: Undefined name 'kReservedShortcutKeys'.
+      expect(kReservedShortcutKeys, contains(LogicalKeyboardKey.escape));
+             ^^^^^^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:49:12: Error: Undefined name 'kReservedShortcutKeys'.
+      expect(kReservedShortcutKeys, contains(LogicalKeyboardKey.tab));
+             ^^^^^^^^^^^^^^^^^^^^^
+  test/models/shortcut_bindings_test.dart:50:12: Error: Undefined name 'kReservedShortcutKeys'.
+      expect(kReservedShortcutKeys, isNot(contains(LogicalKeyboardKey.keyS)));
+             ^^^^^^^^^^^^^^^^^^^^^
+  .
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: loading /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart
+TEST_RC=1

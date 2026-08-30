@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Halcyon Settings — C1 Tabbed + Rail (Balanced)</title>
+<style>
+  :root{
+    --pane:#333333; --dialog:#383838; --surface:#414141; --input:#262626;
+    --border:#515151; --border-soft:#454545; --text:#e0e0e0; --text-dim:#9a9a9a;
+    --text-faint:#6f6f6f; --accent:#0a84ff; --danger:#ff453a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html, body{ width:100%; height:100%; background:#1c1c1c;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Helvetica,Arial,sans-serif; color:var(--text); }
+  body{ display:flex; align-items:center; justify-content:center; }
+  .backdrop{ position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; }
+  .dialog{
+    width:880px; height:540px; background:var(--dialog); border-radius:8px; overflow:hidden;
+    display:flex; flex-direction:column; box-shadow:0 24px 60px rgba(0,0,0,0.5);
+    border:1px solid var(--border-soft);
+  }
+  .header{ padding:16px 20px; border-bottom:1px solid var(--border-soft);
+    display:flex; align-items:flex-start; justify-content:space-between; flex-shrink:0; }
+  .header h1{ font-size:15px; font-weight:600; }
+  .header .subtitle{ margin-top:3px; font-size:11.5px; color:var(--text-dim); }
+  .badge{ padding:3px 10px; border-radius:20px; border:1px solid var(--border); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
+
+  .tabbar-wrap{ padding:10px 20px 0 20px; flex-shrink:0; }
+  .tabbar{ display:flex; gap:4px; padding:3px; background:var(--input); border-radius:6px; width:fit-content; }
+  .tab{ padding:6px 16px; border-radius:4px; font-size:12px; color:var(--text-dim); cursor:pointer; }
+  .tab.active{ background:var(--border); color:var(--text); }
+
+  .body{ flex:1; display:flex; min-height:0; }
+  .tabcontent{ flex:1; padding:16px 20px 20px; overflow-y:auto; }
+
+  .summary-rail{ width:220px; border-left:1px solid var(--border-soft); background:var(--pane);
+    padding:16px; flex-shrink:0; overflow-y:auto; }
+  .summary-rail h2{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-faint); margin-bottom:12px; font-weight:600; }
+  .summary-item{ margin-bottom:14px; }
+  .summary-item .label{ font-size:10.5px; color:var(--text-faint); margin-bottom:2px; }
+  .summary-item .val{ font-size:13px; color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .summary-item .val.warn{ color:var(--danger); }
+
+  .section{ margin-bottom:22px; }
+  .section-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-faint);
+    margin-bottom:8px; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .section-label::after{ content:""; flex:1; height:1px; background:var(--border-soft); }
+
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .full{ grid-column:1 / -1; }
+
+  .block{ background:var(--pane); border:1px solid var(--border-soft); border-radius:5px; padding:14px 16px; }
+
+  .row-label{ display:flex; justify-content:space-between; margin-bottom:8px; }
+  .row-label .name{ font-size:12.5px; color:var(--text); }
+  .row-label .value{ font-size:12px; color:var(--text-dim); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .caption{ font-size:11px; color:var(--text-dim); margin-top:8px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.4; }
+
+  input[type=range]{ width:100%; -webkit-appearance:none; height:4px; background:var(--border); border-radius:2px; outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--accent); cursor:pointer; border:2px solid var(--dialog); }
+
+  .tiers{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .tier{ border:1px solid var(--border-soft); border-radius:5px; padding:10px 12px; background:var(--surface); text-align:center; }
+  .tier.selected{ border-color:var(--accent); background:rgba(10,132,255,0.18); }
+  .tier .name{ font-size:12.5px; font-weight:600; color:var(--text); }
+  .tier .budget{ font-size:14px; font-weight:700; color:var(--accent); margin-top:4px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .tier .formula{ font-size:10px; color:var(--text-faint); margin-top:2px; }
+
+  .shortcuts-list{ display:grid; grid-template-columns:1fr 1fr; gap:2px 20px; }
+  .shortcut-row{ display:flex; align-items:center; justify-content:space-between; padding:7px 2px; border-bottom:1px solid var(--border-soft); font-size:12.5px; }
+  .shortcut-row:last-child{ border-bottom:none; }
+  .key-chip{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:var(--text);
+    background:var(--input); border:1px solid var(--border); border-radius:5px; padding:4px 10px; min-width:36px; text-align:center; margin-right:8px; }
+  .key-chip.conflict{ border-color:var(--danger); color:var(--danger); background:rgba(255,69,58,0.12); }
+  .record-btn{ font-size:11px; color:var(--text-dim); background:transparent; border:1px solid var(--border-soft); border-radius:5px;
+    padding:4px 8px; cursor:pointer; }
+  .conflict-note{ font-size:10.5px; color:var(--danger); margin-top:8px; grid-column:1 / -1; display:flex; align-items:center; gap:4px; }
+
+  .actions{ border-top:1px solid var(--border-soft); padding:12px 20px; display:flex; justify-content:flex-end; gap:10px; flex-shrink:0; }
+  .btn{ padding:7px 16px; border-radius:5px; font-size:12.5px; cursor:pointer; border:1px solid var(--border); }
+  .btn-secondary{ background:var(--surface); color:var(--text); }
+  .btn-primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="backdrop">
+  <div class="dialog">
+    <div class="header">
+      <div>
+        <h1>Settings</h1>
+        <div class="subtitle">Tabbed sections with a live summary at a glance</div>
+      </div>
+      <div class="badge">Balanced tier</div>
+    </div>
+    <div class="tabbar-wrap">
+      <div class="tabbar">
+        <div class="tab active">Performance</div>
+        <div class="tab">Memory</div>
+        <div class="tab">Shortcuts</div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="tabcontent">
+        <!-- Performance tab -->
+        <div class="section">
+          <div class="section-label">Parallelism</div>
+          <div class="grid">
+            <div class="block">
+              <div class="row-label"><span class="name">Decode lane width</span><span class="value">3 of 5</span></div>
+              <input type="range" min="1" max="5" value="3">
+              <div class="caption">Concurrent RAW decodes running at once, capped by this machine's core count.</div>
+            </div>
+            <div class="block">
+              <div class="row-label"><span class="name">Export JPEG quality</span><span class="value">90</span></div>
+              <input type="range" min="70" max="100" step="5" value="90">
+              <div class="caption">Quality used when exporting/sharing a photo as JPEG.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory tab content -->
+        <div class="section">
+          <div class="section-label">Memory retention</div>
+          <div class="block full">
+            <div class="tiers">
+              <div class="tier">
+                <div class="name">Conservative</div>
+                <div class="budget">224 MiB</div>
+                <div class="formula">−3 / +5 photos</div>
+              </div>
+              <div class="tier selected">
+                <div class="name">Balanced</div>
+                <div class="budget">304 MiB</div>
+                <div class="formula">−3 / +8 photos</div>
+              </div>
+              <div class="tier">
+                <div class="name">Generous</div>
+                <div class="budget">384 MiB</div>
+                <div class="formula">−3 / +11 photos</div>
+              </div>
+            </div>
+            <div class="caption">Auto-picked from detected RAM (12–32 GB → Balanced); override anytime.</div>
+          </div>
+        </div>
+
+        <!-- Shortcuts tab content -->
+        <div class="section">
+          <div class="section-label">Keyboard shortcuts</div>
+          <div class="block full">
+            <div class="shortcuts-list">
+              <div class="shortcut-row"><span>Previous photo</span><span><span class="key-chip">←</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Next photo</span><span><span class="key-chip">→</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Star photo</span><span><span class="key-chip">S</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Trash-mark photo</span><span><span class="key-chip conflict">X</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Zoom in</span><span><span class="key-chip">↑</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Zoom out</span><span><span class="key-chip">↓</span><button class="record-btn">Record</button></span></div>
+              <div class="shortcut-row"><span>Toggle recycle mode</span><span><span class="key-chip conflict">X</span><button class="record-btn">Record</button></span></div>
+              <div class="conflict-note">⚠ "X" is bound twice — Trash-mark and Toggle recycle mode conflict.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="summary-rail">
+        <h2>At a glance</h2>
+        <div class="summary-item"><div class="label">Decode lanes</div><div class="val">3 / 5</div></div>
+        <div class="summary-item"><div class="label">Export quality</div><div class="val">90</div></div>
+        <div class="summary-item"><div class="label">Retention tier</div><div class="val">Balanced · 304 MiB</div></div>
+        <div class="summary-item"><div class="label">Shortcut conflicts</div><div class="val warn">1 conflict (X)</div></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary">Cancel</button>
+      <button class="btn btn-primary">Done</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

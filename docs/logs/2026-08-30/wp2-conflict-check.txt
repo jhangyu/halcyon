@@ -1,0 +1,27 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+00:00 +0: TC-441 each tier maps to its shipped rung, and RAM selection agrees
+00:00 +0 -1: TC-441 each tier maps to its shipped rung, and RAM selection agrees [E]
+  Expected: RetentionPolicy:<RetentionPolicy(-3..+5, 234881024 B)>
+    Actual: RetentionPolicy:<RetentionPolicy(-3..+5, 268435456 B)>
+  
+  package:matcher                                             expect
+  package:flutter_test/src/widget_tester.dart 473:18          expect
+  test/services/image_pipeline/retention_tier_test.dart 24:5  main.<fn>
+  
+00:00 +0 -1: TC-442 tierForPolicy round-trips, and unknown policies fall back
+00:00 +1 -1: TC-443 shrinking the byte budget evicts immediately, without a put
+00:00 +2 -1: TC-444 setRetention updates the window and the cache budget
+00:00 +2 -2: TC-444 setRetention updates the window and the cache budget [E]
+  Expected: <402653184>
+    Actual: <536870912>
+  
+  package:matcher                                              expect
+  package:flutter_test/src/widget_tester.dart 473:18           expect
+  test/services/image_pipeline/retention_tier_test.dart 108:5  main.<fn>
+  
+00:00 +2 -2: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: TC-441 each tier maps to its shipped rung, and RAM selection agrees
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: TC-444 setRetention updates the window and the cache budget
+TEST_RC=1

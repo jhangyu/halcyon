@@ -45,6 +45,30 @@ Linux/Android 同因關閉。`heif_ffi_api.cpp` 另有缺 `FFI_EXPORT` 的潛伏
 - 同時把 heif 符號加入 `AC-W4`/`AC-L5` 閘門（目前明確不涵蓋 heif；Linux 若同輪開啟也一併）。
 - 驗收：CI 閘門對 heif 符號亮綠，且對 Step 1 之前的舊 DLL 亮紅（負對照，照 v0.1.3 前例）。
 
+## Step 4 — Windows 原生庫交付硬化（併入自 docs/sop/task.md parking lot，2026-08-30）
+
+來源：win-sidebar-thumbnails 輪的 parking-lot 條目「Windows native library delivery hardening」。
+兩項潛在交付風險，皆與側欄空白格症狀無關，但任何 Windows release milestone 前必須解決；
+與本計畫同屬 DLL 出貨面，Step 2 動 `windows_build.yml`/staging 時一併處理最省。
+
+- **單一項目的 bundled-libraries 清單**：`ceyx/plugin/windows/CMakeLists.txt:49-52` 把
+  `ceyx_bundled_libraries` 設為單一 DLL，而 `ceyx/native/CMakeLists.txt:110-117` 預設動態
+  連結 libheif/libde265——HEIF 開啟後（Step 2）同目錄少一個相依 DLL 就是載入期整體失敗。
+  修法：清單由宣告端推導（08-28 教訓：手工重複清單改成同一變數同一檔案決定），Step 2 的
+  「三個 DLL 一起進資產」即涵蓋。
+  ※原 parking-lot 條目建議「靜態連結 HEIF 相依」——**已被本計畫的授權分析否決**（LGPL-3
+  §4(d) 要求動態連結或提供可重連結目的檔，見「既有事實」節），正確方向是隨附 DLL＋載入閘門。
+- **trust-on-first-use 的手工 DLL**：已提交的 `ceyx/plugin/windows/Libraries/dng_decoder_native.dll`
+  是 2026-08-22 手動建置、未跑 S4 顏色閘門的產物，建置時被靜默優先於 pinned release。
+  修法：以 pinned release 產物汰換之（或刪除讓 fetch 補位），並讓「本地已提交副本優先」
+  變成 loud 行為而非靜默。
+- **建置後載入閘門**：對實際建置出的 runner 目錄跑 `dumpbin /DEPENDENTS` 與 `/EXPORTS`
+  （輸出**先存檔再比對**，見 08-28 pipefail 教訓），驗證全部相依 DLL 在場、必要符號已匯出；
+  接上既有 `AC-W4`/`AC-L5` 閘門樣式。Step 3 的 heif 符號閘門與此同一機制。
+
+- 驗收：乾淨 Windows 環境（無系統 heif/de265）安裝包可載入原生解碼；閘門對「缺相依 DLL」
+  與「舊 TOFU DLL」兩種壞態均亮紅（負對照）。
+
 ## 風險與提醒
 
 - 08-28 教訓直接適用：新平台首次接觸必然逐層剝洋蔥，判準是「每輪失敗點是否前移」；

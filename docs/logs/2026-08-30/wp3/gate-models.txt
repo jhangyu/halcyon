@@ -1,0 +1,48 @@
+56257d1
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-024 default template renders zero-padded date and time
+00:00 +1: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-025 {seq} defaults to one digit, {seq:3} zero-pads to three
+00:00 +2: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-026 missing capture date falls back to file mtime
+00:00 +3: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-027 non-date variables render, missing ones render empty
+00:00 +4: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-028 path-hostile characters are replaced, edges trimmed
+00:00 +5: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-029 unknown variable and empty result are reported as errors
+00:00 +6: /Users/jhangyu/project/Halcyon/test/models/rename_rule_test.dart: TC-030 every preset is a valid template and the default is first
+00:00 +7: loading /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart
+00:00 +7: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: SupportedPhotoFormats.decodableExtensions derives exactly from kSupportedDecodeExtensions, dotted form
+00:00 +8: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: D2 browse-only extensions (.cr2, .iiq, .mrw) are NOT in decodableExtensions
+00:00 +9: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: D2 browse-only extensions (.cr2, .iiq, .mrw) ARE in rawExtensions and supportedExtensions
+00:00 +10: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath true for an engine-decodable extension
+00:00 +11: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath false for a D2 browse-only extension
+00:00 +12: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: isDecodablePath false for an unsupported extension
+00:00 +13: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: AC1 — folder scan surfaces a file of every derived-list extension over a fake directory listing, every decodable+browse-only ext is picked up
+00:00 +14: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: rawExtensions / supportedExtensions composition rawExtensions == decodableExtensions union browseOnlyRawExtensions
+00:00 +15: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: rawExtensions / supportedExtensions composition supportedExtensions includes engine bitstreams, bitmap-decode and all raw extensions
+00:00 +16: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-1 bitmap formats TC-302: .webp/.tif/.tiff are supported, .xyz is not
+00:00 +17: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-1 bitmap formats TC-302: .webp is an engine bitstream, .tif/.tiff are bitmap-decode
+00:00 +18: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-1 bitmap formats TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream
+00:00 +19: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-1 bitmap formats TC-304: bestFileToLoad prefers .jpg over .webp, .webp over .dng
+00:00 +20: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-2 HEIC formats TC-302: .heic/.heif are bitmap-decode, not engine bitstreams
+00:00 +21: /Users/jhangyu/project/Halcyon/test/models/supported_photo_formats_test.dart: phase-2 HEIC formats TC-302: a HEIC sibling does not outrank a JPEG sibling
+00:00 +22: loading /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart
+00:00 +22: /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: TC-445 the seven actions carry today's seven default keys, in order
+00:00 +23: /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: TC-446 defaults have no conflicts; a duplicate key is reported once
+00:00 +24: /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: TC-447 a duplicated key dispatches to the earliest action declared
+00:00 +25: /Users/jhangyu/project/Halcyon/test/models/shortcut_bindings_test.dart: TC-448 key labels use arrow glyphs and upper-case letters
+00:00 +26: loading /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart
+00:01 +26: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG JPG beats HEIC
+00:01 +27: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG HEIC beats WebP
+00:01 +28: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG WebP beats PNG
+00:01 +29: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG full order holds when all four are present, regardless of list order
+00:01 +30: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG the exact preferredLoadExtensions order is JPG,JPEG,HEIC,HEIF,WebP,PNG
+00:01 +31: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-332: cheap-tier sibling ranking JPG > HEIC > WebP > PNG every cheap-tier sibling still beats a DNG/RAW sibling
+00:01 +32: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-333: TIFF cheap/expensive decided by embedded-preview probe TIFF WITH an embedded rendered image ranks above a DNG sibling (cheap tier, after PNG)
+00:01 +33: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-333: TIFF cheap/expensive decided by embedded-preview probe TIFF WITHOUT an embedded rendered image stays expensive; the DNG sibling is returned by the fallback
+00:01 +34: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-333: TIFF cheap/expensive decided by embedded-preview probe a cheap-extension sibling wins without ever probing the TIFF
+00:01 +35: /Users/jhangyu/project/Halcyon/test/models/sibling_ranking_d2_test.dart: TC-333: TIFF cheap/expensive decided by embedded-preview probe a lone TIFF is returned without probing (probe cannot change it)
+00:01 +36: loading /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart
+00:01 +36: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: PhotoItem.bestFileToLoad prefers JPG over RAW files in the same group
+00:01 +37: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: PhotoItem.bestFileToLoad falls back to the first RAW file when no preview format exists
+00:01 +38: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: SupportedPhotoFormats central registry includes RW2 and excludes unsupported files
+00:01 +39: /Users/jhangyu/project/Halcyon/test/models/photo_item_test.dart: SupportedPhotoFormats HEIC is scanned in phase 2, and never outranks a cheap engine sibling
+00:01 +40: All tests passed!
+MODELS_RC=0

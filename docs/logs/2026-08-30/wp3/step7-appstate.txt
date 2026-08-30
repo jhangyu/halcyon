@@ -1,0 +1,7 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart
+00:00 +0: TC-449 hydrates every new setting, and falls back PER FIELD on garbage
+00:00 +1: TC-450 export quality is normalised to a 5-step in 70..100 and persisted
+00:00 +2: TC-451 the tier reaches the pipeline, and reset returns to the auto tier
+00:00 +3: TC-452 restoreSettings reverts state AND prefs for every field
+00:00 +4: All tests passed!
+TEST_RC=0

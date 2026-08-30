@@ -1,0 +1,46 @@
+56257d1
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-160 keeps the loaded folder when the file does not exist
+00:00 +1: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-161 keeps the loaded folder when the parent directory is missing
+00:00 +2: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-162 still opens a real file and selects it
+00:00 +3: /Users/jhangyu/project/Halcyon/test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-163 ignores unsupported extensions
+00:00 +4: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart
+00:00 +4: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans supported files, ignores hidden files, and groups by photo id
+00:00 +5: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder warns on the status line when the folder is read-only
+00:00 +6: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder restores saved statuses and last viewed id from JSON
+00:00 +7: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder scans RW2 files into photo groups
+00:00 +8: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.loadFolder groups CR2/NEF/ORF raw files with their JPG sibling
+00:00 +9: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking auto-advance moves to the next photo after applying a new status
+00:00 +10: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking uses the semantic preview image request purpose for preview loading
+00:00 +11: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking toggling a status off does not auto-advance even when auto-advance is on
+00:00 +12: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking nextPhoto and previousPhoto move selection within bounds
+00:00 +13: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-222 currentItem returns null for a selection that is gone
+00:00 +14: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-223 currentItem does not throw on an empty item list
+00:00 +15: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-221 a failing copy surfaces a status message
+processStarred failure: IMG_0001.jpg: FileSystemException: Cannot copy file to '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_dest_a7fHoc/IMG_0001.jpg', path = '/var/folders/pm/m43m8lxj3dx50nsw5ggjw_580000gn/T/halcyon_ps221_src_uVgW4l/IMG_0001.jpg' (OS Error: Is a directory, errno = 21)
+00:00 +16: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-224 a scan failure surfaces a status message
+Error loading directory: FileSystemException: unreadable, path = ''
+00:00 +17: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState selection and marking TC-225 readMetadataFor chunks once and reports progress
+00:00 +18: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath loads the containing folder and selects the given file
+00:01 +19: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.openPhotoAtPath ignores unsupported files instead of clearing the folder
+00:01 +20: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults on when a folder has same-name sibling groups
+00:01 +21: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode defaults off when every photo has a single extension
+00:01 +22: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode toggles both ways and notifies listeners
+00:01 +23: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode recycle mode moves files to .trash instead of the system trash
+00:01 +24: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState recycle mode direct mode still routes through the system trash
+00:01 +25: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.processStarred selection restore TC-248 keeps the selected photo, falling back to its index
+00:01 +26: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-049 renames files and moves the star to the new id
+00:01 +27: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-050 undo restores the original names and the star
+00:01 +28: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: renameByExif TC-051 a custom rule is saved; a preset clears it
+00:01 +29: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.decodeLaneWidth TC-351 lane width defaults to 1 with no ceiling injected
+00:01 +30: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.decodeLaneWidth TC-352 a persisted width is read back and pushed to the controller
+00:01 +31: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.decodeLaneWidth TC-353 a persisted width above this machine ceiling is clamped on read
+00:01 +32: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.decodeLaneWidth TC-382 (provisional) a non-positive injected laneCeiling does not throw and normalizes to 1
+00:01 +33: /Users/jhangyu/project/Halcyon/test/providers/app_state_test.dart: AppState.decodeLaneWidth TC-383 (provisional) a wrong-typed stored decodeLaneWidth falls back to the default instead of crashing prefs init
+00:01 +34: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart
+00:01 +34: /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart: TC-449 hydrates every new setting, and falls back PER FIELD on garbage
+00:01 +35: /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart: TC-450 export quality is normalised to a 5-step in 70..100 and persisted
+00:01 +36: /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart: TC-451 the tier reaches the pipeline, and reset returns to the auto tier
+00:01 +37: /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart: TC-452 restoreSettings reverts state AND prefs for every field
+00:01 +38: All tests passed!
+PROVIDERS_RC=0
