@@ -711,6 +711,16 @@ class ImagePreloadController {
     final file = item.bestFileToLoad;
     if (file == null) return;
 
+    // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
+    // `_earlyResolve` above read `_loadingKeys`; taking the claim after the
+    // `classify` await below left a suspension point between check and claim,
+    // so two entrants for the same id both passed the check and both bought a
+    // source load -- and the second `_cache.put` replaced the payload object,
+    // orphaning the tier-1 ImageCache key (which is bytes identity). Every
+    // exit below removes it again: the expensive-route hand-off, the probe's
+    // catch, and the `finally`.
+    _loadingKeys.add(id);
+
     // CONTENT PROBE FIRST, for every item at every distance (user Amendment 3
     // clause 2). The probe is what decides the LANE, so anything it does not
     // see gets scheduled on the bridge's say-so instead -- and the bridge is
@@ -722,9 +732,19 @@ class ImagePreloadController {
     // location-dependent classification the user rejected verbatim. The price
     // of the correction is one bounded open (2 bytes for a JPEG, design §5's
     // hot path intact).
-    final probed =
-        precomputedProbe ??
-        await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    final ProbeResult probed;
+    try {
+      probed =
+          precomputedProbe ??
+          await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    } catch (_) {
+      // The claim is now taken BEFORE this await, and this await is outside
+      // the `try/finally` below, so a probe that throws would strand the id
+      // in `_loadingKeys` forever -- every later caller would park on a load
+      // that will never land. Error propagation is unchanged.
+      _loadingKeys.remove(id);
+      rethrow;
+    }
     final cost = probed.cost;
     // First writer wins, and after the change above the probe is the first
     // writer whenever it was conclusive. The bridge's orientation (below)
@@ -740,11 +760,16 @@ class ImagePreloadController {
     // one decode in flight. Everything else about it -- retention, tier-1
     // precache, tier-2 eligibility -- is identical to a cheap item's.
     if (cost == SourceCost.expensive && !onSerialLane) {
+      // Released BEFORE the hand-off: the lane body re-enters `_ensurePayload`
+      // for this same id, and a stale claim would send it down the
+      // `_earlyResolve` in-flight branch -- it would park its callback and
+      // produce nothing, i.e. a permanent spinner. Production of this payload
+      // now belongs to the lane task, which takes its own claim.
+      _loadingKeys.remove(id);
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
 
-    _loadingKeys.add(id);
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
     try {
       // Only the lane's own task body may run a real RAW decode. Everywhere
