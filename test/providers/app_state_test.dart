@@ -150,7 +150,7 @@ void main() {
     );
 
     test(
-      'uses semantic image request purposes for preview and sidebar thumbnail loading',
+      'uses the semantic preview image request purpose for preview loading',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_request_');
         addTempDirTeardown(dir);
@@ -168,7 +168,13 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
-        expect(calls, contains(ImageRequestPurpose.sidebarThumbnail));
+        // RETIRED half (2026-08-30, plan Task 6 / amendment E-C2): this used
+        // to also assert `contains(ImageRequestPurpose.sidebarThumbnail)`. The
+        // controller no longer asks the loader for tiles -- it derives them
+        // from the shared payload -- so the sidebar purpose never reaches the
+        // loader from here. The enum value and its loader semantics are still
+        // pinned by test/services/image_pipeline/dart_image_loader_test.dart.
+        expect(calls, isNot(contains(ImageRequestPurpose.sidebarThumbnail)));
       },
     );
 

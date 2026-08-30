@@ -27,6 +27,20 @@ typedef LaneKey = (LaneTaskKind kind, String id);
 /// distances; within each class the near-to-far rank decides.
 const int kFullResPriorityBase = 1000;
 
+/// Priority base for payload production requested by the SIDEBAR.
+///
+/// USER RULING 2026-08-30 (contract D5): scrolling fills the payload cache, so
+/// the sidebar may now ask for payloads. It asks LAST: navigation payloads are
+/// 0-based, full-resolution upgrades are [kFullResPriorityBase], and a blank
+/// sidebar tile is a smaller incompleteness than the main image still being at
+/// window resolution -- and every row the user is about to SELECT is covered
+/// by the waiter path instead, which costs nothing.
+///
+/// Deliberately NOT a new [LaneTaskKind]: the key stays `(payload, id)`, so a
+/// navigation enqueue for the same item REPLACES this entry's priority and
+/// promotes it, instead of decoding the same file twice under two keys.
+const int kSidebarPayloadPriorityBase = 2000;
+
 /// THE ONE place an expensive (real RAW) decode may run.
 ///
 /// Up to [width] task bodies execute at once, ordered near-to-far by priority.
@@ -88,6 +102,12 @@ class DecodeLane {
 
   /// Whether [key] is queued and not yet started.
   bool isPending(LaneKey key) => _pending.containsKey(key);
+
+  /// The priority [key] is currently queued at, or null when it is not
+  /// pending. Read-only observation of existing bookkeeping; exists so
+  /// "the sidebar sweep did not DEMOTE a navigation entry" (G-027) is an
+  /// asserted condition rather than an inference from a call count.
+  int? pendingPriorityOf(LaneKey key) => _pending[key]?.priority;
 
   /// Queues [body] under [key] at [priority] (lower runs earlier).
   ///

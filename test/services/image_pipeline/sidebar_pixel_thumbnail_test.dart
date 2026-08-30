@@ -53,56 +53,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test(
-    'TC-370 a preview-less RAW yields a PixelPayload and is NOT a permanent '
-    'miss (the Windows blank-tile regression)',
-    () async {
-      final dir = await _tempDirWith(['a.dng']);
-      addTearDown(() => dir.delete(recursive: true));
-
-      final controller = ImagePreloadController(
-        imageLoader: _alwaysFailLoader,
-        sidebarRawDecoder: (path, {required int maxDim}) async => _rawFixture(),
-        // A full decoder is wired too, so the DETAIL (preview) path -- which
-        // AppState.selectItem's _preloadImages() triggers for the SAME id as
-        // an unrelated side effect of loadFolder -- also succeeds. Without
-        // this, `hasFailed` (which reads the PREVIEW permanent-miss set) goes
-        // true purely because no dngDecoder was configured, confounding this
-        // assertion with a failure this test is not exercising.
-        dngDecoder: (path) async => _rawFixture(),
-      );
-      final state = AppState(preloadController: controller);
-      await state.loadFolder(dir);
-      await state.preloadThumbnails(0, state.items.length - 1);
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-
-      final id = state.items.single.id;
-      final payload = state.thumbnailPayloadFor(id);
-      expect(payload, isA<PixelPayload>());
-      expect(controller.hasFailed(id), isFalse);
-    },
-  );
-
-  test('TC-373 the stored payload is capped at 200px and self-consistent',
-      () async {
-    final dir = await _tempDirWith(['b.dng']);
-    addTearDown(() => dir.delete(recursive: true));
-
-    final controller = ImagePreloadController(
-      imageLoader: _alwaysFailLoader,
-      sidebarRawDecoder: (path, {required int maxDim}) async => _rawFixture(),
-    );
-    final state = AppState(preloadController: controller);
-    await state.loadFolder(dir);
-    await state.preloadThumbnails(0, state.items.length - 1);
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-
-    final payload =
-        state.thumbnailPayloadFor(state.items.single.id)! as PixelPayload;
-    expect(payload.width <= 200 && payload.height <= 200, isTrue,
-        reason: '${payload.width}x${payload.height} exceeds the 200px cap');
-    expect(payload.rgba.length, payload.width * payload.height * 4);
-  });
+  // TC-370 and TC-373 are RETIRED (2026-08-30, plan Task 6 / amendment
+  // E-C1): both asserted that the SIDEBAR ran its own sized RAW decode and
+  // stored the resulting PixelPayload. That producer is deleted -- the sidebar
+  // derives every tile from the shared q70 payload now. Their replacements are
+  // TC-430/TC-431 in sidebar_shared_payload_test.dart (a tile appears, and one
+  // decode serves both tiers) and TC-434 in sidebar_lane_production_test.dart
+  // (a far row's payload is produced on the shared lane).
 
   test('TC-374 INV-MEM: the sidebar cache stays viewport-bound', () async {
     final names = [for (var i = 0; i < 200; i++) 'f${i.toString().padLeft(3, "0")}.dng'];
@@ -111,7 +68,10 @@ void main() {
 
     final controller = ImagePreloadController(
       imageLoader: _alwaysFailLoader,
-      sidebarRawDecoder: (path, {required int maxDim}) async => _rawFixture(),
+      // Tiles now come from the shared payload, so the payload producer is
+      // what this bound has to survive.
+      dngDecoder: (path) async => _rawFixture(),
+      payloadEncoder: null,
     );
     final state = AppState(preloadController: controller);
     await state.loadFolder(dir);
@@ -119,6 +79,9 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 800));
 
     final maxEntries = 20 + 2 * thumbnailPrefetchMargin;
+    // Non-vacuity: a bound that nothing ever approaches proves nothing. With
+    // the sidebar now driving payload production, tiles must actually appear.
+    expect(controller.debugThumbnailCacheLength, greaterThan(0));
     expect(controller.debugThumbnailCacheLength, lessThanOrEqualTo(maxEntries));
     expect(
       controller.debugThumbnailCacheByteCost,
@@ -142,10 +105,11 @@ void main() {
     final gate = Completer<void>();
     final controller = ImagePreloadController(
       imageLoader: _alwaysFailLoader,
-      sidebarRawDecoder: (path, {required int maxDim}) async {
+      dngDecoder: (path) async {
         await gate.future; // still in flight when the generation is bumped
         return _rawFixture();
       },
+      payloadEncoder: null,
     );
     final state = AppState(preloadController: controller);
     await state.loadFolder(dir);

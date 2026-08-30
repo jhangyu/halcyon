@@ -6,11 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../../models/photo_item.dart';
-import '../../models/supported_photo_formats.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
-import 'bitmap_container_probe.dart';
-import 'decoded_rgba_image_provider.dart';
 import 'image_source_types.dart';
 import 'payload_reencoder.dart';
 import 'photo_payload.dart';
@@ -20,8 +17,8 @@ import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
+import 'thumbnail_derivation.dart';
 import 'decode_lane.dart';
-import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
 
@@ -100,7 +97,6 @@ class ImagePreloadController {
   ImagePreloadController({
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
-    DngSizedDecoder? sidebarRawDecoder,
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
     this.retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
@@ -109,7 +105,6 @@ class ImagePreloadController {
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
        ),
-       _sidebarRawDecoder = sidebarRawDecoder,
        _decodeLane = DecodeLane(width: decodeLaneWidth),
        _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
 
@@ -120,11 +115,6 @@ class ImagePreloadController {
   final RetentionPolicy retention;
 
   final PhotoSource _source;
-  // M6 P2.5b: sized RAW-decode fallback for the sidebar sweep, for bare-CFA
-  // DNGs that carry no embedded JPEG at any size (the Dart sidebar route
-  // never decodes by design otherwise -- see the sweep below). Null on
-  // platforms/tests with no RAW decoder at all.
-  final DngSizedDecoder? _sidebarRawDecoder;
   final PhotoPayloadCache _cache;
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
@@ -149,6 +139,36 @@ class ImagePreloadController {
   // no counterpart on the preview path and was the primary suspect for the
   // Windows blank-tile bug (root-cause R2.3.1 step 6).
   final Map<String, SourcePayload> _thumbCache = {};
+
+  // Rows the sidebar wants a tile for and whose payload has not landed yet.
+  //
+  // The sidebar is a CONSUMER now (USER RULING 2026-08-30, contract D5): it
+  // registers interest instead of producing pixels of its own, and
+  // [_onPayloadLanded] converts a landed payload into a tile. Pruned in the
+  // same statement that prunes `_thumbCache`, so a waiter cannot outlive its
+  // viewport.
+  final Set<String> _thumbWaiters = {};
+
+  // The sidebar's repaint callback, parked by the sweep so an asynchronous
+  // payload-landed derivation can report a tile that no sweep is awaiting.
+  VoidCallback? _thumbNotify;
+
+  // Ids the SIDEBAR put on the lane, for assertions. Cleared by [reset].
+  final Set<String> _sidebarEnqueuedIds = {};
+
+  @visibleForTesting
+  Set<String> get debugThumbPermanentMisses =>
+      Set<String>.unmodifiable(_thumbPermanentMisses);
+
+  @visibleForTesting
+  Set<String> get debugSidebarEnqueuedIds =>
+      Set<String>.unmodifiable(_sidebarEnqueuedIds);
+
+  /// The lane priority [id]'s payload task is currently queued at, or null.
+  /// Exposed so G-027's demotion hazard is asserted directly (TC-436).
+  @visibleForTesting
+  int? debugLanePendingPriorityFor(String id) =>
+      _decodeLane.pendingPriorityOf((LaneTaskKind.payload, id));
 
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
@@ -450,6 +470,9 @@ class ImagePreloadController {
   void reset() {
     _cache.clear();
     _thumbCache.clear();
+    _thumbWaiters.clear();
+    _thumbNotify = null;
+    _sidebarEnqueuedIds.clear();
     _loadingKeys.clear();
     _thumbLoadingKeys.clear();
     _pendingPreviewNotifies.clear();
@@ -496,6 +519,9 @@ class ImagePreloadController {
     _thumbWantedIds = {};
     _navPriorityIds = [];
     _thumbPriorityIds = [];
+    _thumbWaiters.clear();
+    _thumbNotify = null;
+    _sidebarEnqueuedIds.clear();
     _cache.clear();
     // Nothing else to do: no image is owned here. A source still in flight at
     // teardown resolves into a payload nobody reads and is collected -- it
@@ -697,6 +723,48 @@ class ImagePreloadController {
     for (final cb in pending ?? const <VoidCallback>[]) {
       cb();
     }
+  }
+
+  /// THE point where "one decode serves both" becomes true.
+  ///
+  /// Called immediately after every `_cache.put`, whoever produced the
+  /// payload. Derivation is cheap (a sized re-decode of bytes already
+  /// resident) but it is still async, so both staleness guards apply: the
+  /// batch generation is captured BEFORE the first await, and the id must
+  /// still be wanted when the result comes back. Dropping either one
+  /// reintroduces the stale-viewport write this file has been patched for
+  /// twice.
+  void _onPayloadLanded(String id, SourcePayload payload) {
+    if (!_thumbWaiters.remove(id)) return;
+    if (_thumbCache.containsKey(id)) return;
+    final generation = _thumbBatchGeneration;
+    unawaited(
+      deriveThumbnailPayload(payload).then((derived) {
+        // A null derivation is NOT a permanent miss: the payload may be
+        // replaced by a better one later, and a permanent miss is
+        // unrecoverable until the folder reloads. Amendment E-H1(a): put the
+        // id BACK on the waiter list so a later landing retries it, rather
+        // than silently dropping the row until the next sweep.
+        if (derived == null) {
+          if (_thumbWantedIds.contains(id)) _thumbWaiters.add(id);
+          return;
+        }
+        if (generation != _thumbBatchGeneration) return;
+        if (!_thumbWantedIds.contains(id)) return;
+        if (!identical(_cache.peek(id), payload)) return;
+        _thumbCache[id] = derived;
+        _thumbNotify?.call();
+      }),
+    );
+  }
+
+  /// A payload that can NEVER be produced is also a tile that can never be
+  /// produced. Without this the sidebar would wait forever on a file the
+  /// preview path has already given up on -- the sidebar's own negative cache
+  /// exists precisely so a hopeless row is asked about once (invariant I8).
+  void _onPayloadMiss(String id) {
+    _thumbWaiters.remove(id);
+    _thumbPermanentMisses.add(id);
   }
 
   /// One line per swallowed sidebar failure. Console output, NOT user-facing
@@ -909,6 +977,9 @@ class ImagePreloadController {
           return;
         }
         _cache.put(id, payload);
+        // Whoever produced it, the sidebar's waiters get their tile from THIS
+        // payload -- never from a second decode of their own (D5 decision 2).
+        _onPayloadLanded(id, payload);
         if (onSerialLane) {
           // A serially landed payload gets its tier-1 ImageCache entry HERE,
           // not on "the next navigation pass": when the user has stopped
@@ -925,6 +996,7 @@ class ImagePreloadController {
         // later pass asks again. This is the load-bearing edge of design §3.4:
         // the ONLY new stranding risk in M3 is a failure that nobody records.
         _permanentMisses.add(id);
+        _onPayloadMiss(id);
         // D3 (docs/logs/2026-08-26/raw-support-contract.md): PhotoSource
         // decides "no native RAW decoder on this platform" BEFORE invoking
         // anything (a static platform property, not a caught decode
@@ -1056,13 +1128,65 @@ class ImagePreloadController {
     );
   }
 
+  /// Asks the lane to produce [item]'s payload on the SIDEBAR's behalf.
+  ///
+  /// [rowDistance] is the row's distance from the first visible row, so nearer
+  /// rows are produced first within the sidebar's own priority class.
+  ///
+  /// The body re-checks the retention union when its TURN comes, not when it
+  /// is queued (invariant I4): a row scrolled past before its turn does no
+  /// work at all. Nothing is cancellable mid-body -- no FFI decode is -- so
+  /// "cancellation" here is exactly pending-entry replacement plus this
+  /// re-check, the same shape [_enqueueSerialLoad] already uses.
+  void _enqueueSidebarPayload(PhotoItem item, {required int rowDistance}) {
+    final id = item.id;
+    _sidebarEnqueuedIds.add(id);
+    _decodeLane.enqueue(
+      (LaneTaskKind.payload, id),
+      priority: kSidebarPayloadPriorityBase + rowDistance,
+      body: () async {
+        if (!_retentionIds.contains(id)) return;
+        if (_cache.contains(id)) return;
+        try {
+          await _ensurePayload(
+            item,
+            distance: 0,
+            notifyLoaded: null,
+            onSerialLane: true,
+          );
+        } catch (e) {
+          // A producer that THROWS (an unconverted PlatformException, a
+          // MissingPluginException, a decoder that blew up) is NOT recorded as
+          // a permanent miss by [_ensurePayload]: it rethrows, preserving the
+          // preview path's error propagation, and the lane then swallows the
+          // exception to stay runnable. Without this arm the row would end the
+          // body with no payload AND no miss, so every later sweep would
+          // re-enqueue it and re-ask a question whose answer cannot change --
+          // invariant I8's forever-loop, which the deleted sweep's own
+          // try/catch used to prevent (M6-PL1).
+          //
+          // Only the SIDEBAR's negative cache is written. The preview path's
+          // policy for a throwing source is deliberately left exactly as it
+          // was; widening it is a separate decision with its own blast radius.
+          _logThumbFailure(id, 'produce', e);
+          _onPayloadMiss(id);
+        }
+      },
+    );
+  }
+
   /// Decodes ONE item's tier-1 entry, for a payload that has just landed off
   /// the serial lane. The batched sibling is [_precacheTierOneWindow].
   void _precacheTierOneFor(String id, SourcePayload payload) {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
     if (width == null || height == null) return;
-    if (!_retentionIds.contains(id)) return;
+    // The NAVIGATION window, deliberately NOT the retention union. Since
+    // sidebar scrolling produces payloads too (D5 decision 4), a lane body
+    // landing a payload for a sidebar-only row reaches here -- and the tier-1
+    // ImageCache budget is sized for a handful of window-resolution entries,
+    // not for a whole folder. TC-429 is the regression guard.
+    if (!_navRetentionIds.contains(id)) return;
     if (!identical(_cache.peek(id), payload)) return;
     _decodeIntoImageCache(
       id,
@@ -1247,6 +1371,13 @@ class ImagePreloadController {
         _thumbPriorityIds = [for (final i in order) items[i].id];
         _republishEvictionPriority();
         _thumbCache.removeWhere((key, _) => !_thumbWantedIds.contains(key));
+        // A waiter cannot outlive its viewport: pruned in the same statement
+        // that prunes the tile cache, so `_onPayloadLanded` can never write a
+        // tile for a row that scrolled away.
+        _thumbWaiters.removeWhere((key) => !_thumbWantedIds.contains(key));
+        // Parked once per sweep: a payload landing AFTER this sweep returns
+        // still has to repaint the sidebar, and no sweep is awaiting it.
+        _thumbNotify = notifyLoaded;
 
         for (final index in order) {
           // A newer range (or a folder reload) arrived while we were awaiting;
@@ -1256,141 +1387,65 @@ class ImagePreloadController {
           final item = items[index];
           final id = item.id;
           // An in-memory Set lookup and nothing more -- the sidebar's negative
-          // cache costs the hot path one hash probe per row and saves a
-          // channel round trip per sweep for every file that can never produce
-          // a thumbnail. Keyed by the bare id, in the sidebar's OWN set: see
-          // [_thumbPermanentMisses] for why it cannot live in the preview set
-          // under a prefix.
+          // cache costs the hot path one hash probe per row. Keyed by the bare
+          // id, in the sidebar's OWN set: see [_thumbPermanentMisses] for why
+          // it cannot live in the preview set under a prefix.
           if (_thumbCache.containsKey(id) ||
               _thumbLoadingKeys.contains(id) ||
               _thumbPermanentMisses.contains(id)) {
             continue;
           }
+          // An answer that cannot change: the preview path already proved this
+          // file produces nothing.
+          if (_permanentMisses.contains(id)) {
+            _thumbPermanentMisses.add(id);
+            continue;
+          }
+          if (item.bestFileToLoad == null) continue;
 
-          final file = item.bestFileToLoad;
-          if (file == null) continue;
-
-          _thumbLoadingKeys.add(id);
-          try {
-            NativeImageResult result;
+          final payload = _cache.peek(id);
+          if (payload != null) {
+            // RULE 1 -- the payload is already here. Derive and go: zero
+            // decodes, zero file opens, zero loader round trips. This is the
+            // whole of D5 decision 2 on the synchronous path.
+            _thumbLoadingKeys.add(id);
             try {
-              // Native only ever emits the raw-decode signal for purpose ==
-              // preview, so for thumbnails anything that is not bytes is
-              // simply "no thumbnail", exactly as null was before.
-              result = await _source.loader(
-                file.path,
-                purpose: ImageRequestPurpose.sidebarThumbnail,
-              );
-            } catch (e) {
-              // The loader THREW instead of returning a NativeImageFailure --
-              // an unconverted PlatformException/MissingPluginException, or a
-              // native TypeError on a non-Uint8List channel reply (round-1
-              // parking-lot PL-1/PL-2/PL-10). Treat it exactly like a
-              // non-bytes result: an answer that cannot change until the
-              // folder reloads, so no later sweep re-asks. Isolated to just
-              // this await -- a failure in the encoded-leg processing below
-              // (sidebarCacheBytes, cache write) is NOT a loader failure and
-              // must not share this label (parking-lot item 3).
-              _logThumbFailure(id, 'loader', e);
-              if (generation == _thumbBatchGeneration) {
-                _thumbPermanentMisses.add(id);
-              }
-              continue;
-            }
-            if (generation != _thumbBatchGeneration) return;
-            if (result is NativeImageBytes) {
-              final cacheBytes = await sidebarCacheBytes(result.bytes);
-              // Re-check after EVERY await before the cache write: a
-              // stale-generation task landing here after the new
-              // generation's removeWhere prune would silently reopen the
-              // viewport-bound cache-size invariant (round-review blocker,
-              // 2026-08-24).
+              final derived = await deriveThumbnailPayload(payload);
               if (generation != _thumbBatchGeneration) return;
-              _thumbCache[id] = EncodedPayload(cacheBytes);
-              notifyLoaded();
-              // 2026-08-28 (bitmap decoders phase 1): the gate widens from
-              // the engine-decodable set to the full-decode-route set so a
-              // TIFF gets a thumbnail at all -- the loader answers NO_THUMBNAIL
-              // for the sidebar purpose by design (the AD-010 invariant),
-              // making this sized decode the ONLY TIFF thumbnail route. D2
-              // browse-only containers stay excluded: that route set is
-              // decodableExtensions + bitmapDecodeExtensions and contains
-              // none of .cr2/.iiq/.mrw.
-            } else if (_sidebarRawDecoder != null &&
-                SupportedPhotoFormats.hasFullDecodeRoute(file.path)) {
-              // M6 P2.5b (matrix P-12): the Dart sidebar route never decodes
-              // by design, so a bare-CFA DNG with no embedded JPEG at any
-              // size would otherwise regress to a permanently blank tile.
-              // Try the sized RAW decode before giving up.
-              //
-              // `isDecodablePath`, NOT `isRawPath` (docs/logs/2026-08-26/
-              // raw-support-contract.md D2): `isRawPath` also matches D2
-              // browse-only containers (.cr2/.iiq/.mrw) that the engine
-              // cannot decode at all -- calling the sized decoder on one of
-              // those would be a guaranteed-failing round trip through the
-              // FFI boundary for a format the D2 ruling says stays
-              // preview-only, not a real attempt.
-              try {
-                final decoded = await _sidebarRawDecoder(
-                  file.path,
-                  maxDim: 200,
-                );
-                if (generation != _thumbBatchGeneration) return;
-                // One orientation source for every container family: the IFD0
-                // walker for RAW/TIFF, the native probe for HEIC. Calling the
-                // walker directly here would silently give every HEIC
-                // orientation 1, because it cannot read ISO-BMFF.
-                final orientation =
-                    await bitmapContainerOrientation(file.path);
-                // NO JPEG re-encode here. Storing oriented pixels removes the
-                // one step the sidebar ran that the preview path never did --
-                // and the preview path is the one the user's Windows evidence
-                // proves healthy. The orientation bake and the 200px
-                // downscale are unchanged; only the encode is gone.
-                final payload = await decodedRgbaToPixelPayload(
-                  decoded,
-                  exifOrientation: orientation,
-                  longEdge: ImageRequestPurpose.sidebarThumbnail.targetSize,
-                );
-                // Same stale-generation write guard as the bytes branch
-                // above (round-review blocker, 2026-08-24).
-                if (generation != _thumbBatchGeneration) return;
-                _thumbCache[id] = payload;
-                notifyLoaded();
-              } catch (e) {
-                // Decode failed too: fall through to the same permanent-miss
-                // answer as any other unrecoverable thumbnail -- but keep the
-                // exception. `catch (_)` here is what made this failure
-                // invisible and unreportable.
-                _logThumbFailure(id, 'decode', e);
-                if (generation == _thumbBatchGeneration) {
-                  _thumbPermanentMisses.add(id);
-                }
+              if (derived == null) {
+                // Transient, never a permanent miss (amendment E-H1(a)):
+                // re-register as a waiter so a later landing retries.
+                if (_thumbWantedIds.contains(id)) _thumbWaiters.add(id);
+                continue;
               }
-            } else {
-              // Native only ever emits the raw-decode signal for purpose ==
-              // preview, so anything that is not bytes here means no source
-              // produced a thumbnail -- an answer that cannot change until the
-              // folder is reloaded (which is what clears the set).
-              _thumbPermanentMisses.add(id);
+              if (!_thumbWantedIds.contains(id)) continue;
+              _thumbCache[id] = derived;
+              notifyLoaded();
+            } catch (e) {
+              // Derivation is not a loader failure and must not be labelled
+              // one; it is also not permanent -- a later payload may derive.
+              _logThumbFailure(id, 'derive', e);
+            } finally {
+              _thumbLoadingKeys.remove(id);
             }
-          } catch (e) {
-            // Anything past the loader await (the encoded-leg processing:
-            // sidebarCacheBytes, the cache write, or an unforeseen failure in
-            // the raw branch's own dispatch) lands here. This is NOT a loader
-            // failure -- the loader already answered successfully -- so it
-            // must not share that label (parking-lot item 3: a future
-            // Windows diagnosis round routes on the `stage` value). Without
-            // this catch the exception used to unwind the whole `for` loop,
-            // silently dropping every remaining item in this sweep, on top
-            // of leaking `loadingKey` for the rest of the session (the
-            // finally below is what fixes that half).
-            _logThumbFailure(id, 'sweep', e);
-            if (generation == _thumbBatchGeneration) {
-              _thumbPermanentMisses.add(id);
-            }
-          } finally {
-            _thumbLoadingKeys.remove(id);
+            continue;
+          }
+
+          // RULE 2 -- no payload yet. Register interest either way; the
+          // payload-landed hook turns whichever producer wins into a tile.
+          _thumbWaiters.add(id);
+          if (!_decodeLane.isPending((LaneTaskKind.payload, id))) {
+            // RULE 3 -- nobody already owns this key, so nobody else will
+            // produce it. Ask the lane, at the sidebar's own low priority.
+            //
+            // The pending test is load-bearing, NOT an optimisation (G-027):
+            // re-enqueueing a key that is ALREADY pending REPLACES its
+            // priority, so enqueueing an id the navigation pass is waiting on
+            // would DEMOTE the decode of the item the user is looking at from
+            // rank 0 to rank 2000+. Testing the lane itself rather than the
+            // navigation window is self-healing: once the nav window moves
+            // away and its entry drains, the sidebar may take the key over.
+            _enqueueSidebarPayload(item, rowDistance: (index - safeStart).abs());
           }
         }
       },

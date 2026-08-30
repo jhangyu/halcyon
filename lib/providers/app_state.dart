@@ -10,7 +10,6 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/dng_decode_contract.dart';
-import '../services/image_pipeline/full_decoder_dispatch.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
@@ -92,16 +91,11 @@ class AppState extends ChangeNotifier {
              // permanent miss (M6 U-12) -- there is no legacy channel path
              // left to fall back to.
              dngDecoder: dngDecoder,
-             // M6 P2.5b: the sidebar's sized RAW-decode fallback only exists
-             // where the app has a decoder at all (a platform/test with no
-             // dngDecoder stays on the uniform explicit miss).
-             // Dispatching sized decoder (2026-08-28 phase 1): routes .tif to
-             // package:image and everything else to the Ceyx engine. The
-             // `dngDecoder == null` guard is unchanged -- a build or test with
-             // no decoder keeps the uniform explicit miss.
-             sidebarRawDecoder: dngDecoder == null
-                 ? null
-                 : halcyonSizedDecoder,
+             // No sidebar decoder: USER RULING 2026-08-30 (contract D5) makes
+             // the sidebar a CONSUMER of the shared q70 payload. The sized
+             // 200px route it used to own is deleted -- measured NOT FASTER
+             // than a full decode (ratio 0.916, payload-bench-report.md §4)
+             // while costing a whole extra sensor decode outside the lane.
              retention: retention,
              decodeLaneWidth: defaultLaneWidthFor(laneCeiling < 1 ? 1 : laneCeiling),
            ) {
