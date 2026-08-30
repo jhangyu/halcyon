@@ -88,10 +88,11 @@ void main() {
   });
 
   test('TC-349 default width is the ceiling capped at kDefaultDecodeLaneWidth '
-      '(1, per the Task 7 re-benchmark verdict)', () {
-    expect(defaultLaneWidthFor(5), 1);
-    expect(defaultLaneWidthFor(3), 1);
-    expect(defaultLaneWidthFor(2), 1);
+      '(3, per user ruling 2026-08-30 overriding the decode-only Task 7 '
+      're-benchmark verdict pending combined decode+re-encode re-measurement)', () {
+    expect(defaultLaneWidthFor(5), 3);
+    expect(defaultLaneWidthFor(3), 3);
+    expect(defaultLaneWidthFor(2), 2);
     expect(defaultLaneWidthFor(1), 1);
   });
 }
