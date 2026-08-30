@@ -165,10 +165,57 @@ class ImagePreloadController {
   // load completes so the UI never strands on a permanent spinner.
   final Map<String, List<VoidCallback>> _pendingPreviewNotifies = {};
 
-  // The current -3..+5 retention window. Async source completions re-check
-  // this before writing, so a late arrival cannot resurrect an item the user
-  // has already navigated away from.
-  Set<String> _retentionIds = {};
+  // The navigation demand: the current -3..+5 window. Async source completions
+  // re-check membership before writing, so a late arrival cannot resurrect an
+  // item the user has already navigated away from.
+  Set<String> _navRetentionIds = {};
+
+  // The SIDEBAR's demand: the visible range +/- thumbnailPrefetchMargin.
+  //
+  // USER RULING 2026-08-30 (contract D5, "捲動亦填充 payload"): scrolling fills
+  // the payload cache too, so the sidebar is now a second contributor to WHAT
+  // IS RETAINED. It is deliberately NOT a second budget or a second eviction
+  // rule -- D4's "one retention rule for every file type" is untouched; only
+  // the membership question gained a contributor.
+  Set<String> _thumbWantedIds = {};
+
+  // The union. A getter, not a third stored set, so the two contributors can
+  // never disagree with what the cache is actually asked to retain.
+  Set<String> get _retentionIds => _navRetentionIds.union(_thumbWantedIds);
+
+  @visibleForTesting
+  Set<String> get debugRetentionIds => _retentionIds;
+
+  // Near-to-far eviction order, kept split by contributor for the same reason
+  // the sets are: republished whenever either changes.
+  List<String> _navPriorityIds = [];
+  List<String> _thumbPriorityIds = [];
+
+  @visibleForTesting
+  List<String> get debugEvictionPriority => _evictionPriorityOrder();
+
+  /// Navigation ids near-to-far FIRST, then sidebar-only ids by distance from
+  /// the viewport's first visible row.
+  ///
+  /// `PhotoPayloadCache._pickVictim` evicts from the FAR end, so a
+  /// whole-folder scroll evicts its own oldest, farthest tiles long before it
+  /// touches anything near the selection -- which is what makes "scrolling
+  /// fills the cache" safe against the -3..+N guarantee.
+  List<String> _evictionPriorityOrder() {
+    final seen = <String>{};
+    final order = <String>[];
+    for (final id in _navPriorityIds) {
+      if (seen.add(id)) order.add(id);
+    }
+    for (final id in _thumbPriorityIds) {
+      if (seen.add(id)) order.add(id);
+    }
+    return order;
+  }
+
+  void _republishEvictionPriority() {
+    _cache.setEvictionPriority(_evictionPriorityOrder());
+  }
 
   // Tier-1 (window-resolution) decode precache bookkeeping.
   int? _tierOneWidth;
@@ -343,6 +390,13 @@ class ImagePreloadController {
   ImageProvider<Object>? debugTierTwoProviderFor(String id) =>
       _tierTwo.providerFor(id);
 
+  /// Ids currently holding a TIER-1 `ImageCache` key. The tier-2 twin of this
+  /// is [debugTierTwoKeyIds]. Exposed so the retention tests can assert that
+  /// sidebar-only ids get NEITHER tier's entry: that budget is sized for five
+  /// full-size entries, not for a folder.
+  @visibleForTesting
+  Set<String> get debugTierOneKeyIds => _tierOneKeys.keys.toSet();
+
   SourcePayload? thumbnailPayloadFor(String id) => _thumbCache[id];
 
   @visibleForTesting
@@ -399,7 +453,10 @@ class ImagePreloadController {
     _loadingKeys.clear();
     _thumbLoadingKeys.clear();
     _pendingPreviewNotifies.clear();
-    _retentionIds = {};
+    _navRetentionIds = {};
+    _thumbWantedIds = {};
+    _navPriorityIds = [];
+    _thumbPriorityIds = [];
     _tierOneKeys.clear();
     _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
@@ -435,7 +492,10 @@ class ImagePreloadController {
     }
     _tierOneKeys.clear();
     _tierTwo.clear();
-    _retentionIds = {};
+    _navRetentionIds = {};
+    _thumbWantedIds = {};
+    _navPriorityIds = [];
+    _thumbPriorityIds = [];
     _cache.clear();
     // Nothing else to do: no image is owned here. A source still in flight at
     // teardown resolves into a payload nobody reads and is collected -- it
@@ -480,8 +540,10 @@ class ImagePreloadController {
       before: retention.before,
       after: retention.after,
     );
-    _retentionIds = neededIds;
-    for (final id in _cache.retainOnly(neededIds)) {
+    _navRetentionIds = neededIds;
+    // The UNION, never the navigation window alone: retaining only the nav
+    // window here would drop every payload the sidebar just filled (plan R-3).
+    for (final id in _cache.retainOnly(_retentionIds)) {
       _tierTwo.evict(id);
     }
     // The tier-2 id set moves NOW, not when the debounce fires: a serial decode
@@ -539,9 +601,8 @@ class ImagePreloadController {
     // Tell the cache which ids are near vs far from the selection, so
     // budget eviction drops the farthest item rather than the oldest
     // (user ruling 2026-08-27, review F-2 fix).
-    _cache.setEvictionPriority([
-      for (final i in nearToFarOrder) items[i].id,
-    ]);
+    _navPriorityIds = [for (final i in nearToFarOrder) items[i].id];
+    _republishEvictionPriority();
     // Round-1 review blocker 1 (2026-08-30): the classify probe used to be
     // interleaved with the lane enqueue inside a single concurrent
     // `_ensurePayload` call per item, so lane arrival order was whichever
@@ -1182,8 +1243,10 @@ class ImagePreloadController {
           if (safeStart - d >= 0) order.add(safeStart - d);
         }
 
-        final neededThumbIds = {for (final i in order) items[i].id};
-        _thumbCache.removeWhere((key, _) => !neededThumbIds.contains(key));
+        _thumbWantedIds = {for (final i in order) items[i].id};
+        _thumbPriorityIds = [for (final i in order) items[i].id];
+        _republishEvictionPriority();
+        _thumbCache.removeWhere((key, _) => !_thumbWantedIds.contains(key));
 
         for (final index in order) {
           // A newer range (or a folder reload) arrived while we were awaiting;
