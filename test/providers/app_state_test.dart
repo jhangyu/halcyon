@@ -11,6 +11,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
@@ -647,6 +648,44 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('decodeLaneWidth'), 1);
       expect(state.decodeLaneWidth, 1);
+    });
+
+    // TC number provisional: docs/sop is not present in this worktree, so
+    // this could not be checked against the shared TC-NNN registry; next
+    // free number observed in-tree at authoring time was TC-382.
+    test(
+        'TC-382 (provisional) a non-positive injected laneCeiling does not '
+        'throw and normalizes to 1',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final zeroState = AppState(laneCeiling: 0);
+      addTearDown(zeroState.dispose);
+      expect(zeroState.maxDecodeLaneWidth, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(zeroState.decodeLaneWidth, 1);
+      zeroState.setDecodeLaneWidth(5);
+      expect(zeroState.decodeLaneWidth, 1);
+
+      SharedPreferences.setMockInitialValues({});
+      final negativeState = AppState(laneCeiling: -2);
+      addTearDown(negativeState.dispose);
+      expect(negativeState.maxDecodeLaneWidth, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(negativeState.decodeLaneWidth, 1);
+      negativeState.setDecodeLaneWidth(5);
+      expect(negativeState.decodeLaneWidth, 1);
+    });
+
+    // TC number provisional; see TC-382 above for the same caveat.
+    test(
+        'TC-383 (provisional) a wrong-typed stored decodeLaneWidth falls '
+        'back to the default instead of crashing prefs init',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 'garbage'});
+      final state = AppState(laneCeiling: 5);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, defaultLaneWidthFor(5));
     });
   });
 }

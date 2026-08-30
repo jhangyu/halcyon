@@ -328,3 +328,32 @@ gate; per baton-2 this is a pre-existing, already-escalated, non-
 deterministic issue unrelated to this task's change (it fired on the
 unmodified tree in earlier gates too) -- team-lead is dispatching a
 dedicated debugger for it, separately from Task 7.
+
+================================================================================
+ADDENDUM 2026-08-30 (impl-nits-sonnet, lane-race-arch-team, Task #4) -- PROVENANCE NOTE
+================================================================================
+
+This addendum does not alter any measurement, computation, or verdict text
+above; it is appended, not a rewrite, per this is a pre-registered
+measurement record.
+
+Provenance clarification: the `git rev-parse HEAD` line recorded above
+(091a7b180b4146e38d37e1a510593a0be425ac27) is the tip at MEASUREMENT time,
+i.e. before the code-change commit for this task's own verdict was made.
+The §9.3 verdict edit recorded in "CODE CHANGE APPLIED" above (
+kDefaultDecodeLaneWidth 3 -> 1) landed in a subsequent commit, c35286e
+("docs: record the parallel decode lane width sweep, verdict and staged SOP
+updates"), not at 091a7b1 itself.
+
+Per user ruling 2026-08-30, kDefaultDecodeLaneWidth is restored from 1 back
+to 3 (see lib/services/image_pipeline/retention_policy.dart and TC-349),
+pending a combined decode+re-encode re-measurement: the sweep recorded in
+this file measured decode-only throughput via
+`DngDecoderService.decodeOnWorker`, not the full production lane body,
+which also performs the libjpeg-turbo re-encode stage added in Phase 13.
+The CPU-bound re-encode stage is the part expected to scale with lane
+width, so the decode-only Speedup(3) = 1.167 verdict above does not by
+itself settle the shipped default. This addendum records the override
+rationale for provenance; it does not retract or edit the original verdict
+computation, which stands as the record of what the decode-only sweep
+showed.
