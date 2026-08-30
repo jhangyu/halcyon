@@ -24,15 +24,15 @@
     "wiring the single-decoder release asset cannot satisfy. macOS keeps its",
     "committed libraries. Android is out of scope for this pin."
   ],
-  "tag": "v0.1.3",
+  "tag": "v0.1.4",
   "assets": {
     "linux": {
       "asset": "libdng_decoder_native-linux-x86_64.so",
-      "sha256": "94e5b45f87d38354e8b69decbdb8b437abce560ac530b7dd50796af47c2c45bf"
+      "sha256": "296fa3d9324242fd1a163b18f3e399007fa946c53e3d75fa2b24e583211b351e"
     },
     "windows": {
       "asset": "dng_decoder_native-windows-x86_64.dll",
-      "sha256": "52fee80faa26ac1ed9de4aa791a67a70f0e721ada03841fa6047d6a4dca58da0"
+      "sha256": "4759923823a55845b03d2556291482fe8fed4391462becc34757ac195bda4f3d"
     }
   }
 }
