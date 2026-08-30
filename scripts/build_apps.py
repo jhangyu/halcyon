@@ -345,7 +345,8 @@ CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 # derived from either name.
 #
 # Windows is a LIST of three because dng_decoder_native.dll dynamically imports
-# heif.dll and de265.dll (LGPL-3 keeps libheif/libde265 as separate shared
+# heif.dll and libde265.dll (upstream's real runtime name — heif.dll's import
+# table names it, so it must not be renamed; LGPL-3 keeps libheif/libde265 as separate shared
 # libraries). Placing only the decoder produces an installation that fails at
 # DynamicLibrary.open with an error naming the decoder and nothing else. Linux
 # uses a one-element list so there is exactly one code path here.
@@ -363,7 +364,7 @@ CEYX_FETCH_SPECS = {
             {"asset": "dng_decoder_native-windows-x86_64.dll",
              "artifact": "dng_decoder_native.dll"},
             {"asset": "heif-windows-x86_64.dll",  "artifact": "heif.dll"},
-            {"asset": "de265-windows-x86_64.dll", "artifact": "de265.dll"},
+            {"asset": "libde265-windows-x86_64.dll", "artifact": "libde265.dll"},
         ],
     },
 }
@@ -1067,7 +1068,7 @@ def halide_asset():
     return name, url, ext, HALIDE_SHA256.get(plat)
 
 
-def download_with_progress(url, dest):
+def download_with_progress(url, dest, failure_hints=None):
     step(f"downloading {os.path.basename(dest)}")
     step(f"from {url}")
 
@@ -1086,13 +1087,17 @@ def download_with_progress(url, dest):
     try:
         urllib.request.urlretrieve(url, dest, reporthook=_report)
     except Exception as e:  # noqa: BLE001 - surfaced via fail()
+        hints = [f"Download it manually from {url}"]
+        if failure_hints:
+            hints.extend(failure_hints)
+        else:
+            hints.append(
+                "Extract it so that <native>/third_party/halide/lib/ holds Halide.lib "
+                "(Windows) or libHalide.a (POSIX), then re-run."
+            )
         fail(
             f"download of {os.path.basename(dest)} failed: {e}",
-            hints=[
-                f"Download it manually from {url}",
-                "Extract it so that <native>/third_party/halide/lib/ holds Halide.lib "
-                "(Windows) or libHalide.a (POSIX), then re-run.",
-            ],
+            hints=hints,
         )
     finally:
         socket.setdefaulttimeout(old_timeout)
@@ -1285,7 +1290,7 @@ def load_ceyx_pin():
                 "single-asset shape.",
                 hints=[
                     "Each platform now holds a 'libraries' list, because Windows "
-                    "ships the decoder plus heif.dll and de265.dll.",
+                    "ships the decoder plus heif.dll and libde265.dll.",
                     "Re-derive it with: python3 scripts/build_apps.py "
                     "--ceyx-release latest",
                 ],
@@ -1337,7 +1342,14 @@ def fetch_ceyx_asset(tag, asset, expected_sha256, layout):
     old_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(60)
     try:
-        download_with_progress(url, str(tmp))
+        download_with_progress(
+            url,
+            str(tmp),
+            failure_hints=[
+                f"Place the file at {cached} yourself, matching the pinned sha256 in "
+                "scripts/ceyx_release_pin.json, then re-run.",
+            ],
+        )
     finally:
         socket.setdefaulttimeout(old_timeout)
 
@@ -1488,7 +1500,13 @@ def update_ceyx_pin_latest(layout):
             old_timeout = socket.getdefaulttimeout()
             socket.setdefaulttimeout(60)
             try:
-                download_with_progress(url, str(dest))
+                download_with_progress(
+                    url,
+                    str(dest),
+                    failure_hints=[
+                        f"Place the file at {dest} yourself, then re-run.",
+                    ],
+                )
             finally:
                 socket.setdefaulttimeout(old_timeout)
             digest = sha256_of(dest)
