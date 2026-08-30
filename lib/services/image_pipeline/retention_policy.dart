@@ -60,25 +60,78 @@ class RetentionPolicy {
 /// The rung DEPTHS are byte arithmetic, not UI measurement -- UI measurement
 /// in this repo is the user's to run. They are deliberately conservative
 /// (at most 384 MiB of held `Uint8List`) and are expected to be tuned.
-RetentionPolicy retentionPolicyFor({int? physicalMemoryBytes}) {
-  if (physicalMemoryBytes == null ||
-      physicalMemoryBytes < kMidRungTriggerBytes) {
-    return const RetentionPolicy.floor();
-  }
-  if (physicalMemoryBytes < kHighRungTriggerBytes) {
-    // 12 slots -> 268.80 MiB required, 304 MiB budgeted.
-    return const RetentionPolicy(
-      before: 3,
-      after: 8,
-      payloadByteBudget: 304 * 1024 * 1024,
+RetentionPolicy retentionPolicyFor({int? physicalMemoryBytes}) =>
+    retentionPolicyForTier(
+      retentionTierFor(physicalMemoryBytes: physicalMemoryBytes),
     );
+
+/// The three shipped retention rungs, as user-selectable named tiers.
+///
+/// This enum, not [retentionPolicyFor], is where the rung values live: RAM
+/// selection now picks a TIER and delegates, so the auto-selected policy and a
+/// user override can never be two different tables.
+enum RetentionTier { conservative, balanced, generous }
+
+extension RetentionTierLabel on RetentionTier {
+  String get id => switch (this) {
+    RetentionTier.conservative => 'conservative',
+    RetentionTier.balanced => 'balanced',
+    RetentionTier.generous => 'generous',
+  };
+
+  String get label => switch (this) {
+    RetentionTier.conservative => 'Conservative',
+    RetentionTier.balanced => 'Balanced',
+    RetentionTier.generous => 'Generous',
+  };
+}
+
+/// The tier whose [RetentionTierLabel.id] is [id]; null if unrecognised.
+RetentionTier? retentionTierFromId(String id) {
+  for (final tier in RetentionTier.values) {
+    if (tier.id == id) return tier;
   }
+  return null;
+}
+
+/// The ONE table of rung values. Derivations for each budget are in the
+/// [retentionPolicyFor] doc comment above; they are unchanged.
+RetentionPolicy retentionPolicyForTier(RetentionTier tier) => switch (tier) {
+  // Exactly the shipped floor, by reference so the two cannot drift.
+  RetentionTier.conservative => const RetentionPolicy.floor(),
+  // 12 slots -> 268.80 MiB required, 304 MiB budgeted.
+  RetentionTier.balanced => const RetentionPolicy(
+    before: 3,
+    after: 8,
+    payloadByteBudget: 304 * 1024 * 1024,
+  ),
   // 15 slots -> 336.00 MiB required, 384 MiB budgeted.
-  return const RetentionPolicy(
+  RetentionTier.generous => const RetentionPolicy(
     before: 3,
     after: 11,
     payloadByteBudget: 384 * 1024 * 1024,
-  );
+  ),
+};
+
+/// Names a policy. Exact value match; anything unrecognised is treated as the
+/// most conservative option, which is the only safe direction to guess.
+RetentionTier tierForPolicy(RetentionPolicy policy) {
+  for (final tier in RetentionTier.values) {
+    if (retentionPolicyForTier(tier) == policy) return tier;
+  }
+  return RetentionTier.conservative;
+}
+
+/// Which tier this machine gets before the user touches the setting.
+RetentionTier retentionTierFor({int? physicalMemoryBytes}) {
+  if (physicalMemoryBytes == null ||
+      physicalMemoryBytes < kMidRungTriggerBytes) {
+    return RetentionTier.conservative;
+  }
+  if (physicalMemoryBytes < kHighRungTriggerBytes) {
+    return RetentionTier.balanced;
+  }
+  return RetentionTier.generous;
 }
 
 /// Cores one expensive (real RAW) decode occupies.
