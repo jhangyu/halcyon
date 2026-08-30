@@ -62,6 +62,14 @@ void resetReencodeCounters() {
 /// (Task 2), depending on the caller -- so the item renders exactly as it did
 /// before this phase existed. Failure is never an error and never a permanent
 /// miss.
+///
+/// This function's guards are not the only refusal in the pipeline: when the
+/// caller is `normalizeEncodedPayload` (`payload_normalizer.dart`, amendment
+/// E-M1), that caller applies one more, independent check AFTER this function
+/// returns -- discarding a smaller-than-expected win by keeping the original
+/// bytes if the re-encoded result is not actually smaller than the input, on
+/// top of its own small-input passthrough before this function is ever
+/// called. See `normalizeEncodedPayload`'s dartdoc for both.
 Future<SourcePayload> reencodePayload({
   required PayloadEncoder encoder,
   required SourcePayload fallback,
