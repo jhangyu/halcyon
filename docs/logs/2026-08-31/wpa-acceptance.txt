@@ -1,0 +1,47 @@
+WP-A acceptance run — 2026-08-30T16:45:58Z — HEAD=b5c6654c9f91cd397dd9dbd50049ce1a1313f03e branch=ci/python-rewrite
+(files under test are uncommitted at capture time for A2-A5; commit follows in A6)
+
+== AC1: python3 scripts/ci.py --help exits 0 and lists all seven subcommand names
+RC=0
+  FOUND provision
+  FOUND verify
+  FOUND build
+  FOUND assert-capabilities
+  FOUND package
+  FOUND release-preflight
+  FOUND --print-plan
+
+== AC2: target_names()
+['android-apk', 'linux', 'macos', 'web', 'windows']
+RC=0
+
+== AC3: grep -rn shell=True scripts/ci.py scripts/ci/   (expect: no lines, RC=1)
+RC=1
+
+== AC4: grep platform-branching outside targets.py   (expect: no lines)
+RC=1
+
+== AC5: rename ../ceyx away, run verify   (expect: named error, non-zero)
+mv RC=0
+ERROR: sibling ceyx checkout not found at /Users/jhangyu/project/ceyx/plugin
+RC=1
+restore RC=0
+../ceyx/plugin
+
+== A3: run() propagates child returncode 3
+3
+RC=0
+
+== A4: run_logged writes RC= as the last line
+RC=0
+tail -n 1 build/ci-logs/x-y.txt ->
+RC=3
+
+== report exact strings
+'CI-SUMMARY: host phases=3 failed=0'
+'SKIP: H-ARCH — tool absent'
+RC=0
+
+== targets.spec() unknown-target message
+"unknown target 'nope'; valid targets: android-apk, linux, macos, web, windows"
+RC=0
