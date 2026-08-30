@@ -392,6 +392,93 @@ void main() {
 
     expect(state.decodeLaneWidth, openingLaneWidth + 1);
   });
+
+  testWidgets(
+      'TC-482 round-4: Export tab renamed section labels and row labels for '
+      'Quality, Size and File Type', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
+    await tester.pump();
+
+    // File Type block (was "Export" section-label / "Export Filetype" row).
+    // The tab bar's own "Export" tab label is a separate Text and stays --
+    // only the section-label inside the tab content is renamed.
+    expect(find.text('FILE TYPE'), findsOneWidget);
+    expect(find.text('Filetype of the export image'), findsOneWidget);
+
+    // Quality block gained a section-label it didn't have before.
+    expect(find.text('QUALITY'), findsOneWidget);
+    expect(find.text('Quality setting of the encoder'), findsOneWidget);
+
+    // Size block renamed section-label + row-label.
+    expect(find.text('SIZE'), findsOneWidget);
+    expect(find.text('Size of the export image'), findsOneWidget);
+    expect(find.text('Export Size'), findsNothing);
+    expect(find.text('Export Quality'), findsNothing);
+    expect(find.text('Export Filetype'), findsNothing);
+  });
+
+  testWidgets(
+      'TC-483 round-4: Performance & Memory tab pairs Parallelism and Memory '
+      'Retention at a 2:3 flex ratio', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    final row = tester.widgetList<Expanded>(find.byType(Expanded)).where(
+        (w) => w.flex == 2 || w.flex == 3);
+    final flexes = row.map((w) => w.flex).toList()..sort();
+    expect(flexes, [2, 3],
+        reason: 'Parallelism is flex:2, Memory Retention is flex:3 '
+            '(round-4 user ruling, was 50/50)');
+  });
+
+  testWidgets(
+      'TC-484 round-4: the Workflow row lays out both checkboxes without '
+      'overflow and without wrapping a label to a second line',
+      (tester) async {
+    // The dialog is a fixed 920px wide SizedBox (settings_dialog.dart:91);
+    // flutter test's default 800x600 logical surface is narrower than
+    // that and compresses it via Dialog's insetPadding, which is a test
+    // environment artifact, not something either the old or new Workflow
+    // layout can control. Widen the surface so the dialog gets its
+    // designed width, matching how it will actually render on any
+    // reasonably sized desktop window.
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    // No RenderFlex overflow / other rendering exceptions were thrown
+    // during the pump above (tester.takeException would surface them).
+    expect(tester.takeException(), isNull);
+
+    expect(find.text('Auto-advance on mark'), findsOneWidget);
+    expect(
+      find.text('Overwrite existing files on Copy/Move'),
+      findsOneWidget,
+    );
+
+    // Each label renders on a single line: single-line Text has one
+    // TextSpan line, i.e. its rendered height matches one line of 12.5px
+    // text (~19px), not the ~38px two lines would produce.
+    final overwriteBox = tester.renderObject<RenderBox>(
+      find.text('Overwrite existing files on Copy/Move'),
+    );
+    expect(overwriteBox.size.height, lessThan(25),
+        reason: 'the longer label must stay on one line, not wrap the way '
+            'the old 50/50 Expanded layout forced it to');
+  });
 }
 
 /// Grabs a [BuildContext] currently in the tree, so the test can drive

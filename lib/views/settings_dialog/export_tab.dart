@@ -50,13 +50,13 @@ class ExportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        settingsSectionLabel(t, 'Export'),
+        settingsSectionLabel(t, 'File Type'),
         settingsBlock(
           t,
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              settingsRowLabel(t, 'Export Filetype'),
+              settingsRowLabel(t, 'Filetype of the export image'),
               settingsCaption(t, state.exportFiletype.label),
               const SizedBox(height: 4),
               Row(
@@ -117,12 +117,13 @@ class ExportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        settingsSectionLabel(t, 'Quality'),
         settingsBlock(
           t,
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              settingsRowLabel(t, 'Export Quality'),
+              settingsRowLabel(t, 'Quality setting of the encoder'),
               settingsCaption(t, '${state.exportJpegQuality}'),
               Slider(
                 key: const Key('exportQualitySlider'),
@@ -154,13 +155,13 @@ class ExportTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        settingsSectionLabel(t, 'Export Size'),
+        settingsSectionLabel(t, 'Size'),
         settingsBlock(
           t,
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              settingsRowLabel(t, 'Export Size'),
+              settingsRowLabel(t, 'Size of the export image'),
               settingsCaption(
                 t,
                 state.exportLongEdge == kDefaultExportLongEdge

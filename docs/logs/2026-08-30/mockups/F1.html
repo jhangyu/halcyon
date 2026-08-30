@@ -58,6 +58,7 @@
   .section-label::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
 
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid.ratio-2-3 { grid-template-columns: 2fr 3fr; }
   .full { grid-column: 1 / -1; }
   .section { margin-bottom: 18px; }
   .block { background: var(--pane); border: 1px solid var(--border-soft); border-radius: 5px; padding: 14px 16px; height: 100%; }
@@ -89,24 +90,34 @@
 </head>
 <body>
 <!--
-  F1: derivative of E1.html for this round's task -- two layout-only
-  changes, no new controls, no token/metric changes:
+  F1: derivative of E1.html, now updated for round 4's user feedback from a
+  real build review (layout-only + label-only, no new controls, no token/
+  metric changes):
   1. Performance & Memory tab: Parallelism block and Memory Retention block
-     sit side by side, 50/50, using the existing .grid (2-col) pattern
-     already used elsewhere in D1/E1. Workflow (checkbox row, not mentioned
-     in the task) stays full-width, placed after the paired row so the two
-     named sections are visually adjacent as requested.
+     sit side by side at a 2:3 width ratio (round 4; was 50/50 in the
+     round-3 draft), using the existing .grid (2-col) pattern already used
+     elsewhere in D1/E1. Workflow (checkbox row) stays full-width, placed
+     after the paired row so the two named sections are visually adjacent.
   2. Export tab: Export Quality block and Export Size block sit side by
-     side, 50/50, same .grid pattern. Export Filetype stays full-width
-     above the row (not part of the request).
+     side, 50/50, same .grid pattern. Round 4 renamed all three Export
+     blocks' section-labels and row-labels: File Type / "Filetype of the
+     export image", Quality / "Quality setting of the encoder" (Quality
+     gained a section-label it didn't have before), Size / "Size of the
+     export image".
   Memory Retention's 3 tier cards were previously laid out across the tab's
   full content width; at half-width they compress to ~130px each -- still
   legible at this dialog's fixed 920px width, verified below. If the real
   Flutter build's tier-card text wraps unacceptably at half width, that's
   a fidelity concern to flag back, not something to silently redesign here.
+  Round 4 also fixed a real-build-only Workflow bug: CheckboxListTile's
+  48px touch target + built-in content padding makes the two labels
+  together wider than this dialog's block at 920px, something this plain-
+  text mockup (".row-label" glyphs, no touch target) never has to account
+  for -- the shipped Flutter fix (Wrap instead of forced 50/50 Expanded)
+  has no HTML-mockup-visible equivalent and is not re-drawn here.
 -->
 
-<div class="caption">Performance &amp; Memory tab — Parallelism | Memory Retention side by side (Workflow full-width below)</div>
+<div class="caption">Performance &amp; Memory tab — Parallelism | Memory Retention side by side at 2:3 (Workflow full-width below)</div>
 <div class="backdrop">
   <div class="dialog">
     <div class="header">
@@ -127,7 +138,7 @@
     </div>
     <div class="body">
       <div class="tabcontent">
-        <div class="grid">
+        <div class="grid ratio-2-3">
           <div class="section">
             <div class="section-label">Parallelism</div>
             <div class="block">
@@ -177,7 +188,7 @@
   </div>
 </div>
 
-<div class="caption">Export tab — Export Quality | Export Size side by side (Export Filetype full-width above)</div>
+<div class="caption">Export tab — Quality | Size side by side (File Type full-width above); round 4 renamed all three section/row labels</div>
 <div class="backdrop">
   <div class="dialog">
     <div class="header">
@@ -200,9 +211,9 @@
       <div class="tabcontent">
         <div class="grid">
           <div class="section full">
-            <div class="section-label">Export</div>
+            <div class="section-label">File Type</div>
             <div class="block">
-              <div class="row-label">Export Filetype</div>
+              <div class="row-label">Filetype of the export image</div>
               <div class="row-caption">JPEG</div>
               <div class="segmented">
                 <div class="segment selected">JPEG</div>
@@ -212,17 +223,18 @@
           </div>
 
           <div class="section">
+            <div class="section-label">Quality</div>
             <div class="block">
-              <div class="row-label">Export Quality</div>
+              <div class="row-label">Quality setting of the encoder</div>
               <div class="row-caption">90</div>
               <input type="range" min="50" max="100" step="5" value="90">
             </div>
           </div>
 
           <div class="section">
-            <div class="section-label">Export Size</div>
+            <div class="section-label">Size</div>
             <div class="block">
-              <div class="row-label">Export Size</div>
+              <div class="row-label">Size of the export image</div>
               <div class="row-caption">2048px (long edge)</div>
               <input type="range" min="0" max="7" step="1" value="4">
             </div>

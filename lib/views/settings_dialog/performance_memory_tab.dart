@@ -9,10 +9,13 @@ import 'settings_section_label.dart';
 /// E1's merged "Performance & Memory" tab (docs/logs/2026-08-30/mockups/
 /// E1.html), with the round-3 layout tweak from F1.html
 /// (docs/logs/2026-08-30/mockups/F1.html): Parallelism and Memory Retention
-/// now sit side by side, each 50% width, using the same 2-column grid
-/// pattern the mockups already establish (D1.html/E1.html `.grid`). Workflow
-/// (unaffected by this round's request) stays full-width, placed after the
-/// paired row so the two named sections are visually adjacent.
+/// sit side by side in a 2:3 width ratio (round-4 user ruling; was 50/50),
+/// using the same 2-column grid pattern the mockups already establish
+/// (D1.html/E1.html `.grid`). Workflow (unaffected by this round's width
+/// request) stays full-width, placed after the paired row so the two named
+/// sections are visually adjacent. Round-4 also restored the Workflow row's
+/// original D1 fidelity: each checkbox sizes to its own label instead of
+/// being force-stretched to 50% width (see `_workflow` below).
 class PerformanceMemoryTab extends StatelessWidget {
   const PerformanceMemoryTab({super.key});
 
@@ -28,9 +31,9 @@ class PerformanceMemoryTab extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _parallelism(context, t, state)),
+              Expanded(flex: 2, child: _parallelism(context, t, state)),
               const SizedBox(width: 16),
-              Expanded(child: _memoryRetention(context, t, state)),
+              Expanded(flex: 3, child: _memoryRetention(context, t, state)),
             ],
           ),
         ),
@@ -88,9 +91,28 @@ class PerformanceMemoryTab extends StatelessWidget {
         settingsSectionLabel(t, 'Workflow'),
         settingsBlock(
           t,
-          Row(
+          // D1's `.row` (D1.html:67) is a plain flex row -- `align-items:
+          // center; justify-content: space-between` -- where each item
+          // sizes to its own label, not two forced-equal halves. Wrapping
+          // each CheckboxListTile in `Expanded` (round 1 through round 3)
+          // squeezed both to 50% of the block width, which wraps the
+          // longer "Overwrite existing files on Copy/Move" label onto a
+          // second line while the shorter label stays on one -- the two
+          // tiles then end up different heights and Row's default
+          // vertical centring makes their checkboxes visibly misaligned.
+          // A plain natural-width `Row` (tried first) overflows instead:
+          // `CheckboxListTile`'s 48px touch target + built-in content
+          // padding makes both labels together wider than the block at
+          // this dialog's fixed 920px width, something the mockup's plain
+          // "☑ label" text glyphs never accounted for. `Wrap` gives each
+          // tile its natural single-line width and drops the second tile
+          // to its own line if it doesn't fit, instead of either
+          // stretching (round 1-3's bug) or overflowing.
+          Wrap(
+            spacing: 16,
+            runSpacing: 4,
             children: [
-              Expanded(
+              IntrinsicWidth(
                 child: Material(
                   type: MaterialType.transparency,
                   child: CheckboxListTile(
@@ -110,7 +132,7 @@ class PerformanceMemoryTab extends StatelessWidget {
                   ),
                 ),
               ),
-              Expanded(
+              IntrinsicWidth(
                 child: Material(
                   type: MaterialType.transparency,
                   child: CheckboxListTile(
