@@ -66,6 +66,17 @@ Future<SourcePayload> reencodePayload({
     return fallback;
   }
 
+  // The native encoder trusts width*height to bound its scanline reads
+  // (encode_ffi_api.cpp cannot itself validate the buffer's real length --
+  // it only has the pointer and the claimed dimensions). A short buffer
+  // would be a heap OOB read in release. Every other consumer of a decoded
+  // RGBA record either asserts this invariant (debug-only) or bails on
+  // mismatch (tier_two_scheduler.dart); this is the only unguarded one.
+  if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
+    reencodeFallbacks++;
+    return fallback;
+  }
+
   Uint8List jpeg;
   try {
     jpeg = await encoder(

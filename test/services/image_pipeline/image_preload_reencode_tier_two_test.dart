@@ -29,9 +29,10 @@
 // in-test (assertion that item[0]'s tier-2 entry is actually gone after the
 // move) rather than assumed.
 
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,26 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+
+/// A REAL, decodable PNG of the given size (opaque RGBA pixels), so the
+/// tier-2 catch-up path's `MemoryImage` decode succeeds and the resulting
+/// `ImageInfo.image.width/height` can be asserted against.
+Future<Uint8List> _encodeRealPng(int width, int height) async {
+  final pixels = Uint8List(width * height * 4);
+  for (var i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 0x11;
+    pixels[i + 1] = 0x22;
+    pixels[i + 2] = 0x33;
+    pixels[i + 3] = 0xFF;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(pixels, width, height, ui.PixelFormat.rgba8888,
+      (image) => completer.complete(image));
+  final image = await completer.future;
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return byteData!.buffer.asUint8List();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -53,23 +74,22 @@ void main() {
     required ImageRequestPurpose purpose,
   }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
-  // Real, tiny, decodable image bytes: the tier-2 catch-up path
-  // (publishEncoded) resolves them through a real ImageProvider (MemoryImage),
-  // so a non-image placeholder like [0xFF, 0xD8, ...] would fail to decode and
-  // isFullSizeReady would never flip -- unlike the piggyback path, which
-  // uploads the raw pixels directly via ui.decodeImageFromPixels and never
-  // touches these encoded bytes at all.
-  final tinyPngBytes = base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-    'AAYAAjCB0C8AAAAASUVORK5CYII=',
-  );
-
+  // Real, decodable image bytes ENCODED AT THE CALLER-SUPPLIED DIMENSIONS:
+  // the tier-2 catch-up path (publishEncoded) resolves them through a real
+  // ImageProvider (MemoryImage), so a non-image placeholder like
+  // [0xFF, 0xD8, ...] would fail to decode and isFullSizeReady would never
+  // flip -- unlike the piggyback path, which uploads the raw pixels directly
+  // via ui.decodeImageFromPixels and never touches these encoded bytes at
+  // all. Encoding at (width, height) rather than returning a fixed-size
+  // stand-in is what lets TC-366 assert the retained bitstream is really
+  // FULL-RESOLUTION (64x48), not the 32x32 navigation window (round-1 review
+  // nit #4: a 1x1 fake previously proved only the decode count, not this).
   Future<Uint8List> fakeJpegEncoder(
     Uint8List rgba, {
     required int width,
     required int height,
     required int quality,
-  }) async => Uint8List.fromList(tinyPngBytes);
+  }) => _encodeRealPng(width, height);
 
   final items = rawItems(14);
 
@@ -141,6 +161,29 @@ void main() {
         reason: 'the rebuild must come from the retained full-res JPEG',
       );
       expect(controller.isFullSizeReady(items[0].id), isTrue);
+
+      // Resolve the actual tier-2 image and assert its pixel dimensions are
+      // the FULL-RESOLUTION decode (64x48), not the 32x32 navigation window
+      // -- a re-encode from window-resolution pixels would still pass every
+      // assertion above (round-1 review nit #4).
+      final tierTwoProvider = controller.debugTierTwoProviderFor(items[0].id);
+      expect(tierTwoProvider, isNotNull);
+      final infoCompleter = Completer<ImageInfo>();
+      late ImageStreamListener listener;
+      final stream = tierTwoProvider!.resolve(const ImageConfiguration());
+      listener = ImageStreamListener((image, synchronousCall) {
+        stream.removeListener(listener);
+        infoCompleter.complete(image);
+      }, onError: (error, stackTrace) => infoCompleter.completeError(error));
+      stream.addListener(listener);
+      final info = await infoCompleter.future;
+      expect(
+        (info.image.width, info.image.height),
+        (64, 48),
+        reason: 'the retained tier-2 bitstream must be the FULL-RESOLUTION '
+            'decode (64x48), not the 32x32 navigation window',
+      );
+      info.dispose();
     },
   );
 
