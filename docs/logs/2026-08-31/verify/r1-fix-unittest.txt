@@ -1,0 +1,27 @@
+test_no_bash_shell_in_workflows (scripts.ci.tests.test_policy.TestNoBashShellInWorkflows.test_no_bash_shell_in_workflows) ... ok
+test_no_pipe_grep (scripts.ci.tests.test_policy.TestNoPipeGrep.test_no_pipe_grep) ... ok
+test_no_shell_true (scripts.ci.tests.test_policy.TestNoShellTrue.test_no_shell_true) ... ok
+test_no_target_branching (scripts.ci.tests.test_policy.TestNoTargetBranching.test_no_target_branching) ... ok
+test_pin_file_untouched (scripts.ci.tests.test_policy.TestPinFileUntouched.test_pin_file_untouched) ... ok
+test_workflows_single_line_runs (scripts.ci.tests.test_policy.TestWorkflowsSingleLineRuns.test_workflows_single_line_runs) ... ok
+test_golden_android_apk (scripts.ci.tests.test_render.GoldenArgvTestCase.test_golden_android_apk) ... ok
+test_golden_linux (scripts.ci.tests.test_render.GoldenArgvTestCase.test_golden_linux) ... ok
+test_golden_macos (scripts.ci.tests.test_render.GoldenArgvTestCase.test_golden_macos) ... ok
+test_golden_web (scripts.ci.tests.test_render.GoldenArgvTestCase.test_golden_web) ... ok
+test_golden_windows (scripts.ci.tests.test_render.GoldenArgvTestCase.test_golden_windows) ... ok
+test_golden_android_apk (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_golden_android_apk) ... ok
+test_golden_linux (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_golden_linux) ... ok
+test_golden_macos (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_golden_macos) ... ok
+test_golden_web (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_golden_web) ... ok
+test_golden_windows (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_golden_windows) ... ok
+test_macos_has_no_fetch_native (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_macos_has_no_fetch_native) ... ok
+test_windows_has_fetch_native (scripts.ci.tests.test_render.WindowsBuildFlagTestCase.test_windows_has_fetch_native) ... ok
+test_no_element_begins_with_unix_absolute_slash (scripts.ci.tests.test_render.WindowsPathLintTestCase.test_no_element_begins_with_unix_absolute_slash) ... ok
+test_no_mangled_rooted_path_without_drive_letter (scripts.ci.tests.test_render.WindowsPathLintTestCase.test_no_mangled_rooted_path_without_drive_letter)
+Catches the ``D:/a/... -> \d\a\...`` shape directly: a single ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.019s
+
+OK
+RC=0

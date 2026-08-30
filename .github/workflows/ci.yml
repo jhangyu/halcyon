@@ -47,6 +47,17 @@ jobs:
       - name: ci.py verify (pub get -> analyze -> test -j 1)
         run: python3 scripts/ci.py verify
 
+      # if: always() — the logs are only interesting when the step above failed.
+      # Names must be unique across jobs/matrix legs or upload-artifact@v4 rejects
+      # the collision, hence the matrix value in the name.
+      - name: Upload ci-logs (verify ${{ matrix.os }})
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-verify-${{ matrix.os }}
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn
+
   build:
     name: Build macOS (release)
     runs-on: macos-14
@@ -74,3 +85,11 @@ jobs:
 
       - name: ci.py assert-capabilities --target macos
         run: python3 scripts/ci.py assert-capabilities --target macos
+
+      - name: Upload ci-logs (build macos)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-build-macos
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn

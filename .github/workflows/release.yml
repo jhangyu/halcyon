@@ -85,6 +85,17 @@ jobs:
       - name: ci.py release-preflight
         run: python3 scripts/ci.py release-preflight --version ${{ env.HALCYON_VERSION }} --target ${{ matrix.target }}
 
+      # if: always() and placed before publish so a failed build still ships its
+      # logs. Name carries the matrix target — upload-artifact@v4 rejects
+      # duplicate artifact names across legs of the same run.
+      - name: Upload ci-logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-release-${{ matrix.target }}
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn
+
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')

@@ -21,8 +21,15 @@ TARGETS: dict = {
         # No --fetch-native: macOS keeps its six committed, install-name/codesign
         # wired dylibs and is excluded from the ceyx release pin (CLAUDE.md).
         "build_flags": [],
-        # `pod install`, run with cwd=<repo_root>/macos (ci.yml:121-123).
-        "provision": [["pod", "install"]],
+        # `flutter pub get` (cwd=<repo_root>) then `pod install` (cwd=<repo_root>/macos,
+        # ci.yml:121-123). The pub get is NOT optional and NOT a duplicate of the
+        # one `flutter build` does implicitly: macos/Podfile:12-17 raises unless
+        # macos/Flutter/ephemeral/Flutter-Generated.xcconfig exists, and that
+        # directory is gitignored (macos/.gitignore:2), so only pub get creates it.
+        # The pre-rewrite workflow ran it immediately before pod install
+        # (main:.github/workflows/ci.yml:117-121); the rewrite dropped it, which is
+        # the 2026-08-31 round-1 macOS provision failure.
+        "provision": [["flutter", "pub", "get"], ["pod", "install"]],
         "artifact_kind": "app_bundle",
         "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
         "archive_name": "Halcyon-macos-arm64-{version}.zip",
