@@ -110,7 +110,7 @@ class MemoryTab extends StatelessWidget {
                   color: t.accent,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2), // D1.html:79 .tier .formula margin
               Text(
                 '−${policy.before} / +${policy.after} photos',
                 style: TextStyle(fontSize: 10, color: t.textFaint),

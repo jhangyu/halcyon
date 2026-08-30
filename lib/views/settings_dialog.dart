@@ -80,7 +80,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
     return Dialog(
       backgroundColor: t.dialog,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: t.borderSoft), // D1.html:32 .dialog border
+      ),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
         width: 920,

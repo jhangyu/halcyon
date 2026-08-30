@@ -40,7 +40,7 @@ class SettingsSummaryRail extends StatelessWidget {
                 color: t.textFaint,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12), // D1.html:49 h2 margin-bottom
             _item(
               t,
               'Concurrent decodes',
@@ -105,7 +105,7 @@ class SettingsSummaryRail extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: TextStyle(fontSize: 10.5, color: t.textFaint)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2), // D1.html:51 .summary-item .label margin
         value,
       ],
     );
