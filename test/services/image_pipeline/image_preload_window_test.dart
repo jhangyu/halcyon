@@ -482,12 +482,26 @@ void main() {
     );
 
     // Drain enough of the new window to prove the stale entries never decode.
+    //
+    // `gates.length == starts.length` is trivially true both right after a
+    // fresh decode starts (the case this loop wants) AND whenever nothing
+    // new has started since the previous iteration already drained every
+    // pending decode -- the new window can run out of undecoded items
+    // before all 6 iterations complete. In that second case `gates.last` is
+    // the SAME completer the previous iteration already completed, and a
+    // blind `.complete()` throws `Bad state: Future already completed`
+    // (flaky: only manifests on schedules where the window empties early).
+    // Guard on `isCompleted` so a loop iteration with nothing new to drain
+    // is a no-op instead of a crash.
     for (var i = 0; i < 6; i++) {
       await _until(
         () => gates.length == starts.length,
         reason: 'the running decode to reach its gate',
       );
-      gates.last.complete();
+      final gate = gates.last;
+      if (!gate.isCompleted) {
+        gate.complete();
+      }
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
     final stale = photos

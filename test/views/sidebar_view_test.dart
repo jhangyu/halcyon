@@ -172,9 +172,21 @@ void main() {
         find.byType(PopupMenuButton<String>),
       );
 
+      // `onSelected` is typed `void Function(String)` on PopupMenuButton, so
+      // its async implementation's Future cannot be awaited directly here --
+      // it is fire-and-forget from this call site. A FIXED delay guessing
+      // how long decode -> resize -> encode -> write takes is what made this
+      // case timing-dependent (flaky under load, when the pipeline runs
+      // slower than the guess). Poll the actual side effect instead, bounded
+      // by a generous timeout so a genuine regression still fails instead of
+      // hanging.
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (state.status?.text.contains('已匯出') != true &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
       });
       await tester.pump();
       drainListTileWarning(tester);
