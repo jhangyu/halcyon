@@ -34,6 +34,40 @@ Widget settingsCaption(HalcyonTokens t, String text) {
   );
 }
 
+/// F1/D1's `input[type=range]` (F1.html:70-71): track height 4, round thumb
+/// of radius 7 (14px diameter, matching the mockup's `.slider-thumb`
+/// `width:14px;height:14px`). Without this SliderTheme override Flutter's
+/// default thumb radius (10) renders visibly larger than the mockup.
+Widget settingsSlider({
+  required Key key,
+  required double min,
+  required double max,
+  int? divisions,
+  required String label,
+  required double value,
+  required Color activeColor,
+  required Color inactiveColor,
+  required ValueChanged<double>? onChanged,
+}) {
+  return SliderTheme(
+    data: SliderThemeData(
+      trackHeight: 4,
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+    ),
+    child: Slider(
+      key: key,
+      min: min,
+      max: max,
+      divisions: divisions,
+      label: label,
+      value: value,
+      activeColor: activeColor,
+      inactiveColor: inactiveColor,
+      onChanged: onChanged,
+    ),
+  );
+}
+
 /// D1's `.key-chip` / `.conflict` (D1.html:85-86).
 Widget settingsKeyChip(HalcyonTokens t, String label, {bool conflict = false}) {
   return Container(

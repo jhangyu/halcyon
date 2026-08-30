@@ -60,7 +60,7 @@ class PerformanceMemoryTab extends StatelessWidget {
                     ? '${state.decodeLaneWidth} of ${state.maxDecodeLaneWidth} max'
                     : 'This machine can only decode one RAW at a time',
               ),
-              Slider(
+              settingsSlider(
                 key: const Key('decodeLaneWidthSlider'),
                 min: 1,
                 max: state.maxDecodeLaneWidth.toDouble(),
@@ -172,7 +172,7 @@ class PerformanceMemoryTab extends StatelessWidget {
               Row(
                 children: [
                   for (var i = 0; i < RetentionTier.values.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 8),
+                    if (i > 0) const SizedBox(width: 6),
                     Expanded(
                       child: _tierCard(
                         context,
@@ -227,13 +227,17 @@ class PerformanceMemoryTab extends StatelessWidget {
     final selected = state.retentionTier == tier;
     return Material(
       key: Key('retentionTier.${tier.id}'),
-      color: selected ? t.accent.withValues(alpha: 0.18) : t.surface,
+      // F1.html:75-79 `.tier` sets no background of its own -- only
+      // `.tier.selected` (:78) does, so the unselected card shows the
+      // parent `.block`'s pane colour through, i.e. no fill here.
+      color: selected ? t.accent.withValues(alpha: 0.18) : null,
       borderRadius: BorderRadius.circular(5),
       child: InkWell(
         onTap: () => context.read<AppState>().setRetentionTier(tier),
         borderRadius: BorderRadius.circular(5),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          // F1.html:84 `.tier { padding: 8px 6px; }`.
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           decoration: BoxDecoration(
             border: Border.all(color: selected ? t.accent : t.borderSoft),
             borderRadius: BorderRadius.circular(5),
@@ -243,26 +247,31 @@ class PerformanceMemoryTab extends StatelessWidget {
             children: [
               Text(
                 tier.label,
+                // F1.html:86 `.tier .name { font-size: 10.5px; font-weight: 600; }`.
                 style: TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
                   color: t.text,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2), // F1.html:87 .tier .val margin-top
               Text(
                 '${policy.payloadByteBudget ~/ (1024 * 1024)} MiB',
+                // F1.html:87 `.tier .val { font-size: 11px; font-weight: 700; }`.
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'monospace',
                   color: t.accent,
                 ),
               ),
-              const SizedBox(height: 2), // D1.html:79 .tier .formula margin
+              const SizedBox(height: 1), // F1.html:88 .tier .formula margin-top
               Text(
-                '−${policy.before} / +${policy.after} photos',
-                style: TextStyle(fontSize: 10, color: t.textFaint),
+                // F1.html:155-157 dropped D1's "photos" suffix (F1 overrides
+                // D1's `.tier .formula` copy and font-size for this round).
+                '−${policy.before} / +${policy.after}',
+                // F1.html:88 `.tier .formula { font-size: 8.5px; }`.
+                style: TextStyle(fontSize: 8.5, color: t.textFaint),
               ),
             ],
           ),

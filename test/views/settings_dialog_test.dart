@@ -479,6 +479,40 @@ void main() {
         reason: 'the longer label must stay on one line, not wrap the way '
             'the old 50/50 Expanded layout forced it to');
   });
+
+  testWidgets(
+      'TC-485 F1 fidelity: every settings slider uses a SliderTheme with '
+      'trackHeight 4 and a radius-7 thumb (F1.html:70-71)', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState(laneCeiling: 5);
+    addTearDown(state.dispose);
+    await pumpDialog(tester, state);
+
+    // Performance & Memory tab: decodeLaneWidthSlider.
+    final laneSliderTheme = tester.widget<SliderTheme>(
+      find.ancestor(
+        of: find.byKey(const Key('decodeLaneWidthSlider')),
+        matching: find.byType(SliderTheme),
+      ),
+    );
+    expect(laneSliderTheme.data.trackHeight, 4);
+    expect(laneSliderTheme.data.thumbShape, isA<RoundSliderThumbShape>());
+
+    await tester.tap(find.byKey(const Key('settingsTab.export')));
+    await tester.pump();
+
+    for (final key in ['exportQualitySlider', 'exportSizeSlider']) {
+      final theme = tester.widget<SliderTheme>(
+        find.ancestor(
+          of: find.byKey(Key(key)),
+          matching: find.byType(SliderTheme),
+        ),
+      );
+      expect(theme.data.trackHeight, 4, reason: '$key trackHeight');
+      expect(theme.data.thumbShape, isA<RoundSliderThumbShape>(),
+          reason: '$key thumbShape');
+    }
+  });
 }
 
 /// Grabs a [BuildContext] currently in the tree, so the test can drive

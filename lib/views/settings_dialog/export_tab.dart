@@ -24,7 +24,10 @@ class ExportTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _filetype(context, t, state),
-        const SizedBox(height: 10),
+        // F1.html:63 `.section { margin-bottom: 18px; }`, matched consistently
+        // with the same 18px gap used between grid rows in
+        // performance_memory_tab.dart.
+        const SizedBox(height: 18),
         IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -58,7 +61,8 @@ class ExportTab extends StatelessWidget {
             children: [
               settingsRowLabel(t, 'Filetype of the export image'),
               settingsCaption(t, state.exportFiletype.label),
-              const SizedBox(height: 4),
+              // F1.html:78 `.segmented { margin-top: 10px; }`.
+              const SizedBox(height: 10),
               Row(
                 children: [
                   for (var i = 0; i < available.length; i++) ...[
@@ -91,7 +95,8 @@ class ExportTab extends StatelessWidget {
         onTap: () => context.read<AppState>().setExportFiletype(type),
         borderRadius: BorderRadius.circular(5),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          // F1.html:79 `.segment { padding: 7px 10px; }`.
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             border: Border.all(color: selected ? t.accent : t.borderSoft),
@@ -125,7 +130,7 @@ class ExportTab extends StatelessWidget {
             children: [
               settingsRowLabel(t, 'Quality setting of the encoder'),
               settingsCaption(t, '${state.exportJpegQuality}'),
-              Slider(
+              settingsSlider(
                 key: const Key('exportQualitySlider'),
                 min: 50,
                 max: 100,
@@ -168,7 +173,7 @@ class ExportTab extends StatelessWidget {
                     ? '${exportLongEdgeLabel(state.exportLongEdge)} (long edge)'
                     : exportLongEdgeLabel(state.exportLongEdge),
               ),
-              Slider(
+              settingsSlider(
                 key: const Key('exportSizeSlider'),
                 min: 0,
                 max: (kExportLongEdgeStops.length - 1).toDouble(),

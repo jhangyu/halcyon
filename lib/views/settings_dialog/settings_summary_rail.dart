@@ -42,11 +42,13 @@ class SettingsSummaryRail extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12), // D1.html:49 h2 margin-bottom
+            // F1.html:176-177 orders "Concurrent decodes" before "Export
+            // filetype" in the rail (this round swapped the earlier order).
             _item(
               t,
-              'Export filetype',
+              'Concurrent decodes',
               Text(
-                state.exportFiletype.label,
+                '${state.decodeLaneWidth} / ${state.maxDecodeLaneWidth}',
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'monospace',
@@ -57,9 +59,9 @@ class SettingsSummaryRail extends StatelessWidget {
             const SizedBox(height: 14),
             _item(
               t,
-              'Concurrent decodes',
+              'Export filetype',
               Text(
-                '${state.decodeLaneWidth} / ${state.maxDecodeLaneWidth}',
+                state.exportFiletype.label,
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'monospace',
