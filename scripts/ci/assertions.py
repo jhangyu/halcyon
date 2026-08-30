@@ -620,7 +620,14 @@ def _assert_sized_symbol(ctx):
     if path is None:
         return "fail", error
     probe = Path(ctx["repo_root"]) / "scripts" / "ci" / "probe" / "ffi_probe.dart"
-    result = run([dart, "run", os.fspath(probe.resolve()), os.fspath(path)])
+    dll_dir = os.fspath(path.parent)
+    probe_env = dict(os.environ)
+    probe_env["PATH"] = dll_dir + os.pathsep + probe_env.get("PATH", "")
+    result = run(
+        [dart, "run", os.fspath(probe.resolve()), os.fspath(path)],
+        cwd=dll_dir,
+        env=probe_env,
+    )
     output = (result.stdout + result.stderr).strip().splitlines()
     tail = output[-1] if output else "(no output)"
     if result.returncode != 0:
