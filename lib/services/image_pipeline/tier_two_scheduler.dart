@@ -102,6 +102,22 @@ class TierTwoScheduler {
 
   Timer? _debounceTimer;
 
+  // Synchronous in-flight claim for [_upgradeFullRes], taken BEFORE any await
+  // (S-1 fix, third instance of the check-then-act-across-await shape, see
+  // G-NNN in memory.md / docs/logs/2026-08-30/lane-race-sop-updates.md §1).
+  // The inline chained upgrade (`_runLoadAndChainTierTwo`) and the queued
+  // upgrade (`_enqueueFullResUpgrade`) enqueue under DIFFERENT lane keys for
+  // the same photo id, so `DecodeLane`'s key-dedup cannot dedupe them: at lane
+  // width >= 2 both callers can pass their pre-await `hasFullResEntryFor`
+  // check and both reach here before either has published. This set makes the
+  // second entrant a no-op instead of a second FFI decode. The registry's
+  // first-writer-wins guard in `publishFullRes` stays as the correctness
+  // backstop; this claim only saves the wasted decode + transient memory
+  // peak. Released in a `finally` so every exit path (early failure returns,
+  // the decode catch, the post-await stale-window/payload return, and the
+  // success path) releases exactly once.
+  final Set<String> _upgradesInFlight = <String>{};
+
   // The ids the MOST RECENT tier-2 sweep was for. A source started by that
   // sweep finishes asynchronously, and by then the window may have moved; this
   // is what its completion re-checks itself against.
@@ -391,39 +407,52 @@ class TierTwoScheduler {
     VoidCallback notifyLoaded,
   ) async {
     final id = item.id;
-    // Failed once for THIS payload: do not re-buy a 61-406ms decode on every
-    // settle. The memo dies with the payload (design §2.5).
-    if (_registry.hasFullResFailure(id, payload)) return;
-    final decoder = _dngDecoder();
-    final file = item.bestFileToLoad;
-    // Orientation comes from the memo the probe already filled (invariant I6):
-    // no bridge round trip is bought to rotate a frame.
-    final orientation = _exifOrientationFor(id);
-    if (decoder == null || file == null || orientation == null) {
-      _registry.markFullResFailure(id, payload);
-      return;
-    }
-
-    ui.Image image;
+    // Claimed synchronously, before any await: the second concurrent caller
+    // for the same id (inline chained upgrade vs. queued upgrade, S-1) is
+    // turned away here instead of running a duplicate FFI decode. The other
+    // caller's in-flight upgrade is what will publish.
+    if (_upgradesInFlight.contains(id)) return;
+    _upgradesInFlight.add(id);
     try {
-      final decoded = await decoder(file.path);
-      image = await decodedRgbaToImage(decoded, exifOrientation: orientation);
-    } catch (_) {
-      // Tier-1 display is untouched and this is NOT a permanent miss: the
-      // item has a payload and is on screen (design §2.5).
-      _registry.markFullResFailure(id, payload);
-      return;
-    }
+      // Failed once for THIS payload: do not re-buy a 61-406ms decode on every
+      // settle. The memo dies with the payload (design §2.5).
+      if (_registry.hasFullResFailure(id, payload)) return;
+      final decoder = _dngDecoder();
+      final file = item.bestFileToLoad;
+      // Orientation comes from the memo the probe already filled (invariant
+      // I6): no bridge round trip is bought to rotate a frame.
+      final orientation = _exifOrientationFor(id);
+      if (decoder == null || file == null || orientation == null) {
+        _registry.markFullResFailure(id, payload);
+        return;
+      }
 
-    // Re-checked after the await, per invariant I4: the window may have moved
-    // or the payload been replaced while the decode ran, in which case the
-    // image is released HERE rather than stored anywhere.
-    if (!_windowIds.contains(id) ||
-        !identical(_currentPayloadFor(id), payload)) {
-      image.dispose();
-      return;
+      ui.Image image;
+      try {
+        final decoded = await decoder(file.path);
+        image = await decodedRgbaToImage(
+          decoded,
+          exifOrientation: orientation,
+        );
+      } catch (_) {
+        // Tier-1 display is untouched and this is NOT a permanent miss: the
+        // item has a payload and is on screen (design §2.5).
+        _registry.markFullResFailure(id, payload);
+        return;
+      }
+
+      // Re-checked after the await, per invariant I4: the window may have
+      // moved or the payload been replaced while the decode ran, in which
+      // case the image is released HERE rather than stored anywhere.
+      if (!_windowIds.contains(id) ||
+          !identical(_currentPayloadFor(id), payload)) {
+        image.dispose();
+        return;
+      }
+      _registry.publishFullRes(id, payload, image, notifyLoaded);
+    } finally {
+      _upgradesInFlight.remove(id);
     }
-    _registry.publishFullRes(id, payload, image, notifyLoaded);
   }
 
   /// The PIGGYBACK half of design §2.2: the pixels handed back alongside the

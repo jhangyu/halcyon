@@ -181,4 +181,104 @@ void main() {
       expect(registry.keyIds, {'a0'});
     },
   );
+
+  test(
+    'TC-384 (provisional) inline chained upgrade and queued catch-up upgrade '
+    'for the SAME id do not both run the FFI decode (decode lane width 2, '
+    'S-1: check-then-act-across-await, third instance)',
+    () async {
+      final payload = _pixelPayload();
+      // Starts with no payload for 'a0' -- the first decodeWindow pass takes
+      // the inline chained-upgrade path (`_enqueueLoad` ->
+      // `_runLoadAndChainTierTwo` -> inline `_upgradeFullRes`) under lane key
+      // (payload, 'a0'). `ensurePayload` below lands the payload synchronously
+      // as its side effect, so a SECOND schedule() pass -- modelling the
+      // window being revisited while the first upgrade is still in flight --
+      // now sees a non-null payload and takes the queued catch-up path
+      // (`_enqueueFullResUpgrade` -> queued `_upgradeFullRes`) under the
+      // DIFFERENT lane key (fullRes, 'a0'). DecodeLane's key-dedup cannot
+      // collapse these two different keys for the same photo id, so at lane
+      // width 2 both reach `_upgradeFullRes` before either has published.
+      final payloads = <String, SourcePayload>{};
+      final registry = TierTwoRegistry(
+        currentPayloadFor: (id) => payloads[id],
+      );
+      addTearDown(registry.clear);
+
+      var decoderCalls = 0;
+      final decodeGate = Completer<void>();
+
+      final scheduler = TierTwoScheduler(
+        registry: registry,
+        lane: DecodeLane(width: 2),
+        currentPayloadFor: (id) => payloads[id],
+        fullSizeProviderFor: (p) => throw StateError('not exercised here'),
+        ensurePayload:
+            (
+              item, {
+              required int distance,
+              required VoidCallback? notifyLoaded,
+              bool onSerialLane = false,
+            }) async {
+              // The load "lands" the payload as its side effect, same object
+              // identity every time so the post-await identity checks pass.
+              payloads[item.id] = payload;
+            },
+        dngDecoder: (() {
+          Future<DecodedRgba> decode(String path) async {
+            decoderCalls++;
+            await decodeGate.future;
+            return DecodedRgba(rgba: Uint8List(1 * 1 * 4), width: 1, height: 1);
+          }
+
+          return () => decode;
+        })(),
+        exifOrientationFor: (id) => 1,
+        navigationDebounce: Duration.zero,
+      );
+      addTearDown(scheduler.cancelDebounce);
+
+      // A single-item list: this keeps the -1..+3 window to exactly {'a0'},
+      // so decoderCalls below counts only the id under test and cannot be
+      // inflated by neighbouring items' independent (non-racing) upgrades.
+      final items = [PhotoItem(id: 'a0', files: [File('/tmp/a0.dng')])];
+
+      scheduler.updateWindow(items, 0);
+      scheduler.schedule(items, 0, () {});
+
+      // Let the debounce fire, the inline chained load run, ensurePayload
+      // land the payload, and the inline upgrade reach its held decode.
+      for (var i = 0; i < 8; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(
+        decoderCalls,
+        1,
+        reason: 'the inline chained upgrade started its FFI decode',
+      );
+
+      // Second pass over the SAME window: the payload is now non-null, so
+      // this item is collected as a catch-up upgrade and queued under the
+      // DIFFERENT lane key -- exactly the S-1 shape.
+      scheduler.schedule(items, 0, () {});
+      for (var i = 0; i < 8; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(
+        decoderCalls,
+        1,
+        reason:
+            'the queued catch-up upgrade must be turned away by the '
+            'in-flight claim, not run a second duplicate FFI decode for the '
+            'same id',
+      );
+
+      decodeGate.complete();
+      for (var i = 0; i < 8; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(registry.keyIds, {'a0'});
+    },
+  );
 }
