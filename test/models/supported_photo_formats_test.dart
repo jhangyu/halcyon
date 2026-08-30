@@ -125,8 +125,12 @@ void main() {
       expect(SupportedPhotoFormats.isEncodedBitstreamPath('b.tif'), isFalse);
       expect(SupportedPhotoFormats.isBitmapDecodePath('b.tif'), isTrue);
       expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
+      // Codec expansion (2026-08-30, Task 13): AVIF (via the existing libheif
+      // arm) and JXL (a new arm) joined the bitmap-decode set --
+      // `full_decoder_dispatch_test.dart`'s "codec expansion: AVIF and JXL
+      // routing" group pins the routing itself.
       expect(SupportedPhotoFormats.bitmapDecodeExtensions,
-          {'.tif', '.tiff', '.heic', '.heif'});
+          {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});
     });
 
     test('TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream',
@@ -185,8 +189,10 @@ void main() {
         );
         expect(SupportedPhotoFormats.hasFullDecodeRoute(path), isTrue);
       }
+      // See the phase-1 group's identical assertion above for why AVIF/JXL
+      // are in this set post codec-expansion.
       expect(SupportedPhotoFormats.bitmapDecodeExtensions,
-          {'.tif', '.tiff', '.heic', '.heif'});
+          {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});
     });
 
     test('TC-302: a HEIC sibling does not outrank a JPEG sibling', () {
