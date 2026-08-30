@@ -1,0 +1,58 @@
+Resolving dependencies...
+Downloading packages...
+  archive 4.0.9 (4.2.0 available)
+  async 2.13.0 (2.13.1 available)
+  cli_util 0.4.2 (0.6.0 available)
+  cross_file 0.3.5+2 (0.3.5+5 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  desktop_drop 0.8.0 (0.8.2 available)
+  file_selector_android 0.5.2+4 (0.5.2+9 available)
+  file_selector_ios 0.5.3+4 (0.5.3+5 available)
+  file_selector_web 0.9.4+2 (0.9.5 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  json_annotation 4.11.0 (4.12.0 available)
+  lints 5.1.1 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.22 (2.3.1 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  posix 6.0.3 (6.5.2 available)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.28 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 15.0.2 (15.3.0 available)
+Got dependencies!
+27 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_publish_race_test.dart
+00:00 +0: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_publish_race_test.dart: TC-381a publishFullRes is first-writer-wins: the loser is disposed, not leaked, and the registered provider never changes
+00:00 +1: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_publish_race_test.dart: TC-381b a piggyback publish landing during an upgrade decode is not displaced by that upgrade (decode lane width 2)
+00:00 +2: loading /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart
+00:00 +2: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-231 isReady is false when nothing has been registered
+00:00 +3: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-232 isReady is false while the entry is PENDING, not just missing
+00:00 +4: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-233 isReady is true once the decode listener has fired
+00:00 +5: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-234 isReady goes false when the payload object is replaced
+00:00 +6: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-235 isReady goes false when the ImageCache entry is evicted underneath
+00:00 +7: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-236 hasFullResEntryFor is true BEFORE the ready flag fires (AC-M5-4)
+00:00 +8: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-237 the full-res failure memo is per payload object, not per id
+00:00 +9: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_registry_test.dart: TC-238 evict drops one id and clear drops every id
+00:00 +10: loading /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_scheduler_test.dart
+00:00 +10: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-239 the debounce is a cancel-and-reschedule: only the FINAL navigation position ever gets a tier-2 sweep
+00:00 +11: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-240 the tier-2 queue is sequential: exactly ONE load is in flight at a time, released in near-to-far order
+00:00 +12: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-241 the window re-check is INSIDE the queued body: an item the user has navigated away from is dropped instead of loaded
+00:00 +13: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/tier_two_scheduler_test.dart: TC-242 a swept window publishes its encoded payloads to the registry, and the next sweep evicts the ids that left the window
+00:00 +14: loading /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart
+00:01 +14: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW1 tier-2 keys equal the +/-2 band after settle, for encoded and pixel payloads alike
+00:04 +15: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW2 a pixel-backed item at distance 0 gets a FULL-resolution tier-2 entry distinct from its window-resolution tier-1 entry
+00:04 +16: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW3 payload production and full-res tier-2 for a RAW item inside +/-1 cost exactly ONE decoder call
+00:04 +17: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW4 leaving +/-2 evicts the full-res entry; re-entering re-upgrades with exactly one extra decoder call and an identical retained payload
+00:05 +18: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW5 a failing full-res decode keeps tier-1 display, writes NO permanent miss, and is not retried for the same payload
+00:07 +19: /Users/jhangyu/project/Halcyon-lane-race/test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart: M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache
+00:07 +20: All tests passed!
+RC=0
