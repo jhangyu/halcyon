@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
@@ -11,6 +12,7 @@ import 'dng_decode_contract.dart';
 import 'bitmap_container_probe.dart';
 import 'decoded_rgba_image_provider.dart';
 import 'image_source_types.dart';
+import 'payload_reencoder.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'photo_source.dart';
@@ -18,10 +20,30 @@ import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
-import 'serial_decode_lane.dart';
+import 'decode_lane.dart';
 import 'sidebar_thumbnail_codec.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
+
+/// Production binding for [PayloadEncoder] (user ruling 2026-08-30, after the
+/// Task 0 STOP gate): pure-Dart `encodeJpegFromRgba` measured 4102ms median at
+/// q80, 8x over the 500ms lane-budget gate. This calls ceyx's native
+/// libjpeg-turbo encoder instead (in-process gate median 89ms). The pure-Dart
+/// encoder is UNCHANGED and remains the sidebar codec's encoder and the
+/// default test/seam binding -- only the controller's default wiring changes.
+Future<Uint8List> _encodeJpegNative(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) {
+  return CeyxEncodeService().encodeJpegNative(
+    rgba,
+    width: width,
+    height: height,
+    quality: quality,
+  );
+}
 
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
@@ -79,9 +101,16 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     DngSizedDecoder? sidebarRawDecoder,
+    PayloadEncoder? payloadEncoder = _encodeJpegNative,
     this.retention = const RetentionPolicy.floor(),
-  }) : _source = PhotoSource(loader: imageLoader, dngDecoder: dngDecoder),
+    int decodeLaneWidth = 1,
+  }) : _source = PhotoSource(
+         loader: imageLoader,
+         dngDecoder: dngDecoder,
+         payloadEncoder: payloadEncoder,
+       ),
        _sidebarRawDecoder = sidebarRawDecoder,
+       _decodeLane = DecodeLane(width: decodeLaneWidth),
        _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -101,10 +130,17 @@ class ImagePreloadController {
 
   /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
   /// production here and by the tier-2 catch-up loads and full-resolution
-  /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most one RAW
-  /// decode in flight" a property of the pipeline rather than of one scheduler
-  /// (user ruling 2026-08-26).
-  final SerialDecodeLane _serialLane = SerialDecodeLane();
+  /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most [width]
+  /// RAW decodes in flight" a property of the pipeline rather than of one
+  /// scheduler (2026-08-26 ruling, width generalised 2026-08-30).
+  final DecodeLane _decodeLane;
+
+  /// Read through to the lane, never a shadow field: the controller and the
+  /// lane can then never disagree (same reasoning as [AppState.retentionPolicy]).
+  int get decodeLaneWidth => _decodeLane.width;
+
+  /// Live setting change from the settings page. Values below 1 clamp to 1.
+  void setDecodeLaneWidth(int width) => _decodeLane.width = width;
 
   // A SUM TYPE, not bytes: the JPG / embedded-preview path stores the encoded
   // bitstream it already had, and the RAW-decode path stores oriented,
@@ -160,7 +196,7 @@ class ImagePreloadController {
   );
   late final TierTwoScheduler _tierTwoScheduler = TierTwoScheduler(
     registry: _tierTwo,
-    lane: _serialLane,
+    lane: _decodeLane,
     currentPayloadFor: _cache.peek,
     fullSizeProviderFor: _fullSizeProviderForPayload,
     ensurePayload: _ensurePayload,
@@ -363,7 +399,7 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _retentionIds = {};
     _tierOneKeys.clear();
-    _serialLane.clearPending();
+    _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
@@ -390,7 +426,7 @@ class ImagePreloadController {
 
   void dispose() {
     _thumbnailDebounceTimer?.cancel();
-    _serialLane.clearPending();
+    _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     for (final key in _tierOneKeys.values) {
       PaintingBinding.instance.imageCache.evict(key);
@@ -504,13 +540,45 @@ class ImagePreloadController {
     _cache.setEvictionPriority([
       for (final i in nearToFarOrder) items[i].id,
     ]);
-    final pendingLoads = <Future<void>>[];
+    // Round-1 review blocker 1 (2026-08-30): the classify probe used to be
+    // interleaved with the lane enqueue inside a single concurrent
+    // `_ensurePayload` call per item, so lane arrival order was whichever
+    // probe's `await` happened to land first -- IO-jittered, not the
+    // near-to-far order this loop hands out. Fixed by splitting the pass
+    // into two phases: probe every item first (all the awaiting happens
+    // here, order-independent), then route them -- including every serial
+    // lane enqueue -- synchronously in ONE burst in near-to-far order below,
+    // so the lane always sees the ruled start order regardless of width.
+    final probeFutures = <
+        Future<
+            ({
+              PhotoItem item,
+              int distance,
+              VoidCallback? notifyLoaded,
+              ProbeResult probe,
+            })?>>[];
     for (final i in nearToFarOrder) {
+      probeFutures.add(
+        _probeWindowItem(items[i], distance: i - currentIndex),
+      );
+    }
+    final probeResults = await Future.wait(probeFutures);
+
+    // Phase 2: route every probed item, in the same near-to-far order the
+    // loop above walked. `_ensurePayload` performs its serial-lane enqueue
+    // (if the probe says expensive) SYNCHRONOUSLY before its first await
+    // when handed a `precomputedProbe`, so this loop's iteration order IS
+    // the lane's start order -- restoring the property width 1 got for free
+    // from serialisation alone.
+    final pendingLoads = <Future<void>>[];
+    for (final result in probeResults) {
+      if (result == null) continue;
       pendingLoads.add(
         _ensurePayload(
-          items[i],
-          distance: i - currentIndex,
-          notifyLoaded: null,
+          result.item,
+          distance: result.distance,
+          notifyLoaded: result.notifyLoaded,
+          precomputedProbe: result.probe,
         ),
       );
     }
@@ -592,13 +660,10 @@ class ImagePreloadController {
   /// [onSerialLane] is true only when this call IS the lane's task body. That
   /// is the one context in which a real RAW decode may run; every other caller
   /// that meets an expensive item enqueues it and returns.
-  Future<void> _ensurePayload(
-    PhotoItem item, {
-    required int distance,
-    required VoidCallback? notifyLoaded,
-    bool onSerialLane = false,
-  }) async {
-    final id = item.id;
+  /// The cache-hit / permanent-miss / already-in-flight fast paths shared by
+  /// [_ensurePayload] and [_probeWindowItem]. Returns true if [id] is
+  /// already resolved (nothing more for the caller to do).
+  bool _earlyResolve(String id, VoidCallback? notifyLoaded) {
     if (_cache.contains(id)) {
       // PERF-INSTRUMENTATION
       PerfLog.log(
@@ -610,14 +675,14 @@ class ImagePreloadController {
       // callbacks are a different matter -- they are waiting for the item to
       // become available at all, and it now is.
       _flushPendingNotifies(id);
-      return;
+      return true;
     }
 
     // An answer that cannot change: do not re-ask any source for it.
     if (_permanentMisses.contains(id)) {
       notifyLoaded?.call();
       _flushPendingNotifies(id);
-      return;
+      return true;
     }
 
     if (_loadingKeys.contains(id)) {
@@ -633,11 +698,58 @@ class ImagePreloadController {
         'loadPreview.skip|$id|cached=false|inFlight=true'
         '|isSelected=${id == _selectedIdForPerf}',
       );
-      return;
+      return true;
     }
+
+    return false;
+  }
+
+  /// Phase 1 of the window pass (round-1 review blocker 1 fix): runs the
+  /// same fast paths and content probe [_ensurePayload] would, but stops
+  /// short of routing -- no lane enqueue, no decode -- so every item's probe
+  /// can be awaited concurrently WITHOUT any of them racing each other onto
+  /// the serial lane. Returns null when [item] was already resolved by a
+  /// fast path (nothing left for phase 2).
+  Future<
+      ({
+        PhotoItem item,
+        int distance,
+        VoidCallback? notifyLoaded,
+        ProbeResult probe,
+      })?> _probeWindowItem(
+    PhotoItem item, {
+    required int distance,
+  }) async {
+    final id = item.id;
+    if (_earlyResolve(id, null)) return null;
+    final file = item.bestFileToLoad;
+    if (file == null) return null;
+    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    return (item: item, distance: distance, notifyLoaded: null, probe: probed);
+  }
+
+  Future<void> _ensurePayload(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback? notifyLoaded,
+    bool onSerialLane = false,
+    ProbeResult? precomputedProbe,
+  }) async {
+    final id = item.id;
+    if (_earlyResolve(id, notifyLoaded)) return;
 
     final file = item.bestFileToLoad;
     if (file == null) return;
+
+    // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
+    // `_earlyResolve` above read `_loadingKeys`; taking the claim after the
+    // `classify` await below left a suspension point between check and claim,
+    // so two entrants for the same id both passed the check and both bought a
+    // source load -- and the second `_cache.put` replaced the payload object,
+    // orphaning the tier-1 ImageCache key (which is bytes identity). Every
+    // exit below removes it again: the expensive-route hand-off, the probe's
+    // catch, and the `finally`.
+    _loadingKeys.add(id);
 
     // CONTENT PROBE FIRST, for every item at every distance (user Amendment 3
     // clause 2). The probe is what decides the LANE, so anything it does not
@@ -650,7 +762,19 @@ class ImagePreloadController {
     // location-dependent classification the user rejected verbatim. The price
     // of the correction is one bounded open (2 bytes for a JPEG, design §5's
     // hot path intact).
-    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    final ProbeResult probed;
+    try {
+      probed =
+          precomputedProbe ??
+          await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    } catch (_) {
+      // The claim is now taken BEFORE this await, and this await is outside
+      // the `try/finally` below, so a probe that throws would strand the id
+      // in `_loadingKeys` forever -- every later caller would park on a load
+      // that will never land. Error propagation is unchanged.
+      _loadingKeys.remove(id);
+      rethrow;
+    }
     final cost = probed.cost;
     // First writer wins, and after the change above the probe is the first
     // writer whenever it was conclusive. The bridge's orientation (below)
@@ -666,11 +790,16 @@ class ImagePreloadController {
     // one decode in flight. Everything else about it -- retention, tier-1
     // precache, tier-2 eligibility -- is identical to a cheap item's.
     if (cost == SourceCost.expensive && !onSerialLane) {
+      // Released BEFORE the hand-off: the lane body re-enters `_ensurePayload`
+      // for this same id, and a stale claim would send it down the
+      // `_earlyResolve` in-flight branch -- it would park its callback and
+      // produce nothing, i.e. a permanent spinner. Production of this payload
+      // now belongs to the lane task, which takes its own claim.
+      _loadingKeys.remove(id);
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
 
-    _loadingKeys.add(id);
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
     try {
       // Only the lane's own task body may run a real RAW decode. Everywhere
@@ -776,9 +905,16 @@ class ImagePreloadController {
       // once" assertions green. Done AFTER the notify above so the window
       // -resolution frame reaches the screen first; the upload itself is a
       // memcpy plus a GPU upload, and it stays on this sequential queue.
+      // PIGGYBACK (design §2.2). Unchanged in purpose: the full-resolution
+      // pixels this very decode produced are uploaded once, for free. The
+      // PixelPayload type test is gone because a re-encoded RAW retains an
+      // EncodedPayload -- the registry anchors on payload object IDENTITY, not
+      // on the payload's kind (raw_full_res_image.dart:45), so this works for
+      // both kinds without touching TierTwoRegistry's containers (AD-027
+      // intact).
       final fullRes = outcome.fullRes;
       if (fullRes != null &&
-          payload is PixelPayload &&
+          payload != null &&
           identical(_cache.peek(id), payload) &&
           _tierTwoScheduler.isInWindow(id) &&
           !_tierTwo.hasFullResEntryFor(id, payload)) {
@@ -829,7 +965,7 @@ class ImagePreloadController {
     if (notifyLoaded != null) {
       _pendingPreviewNotifies.putIfAbsent(id, () => []).add(notifyLoaded);
     }
-    _serialLane.enqueue(
+    _decodeLane.enqueue(
       (LaneTaskKind.payload, id),
       priority: laneRankFor(distance),
       // `distance` is captured at enqueue time and becomes stale after

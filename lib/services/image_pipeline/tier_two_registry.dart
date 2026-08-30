@@ -173,6 +173,24 @@ class TierTwoRegistry {
     ui.Image image,
     VoidCallback notifyLoaded,
   ) {
+    // FIRST WRITER WINS (verdict 2026-08-30 fix B). Every caller checks
+    // `hasFullResEntryFor` BEFORE its decode await, and the post-await
+    // re-checks validate window membership and payload identity but not entry
+    // EXISTENCE -- so a piggyback publish landing during an upgrade decode is
+    // invisible to that upgrade. The loser used to overwrite `_keys[id]`,
+    // orphaning a full-resolution ui.Image that nothing could evict or
+    // dispose. This guard is synchronous and sits in the single funnel every
+    // publisher passes through, so it also covers callers that do not exist
+    // yet.
+    if (hasFullResEntryFor(id, payload)) {
+      image.dispose();
+      // No notifyLoaded: the winning entry's own listener owns that.
+      return;
+    }
+    // Any entry still here is for a DIFFERENT (replaced) payload. Evicting it
+    // before the overwrite closes the same orphan leak on the stale-payload
+    // path.
+    evict(id);
     final provider = RawFullResImage(
       payloadIdentity: payload,
       width: image.width,

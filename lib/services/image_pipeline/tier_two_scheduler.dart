@@ -10,7 +10,7 @@ import 'dng_decode_contract.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'prefetch_scheduler.dart';
-import 'serial_decode_lane.dart';
+import 'decode_lane.dart';
 import 'tier_two_registry.dart';
 
 /// Produces and retains an item's payload if it is not retained already --
@@ -59,7 +59,7 @@ typedef FullSizeProviderFor = ImageProvider Function(SourcePayload payload);
 class TierTwoScheduler {
   TierTwoScheduler({
     required TierTwoRegistry registry,
-    required SerialDecodeLane lane,
+    required DecodeLane lane,
     required SourcePayload? Function(String id) currentPayloadFor,
     required FullSizeProviderFor fullSizeProviderFor,
     required EnsurePayload ensurePayload,
@@ -82,7 +82,7 @@ class TierTwoScheduler {
   /// `Future _queue` field here, which made "one RAW decode in flight" a
   /// property of THIS class only -- once payload production got a serial lane
   /// of its own, two private queues would have meant two concurrent decodes.
-  final SerialDecodeLane _lane;
+  final DecodeLane _lane;
   final SourcePayload? Function(String id) _currentPayloadFor;
   final FullSizeProviderFor _fullSizeProviderForPayload;
   final EnsurePayload _ensurePayload;
@@ -436,7 +436,7 @@ class TierTwoScheduler {
   /// path, which is where the decode that produced these pixels ran.
   Future<void> publishPiggybackFullRes(
     String id,
-    PixelPayload payload,
+    SourcePayload payload,
     ({Uint8List rgba, int width, int height}) fullRes,
     VoidCallback? notifyLoaded,
   ) async {

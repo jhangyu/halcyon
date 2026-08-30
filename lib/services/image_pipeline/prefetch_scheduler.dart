@@ -8,7 +8,7 @@ export 'photo_source.dart' show ProbeResult, SourceCost;
 /// slots are decoded at FULL size, not which are kept -- and, since the
 /// 2026-08-26 serial-lane ruling, they decide nothing at all about which slots
 /// may START an expensive decode. Every slot of the retention window may;
-/// expensive ones simply queue on `SerialDecodeLane` instead of running in
+/// expensive ones simply queue on `DecodeLane` instead of running in
 /// parallel.
 ///
 /// Forward-biased (`-1..+3`) rather than symmetric, for the same reason

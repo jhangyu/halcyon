@@ -57,4 +57,25 @@ void main() {
         reason: 'never ship window-res pixels into the full-size tier');
     expect(reencodeFallbacks, 1);
   });
+
+  // TC-368
+  test('rgba shorter than width*height*4 falls back without calling the encoder',
+      () async {
+    final fallback = _pixels(10, 10);
+    var encoderCalled = false;
+    final result = await reencodePayload(
+      encoder: (rgba, {required width, required height, required quality}) {
+        encoderCalled = true;
+        return _okEncoder(rgba, width: width, height: height, quality: quality);
+      },
+      fallback: fallback,
+      // Claims 4x4 (needs 64 bytes) but only supplies 16 -- the native
+      // encoder has no way to catch this itself (encode_ffi_api.cpp only
+      // has the pointer + claimed dimensions), so the guard must be here.
+      fullRes: (rgba: Uint8List(16), width: 4, height: 4),
+    );
+    expect(identical(result, fallback), isTrue);
+    expect(encoderCalled, isFalse, reason: 'must not reach the native encoder');
+    expect(reencodeFallbacks, 1);
+  });
 }
