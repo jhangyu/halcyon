@@ -30,6 +30,18 @@ final _tinyPngBytes = base64Decode(
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
 );
 
+/// Polls [condition] to a deadline instead of a fixed wall-clock sleep —
+/// same remedy family as aacd973 (image_preload_window_test.dart's `_until`).
+Future<void> _until(bool Function() condition, {String? reason}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('timed out waiting for: ${reason ?? 'condition'}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -171,16 +183,26 @@ void main() {
         find.byType(PopupMenuButton<String>),
       );
 
+      final outFile = File(p.join(exportDest.path, 'IMG_0001.jpg'));
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        // A fixed wall-clock sleep here is a load-dependent race (same
+        // remedy family as aacd973): poll the actual completion signal.
+        // exportStarredThumbnails writes the output file BEFORE setting the
+        // "已匯出" status message (app_state.dart's exportStarredThumbnails),
+        // so the poll condition must be the status text, not file existence
+        // -- polling the file alone can observe it written while the status
+        // assertion below still reads the pre-export null/progress value.
+        await _until(
+          () => state.status?.text.contains('已匯出') ?? false,
+          reason: 'the export to finish and set the "已匯出" status message',
+        );
       });
       await tester.pump();
       drainListTileWarning(tester);
 
       expect(state.status?.text, contains('已匯出'));
       expect(state.status?.revealPath, exportDest.path);
-      final outFile = File(p.join(exportDest.path, 'IMG_0001.jpg'));
       expect(outFile.existsSync(), isTrue);
     },
   );
