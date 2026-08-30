@@ -1,0 +1,2 @@
+PROBE-OK: dng_decode_and_process_sized reachable in /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+RC=0

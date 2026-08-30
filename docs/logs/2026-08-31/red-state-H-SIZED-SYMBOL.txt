@@ -1,0 +1,2 @@
+PROBE-FAIL: /nonexistent.dylib: Invalid argument(s): Failed to load dynamic library '/nonexistent.dylib': dlopen(/nonexistent.dylib, 0x0001): tried: '/nonexistent.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/nonexistent.dylib' (no such file), '/nonexistent.dylib' (no such file)
+RC=1
