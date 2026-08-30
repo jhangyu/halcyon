@@ -98,9 +98,10 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
-    this.retention = const RetentionPolicy.floor(),
+    RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
-  }) : _source = PhotoSource(
+  }) : _retention = retention,
+       _source = PhotoSource(
          loader: imageLoader,
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
@@ -111,8 +112,26 @@ class ImagePreloadController {
   /// How far retention reaches and how many bytes it may hold. Sized from
   /// total physical memory at startup (see retention_policy.dart); the
   /// default is the shipped floor, so every test and every platform without
-  /// a memory reading behaves exactly as before.
-  final RetentionPolicy retention;
+  /// a memory reading behaves exactly as before. Mutable through
+  /// [setRetention] (the user's memory-tier setting), publicly read-only.
+  RetentionPolicy _retention;
+  RetentionPolicy get retention => _retention;
+
+  /// Re-tunes retention at runtime (the user's memory-tier setting).
+  ///
+  /// `before`/`after` need no push: every pass reads them fresh off
+  /// [retention], so a widened window applies on the next navigation and a
+  /// narrowed one on the next retention sweep. The byte budget DOES need a
+  /// push, and shrinking it sweeps immediately -- see
+  /// [PhotoPayloadCache.setByteBudget].
+  void setRetention(RetentionPolicy policy) {
+    if (policy == _retention) return;
+    _retention = policy;
+    _cache.setByteBudget(policy.payloadByteBudget);
+  }
+
+  @visibleForTesting
+  int get debugPayloadCacheByteBudget => _cache.byteBudget;
 
   final PhotoSource _source;
   final PhotoPayloadCache _cache;

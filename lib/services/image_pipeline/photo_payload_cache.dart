@@ -51,9 +51,28 @@ const int kPayloadByteBudget = 224 * 1024 * 1024;
 /// because there is no longer anything whose lifetime has to be managed by
 /// hand (design §4, I5 deliberately dissolved).
 class PhotoPayloadCache {
-  PhotoPayloadCache({this.byteBudget = kPayloadByteBudget});
+  PhotoPayloadCache({int byteBudget = kPayloadByteBudget})
+    : _byteBudget = byteBudget < 1 ? 1 : byteBudget;
 
-  final int byteBudget;
+  int _byteBudget;
+
+  /// The hard cap on retained payload bytes. Read-only; see [setByteBudget].
+  int get byteBudget => _byteBudget;
+
+  /// Re-sizes the budget and sweeps IMMEDIATELY.
+  ///
+  /// The sweep is the point: a user stepping the retention tier down expects
+  /// the memory back now, not at the next navigation. Shrinking without
+  /// sweeping would hold up to the OLD budget indefinitely on a folder the
+  /// user has stopped scrolling.
+  ///
+  /// The [_entries] guard is required, not defensive: [_enforceBudget] reads
+  /// `_entries.keys.last` unconditionally, which throws on an empty map. That
+  /// path was previously unreachable because only [put] called it.
+  void setByteBudget(int bytes) {
+    _byteBudget = bytes < 1 ? 1 : bytes;
+    if (_entries.isNotEmpty) _enforceBudget();
+  }
 
   // Distance-ordered eviction (user ruling 2026-08-27, replacing the FIFO
   // rule that preceded the serial-lane unification). The controller calls
