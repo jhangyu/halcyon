@@ -1,0 +1,153 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+test/services/image_pipeline/retention_tier_test.dart:9:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:9:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:17:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.balanced),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:17:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.balanced),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:25:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.generous),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:25:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.generous),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:35:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:35:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:39:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:39:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.conservative),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:43:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.balanced),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:43:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.balanced),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:47:30: Error: Undefined name 'RetentionTier'.
+      retentionPolicyForTier(RetentionTier.generous),
+                             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:47:7: Error: Method not found: 'retentionPolicyForTier'.
+      retentionPolicyForTier(RetentionTier.generous),
+      ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:52:24: Error: Undefined name 'RetentionTier'.
+    for (final tier in RetentionTier.values) {
+                       ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:53:28: Error: Method not found: 'retentionPolicyForTier'.
+      expect(tierForPolicy(retentionPolicyForTier(tier)), tier);
+                           ^^^^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:53:14: Error: Method not found: 'tierForPolicy'.
+      expect(tierForPolicy(retentionPolicyForTier(tier)), tier);
+             ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:56:7: Error: Method not found: 'tierForPolicy'.
+      tierForPolicy(
+      ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:59:7: Error: Undefined name 'RetentionTier'.
+      RetentionTier.conservative,
+      ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:61:12: Error: Method not found: 'retentionTierFromId'.
+    expect(retentionTierFromId('balanced'), RetentionTier.balanced);
+           ^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:61:45: Error: Undefined name 'RetentionTier'.
+    expect(retentionTierFromId('balanced'), RetentionTier.balanced);
+                                            ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:62:12: Error: Method not found: 'retentionTierFromId'.
+    expect(retentionTierFromId('nonsense'), isNull);
+           ^^^^^^^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:63:12: Error: Undefined name 'RetentionTier'.
+    expect(RetentionTier.generous.id, 'generous');
+           ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:64:12: Error: Undefined name 'RetentionTier'.
+    expect(RetentionTier.generous.label, 'Generous');
+           ^^^^^^^^^^^^^
+00:00 +0 -1: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart [E]
+  Failed to load "/Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart":
+  Compilation failed for testPath=/Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: test/services/image_pipeline/retention_tier_test.dart:9:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:9:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:17:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.balanced),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:17:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.balanced),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:25:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.generous),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:25:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.generous),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:35:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:35:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:39:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:39:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.conservative),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:43:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.balanced),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:43:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.balanced),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:47:30: Error: Undefined name 'RetentionTier'.
+        retentionPolicyForTier(RetentionTier.generous),
+                               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:47:7: Error: Method not found: 'retentionPolicyForTier'.
+        retentionPolicyForTier(RetentionTier.generous),
+        ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:52:24: Error: Undefined name 'RetentionTier'.
+      for (final tier in RetentionTier.values) {
+                         ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:53:28: Error: Method not found: 'retentionPolicyForTier'.
+        expect(tierForPolicy(retentionPolicyForTier(tier)), tier);
+                             ^^^^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:53:14: Error: Method not found: 'tierForPolicy'.
+        expect(tierForPolicy(retentionPolicyForTier(tier)), tier);
+               ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:56:7: Error: Method not found: 'tierForPolicy'.
+        tierForPolicy(
+        ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:59:7: Error: Undefined name 'RetentionTier'.
+        RetentionTier.conservative,
+        ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:61:12: Error: Method not found: 'retentionTierFromId'.
+      expect(retentionTierFromId('balanced'), RetentionTier.balanced);
+             ^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:61:45: Error: Undefined name 'RetentionTier'.
+      expect(retentionTierFromId('balanced'), RetentionTier.balanced);
+                                              ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:62:12: Error: Method not found: 'retentionTierFromId'.
+      expect(retentionTierFromId('nonsense'), isNull);
+             ^^^^^^^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:63:12: Error: Undefined name 'RetentionTier'.
+      expect(RetentionTier.generous.id, 'generous');
+             ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:64:12: Error: Undefined name 'RetentionTier'.
+      expect(RetentionTier.generous.label, 'Generous');
+             ^^^^^^^^^^^^^
+  .
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+TEST_RC=1

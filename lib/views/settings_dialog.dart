@@ -1,62 +1,187 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
+import '../providers/settings_snapshot.dart';
+import '../services/image_pipeline/retention_policy.dart';
+import 'settings_dialog/export_tab.dart';
+import 'settings_dialog/performance_memory_tab.dart';
+import 'settings_dialog/settings_primitives.dart';
+import 'settings_dialog/settings_summary_rail.dart';
+import 'settings_dialog/shortcuts_tab.dart';
+import 'theme_tokens.dart';
 
-class SettingsDialog extends StatelessWidget {
+/// D1/E1's tabbed settings panel (docs/logs/2026-08-30/mockups/E1.html):
+/// concurrent RAW decodes, memory retention tier, export JPEG quality/size
+/// and keyboard shortcuts, with a live "at a glance" summary rail. The
+/// round-2 tab restructure folds Performance+Memory into one tab and gives
+/// Export (quality + size) its own tab.
+///
+/// The panel applies every change live so the rail and the pipeline reflect
+/// it immediately (§1.6); Cancel, the barrier tap and Escape all revert via
+/// the snapshot captured in [initState] -- [dispose] is the single choke
+/// point that guarantees every dismissal path reverts unless Done committed.
+class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
   @override
+  State<SettingsDialog> createState() => _SettingsDialogState();
+}
+
+class _SettingsDialogState extends State<SettingsDialog> {
+  late final AppState _state;
+  late final SettingsSnapshot _snapshot;
+  bool _committed = false;
+  int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Captured once, not re-read via context.read in dispose(): by the time
+    // dispose() runs the element tree may already be inactive, and looking
+    // up an InheritedWidget ancestor from a deactivated widget is unsafe.
+    _state = context.read<AppState>();
+    _snapshot = _state.settingsSnapshot();
+  }
+
+  @override
+  void dispose() {
+    if (!_committed) {
+      // Deferred to the next frame: calling notifyListeners() synchronously
+      // from dispose() can run while the element tree is still locked mid-
+      // unmount (e.g. a Navigator.pop() during a widget-tree teardown pass),
+      // which throws "setState() or markNeedsBuild() called when widget tree
+      // was locked". By the next frame the tree is unlocked again.
+      final state = _state;
+      final snapshot = _snapshot;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          state.restoreSettings(snapshot);
+        } catch (_) {
+          // AppState was already disposed (e.g. host app shutting down, or a
+          // test tearing it down before this deferred frame runs) -- there is
+          // nothing left to revert.
+        }
+      });
+    }
+    super.dispose();
+  }
+
+  void _done() {
+    _committed = true;
+    Navigator.of(context).pop();
+  }
+
+  void _cancel() {
+    Navigator.of(context).pop();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final t = HalcyonTokens.of(context);
     final state = context.watch<AppState>();
 
-    return AlertDialog(
-      title: const Text('Options'),
-      content: SizedBox(
-        width: 360,
+    return Dialog(
+      backgroundColor: t.dialog,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: t.borderSoft), // D1.html:32 .dialog border
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: 920,
+        height: 560,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CheckboxListTile(
-              title: const Text('Auto-advance on mark'),
-              subtitle: const Text(
-                'Automatically switch to the next photo after starring or trashing.',
-                style: TextStyle(fontSize: 12),
+            _header(t, state),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 18,
+                      ),
+                      child: switch (_tab) {
+                        0 => const PerformanceMemoryTab(),
+                        1 => const ExportTab(),
+                        _ => const ShortcutsTab(),
+                      },
+                    ),
+                  ),
+                  const SettingsSummaryRail(),
+                ],
               ),
-              value: state.autoAdvance,
-              onChanged: (bool? value) {
-                if (value != null) {
-                  context.read<AppState>().setAutoAdvance(value);
-                }
-              },
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
             ),
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              title: const Text('Overwrite existing files on Copy/Move'),
-              subtitle: const Text(
-                'If checked, existing files in the destination folder will be overwritten. If unchecked, they will be skipped.',
-                style: TextStyle(fontSize: 12),
-              ),
-              value: state.overwriteExisting,
-              onChanged: (bool? value) {
-                if (value != null) {
-                  context.read<AppState>().setOverwriteExisting(value);
-                }
-              },
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
+            settingsFooterButtons(t, onCancel: _cancel, onDone: _done),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-      ],
+    );
+  }
+
+  Widget _header(HalcyonTokens t, AppState state) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Settings',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: t.text,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Tabbed sections with a live summary at a glance',
+                      style: TextStyle(fontSize: 11.5, color: t.textDim),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  border: Border.all(color: t.border),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${state.retentionTier.label} tier',
+                  style: TextStyle(fontSize: 10.5, color: t.textDim),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: t.borderSoft)),
+            ),
+            padding: const EdgeInsets.only(bottom: 14),
+            child: SettingsTabBar(
+              labels: const ['Performance & Memory', 'Export', 'Shortcuts'],
+              keys: const [
+                Key('settingsTab.performanceMemory'),
+                Key('settingsTab.export'),
+                Key('settingsTab.shortcuts'),
+              ],
+              selectedIndex: _tab,
+              onSelect: (i) => setState(() => _tab = i),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

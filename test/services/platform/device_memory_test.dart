@@ -1,49 +1,72 @@
-import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/platform/device_memory.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  // Pure-parsing tests: no process spawn, no filesystem, no MethodChannel --
+  // these run identically on every platform CI runs this suite on.
 
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  test(
+    'TC-386: macOS sysctl output parses to bytes, trailing newline and all',
+    () {
+      expect(
+        DeviceMemory.parseMacosSysctlOutput('17179869184\n'),
+        17179869184,
+      );
+    },
+  );
 
-  tearDown(() {
-    messenger.setMockMethodCallHandler(DeviceMemory.channel, null);
+  test('TC-387: garbage macOS sysctl output yields null, not a throw', () {
+    expect(DeviceMemory.parseMacosSysctlOutput('not a number'), isNull);
   });
 
-  test('TC-310: no platform handler yields null, not a throw', () async {
-    expect(await DeviceMemory.totalPhysicalBytes(), isNull);
+  test('TC-388: /proc/meminfo MemTotal line parses kB to bytes', () {
+    const sample = '''
+MemTotal:       267894128 kB
+MemFree:         12345678 kB
+MemAvailable:   198765432 kB
+''';
+    expect(DeviceMemory.parseLinuxMeminfo(sample), 267894128 * 1024);
   });
 
-  test('TC-311: a positive reading is returned as-is', () async {
-    messenger.setMockMethodCallHandler(DeviceMemory.channel, (call) async {
-      expect(call.method, 'totalPhysicalBytes');
-      return 17179869184; // 16 GiB
-    });
-    expect(await DeviceMemory.totalPhysicalBytes(), 17179869184);
+  test(
+    'TC-389: /proc/meminfo without a MemTotal line yields null, not a throw',
+    () {
+      expect(DeviceMemory.parseLinuxMeminfo('MemFree: 123 kB\n'), isNull);
+    },
+  );
+
+  test(
+    'TC-390: Windows PowerShell CIM output parses to bytes',
+    () {
+      expect(
+        DeviceMemory.parseWindowsPowershellOutput('274877906944\r\n'),
+        274877906944,
+      );
+    },
+  );
+
+  test('TC-391: garbage Windows PowerShell output yields null', () {
+    expect(DeviceMemory.parseWindowsPowershellOutput(''), isNull);
   });
 
-  test('TC-312: a null reply yields null', () async {
-    messenger.setMockMethodCallHandler(
-      DeviceMemory.channel,
-      (call) async => null,
-    );
-    expect(await DeviceMemory.totalPhysicalBytes(), isNull);
-  });
-
-  test('TC-313: a non-positive reading is treated as absent', () async {
-    messenger.setMockMethodCallHandler(
-      DeviceMemory.channel,
-      (call) async => 0,
-    );
-    expect(await DeviceMemory.totalPhysicalBytes(), isNull);
-  });
-
-  test('TC-314: a PlatformException yields null, not a throw', () async {
-    messenger.setMockMethodCallHandler(DeviceMemory.channel, (call) async {
-      throw PlatformException(code: 'BOOM');
-    });
-    expect(await DeviceMemory.totalPhysicalBytes(), isNull);
-  });
+  // Live integration test -- deliberately not a channel/mock test (that
+  // mechanism is gone): this calls the real platform-specific reader on
+  // whatever host runs the suite and checks for a plausible positive
+  // reading, proving the platform-neutral entry point actually reaches a
+  // real OS value on desktop hosts.
+  test(
+    'TC-392: totalPhysicalBytes returns a plausible reading on desktop '
+    'hosts, null elsewhere',
+    () async {
+      final bytes = await DeviceMemory.totalPhysicalBytes();
+      if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+        expect(bytes, isNotNull);
+        expect(bytes! > 0, isTrue);
+      } else {
+        expect(bytes, isNull);
+      }
+    },
+  );
 }

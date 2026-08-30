@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService, CeyxImageFormat;
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:image/image.dart' as img;
@@ -34,11 +35,205 @@ class PhotoExportOutcome {
 /// touches a real decode/encode pipeline.
 typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
 
-class PhotoExportService {
-  PhotoExportService({ExportBytesFetch? fetchBytes, DngFullDecoder? decoder})
-    : _fetchBytes = fetchBytes ?? ((path) => exportBytesFor(path, decoder: decoder));
+/// Injection seam for the native encode step of [exportBytesFor]
+/// (codec-expansion round, 2026-08-30). One seam for every non-JPEG format,
+/// not one per format: `flutter test` cannot resolve the dylib outside a
+/// built .app bundle (its dylib search path assumes ceyx's own repo
+/// layout), so every format's test injects a pure-Dart fake and a
+/// per-format typedef would multiply that boilerplate by six with no gain.
+/// The default implementation is `CeyxEncodeService().encodeNative`.
+typedef StillEncode = Future<Uint8List> Function(
+  Uint8List rgba, {
+  required CeyxImageFormat format,
+  required int width,
+  required int height,
+  required int quality,
+  required bool lossless,
+  Uint8List? exif,
+});
 
-  final ExportBytesFetch _fetchBytes;
+/// Default quality every JPEG export is encoded at, matching today's three
+/// hardcoded literals (formerly `90` at every `img.encodeJpg` call site in
+/// this file). Overridable per-app via [PhotoExportService.jpegQuality],
+/// which the settings panel writes through (`AppState.setExportJpegQuality`).
+const int kDefaultExportJpegQuality = 90;
+
+/// Sentinel for [PhotoExportService.longEdge] / [ExportBytesFetch] callers:
+/// "Original" -- re-encode at the source's own resolution, skipping the
+/// resize step entirely. 0 is used because every real long-edge stop is a
+/// positive pixel count, so it can never collide with a real target.
+const int kOriginalExportLongEdge = 0;
+
+/// Default long edge (px) an export is resized to before re-encoding, unless
+/// the user picked [kOriginalExportLongEdge]. Matches the pre-existing
+/// hardcoded `2048` this replaced (`ImageRequestPurpose.export.targetSize`
+/// remains 2048 and is unrelated -- it sizes the PRE-resize decode/preview
+/// fetch, not this service's own resize target).
+const int kDefaultExportLongEdge = 2048;
+
+/// The complete, ordered set of stops the "Export JPEG Size" slider offers.
+/// [kOriginalExportLongEdge] (0) is deliberately last: it means "skip
+/// resizing", not "the smallest stop".
+const List<int> kExportLongEdgeStops = [
+  480,
+  720,
+  1080,
+  1440,
+  kDefaultExportLongEdge,
+  2560,
+  3840,
+  kOriginalExportLongEdge,
+];
+
+/// Human-readable label for one [kExportLongEdgeStops] entry, shared by the
+/// settings panel's slider caption and the summary rail.
+String exportLongEdgeLabel(int longEdge) =>
+    longEdge == kOriginalExportLongEdge ? 'Original' : '${longEdge}px';
+
+/// The output codec an export is encoded as (grown from two to six entries
+/// in the 2026-08-30 codec-expansion round). [buildIntent] is a compile-time
+/// "this app wants to offer the format" flag; the settings panel and
+/// `AppState._normaliseExportFiletype` must NOT gate on it alone -- see
+/// [buildIntent]'s own doc. Real selectability is
+/// `AppState.selectableExportFiletypes` (build intent INTERSECTED with
+/// runtime capability, ruling Q4).
+enum ExportFiletype {
+  jpeg(
+    label: 'JPEG',
+    extension: 'jpg',
+    format: CeyxImageFormat.jpeg,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  heif(
+    label: 'HEIF',
+    extension: 'heic',
+    format: CeyxImageFormat.heic,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  webpLossy(
+    label: 'WebP (lossy)',
+    extension: 'webp',
+    format: CeyxImageFormat.webp,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  webpLossless(
+    label: 'WebP (lossless)',
+    extension: 'webp',
+    format: CeyxImageFormat.webp,
+    buildIntent: true,
+    usesQuality: false,
+    lossless: true,
+  ),
+  avif(
+    label: 'AVIF',
+    extension: 'avif',
+    format: CeyxImageFormat.avif,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  jxl(
+    label: 'JPEG XL',
+    extension: 'jxl',
+    format: CeyxImageFormat.jxl,
+    buildIntent: true,
+    usesQuality: true,
+  );
+
+  const ExportFiletype({
+    required this.label,
+    required this.extension,
+    required this.format,
+    required this.buildIntent,
+    required this.usesQuality,
+    this.lossless = false,
+  });
+
+  final String label;
+  final String extension;
+
+  /// The native format selector this entry encodes to.
+  final CeyxImageFormat format;
+
+  /// BUILD INTENT only -- "this app wants to offer the format". Real
+  /// availability is build intent INTERSECTED with the runtime capability
+  /// the native library reports (user ruling Q4, 2026-08-30). Never gate UI
+  /// on this field alone: HEIF is absent on Android, WebP was absent on
+  /// Windows before this round, and a const flag cannot know that --
+  /// `AppState.selectableExportFiletypes` is the source of truth.
+  final bool buildIntent;
+
+  /// False for formats whose encoder ignores the quality knob (currently
+  /// only [webpLossless]).
+  final bool usesQuality;
+
+  /// Requests mathematically lossless encoding.
+  final bool lossless;
+}
+
+const ExportFiletype kDefaultExportFiletype = ExportFiletype.jpeg;
+
+/// Default [StillEncode]: the real native call, off the caller's isolate
+/// (matches [CeyxEncodeService]'s own off-UI-isolate contract).
+Future<Uint8List> _defaultStillEncode(
+  Uint8List rgba, {
+  required CeyxImageFormat format,
+  required int width,
+  required int height,
+  required int quality,
+  required bool lossless,
+  Uint8List? exif,
+}) =>
+    CeyxEncodeService().encodeNative(
+      rgba,
+      format: format,
+      width: width,
+      height: height,
+      quality: quality,
+      lossless: lossless,
+      exif: exif,
+    );
+
+class PhotoExportService {
+  PhotoExportService({
+    ExportBytesFetch? fetchBytes,
+    DngFullDecoder? decoder,
+    StillEncode stillEncode = _defaultStillEncode,
+  }) {
+    _fetchBytes = fetchBytes ??
+        ((path) => exportBytesFor(
+              path,
+              decoder: decoder,
+              quality: jpegQuality,
+              longEdge: longEdge,
+              filetype: filetype,
+              stillEncode: stillEncode,
+            ));
+  }
+
+  late final ExportBytesFetch _fetchBytes;
+
+  /// Quality of the JPEG the user EXPORTS. Set from the app-wide setting
+  /// (`AppState.setExportJpegQuality`); read at call time, not at
+  /// construction, because this service is built before prefs are hydrated.
+  ///
+  /// Unrelated to `kDisplayJpegQuality` (`jpeg_encoder.dart`), which governs
+  /// display-only bytes that never reach disk.
+  int jpegQuality = kDefaultExportJpegQuality;
+
+  /// Long edge (px) the export is resized to, or [kOriginalExportLongEdge]
+  /// to skip resizing. Set from the app-wide setting
+  /// (`AppState.setExportLongEdge`); read at call time, same reasoning as
+  /// [jpegQuality].
+  int longEdge = kDefaultExportLongEdge;
+
+  /// Output codec the export is encoded as. Set from the app-wide setting
+  /// (`AppState.setExportFiletype`); read at call time, same reasoning as
+  /// [jpegQuality]. What is actually encodable is
+  /// `AppState.selectableExportFiletypes` -- see the enum doc.
+  ExportFiletype filetype = kDefaultExportFiletype;
 
   /// Byte source = the same producer the detail view uses (P2.1). Purpose is
   /// PREVIEW deliberately: that branch returns full-size bytes OR the
@@ -53,6 +248,10 @@ class PhotoExportService {
   static Future<Uint8List?> exportBytesFor(
     String path, {
     DngFullDecoder? decoder,
+    int quality = kDefaultExportJpegQuality,
+    int longEdge = kDefaultExportLongEdge,
+    ExportFiletype filetype = kDefaultExportFiletype,
+    StillEncode stillEncode = _defaultStillEncode,
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
@@ -79,7 +278,10 @@ class PhotoExportService {
     }
 
     final transform = exifTransformFor(orientation);
-    final maxEdge = ImageRequestPurpose.export.targetSize;
+    // ImageRequestPurpose.export.targetSize (2048) sizes the PRE-resize
+    // fetch/decode above via dartImageLoad; it is unrelated to this
+    // service's own resize target, which is the user-settable [longEdge].
+    final maxEdge = longEdge;
 
     // Everything below is pure CPU on `package:image`, so it runs on a worker
     // isolate (the pattern `exif_metadata_service.dart:63-70` already uses).
@@ -87,43 +289,65 @@ class PhotoExportService {
     // and a bool.
     final quarterTurnsCw = transform.quarterTurnsCw;
     final mirrored = transform.mirrored;
+
+    if (filetype != ExportFiletype.jpeg) {
+      // All non-JPEG formats share the decode/orient/resize step and then
+      // hand raw RGBA to the native encoder with an EXIF block attached.
+      // JPEG keeps its historical decode-mutate-re-encode path below,
+      // unchanged.
+      final resized = await Isolate.run<(Uint8List, int, int)?>(() {
+        final frame = _decodeAndResizeFrame(
+          encodedSource: encodedSource,
+          rgba: rgba,
+          rgbaWidth: rgbaWidth,
+          rgbaHeight: rgbaHeight,
+          quarterTurnsCw: quarterTurnsCw,
+          mirrored: mirrored,
+          maxEdge: maxEdge,
+        );
+        if (frame == null) return null;
+        return (frame.getBytes(order: img.ChannelOrder.rgba), frame.width, frame.height);
+      });
+      if (resized == null) return null;
+      final (rgbaBytes, width, height) = resized;
+
+      // Orientation is forced to 1: the pixels above are already rotated, so
+      // a carried-over Orientation tag would rotate them a second time.
+      final exifBlock =
+          await _readSourceExifBlock(path, forceOrientationOne: true);
+
+      try {
+        return await stillEncode(
+          rgbaBytes,
+          format: filetype.format,
+          width: width,
+          height: height,
+          // A lossless format's encoder ignores quality; passing the user's
+          // value would imply it does something.
+          quality: filetype.usesQuality ? quality : 100,
+          lossless: filetype.lossless,
+          exif: exifBlock,
+        );
+      } catch (_) {
+        // Native encode unavailable or failed -- reported like a null
+        // decode: no file written, no crash. Unchanged from the round-2c
+        // behaviour.
+        return null;
+      }
+    }
+
     final jpeg = await Isolate.run<Uint8List?>(() {
-      img.Image? frame;
-      if (encodedSource != null) {
-        frame = img.decodeImage(encodedSource);
-        // `image`'s own JPEG decoder already physically bakes EXIF
-        // orientation into pixel layout at decode time and clears the
-        // Orientation tag before this ever runs (verified against
-        // image-4.9.2's bake_orientation.dart early-return path) -- this
-        // call is a no-op safeguard for that case, and the real rotation
-        // for any other decoded format that still carries an Orientation
-        // tag.
-        if (frame != null) frame = img.bakeOrientation(frame);
-      } else {
-        frame = img.Image.fromBytes(
-          width: rgbaWidth,
-          height: rgbaHeight,
-          bytes: rgba!.buffer,
-          bytesOffset: rgba.offsetInBytes,
-          numChannels: 4,
-          order: img.ChannelOrder.rgba,
-        );
-        // FFI output is unrotated; bake from the signal's orientation.
-        if (quarterTurnsCw != 0) {
-          frame = img.copyRotate(frame, angle: quarterTurnsCw * 90);
-        }
-        if (mirrored) frame = img.flipHorizontal(frame);
-      }
+      final frame = _decodeAndResizeFrame(
+        encodedSource: encodedSource,
+        rgba: rgba,
+        rgbaWidth: rgbaWidth,
+        rgbaHeight: rgbaHeight,
+        quarterTurnsCw: quarterTurnsCw,
+        mirrored: mirrored,
+        maxEdge: maxEdge,
+      );
       if (frame == null) return null;
-      if (frame.width > maxEdge || frame.height > maxEdge) {
-        frame = img.copyResize(
-          frame,
-          width: frame.width >= frame.height ? maxEdge : null,
-          height: frame.height > frame.width ? maxEdge : null,
-          interpolation: img.Interpolation.linear,
-        );
-      }
-      return Uint8List.fromList(img.encodeJpg(frame, quality: 90));
+      return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
     });
     if (jpeg == null) return null;
 
@@ -138,7 +362,60 @@ class PhotoExportService {
     if (resized == null) return jpeg;
     await _attachSourceExif(resized, path);
     resized.exif.imageIfd['Orientation'] = 1;
-    return Uint8List.fromList(img.encodeJpg(resized, quality: 90));
+    return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+  }
+
+  /// Shared decode -> orient -> resize step for both the JPEG and WebP
+  /// export paths (extracted round-2b so the two isolate closures below stay
+  /// in sync instead of hand-duplicating this logic). Only sendable
+  /// arguments (nullable `Uint8List`s, ints, a bool) so it can run inside
+  /// either `Isolate.run` closure unchanged.
+  static img.Image? _decodeAndResizeFrame({
+    required Uint8List? encodedSource,
+    required Uint8List? rgba,
+    required int rgbaWidth,
+    required int rgbaHeight,
+    required int quarterTurnsCw,
+    required bool mirrored,
+    required int maxEdge,
+  }) {
+    img.Image? frame;
+    if (encodedSource != null) {
+      frame = img.decodeImage(encodedSource);
+      // `image`'s own JPEG decoder already physically bakes EXIF
+      // orientation into pixel layout at decode time and clears the
+      // Orientation tag before this ever runs (verified against
+      // image-4.9.2's bake_orientation.dart early-return path) -- this
+      // call is a no-op safeguard for that case, and the real rotation
+      // for any other decoded format that still carries an Orientation
+      // tag.
+      if (frame != null) frame = img.bakeOrientation(frame);
+    } else {
+      frame = img.Image.fromBytes(
+        width: rgbaWidth,
+        height: rgbaHeight,
+        bytes: rgba!.buffer,
+        bytesOffset: rgba.offsetInBytes,
+        numChannels: 4,
+        order: img.ChannelOrder.rgba,
+      );
+      // FFI output is unrotated; bake from the signal's orientation.
+      if (quarterTurnsCw != 0) {
+        frame = img.copyRotate(frame, angle: quarterTurnsCw * 90);
+      }
+      if (mirrored) frame = img.flipHorizontal(frame);
+    }
+    if (frame == null) return null;
+    if (maxEdge != kOriginalExportLongEdge &&
+        (frame.width > maxEdge || frame.height > maxEdge)) {
+      frame = img.copyResize(
+        frame,
+        width: frame.width >= frame.height ? maxEdge : null,
+        height: frame.height > frame.width ? maxEdge : null,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+    return frame;
   }
 
   /// Reads EXIF from [sourcePath] via `package:exif` (the same reader
@@ -157,8 +434,18 @@ class PhotoExportService {
       return;
     }
     if (tags.isEmpty) return;
+    _applyCoreExifTags(frame.exif, tags);
+  }
 
-    final exif = frame.exif;
+  /// The core tag set carried over from a source file's EXIF into an export,
+  /// shared by [_attachSourceExif] (JPEG, mutates an `img.Image`) and
+  /// [_readSourceExifBlock] (every other format, emits a raw byte block).
+  /// Two divergent tag sets would mean a JPEG export and a WebP export of
+  /// the same photo disagree about its own metadata.
+  static void _applyCoreExifTags(
+    img.ExifData exif,
+    Map<String, pkg_exif.IfdTag> tags,
+  ) {
     final imageIfd = exif.imageIfd;
     final exifIfd = exif.exifIfd;
     final gpsIfd = exif.gpsIfd;
@@ -213,6 +500,39 @@ class PhotoExportService {
     setRationalList(gpsIfd, 'GPSLatitude', 'GPS GPSLatitude');
     setAscii(gpsIfd, 'GPSLongitudeRef', 'GPS GPSLongitudeRef');
     setRationalList(gpsIfd, 'GPSLongitude', 'GPS GPSLongitude');
+  }
+
+  /// Reads the source file's EXIF with `package:exif` -- the same reader
+  /// [_attachSourceExif] uses -- and serialises the shared core tag set
+  /// ([_applyCoreExifTags]) as a raw big-endian TIFF/EXIF block, which is
+  /// exactly what `CeyxEncodeMetadata.exif` expects (no APP1 marker, no JXL
+  /// offset prefix; each container's writer adds its own wrapper).
+  ///
+  /// Returns null when the source has no EXIF: a missing block must not
+  /// fail an export, matching the swallow-and-continue behaviour
+  /// [_attachSourceExif] has always had.
+  static Future<Uint8List?> _readSourceExifBlock(
+    String sourcePath, {
+    required bool forceOrientationOne,
+  }) async {
+    Map<String, pkg_exif.IfdTag> tags;
+    try {
+      tags = await pkg_exif.readExifFromFile(File(sourcePath));
+    } catch (_) {
+      return null;
+    }
+    if (tags.isEmpty) return null;
+
+    final exif = img.ExifData();
+    _applyCoreExifTags(exif, tags);
+    if (forceOrientationOne) {
+      exif.imageIfd['Orientation'] = 1;
+    }
+    if (exif.isEmpty) return null;
+
+    final out = img.OutputBuffer();
+    exif.write(out);
+    return out.getBytes();
   }
 
   // ponytail: concurrency ceiling of 4 — a RAW full decode can cost hundreds
@@ -271,7 +591,7 @@ class PhotoExportService {
           }
           final outPath = p.join(
             dest.path,
-            '${p.basenameWithoutExtension(source.path)}.jpg',
+            '${p.basenameWithoutExtension(source.path)}.${filetype.extension}',
           );
           await File(outPath).writeAsBytes(bytes);
           exportedCount++;
@@ -324,11 +644,12 @@ img.Image? imageFromDecodedRgba(DecodedRgba decoded) {
 Future<Uint8List?> exportJpegForTest(
   DecodedRgba decoded, {
   int exifOrientation = 1,
+  int quality = kDefaultExportJpegQuality,
 }) async {
   final frame = imageFromDecodedRgba(decoded);
   if (frame == null) return null;
   return Uint8List.fromList(
-    img.encodeJpg(bakeExifOnDecoded(frame, exifOrientation), quality: 90),
+    img.encodeJpg(bakeExifOnDecoded(frame, exifOrientation), quality: quality),
   );
 }
 

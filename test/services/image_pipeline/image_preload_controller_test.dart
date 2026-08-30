@@ -1441,4 +1441,24 @@ void main() {
       },
     );
   });
+
+  test('TC-350 controller lane width defaults to 1 and is settable', () {
+    final c = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+    );
+    addTearDown(c.dispose);
+    expect(c.decodeLaneWidth, 1, reason: 'default is the historical behaviour');
+
+    final wide = ImagePreloadController(
+      imageLoader: (path, {required purpose}) async =>
+          const NativeImageNeedsRawDecode(exifOrientation: 1),
+      decodeLaneWidth: 3,
+    );
+    addTearDown(wide.dispose);
+    expect(wide.decodeLaneWidth, 3);
+
+    wide.setDecodeLaneWidth(0);
+    expect(wide.decodeLaneWidth, 1, reason: 'a corrupt value must not crash');
+  });
 }

@@ -54,14 +54,19 @@ void main() {
       );
     });
 
-    test('the exact preferredLoadExtensions order is JPG,JPEG,HEIC,HEIF,WebP,PNG',
-        () {
+    // Codec expansion (2026-08-30, ruling Q6): AVIF and JXL were inserted
+    // between WebP and PNG -- jpg > heic > webp > avif > jxl, png last.
+    test(
+        'the exact preferredLoadExtensions order is '
+        'JPG,JPEG,HEIC,HEIF,WebP,AVIF,JXL,PNG', () {
       expect(SupportedPhotoFormats.preferredLoadExtensions, <String>[
         '.jpg',
         '.jpeg',
         '.heic',
         '.heif',
         '.webp',
+        '.avif',
+        '.jxl',
         '.png',
       ]);
     });

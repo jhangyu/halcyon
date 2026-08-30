@@ -620,6 +620,30 @@ class DngEmbeddedJpegExtractor {
       }
     }
 
+    // Also follow the ordinary TIFF `nextIFD` chain (IFD0 -> IFD1 -> IFD2 ->
+    // ...), which the SubIFD-only gather above never visits. Sony ARW keeps
+    // its full-resolution JPEG in IFD2, reachable only this way (2026-08-30
+    // payload-bench-report.md §3). Cycle- and depth-bounded: `visited` stops
+    // a maliciously/corruptly self-referencing chain, and the depth cap keeps
+    // a hostile file from turning this into an unbounded walk.
+    final ifd0Offset = reader.u32(4);
+    if (ifd0Offset != null) {
+      final visited = <int>{ifd0Offset};
+      var nextOffset = reader.readIFD(ifd0Offset)?.$2;
+      var depth = 0;
+      while (nextOffset != null &&
+          nextOffset != 0 &&
+          depth < 16 &&
+          !visited.contains(nextOffset)) {
+        visited.add(nextOffset);
+        final result = reader.readIFD(nextOffset);
+        if (result == null) break;
+        candidateIFDs.add(result.$1);
+        nextOffset = result.$2;
+        depth++;
+      }
+    }
+
     // DefaultCropSize (0xC620) may live in IFD0 or in one of the SubIFDs.
     var defaultCrop = cropSize(ifd0);
     if (defaultCrop == null) {
@@ -655,44 +679,126 @@ class DngEmbeddedJpegExtractor {
       final compEntry = ifd[0x0103];
       if (compEntry == null) continue;
       final compVals = reader.values(compEntry);
-      if (compVals == null || compVals.isEmpty || compVals.first != 7) {
-        continue;
-      }
+      if (compVals == null || compVals.isEmpty) continue;
+      // 7 is the "new-style JPEG" TIFF compression value; Sony additionally
+      // ships JPEG-bearing IFDs (IFD0 PreviewImage, IFD2 full-res) tagged 6
+      // ("old-style JPEG") -- payload-bench-report.md §3. 32766 (Sony ARW
+      // sensor data) and every other value stay excluded.
+      final compression = compVals.first;
+      if (compression != 6 && compression != 7) continue;
 
+      // PhotometricInterpretation is REQUIRED to be 6 (YCbCr) when present,
+      // but not required to be present: Sony's IFD1 (the standard EXIF
+      // thumbnail IFD -- ThumbnailOffset/Length live at 0x0201/0x0202 there)
+      // carries Compression 6 and a real JPEG thumbnail with no
+      // PhotometricInterpretation tag at all (verified via exiftool against
+      // a real A7M5 ARW, live-proof run in
+      // docs/logs/2026-08-30/pipeline-followup-contract.md round-2 D4).
+      // Demanding the tag would silently drop every legacy thumbnail IFD of
+      // this shape, which is exactly the small candidate the longEdge-driven
+      // sidebar/preview selection needs.
       final photoEntry = ifd[0x0106];
-      if (photoEntry == null) continue;
-      final photoVals = reader.values(photoEntry);
-      if (photoVals == null || photoVals.isEmpty || photoVals.first != 6) {
-        continue;
+      if (photoEntry != null) {
+        final photoVals = reader.values(photoEntry);
+        if (photoVals == null || photoVals.isEmpty || photoVals.first != 6) {
+          continue;
+        }
       }
 
-      final widthEntry = ifd[0x0100];
-      if (widthEntry == null) continue;
-      final widthVals = reader.values(widthEntry);
-      if (widthVals == null || widthVals.isEmpty) continue;
-      final width = widthVals.first;
-
-      final heightEntry = ifd[0x0101];
-      if (heightEntry == null) continue;
-      final heightVals = reader.values(heightEntry);
-      if (heightVals == null || heightVals.isEmpty) continue;
-      final height = heightVals.first;
-
+      // Locate the strip: either the standard StripOffsets/StripByteCounts
+      // pair (0x0111/0x0117) or the JPEGInterchangeFormat/Length pair
+      // (0x0201/0x0202) Sony uses for both IFD0's PreviewImage and IFD2's
+      // full-res JPEG. Strip tags are tried first (existing DNG behaviour
+      // unchanged); interchange tags are the fallback.
+      int? offset;
+      int? byteCount;
+      var isInterchange = false;
       final stripOffEntry = ifd[0x0111];
-      if (stripOffEntry == null) continue;
-      final stripOffVals = reader.values(stripOffEntry);
-      if (stripOffVals == null || stripOffVals.length != 1) continue;
-
       final stripCountEntry = ifd[0x0117];
-      if (stripCountEntry == null) continue;
-      final stripCountVals = reader.values(stripCountEntry);
-      if (stripCountVals == null || stripCountVals.length != 1) continue;
+      if (stripOffEntry != null && stripCountEntry != null) {
+        final stripOffVals = reader.values(stripOffEntry);
+        final stripCountVals = reader.values(stripCountEntry);
+        if (stripOffVals != null &&
+            stripOffVals.length == 1 &&
+            stripCountVals != null &&
+            stripCountVals.length == 1) {
+          offset = stripOffVals[0];
+          byteCount = stripCountVals[0];
+        }
+      }
+      if (offset == null || byteCount == null) {
+        final jifOffEntry = ifd[0x0201];
+        final jifLenEntry = ifd[0x0202];
+        if (jifOffEntry != null && jifLenEntry != null) {
+          final jifOffVals = reader.values(jifOffEntry);
+          final jifLenVals = reader.values(jifLenEntry);
+          if (jifOffVals != null &&
+              jifOffVals.length == 1 &&
+              jifLenVals != null &&
+              jifLenVals.length == 1) {
+            offset = jifOffVals[0];
+            byteCount = jifLenVals[0];
+            isInterchange = true;
+          }
+        }
+      }
+      if (offset == null || byteCount == null) continue;
+
+      // Width/height. For the strip pair (0x0111/0x0117) this stays exactly
+      // what it was: the IFD's own ImageWidth/ImageLength (both DNG SubIFDs
+      // and Sony's IFD2 carry these describing THAT strip). The interchange
+      // pair (0x0201/0x0202) does not get the same trust: on Sony, IFD0's
+      // 0x0100/0x0101 (when present) describe the sensor/thumbnail extent,
+      // not the PreviewImage blob those tags point at, so an interchange
+      // candidate's dimensions are always read from the JPEG bitstream's own
+      // SOFn frame header instead -- the same bounds-checked technique
+      // already used for Panasonic blob candidates below.
+      int? width;
+      int? height;
+      if (!isInterchange) {
+        final widthEntry = ifd[0x0100];
+        final heightEntry = ifd[0x0101];
+        if (widthEntry == null || heightEntry == null) continue;
+        final widthVals = reader.values(widthEntry);
+        final heightVals = reader.values(heightEntry);
+        if (widthVals == null || widthVals.isEmpty) continue;
+        if (heightVals == null || heightVals.isEmpty) continue;
+        width = widthVals.first;
+        height = heightVals.first;
+      } else {
+        // Bounds-check BEFORE reading, and count an out-of-range interchange
+        // offset as `unreadable` (a declared-but-broken candidate) rather
+        // than silently `continue`ing as "not a candidate" -- this pair is
+        // just as much a declaration as StripOffsets/StripByteCounts, so it
+        // gets the same AD-022 malformed-container signal.
+        if (offset < 0 ||
+            byteCount <= 0 ||
+            offset >= source.length ||
+            offset + byteCount > source.length) {
+          unreadable++;
+          continue;
+        }
+        final soi = source.read(offset, 2);
+        if (soi != null &&
+            soi.length >= 2 &&
+            soi[0] == 0xFF &&
+            soi[1] == 0xD8) {
+          final size = _jpegFrameSize(source, offset, byteCount);
+          if (size != null) {
+            width = size.$1;
+            height = size.$2;
+          }
+        }
+        // In range but no readable frame header (not a JPEG, or the SOFn
+        // marker is unreachable within the scan limit) is a reader
+        // limitation, not proven damage -- same ruling as the Panasonic
+        // blob path -- so this is a plain miss, not `unreadable`.
+        if (width == null || height == null) continue;
+      }
 
       final maxDim = width > height ? width : height;
       if (longEdge == null && maxDim < 0.90 * cropMax) continue;
 
-      final offset = stripOffVals[0];
-      final byteCount = stripCountVals[0];
       if (offset < 0 ||
           byteCount <= 0 ||
           offset >= source.length ||

@@ -4,35 +4,91 @@
   "platforms": {
     "macos": {
       "path": "../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib",
-      "expected": true,
       "format": "macho",
       "tool": "nm",
-      "tool_args": ["-gU"],
-      "comment": "Vendored arm64 dylib; ruling P-12 confirmed this symbol is exported."
+      "tool_args": [
+        "-gU"
+      ],
+      "comment": "Vendored arm64 dylib; ruling P-12 confirmed this symbol is exported.",
+      "ci_target": "macos",
+      "decoder_artifact": "libdng_decoder_native.dylib",
+      "expected_arch": "arm64",
+      "r7": {
+        "measures": "the shipped macOS decoder dylib exists and exposes the sized-decode entry point",
+        "valid_on": [
+          "macos"
+        ],
+        "why_valid": "Mach-O with permissive default visibility: an exported symbol really is reachable via dlopen/dlsym, so the symbol table agrees with the runtime. The functional FFI probe (scripts/ci/probe/ffi_probe.dart) is the primary instrument regardless; nm is a secondary cross-check only.",
+        "red_state": "point the checker at a dylib built without dng_decode_and_process_sized, or delete the dylib: symbol=absent / present=False and RC=1",
+        "expected": "present=True and symbol=present"
+      },
+      "expected": true
     },
     "windows": {
       "path": "../ceyx/plugin/windows/Libraries/dng_decoder_native.dll",
-      "expected": true,
       "format": "pe",
       "tool": "dumpbin",
-      "tool_args": ["/exports"],
-      "comment": "Trust-on-first-use: built on a real Windows host (commit d36e1bd) but no S4 colour-gate run recorded. dumpbin is unavailable on non-Windows hosts, so this platform legitimately reports symbol=skipped when checked from macOS/Linux."
+      "tool_args": [
+        "/exports"
+      ],
+      "comment": "Trust-on-first-use: built on a real Windows host (commit d36e1bd) but no S4 colour-gate run recorded. dumpbin is unavailable on non-Windows hosts, so this platform legitimately reports symbol=skipped when checked from macOS/Linux.",
+      "ci_target": "windows",
+      "decoder_artifact": "dng_decoder_native.dll",
+      "expected_arch": "x86_64",
+      "r7": {
+        "measures": "the shipped Windows decoder DLL exists alongside its two dynamic imports",
+        "valid_on": [
+          "windows"
+        ],
+        "why_valid": "Presence and architecture of a PE file are read structurally (IMAGE_FILE_HEADER.Machine), which is format-defined and host-independent. The SYMBOL-TABLE half is NOT claimed valid here: PE exports nothing by default, so dumpbin /exports measures a build-system setting rather than runtime reachability (ceyx 2026-08-30). Runtime reachability on Windows is measured only by the functional FFI probe, and only on a Windows host.",
+        "red_state": "delete dng_decoder_native.dll from a staging copy: present=False and RC=1. The dumpbin symbol half has NO demonstrated red state on this machine — see PL-9.",
+        "expected": "present=True; symbol=skipped when inspected from a non-Windows host"
+      },
+      "expected": true
     },
     "android": {
       "path": "../ceyx/plugin/android/src/main/jniLibs/arm64-v8a/libdng_decoder_native.so",
-      "expected": true,
       "format": "elf",
       "tool": "nm",
-      "tool_args": ["-D"],
-      "comment": "arm64-v8a shared object."
+      "tool_args": [
+        "-D"
+      ],
+      "comment": "arm64-v8a shared object.",
+      "ci_target": "android-apk",
+      "decoder_artifact": "libdng_decoder_native.so",
+      "expected_arch": "aarch64",
+      "r7": {
+        "measures": "the arm64-v8a decoder shared object exists and exports the sized-decode entry point",
+        "valid_on": [
+          "android"
+        ],
+        "why_valid": "ELF dynamic symbol table with default visibility: nm -D lists exactly what dlsym can resolve. No CI assertion consumes this entry — the android-apk target declares no R-7 assertions this round (Plan §6 / PL-5); it stays here for the manual cross-platform checker.",
+        "red_state": "delete the .so or strip the symbol: present=False / symbol=absent and RC=1",
+        "expected": "present=True and symbol=present"
+      },
+      "expected": true
     },
     "linux": {
       "path": "../ceyx/plugin/linux/Libraries/libdng_decoder_native.so",
-      "expected": false,
       "format": "elf",
       "tool": "nm",
-      "tool_args": ["-D"],
-      "comment": "Open item P-2: Linux .so does not exist yet. Flip 'expected' to true the day it lands; no script changes needed."
+      "tool_args": [
+        "-D"
+      ],
+      "comment": "Open item P-2: Linux .so does not exist yet. Flip 'expected' to true the day it lands; no script changes needed.",
+      "ci_target": "linux",
+      "decoder_artifact": "libdng_decoder_native.so",
+      "expected_arch": "x86_64",
+      "r7": {
+        "measures": "the shipped Linux decoder shared object exists and exposes the sized-decode entry point",
+        "valid_on": [
+          "linux"
+        ],
+        "why_valid": "ELF dynamic symbol table with default visibility: nm -D lists exactly what dlopen/dlsym can resolve. The functional FFI probe remains the primary instrument; nm is a secondary cross-check.",
+        "red_state": "delete the .so or point at one built without the symbol: present=False / symbol=absent and RC=1",
+        "expected": "expected=false today (P-2): absent is not a failure until the .so lands"
+      },
+      "expected": false
     }
   }
 }

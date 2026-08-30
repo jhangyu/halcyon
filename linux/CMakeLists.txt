@@ -126,3 +126,14 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# App icon + .desktop file, so packaged installs (e.g. under
+# /usr/share/applications + /usr/share/icons) can display the Halcyon icon.
+# The runner also loads this same file at runtime relative to the executable
+# (see my_application.cc) for the in-session GTK window icon.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/icons/halcyon.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/icons"
+  COMPONENT Runtime)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/halcyon.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)

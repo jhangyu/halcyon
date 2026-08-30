@@ -1,0 +1,8 @@
+ASSERT: target=macos assertions=4
+ASSERT-SOURCE: build-tree /Users/jhangyu/project/Halcyon/build/macos/Build/Products/Release/Halcyon.app
+ASSERT-OK: H-ARCH — expected arm64; Halcyon.app/Contents/MacOS/Halcyon=arm64
+ASSERT-OK: H-DECODER-PRESENT — libdng_decoder_native.dylib at Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib
+ASSERT-OK: H-SIZED-SYMBOL — PROBE-OK: dng_decode_and_process_sized reachable in /Users/jhangyu/project/Halcyon/build/macos/Build/Products/Release/Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib
+ASSERT-OK: H-SIZED-SYMBOL-NM — dng_decode_and_process_sized listed by nm for libdng_decoder_native.dylib
+ASSERT-SUMMARY: macos assertions=4 failed=0 skipped=0
+RC=0

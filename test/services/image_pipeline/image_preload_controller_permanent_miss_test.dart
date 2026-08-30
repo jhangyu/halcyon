@@ -36,7 +36,13 @@ void main() {
     'M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE '
     'across three preloadThumbnails sweeps',
     () async {
-      final thumbRequests = <String>[];
+      // RE-WIRED 2026-08-30 (plan Task 6): the invariant is unchanged -- a row
+      // that can never produce a tile is asked ONCE per folder load, not once
+      // per sweep (design authority 2.2, invariant I8). What changed is WHO is
+      // asked. The sidebar no longer calls the loader with
+      // `purpose: sidebarThumbnail`; it asks the shared PAYLOAD producer, so
+      // the failure has to be injected there and the "ask" counted there.
+      final producerAsks = <String>[];
       final items = List.generate(5, (i) {
         final id = 'IMG_${i.toString().padLeft(2, '0')}';
         return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
@@ -45,16 +51,14 @@ void main() {
 
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose}) async {
-          if (purpose != ImageRequestPurpose.sidebarThumbnail) {
-            return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
-          }
-          thumbRequests.add(path);
+          producerAsks.add(path);
           if (path == failingPath) {
             // Unreadable/corrupt: an answer that cannot change.
             return const NativeImageFailure('UNREADABLE', 'corrupt file');
           }
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
         },
+        payloadEncoder: null,
       );
       addTearDown(controller.dispose);
 
@@ -77,35 +81,43 @@ void main() {
       await sweep(0, 1);
 
       expect(
-        thumbRequests.where((p) => p == failingPath).length,
+        producerAsks.where((p) => p == failingPath).length,
         1,
         reason:
             'the sidebar re-asked for an answer that cannot change: without '
-            'the shared permanent-miss set every sweep costs another channel '
-            'round trip, forever',
+            'the permanent-miss set every sweep costs another production '
+            'attempt, forever',
       );
       // Anti-vacuity: a mutant that simply stopped fetching thumbnails would
       // also satisfy the assertion above.
       expect(
-        controller.thumbnailBytesFor(items[1].id),
+        controller.thumbnailPayloadFor(items[1].id),
         isNotNull,
         reason: 'loadable thumbnails must still land',
       );
-      expect(controller.thumbnailBytesFor(items[0].id), isNull);
+      expect(controller.thumbnailPayloadFor(items[0].id), isNull);
+      expect(controller.debugThumbPermanentMisses.contains(items[0].id), isTrue);
     },
   );
 
   test(
     'M4-AC1b a failed sidebar thumbnail must not poison the PREVIEW state of a '
-    'file whose own name happens to be "thumb_" + another file\'s name',
+    'DIFFERENT file whose own name happens to be "thumb_" + its name',
     () async {
+      // RE-WIRED 2026-08-30 (plan Task 6). The invariant under test is the
+      // CONTAINER-COLLISION one and it is untouched by the redesign: the
+      // sidebar's negative cache and the preview's are two containers, never
+      // one container with two key shapes.
+      //
       // PhotoItem.id is basenameWithoutExtension (supported_photo_formats.dart:44,
       // used as the grouping key in photo_library_scanner.dart:23), so ids are
       // user-controlled filenames. Any in-band key prefix therefore has a
       // reachable collision: here the sidebar's key for `IMG_01` is exactly the
-      // preview's key for the file literally named `thumb_IMG_01.jpg`. The two
-      // questions must live in two containers, not one container with two key
-      // shapes.
+      // preview's key for the file literally named `thumb_IMG_01.jpg`.
+      //
+      // What DID change: the failing file now fails at the shared producer, so
+      // it is legitimately a preview miss as well. That is the new design, not
+      // a leak -- the assertion that matters is that the VICTIM is untouched.
       final victim = PhotoItem(
         id: 'thumb_IMG_01',
         files: [File('/tmp/thumb_IMG_01.jpg')],
@@ -115,12 +127,12 @@ void main() {
 
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose}) async {
-          if (purpose == ImageRequestPurpose.sidebarThumbnail &&
-              path == failing.files.single.path) {
+          if (path == failing.files.single.path) {
             return const NativeImageFailure('UNREADABLE', 'corrupt file');
           }
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
         },
+        payloadEncoder: null,
       );
       addTearDown(controller.dispose);
 
@@ -130,39 +142,47 @@ void main() {
         endIdx: 1,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
 
       // The failure really happened -- without this the assertion below could
       // pass because nothing was ever recorded.
-      expect(controller.thumbnailBytesFor(failing.id), isNull);
-      expect(controller.thumbnailBytesFor(victim.id), isNotNull);
+      expect(controller.thumbnailPayloadFor(failing.id), isNull);
+      expect(controller.debugThumbPermanentMisses.contains(failing.id), isTrue);
+      expect(controller.thumbnailPayloadFor(victim.id), isNotNull);
 
       expect(
         controller.hasFailed(victim.id),
         isFalse,
         reason:
-            'a sidebar thumbnail failure for a DIFFERENT file marked this one '
-            'as a permanent preview miss -- the main view will call it '
-            'unreadable until the folder is reloaded, and it never failed at '
-            'anything',
+            'a failure for a DIFFERENT file marked this one as a permanent '
+            'preview miss -- the main view will call it unreadable until the '
+            'folder is reloaded, and it never failed at anything',
+      );
+      expect(
+        controller.debugThumbPermanentMisses.contains(victim.id),
+        isFalse,
+        reason: 'the sidebar container must not collide on the prefixed name '
+            'either',
       );
     },
   );
 
   test(
-    'M6-PL1 a throwing sidebar thumbnail loader must not abort the sweep, '
-    'must release the in-flight key, and must record a permanent miss like '
-    'a non-bytes result',
+    'M6-PL1 a throwing thumbnail producer must not abort the sweep, must '
+    'release the in-flight key, and must record a permanent miss like a '
+    'non-bytes result',
     () async {
-      // b3b0ddd's preloadThumbnails loop has no try/catch around the loader
-      // await and removes _loadingKeys OUTSIDE any finally (round-1
-      // parking-lot PL-1/PL-2/PL-10). A loader that THROWS instead of
-      // returning a NativeImageFailure -- e.g. an unconverted
-      // PlatformException, or a future non-macOS bridge -- unwinds the `for`
-      // loop, so every remaining item in that sweep is silently never
-      // requested, and the thrower's `thumb_<id>` in-flight key leaks for
-      // the rest of the session.
-      final thumbRequests = <String>[];
+      // RE-WIRED 2026-08-30 (plan Task 6). Every clause of this invariant
+      // still applies, only the producer changed: the sweep asks the shared
+      // PAYLOAD path instead of calling the loader with the sidebar purpose.
+      //
+      // This test found a REAL regression in the redesign, not just a stale
+      // binding. `_ensurePayload` rethrows a throwing source (it must, to
+      // preserve the preview path's error propagation) and the decode lane
+      // swallows the exception to stay runnable -- so the row ended the body
+      // with no payload AND no miss, and every later sweep re-enqueued it.
+      // The sidebar's lane body now catches and records the miss.
+      final producerAsks = <String>[];
       final items = List.generate(3, (i) {
         final id = 'IMG_${i.toString().padLeft(2, '0')}';
         return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
@@ -171,10 +191,7 @@ void main() {
 
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose}) async {
-          if (purpose != ImageRequestPurpose.sidebarThumbnail) {
-            return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
-          }
-          thumbRequests.add(path);
+          producerAsks.add(path);
           if (path == throwingPath) {
             // Simulates a loader implementation throwing instead of returning
             // a NativeImageFailure -- e.g. an unconverted platform exception
@@ -184,6 +201,7 @@ void main() {
           }
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
         },
+        payloadEncoder: null,
       );
       addTearDown(controller.dispose);
 
@@ -200,17 +218,17 @@ void main() {
       await sweep(0, 2);
 
       // The sweep must CONTINUE past the thrower: items 1 and 2 come after
-      // item 0 in fetch order, and without try/catch the exception unwinds
-      // the whole `for` loop, so neither is ever requested.
+      // item 0 in fetch order, and a thrower that unwound the loop (or wedged
+      // the lane runner) would leave neither of them ever requested.
       expect(
-        controller.thumbnailBytesFor(items[1].id),
+        controller.thumbnailPayloadFor(items[1].id),
         isNotNull,
         reason:
-            'a throwing loader for item 0 must not abort the rest of the '
+            'a throwing producer for item 0 must not abort the rest of the '
             'sweep -- item 1 comes after it in fetch order',
       );
       expect(
-        controller.thumbnailBytesFor(items[2].id),
+        controller.thumbnailPayloadFor(items[2].id),
         isNotNull,
         reason: 'item 2 must also still be requested',
       );
@@ -222,15 +240,24 @@ void main() {
       await sweep(0, 2);
 
       expect(
-        thumbRequests.where((p) => p == throwingPath).length,
+        controller.debugThumbPermanentMisses.contains(items[0].id),
+        isTrue,
+        reason: 'a throwing producer must be recorded, not merely swallowed',
+      );
+      expect(
+        producerAsks.where((p) => p == throwingPath).length,
         1,
         reason:
-            'a throwing loader must be treated like a non-bytes result and '
+            'a throwing producer must be treated like a non-bytes result and '
             'recorded as a permanent miss -- without a released in-flight '
             'key AND a recorded miss, the thrower is either re-requested '
             'forever or perpetually skipped as "still loading" instead of '
             'being answered once',
       );
+      // The in-flight key really was released: a leaked key would make the
+      // row look "still loading" forever, which is indistinguishable from the
+      // assertion above unless the miss is checked separately.
+      expect(controller.isLoadingForTest(items[0].id), isFalse);
     },
   );
 

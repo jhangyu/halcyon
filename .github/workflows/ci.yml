@@ -2,6 +2,12 @@
 # (github.com/jhangyu/ceyx), so CI checks out BOTH repos side by side under the
 # workspace (Halcyon/ + ceyx/) and runs every step from Halcyon/. A bare
 # root-level checkout can never pub get — don't "simplify" this back.
+#
+# Build/test/verify logic is delegated to scripts/ci.py (see scripts/ci/); every
+# `run:` step below is exactly one `python3 scripts/ci.py ...` line, plus the
+# environment-setup `uses:` steps. `fail-fast: false` is NOT `continue-on-error`:
+# a job still fails when it fails; it only lets sibling OS jobs in the matrix
+# finish instead of being cancelled — don't "clean up" one into the other.
 name: CI
 
 on:
@@ -15,9 +21,13 @@ defaults:
     working-directory: Halcyon
 
 jobs:
-  analyze-test:
-    name: Analyze & Test
-    runs-on: macos-14
+  verify:
+    name: Analyze & Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false        # lets sibling OS jobs finish; a job still fails when it fails
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,69 +42,21 @@ jobs:
         with:
           flutter-version: '3.44.6'
           channel: 'stable'
+          # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
-      - name: flutter pub get
-        run: flutter pub get
+      - name: ci.py verify (pub get -> analyze -> test -j 1)
+        run: python3 scripts/ci.py verify
 
-      - name: flutter analyze
-        run: flutter analyze
-
-      - name: flutter test
-        run: flutter test -j 1
-
-  analyze-test-windows:
-    name: Analyze & Test (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
+      # if: always() — the logs are only interesting when the step above failed.
+      # Names must be unique across jobs/matrix legs or upload-artifact@v4 rejects
+      # the collision, hence the matrix value in the name.
+      - name: Upload ci-logs (verify ${{ matrix.os }})
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          path: Halcyon
-
-      - uses: actions/checkout@v4
-        with:
-          repository: jhangyu/ceyx
-          path: ceyx
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.6'
-          channel: 'stable'
-
-      - name: flutter pub get
-        run: flutter pub get
-
-      - name: flutter analyze
-        run: flutter analyze
-
-      - name: flutter test
-        run: flutter test -j 1
-
-  analyze-test-linux:
-    name: Analyze & Test (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: Halcyon
-
-      - uses: actions/checkout@v4
-        with:
-          repository: jhangyu/ceyx
-          path: ceyx
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.6'
-          channel: 'stable'
-
-      - name: flutter pub get
-        run: flutter pub get
-
-      - name: flutter analyze
-        run: flutter analyze
-
-      - name: flutter test
-        run: flutter test -j 1
+          name: ci-logs-verify-${{ matrix.os }}
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn
 
   build:
     name: Build macOS (release)
@@ -113,13 +75,21 @@ jobs:
         with:
           flutter-version: '3.44.6'
           channel: 'stable'
+          # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
-      - name: flutter pub get
-        run: flutter pub get
+      - name: ci.py provision --target macos
+        run: python3 scripts/ci.py provision --target macos
 
-      - name: Install CocoaPods dependencies
-        run: pod install
-        working-directory: Halcyon/macos
+      - name: ci.py build --target macos
+        run: python3 scripts/ci.py build --target macos
 
-      - name: Build via single entry point (scripts/build_apps.py)
-        run: python3 scripts/build_apps.py
+      - name: ci.py assert-capabilities --target macos
+        run: python3 scripts/ci.py assert-capabilities --target macos
+
+      - name: Upload ci-logs (build macos)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-build-macos
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn

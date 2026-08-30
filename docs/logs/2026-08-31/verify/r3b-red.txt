@@ -1,0 +1,9 @@
+ASSERT: target=macos assertions=4
+ASSERT-SOURCE: build-tree /Users/jhangyu/project/Halcyon/build/macos/Build/Products/Release/Halcyon.app
+ASSERT-FAIL: H-ARCH — no app executable named 'HalcyonWRONG' found in build-tree /Users/jhangyu/project/Halcyon/build/macos/Build/Products/Release/Halcyon.app; expected 'HalcyonWRONG', found executable-bit members ['Halcyon.app/Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS', 'Halcyon.app/Contents/Frameworks/ceyx.framework/Versions/A/ceyx', 'Halcyon.app/Contents/Frameworks/libde265.0.dylib', 'Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib', 'Halcyon.app/Contents/Frameworks/libheif.1.dylib', 'Halcyon.app/Contents/Frameworks/libjpeg.8.dylib', 'Halcyon.app/Contents/Frameworks/liblcms2.2.dylib', 'Halcyon.app/Contents/Frameworks/libomp.dylib', 'Halcyon.app/Contents/MacOS/Halcyon']
+    red_state: point the assertion at a binary of a different architecture (e.g. an x86_64 executable for the macos target): it fails naming both the expected and the observed arch
+ASSERT-OK: H-DECODER-PRESENT — libdng_decoder_native.dylib at Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib
+ASSERT-OK: H-SIZED-SYMBOL — PROBE-OK: dng_decode_and_process_sized reachable in /Users/jhangyu/project/Halcyon/build/macos/Build/Products/Release/Halcyon.app/Contents/Frameworks/libdng_decoder_native.dylib
+ASSERT-OK: H-SIZED-SYMBOL-NM — dng_decode_and_process_sized listed by nm for libdng_decoder_native.dylib
+ASSERT-SUMMARY: macos assertions=4 failed=1 skipped=0
+RC=1

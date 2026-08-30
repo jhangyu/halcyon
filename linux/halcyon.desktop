@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Halcyon
+Comment=RAW/JPG photo triage tool
+Exec=photo_selector_flutter
+Icon=halcyon
+Terminal=false
+Categories=Graphics;Photography;

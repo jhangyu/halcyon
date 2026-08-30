@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
+import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
 
@@ -86,14 +87,9 @@ void main() {
   });
 
   test(
-    'TC-175 jpegFromOrientedPixels bakes EXIF orientation 6 (90 CW) into a'
-    ' decodable JPEG',
+    'TC-175 (retargeted) the sidebar pixel path bakes EXIF orientation 6 '
+    '(90 CW) into the stored payload',
     () async {
-      // Source 4x2 (w=4, h=2), every pixel a distinct marker in the R
-      // channel, so a wrong orientation cannot pass by accident (pattern of
-      // decoded_rgba_image_provider_test.dart's _expected fixture).
-      //   row0 (y=0): P0 P1 P2 P3
-      //   row1 (y=1): Q0 Q1 Q2 Q3
       const p0 = 10, p1 = 40, p2 = 70, p3 = 100;
       const q0 = 130, q1 = 160, q2 = 190, q3 = 220;
       final markers = [
@@ -112,43 +108,21 @@ void main() {
       }
       final decoded = DecodedRgba(rgba: bytes, width: 4, height: 2);
 
-      final jpeg = await jpegFromOrientedPixels(decoded, exifOrientation: 6);
-
-      expect([jpeg[0], jpeg[1]], [0xFF, 0xD8]);
-      final codec = await ui.instantiateImageCodec(jpeg);
-      final frame = await codec.getNextFrame();
-      expect(frame.image.width, 2);
-      expect(frame.image.height, 4);
-
-      final data = await frame.image.toByteData(
-        format: ui.ImageByteFormat.rawRgba,
+      final payload = await decodedRgbaToPixelPayload(
+        decoded,
+        exifOrientation: 6,
+        longEdge: 200,
       );
-      frame.image.dispose();
-      final out = data!.buffer.asUint8List();
+
+      expect(payload.width, 2);
+      expect(payload.height, 4);
       List<int> rowMarkers(int y) =>
-          [for (var x = 0; x < 2; x++) out[(y * 2 + x) * 4]];
-
-      // rotate 90 CW: output[y'][x'] = input[h-1-x'][y'] (h=2) --
-      // row0: Q0,P0 · row1: Q1,P1 · row2: Q2,P2 · row3: Q3,P3
-      //
-      // JPEG is lossy, so markers are compared within a tolerance instead of
-      // pixel-exactly. Measured worst-case deviation at q80 is 7; the markers
-      // are spaced 30 apart, so +/-12 still fails any wrong orientation.
-      void expectRow(int y, List<int> want) {
-        final got = rowMarkers(y);
-        for (var x = 0; x < want.length; x++) {
-          expect(
-            (got[x] - want[x]).abs(),
-            lessThanOrEqualTo(12),
-            reason: 'row $y col $x: want ~${want[x]}, got ${got[x]}',
-          );
-        }
-      }
-
-      expectRow(0, [q0, p0]);
-      expectRow(1, [q1, p1]);
-      expectRow(2, [q2, p2]);
-      expectRow(3, [q3, p3]);
+          [for (var x = 0; x < 2; x++) payload.rgba[(y * 2 + x) * 4]];
+      // rotate 90 CW: output[y'][x'] = input[h-1-x'][y'] (h=2)
+      expect(rowMarkers(0), [q0, p0]);
+      expect(rowMarkers(1), [q1, p1]);
+      expect(rowMarkers(2), [q2, p2]);
+      expect(rowMarkers(3), [q3, p3]);
     },
   );
 

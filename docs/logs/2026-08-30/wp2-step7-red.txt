@@ -1,0 +1,39 @@
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+test/services/image_pipeline/retention_tier_test.dart:91:11: Error: The method 'setByteBudget' isn't defined for the type 'PhotoPayloadCache'.
+ - 'PhotoPayloadCache' is from 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart' ('lib/services/image_pipeline/photo_payload_cache.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'setByteBudget'.
+    cache.setByteBudget(150);
+          ^^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:105:16: Error: The method 'setRetention' isn't defined for the type 'ImagePreloadController'.
+ - 'ImagePreloadController' is from 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart' ('lib/services/image_pipeline/image_preload_controller.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'setRetention'.
+    controller.setRetention(retentionPolicyForTier(RetentionTier.generous));
+               ^^^^^^^^^^^^
+test/services/image_pipeline/retention_tier_test.dart:108:23: Error: The getter 'debugPayloadCacheByteBudget' isn't defined for the type 'ImagePreloadController'.
+ - 'ImagePreloadController' is from 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart' ('lib/services/image_pipeline/image_preload_controller.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'debugPayloadCacheByteBudget'.
+    expect(controller.debugPayloadCacheByteBudget, 384 * 1024 * 1024);
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+00:00 +0 -1: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart [E]
+  Failed to load "/Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart":
+  Compilation failed for testPath=/Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: test/services/image_pipeline/retention_tier_test.dart:91:11: Error: The method 'setByteBudget' isn't defined for the type 'PhotoPayloadCache'.
+   - 'PhotoPayloadCache' is from 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart' ('lib/services/image_pipeline/photo_payload_cache.dart').
+  Try correcting the name to the name of an existing method, or defining a method named 'setByteBudget'.
+      cache.setByteBudget(150);
+            ^^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:105:16: Error: The method 'setRetention' isn't defined for the type 'ImagePreloadController'.
+   - 'ImagePreloadController' is from 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart' ('lib/services/image_pipeline/image_preload_controller.dart').
+  Try correcting the name to the name of an existing method, or defining a method named 'setRetention'.
+      controller.setRetention(retentionPolicyForTier(RetentionTier.generous));
+                 ^^^^^^^^^^^^
+  test/services/image_pipeline/retention_tier_test.dart:108:23: Error: The getter 'debugPayloadCacheByteBudget' isn't defined for the type 'ImagePreloadController'.
+   - 'ImagePreloadController' is from 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart' ('lib/services/image_pipeline/image_preload_controller.dart').
+  Try correcting the name to the name of an existing getter, or defining a getter or field named 'debugPayloadCacheByteBudget'.
+      expect(controller.debugPayloadCacheByteBudget, 384 * 1024 * 1024);
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  .
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+TEST_RC=1

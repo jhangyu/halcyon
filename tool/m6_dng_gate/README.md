@@ -10,24 +10,22 @@ method is ported **unchanged**:
   Measures `DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path)`
   directly (informational; not verdict-bearing here since this tool ships
   with no native-side comparison binary).
-- `g3_sidebar_bench.dart` — port of
-  `scripts/tmp/m6-r2-verify/g3_regress_dart_test.dart` (itself carried
-  forward unmodified from `scripts/tmp/m6-r1-bench/g3second_dart_test.dart`).
-  Measures the shipped sidebar pipeline end to end, including the P2.5b
-  RAW-decode fallback (`decodeDngSized` → `readOrientation` →
-  `jpegFromOrientedPixels`) for bare-CFA DNGs with no embedded preview at any
-  size. **This is the verdict-bearing measurement.**
-- `verdict_dng_extract.py` — encodes ruling P-13 as executable code.
+- `verdict_dng_extract.py` — RETIRED 2026-08-30 (AD-039); now prints a
+  retirement notice and exits 0. See below.
 - `run_gate.sh` — orchestrates a full gate run and writes a
-  pre-registered, provenance-stamped result file.
+  pre-registered, provenance-stamped result file. Its former Stage 4/5 (the
+  G3 sidebar bench invocation) is likewise retired; see the comment at that
+  spot in the script.
 
-**2026-08-24 note:** M7 Task 5 renamed the sidebar re-encode function
-`pngFromOrientedPixels` → `jpegFromOrientedPixels` (PNG → JPEG re-encode).
-`g3_sidebar_bench.dart` was updated to call the new name. This changes what
-the RAW-decode-fallback branch of the sidebar bench measures: cache bytes
-are now JPEG-encoded, not PNG-encoded. The measurement *method* (pipeline,
-timing methodology) is unchanged; only the downstream API it calls was
-renamed after the initial port.
+**2026-08-30 note (AD-039):** the sidebar RAW-decode fallback (`decodeDngSized`
+→ `readOrientation` → …) used to re-encode every produced thumbnail as JPEG
+via a `jpegFromOrientedPixels` step; it now stores the oriented, capped pixels
+directly (no re-encode) so the sidebar tile builds a `RawPixelsImage`. The
+former `g3_sidebar_bench.dart` timed that now-removed re-encode step end to
+end and was deleted rather than repaired (user ruling) — there is nothing
+left in the pixel path that matches its recorded baseline's semantics. Do not
+resurrect a G3-style bench against the pixel path without recording a new
+baseline first.
 
 ## Invocation
 
@@ -48,23 +46,17 @@ contains no `.dng`/`.jpg`/`.jpeg` files — it never falls back to synthetic
 input. `local_data/photo_samples/` is untracked; if it is absent on your
 host, the gate cannot run and says so.
 
-## The P-13 rule (verbatim)
+## The P-13 rule — RETIRED 2026-08-30 (AD-039)
 
 > A sample passes if its per-sample decode latency is under 75 ms
 > absolutely, regardless of ratio; otherwise the 2.0x ratio clause against
 > the recorded baseline applies.
 
-The 75 ms floor is a literal constant (`FLOOR_MS` in
-`verdict_dng_extract.py`), not a tunable/parameter — see the citation
-comment beside it. No aggregation (median-of-medians, pass rate, etc.)
-overrides a per-sample failure.
-
-`verdict_dng_extract.py` carries the recorded reference baseline
-(`BASELINE_MS`) as embedded data, transcribed verbatim from
-`scripts/tmp/m6-r2-verify/p5-3-verify.txt` (the G'''' result-of-record for
-the 33-sample canonical set, `scripts/tmp/m6-r1-bench/all_abs.txt`). Samples
-without a recorded baseline are reported `SKIP`, not silently passed or
-failed — the summary line's `skipped_samples` count makes that visible.
+This rule and its `FLOOR_MS`/`BASELINE_MS` constants applied to the deleted
+G3 sidebar bench and no longer run. The literal rule text and the recorded
+baseline table survive in git history (see any commit before this one that
+touches `verdict_dng_extract.py`) for anyone recording a new baseline
+against the pixel path.
 
 ## Provenance (never mtime)
 
@@ -102,11 +94,9 @@ reported to the team lead rather than silently fixed here — silently fixing
 it inside the port would make the reproduction check against the recorded
 G'''' result meaningless.
 
-## Reproduction
+## Reproduction — RETIRED 2026-08-30 (AD-039)
 
-Running against the canonical 33-sample set
-(`scripts/tmp/m6-r1-bench/all_abs.txt`, i.e.
-`local_data/photo_samples/DNG` + the JPEG sidecar samples) should reproduce
-the recorded G'''' result: 33/33 PASS, with the 13 bare-CFA samples (RAW
-decode fallback route) landing in the 31.6–63.1 ms band per
-`scripts/tmp/m6-r2-verify/p5-3-verify.txt`.
+The G'''' 33-sample reproduction this section used to describe was the G3
+sidebar bench's own result and no longer applies (see the retirement notes
+above). `g1_extract_bench.dart` remains runnable and informational; it has
+no PASS/FAIL verdict of its own.

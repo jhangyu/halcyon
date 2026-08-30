@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Halcyon Settings — B2 Single Scroll</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #1c1c1c;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    color: #E0E0E0;
+  }
+  body { display: flex; align-items: center; justify-content: center; }
+  .backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dialog {
+    width: 880px; height: 540px;
+    background: #383838;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #454545;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .header .titles h1 { font-size: 15px; font-weight: 600; }
+  .header .titles p { font-size: 11.5px; color: #9A9A9A; margin-top: 2px; }
+  .badge { padding: 4px 12px; border-radius: 20px; border: 1px solid #515151; font-size: 11px; color: #9A9A9A; }
+
+  .scrollpane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 28px;
+  }
+  /* Two-column grid of section blocks, wider content, less nav chrome */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .section-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #6F6F6F;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #454545;
+  }
+  .block {
+    background: #333333; /* t.pane, distinct from B1's t.surface cards */
+    border: 1px solid #454545;
+    border-radius: 5px;
+    padding: 14px;
+    margin-bottom: 18px;
+  }
+  .full { grid-column: 1 / -1; }
+
+  .row-label { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .row-label .name { font-size: 12.5px; }
+  .row-label .value { font-size: 12px; color: #9A9A9A; font-family: ui-monospace, monospace; }
+  .caption { font-size: 10.5px; color: #6F6F6F; margin-top: 8px; line-height: 1.4; }
+
+  input[type=range] {
+    width: 100%; -webkit-appearance: none; height: 4px;
+    background: #262626; border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    border-radius: 50%; background: #0A84FF; cursor: pointer;
+  }
+
+  .stepper {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .stepper button {
+    width: 24px; height: 24px; border-radius: 4px;
+    border: 1px solid #515151; background: #262626; color: #E0E0E0;
+    font-size: 13px; cursor: pointer;
+  }
+  .stepper .val {
+    font-family: ui-monospace, monospace; font-size: 13px;
+    width: 36px; text-align: center;
+  }
+
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tier { border: 1px solid #515151; border-radius: 5px; padding: 8px; text-align: center; }
+  .tier.selected { border-color: #0A84FF; background: rgba(10,132,255,0.15); }
+  .tier .name { font-size: 11.5px; font-weight: 600; }
+  .tier .budget { font-size: 14px; font-weight: 700; color: #0A84FF; margin-top: 2px; }
+  .tier .detail { font-size: 9.5px; color: #6F6F6F; font-family: ui-monospace, monospace; margin-top: 2px; }
+
+  .shortcuts-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 20px;
+  }
+  .shortcut-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 2px; border-bottom: 1px solid #454545; font-size: 12px;
+  }
+  .keychip {
+    padding: 2px 8px; border-radius: 5px; border: 1px solid #515151;
+    background: #262626; font-family: ui-monospace, monospace; font-size: 10.5px;
+    min-width: 50px; text-align: center; margin-right: 6px;
+  }
+  .keychip.conflict { border-color: #FF453A; color: #FF453A; background: rgba(255,69,58,0.1); }
+  .record-btn { font-size: 10px; color: #0A84FF; cursor: pointer; }
+  .conflict-note { font-size: 10px; color: #FF453A; margin-top: 6px; grid-column: 1 / -1; }
+
+  .actions {
+    border-top: 1px solid #454545; padding: 12px 20px;
+    display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0;
+  }
+  .btn { padding: 7px 16px; border-radius: 5px; font-size: 12.5px; cursor: pointer; }
+  .btn.secondary { border: 1px solid #515151; }
+  .btn.primary { background: #0A84FF; color: white; border: 1px solid #0A84FF; }
+</style>
+</head>
+<body>
+<div class="backdrop">
+  <div class="dialog">
+    <div class="header">
+      <div class="titles">
+        <h1>Settings</h1>
+        <p>All preferences on one page — no navigation required</p>
+      </div>
+      <div class="badge">Halcyon v1</div>
+    </div>
+    <div class="scrollpane">
+      <div class="grid">
+        <div>
+          <div class="section-label">Parallelism</div>
+          <div class="block">
+            <div class="row-label"><span class="name">Decode lane width</span><span class="value">3 / 5</span></div>
+            <input type="range" min="1" max="5" value="3">
+            <div class="caption">Concurrent RAW decodes. Capped at 5 on this machine.</div>
+          </div>
+        </div>
+        <div>
+          <div class="section-label">Export</div>
+          <div class="block">
+            <div class="row-label"><span class="name">Export JPEG quality</span><span class="value">90</span></div>
+            <div class="stepper">
+              <button>−</button>
+              <span class="val">90</span>
+              <button>+</button>
+            </div>
+            <div class="caption">Applied to File → Export output.</div>
+          </div>
+        </div>
+
+        <div class="full">
+          <div class="section-label">Memory retention</div>
+          <div class="block">
+            <div class="tiers">
+              <div class="tier">
+                <div class="name">Conservative</div>
+                <div class="budget">224 MB</div>
+                <div class="detail">-3 / +5</div>
+              </div>
+              <div class="tier selected">
+                <div class="name">Balanced</div>
+                <div class="budget">304 MB</div>
+                <div class="detail">-3 / +8</div>
+              </div>
+              <div class="tier">
+                <div class="name">Generous</div>
+                <div class="budget">384 MB</div>
+                <div class="detail">-3 / +11</div>
+              </div>
+            </div>
+            <div class="caption">Photos kept fully decoded before/after current position, and the hard byte cap on the payload cache. Auto-selected from detected RAM; you can override.</div>
+          </div>
+        </div>
+
+        <div class="full">
+          <div class="section-label">Keyboard shortcuts</div>
+          <div class="block">
+            <div class="shortcuts-list">
+              <div class="shortcut-row"><span>Previous photo</span><span><span class="keychip">←</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Next photo</span><span><span class="keychip">→</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Star photo</span><span><span class="keychip">S</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Trash-mark photo</span><span><span class="keychip conflict">X</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Zoom in</span><span><span class="keychip">↑</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Zoom out</span><span><span class="keychip">↓</span><span class="record-btn">Record</span></span></div>
+              <div class="shortcut-row"><span>Toggle recycle mode</span><span><span class="keychip conflict">X</span><span class="record-btn">Record</span></span></div>
+              <div class="conflict-note">⚠ "X" bound twice — Trash-mark and Toggle recycle mode conflict.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="btn secondary">Cancel</div>
+      <div class="btn primary">Done</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

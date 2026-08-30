@@ -37,6 +37,25 @@ Future<BitmapContainerExtent?> heifExtentProbe(String path) async {
   }
 }
 
+/// Reads a JPEG XL's extent through the `ceyx` generic still-decode FFI
+/// surface, in the same try/catch-to-null shape as [heifExtentProbe]: an
+/// absent library, an absent symbol and a native error all become `null`,
+/// which is what keeps `dart_image_loader.dart` free of `Platform` checks
+/// (contract C-3).
+Future<BitmapContainerExtent?> jxlExtentProbe(String path) async {
+  try {
+    final probe = await CeyxStillDecoderService().probeOnWorker(path);
+    if (probe == null) return null;
+    return (
+      width: probe.width,
+      height: probe.height,
+      orientation: probe.orientation,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
 /// One question — "how big is this container and which way up is it?" — with
 /// one answer per container family:
 ///
@@ -52,13 +71,17 @@ Future<BitmapContainerExtent?> heifExtentProbe(String path) async {
 Future<BitmapContainerExtent?> probeBitmapContainer(
   String path, {
   HeifExtentProbe heifProbe = heifExtentProbe,
+  HeifExtentProbe jxlProbe = jxlExtentProbe,
 }) async {
   try {
-    if (SupportedPhotoFormats.isHeifPath(path)) {
+    if (SupportedPhotoFormats.isLibheifPath(path)) {
       // Awaited inside the try so a throwing probe (an injected fake, or a
       // future ceyx change) is swallowed to null rather than escaping — the
       // loader above is documented as never throwing.
       return await heifProbe(path);
+    }
+    if (SupportedPhotoFormats.isJxlPath(path)) {
+      return await jxlProbe(path);
     }
     final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
     if (dims == null) return null;

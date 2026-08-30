@@ -9,7 +9,9 @@ import '../support/fs_permissions.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
@@ -148,7 +150,7 @@ void main() {
     );
 
     test(
-      'uses semantic image request purposes for preview and sidebar thumbnail loading',
+      'uses the semantic preview image request purpose for preview loading',
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_request_');
         addTempDirTeardown(dir);
@@ -166,7 +168,13 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
-        expect(calls, contains(ImageRequestPurpose.sidebarThumbnail));
+        // RETIRED half (2026-08-30, plan Task 6 / amendment E-C2): this used
+        // to also assert `contains(ImageRequestPurpose.sidebarThumbnail)`. The
+        // controller no longer asks the loader for tiles -- it derives them
+        // from the shared payload -- so the sidebar purpose never reaches the
+        // loader from here. The enum value and its loader semantics are still
+        // pinned by test/services/image_pipeline/dart_image_loader_test.dart.
+        expect(calls, isNot(contains(ImageRequestPurpose.sidebarThumbnail)));
       },
     );
 
@@ -606,6 +614,84 @@ void main() {
         isCustom: false,
       );
       expect(await state.loadSavedRenameRule(), isNull);
+    });
+  });
+
+  group('AppState.decodeLaneWidth', () {
+    test('TC-351 lane width defaults to 1 with no ceiling injected', () async {
+      SharedPreferences.setMockInitialValues({});
+      final state = AppState();
+      addTearDown(state.dispose);
+      expect(state.maxDecodeLaneWidth, 1);
+      expect(state.decodeLaneWidth, 1);
+    });
+
+    test('TC-352 a persisted width is read back and pushed to the controller',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 4});
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+      );
+      addTearDown(controller.dispose);
+      final state = AppState(preloadController: controller, laneCeiling: 5);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, 4);
+      expect(controller.decodeLaneWidth, 4);
+    });
+
+    test(
+        'TC-353 a persisted width above this machine ceiling is clamped on read',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 9});
+      final state = AppState(laneCeiling: 2);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, 2);
+
+      state.setDecodeLaneWidth(1);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('decodeLaneWidth'), 1);
+      expect(state.decodeLaneWidth, 1);
+    });
+
+    // TC number provisional: docs/sop is not present in this worktree, so
+    // this could not be checked against the shared TC-NNN registry; next
+    // free number observed in-tree at authoring time was TC-382.
+    test(
+        'TC-382 (provisional) a non-positive injected laneCeiling does not '
+        'throw and normalizes to 1',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final zeroState = AppState(laneCeiling: 0);
+      addTearDown(zeroState.dispose);
+      expect(zeroState.maxDecodeLaneWidth, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(zeroState.decodeLaneWidth, 1);
+      zeroState.setDecodeLaneWidth(5);
+      expect(zeroState.decodeLaneWidth, 1);
+
+      SharedPreferences.setMockInitialValues({});
+      final negativeState = AppState(laneCeiling: -2);
+      addTearDown(negativeState.dispose);
+      expect(negativeState.maxDecodeLaneWidth, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(negativeState.decodeLaneWidth, 1);
+      negativeState.setDecodeLaneWidth(5);
+      expect(negativeState.decodeLaneWidth, 1);
+    });
+
+    // TC number provisional; see TC-382 above for the same caveat.
+    test(
+        'TC-383 (provisional) a wrong-typed stored decodeLaneWidth falls '
+        'back to the default instead of crashing prefs init',
+        () async {
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 'garbage'});
+      final state = AppState(laneCeiling: 5);
+      addTearDown(state.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.decodeLaneWidth, defaultLaneWidthFor(5));
     });
   });
 }

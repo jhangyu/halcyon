@@ -1,0 +1,2 @@
+instrument: absent on libomp.dylib
+RC=0

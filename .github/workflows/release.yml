@@ -5,9 +5,10 @@
 # BOTH repos side by side under the workspace (Halcyon/ + ceyx/) and runs every
 # step from Halcyon/. A bare root-level checkout can never pub get.
 #
-# scripts/build_apps.py is the SINGLE build entry point; jobs invoke it per
-# target and never call `flutter build` directly. Artifact output paths are
-# taken verbatim from build_apps.py:flutter_artifact() (scripts/build_apps.py:1376):
+# scripts/build_apps.py is the SINGLE build entry point; jobs invoke it (via
+# scripts/ci.py, see scripts/ci/) per target and never call `flutter build`
+# directly. Artifact output paths are taken verbatim from
+# build_apps.py:flutter_artifact() (scripts/build_apps.py:1376):
 #   macos   -> build/macos/Build/Products/Release/Halcyon.app
 #   windows -> build/windows/x64/runner/Release/
 #   linux   -> build/linux/<arch>/release/bundle/
@@ -17,23 +18,42 @@
 # user instruction: a job that cannot fail cannot tell you anything, and it had
 # concealed the fact that the Windows release build had never once been attempted.
 # If a platform breaks, this workflow goes red and we fix it — don't reinstate it.
+# `fail-fast: false` on the matrix below is NOT the same thing as
+# `continue-on-error`: it only lets sibling matrix legs finish instead of being
+# cancelled — a leg still fails when it fails. Don't "clean up" one into the other.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string used for a dry-run (no tag, no publish)'
+        required: false
+        default: 'v0.0.0-dryrun'
 
 permissions:
   contents: write
+
+env:
+  HALCYON_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
 
 defaults:
   run:
     working-directory: Halcyon
 
 jobs:
-  macos:
-    name: Release macOS (arm64)
-    runs-on: macos-14
+  release:
+    name: Release (${{ matrix.target }})
+    strategy:
+      fail-fast: false        # lets sibling matrix legs finish; a leg still fails when it fails
+      matrix:
+        include:
+          - {os: macos-14,       target: macos,   archive: 'Halcyon-macos-arm64-'}
+          - {os: windows-latest, target: windows, archive: 'Halcyon-windows-x64-'}
+          - {os: ubuntu-latest,  target: linux,   archive: 'Halcyon-linux-x64-'}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,103 +68,37 @@ jobs:
         with:
           flutter-version: '3.44.6'
           channel: 'stable'
+          # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
-      - name: flutter pub get
-        run: flutter pub get
+      - name: ci.py provision
+        run: python3 scripts/ci.py provision --target ${{ matrix.target }}
 
-      - name: Install CocoaPods dependencies
-        run: pod install
-        working-directory: Halcyon/macos
+      - name: ci.py build
+        run: python3 scripts/ci.py build --target ${{ matrix.target }}
 
-      - name: Build via single entry point (scripts/build_apps.py)
-        run: python3 scripts/build_apps.py macos
+      - name: ci.py assert-capabilities
+        run: python3 scripts/ci.py assert-capabilities --target ${{ matrix.target }}
 
-      - name: Package app bundle
-        run: |
-          ditto -c -k --keepParent \
-            "build/macos/Build/Products/Release/Halcyon.app" \
-            "Halcyon-macos-arm64-${GITHUB_REF_NAME}.zip"
+      - name: ci.py package
+        run: python3 scripts/ci.py package --target ${{ matrix.target }} --version ${{ env.HALCYON_VERSION }}
+
+      - name: ci.py release-preflight
+        run: python3 scripts/ci.py release-preflight --version ${{ env.HALCYON_VERSION }} --target ${{ matrix.target }}
+
+      # if: always() and placed before publish so a failed build still ships its
+      # logs. Name carries the matrix target — upload-artifact@v4 rejects
+      # duplicate artifact names across legs of the same run.
+      - name: Upload ci-logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-release-${{ matrix.target }}
+          path: Halcyon/build/ci-logs/**
+          if-no-files-found: warn
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: Halcyon/Halcyon-macos-arm64-${{ github.ref_name }}.zip
-          fail_on_unmatched_files: true
-
-  windows:
-    name: Release Windows (x64)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: Halcyon
-
-      - uses: actions/checkout@v4
-        with:
-          repository: jhangyu/ceyx
-          path: ceyx
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.6'
-          channel: 'stable'
-
-      - name: flutter pub get
-        run: flutter pub get
-
-      - name: Build via single entry point (scripts/build_apps.py)
-        # --fetch-native, not plain auto: ceyx still carries a committed
-        # dng_decoder_native.dll (1,906,688 bytes, hand-built 2026-08-22, no S4
-        # colour-gate record). Auto-fetch only fires when the destination is
-        # ABSENT, so without this flag Windows would keep shipping that
-        # unvalidated binary while Linux got the pinned CI build. Forcing the
-        # fetch makes both platforms use the same checksum-pinned artifact.
-        run: python3 scripts/build_apps.py windows --fetch-native
-
-      - name: Package runner folder
-        run: Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "Halcyon-windows-x64-${env:GITHUB_REF_NAME}.zip"
-
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Halcyon/Halcyon-windows-x64-${{ github.ref_name }}.zip
-          fail_on_unmatched_files: true
-
-  linux:
-    name: Release Linux (x64)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: Halcyon
-
-      - uses: actions/checkout@v4
-        with:
-          repository: jhangyu/ceyx
-          path: ceyx
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.6'
-          channel: 'stable'
-
-      - name: Install Linux desktop build dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
-
-      - name: flutter pub get
-        run: flutter pub get
-
-      - name: Build via single entry point (scripts/build_apps.py)
-        run: python3 scripts/build_apps.py linux
-
-      - name: Package bundle
-        run: |
-          bundle_dir="$(find build/linux -type d -path '*/release/bundle' | head -n1)"
-          test -n "$bundle_dir" || { echo "no linux release bundle found"; exit 1; }
-          tar -czf "Halcyon-linux-x64-${GITHUB_REF_NAME}.tar.gz" -C "$(dirname "$bundle_dir")" bundle
-
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Halcyon/Halcyon-linux-x64-${{ github.ref_name }}.tar.gz
+          files: Halcyon/${{ matrix.archive }}${{ env.HALCYON_VERSION }}.*
           fail_on_unmatched_files: true

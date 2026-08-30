@@ -126,6 +126,12 @@ same way it bundles the RAW stack. The exact configure flags and provenance live
 `ceyx/native/scripts/fetch_heif_deps.sh` and
 `ceyx/native/third_party/heif-dist/PROVENANCE.md`.
 
+On Windows, the same libraries are shipped as `heif.dll` and `libde265.dll` next to
+`dng_decoder_native.dll` and `Halcyon.exe`, fetched from a pinned ceyx GitHub Release
+(see `scripts/ceyx_release_pin.json` and `scripts/build_apps.py`) rather than built
+locally. The provenance for the Windows distribution lives in
+`ceyx/native/third_party/heif-dist-windows/PROVENANCE.md`.
+
 ### libheif
 
 - Used for: HEIF/AVIF container parsing, primary-item selection, `irot`/`imir`
@@ -136,7 +142,7 @@ same way it bundles the RAW stack. The exact configure flags and provenance live
 - License: **LGPL-3.0-or-later** (`docs/legal/LGPL-3.0.txt`). The sample applications and
   the Go/C++ wrappers are MIT, and none of them are built or shipped.
 - Linkage: **dynamic**. Shipped as `libheif.1.dylib` in `<App>.app/Contents/Frameworks/`
-  and loaded by the OS loader.
+  on macOS, and as `heif.dll` next to `Halcyon.exe` on Windows.
 
 ### libde265
 
@@ -145,17 +151,20 @@ same way it bundles the RAW stack. The exact configure flags and provenance live
 - Source: <https://github.com/strukturag/libde265/releases/download/v1.1.1/libde265-1.1.1.tar.gz>
 - SHA-256: `fd48a927e94ed74fc7ce8829d222b9d8599fcbfe8b6448ba66705babc56ab219`
 - License: **LGPL-3.0-or-later** (`docs/legal/LGPL-3.0.txt`).
-- Linkage: **dynamic**. Shipped as `libde265.0.dylib` in `<App>.app/Contents/Frameworks/`.
+- Linkage: **dynamic**. Shipped as `libde265.0.dylib` in `<App>.app/Contents/Frameworks/`
+  on macOS, and as `libde265.dll` next to `Halcyon.exe` on Windows.
 
 ### Why dynamic linking, and what it means for you
 
 LGPL-3 section 4 requires that a user be able to relink the application against a
 modified version of the library. Both libraries are shipped as separate, replaceable
-`.dylib` files, which satisfies section 4(d)(1) directly: replacing `libheif.1.dylib` or
-`libde265.0.dylib` inside `<App>.app/Contents/Frameworks/` with your own build is
-sufficient, and no object files for Halcyon's own code need to be published. This is a
-different obligation from the LGPL-2.1 static-linking one above (LibRaw/RawSpeed3), which
-is why the two are documented separately.
+`.dylib` files on macOS (or `.dll` files on Windows), which satisfies section 4(d)(1)
+directly: replacing `libheif.1.dylib` or `libde265.0.dylib` inside
+`<App>.app/Contents/Frameworks/` (macOS), or `heif.dll` / `libde265.dll` next to
+`Halcyon.exe` (Windows), with your own build is sufficient, and no object files for
+Halcyon's own code need to be published. This is a different obligation from the
+LGPL-2.1 static-linking one above (LibRaw/RawSpeed3), which is why the two are
+documented separately.
 
 No encoder is built or shipped. x265 (GPL-2.0), libaom, dav1d, kvazaar, SVT-AV1 and
 rav1e are all disabled at configure time, so nothing GPL-2.0 enters the binary. The

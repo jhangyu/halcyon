@@ -45,6 +45,13 @@ class SupportedPhotoFormats {
 
   static const Set<String> heifExtensions = {'.heic', '.heif'};
 
+  /// AVIF is AV1 inside the SAME ISO-BMFF container as HEIC, decoded by the
+  /// same libheif entry point. Kept as its own set only so the routing
+  /// predicate below can read clearly; it is NOT a separate decode path.
+  static const Set<String> avifExtensions = {'.avif'};
+
+  static const Set<String> jxlExtensions = {'.jxl'};
+
   /// Already-rendered bitmap containers with no cheap encoded bitstream that a
   /// full decoder can still turn into RGBA: TIFF via `package:image`, HEIC via
   /// the native libheif route in `ceyx` (phase 2). Membership here is what
@@ -54,6 +61,8 @@ class SupportedPhotoFormats {
   static const Set<String> bitmapDecodeExtensions = {
     ...tiffExtensions,
     ...heifExtensions,
+    ...avifExtensions,
+    ...jxlExtensions,
   };
 
   static final Set<String> supportedExtensions = Set.unmodifiable(
@@ -69,22 +78,18 @@ class SupportedPhotoFormats {
     decodableExtensions.union(bitmapDecodeExtensions),
   );
 
-  /// Cheap-format sibling ranking, cheapest-to-display first (user ruling,
-  /// 2026-08-28 parking-lot remediation D2): JPG → HEIC → WebP → PNG. All four
-  /// reach RGBA without a RAW decode, so any of them beats a DNG/RAW sibling;
-  /// the order within them reflects decode cost and how likely each is to be
-  /// the camera/prior-export rendition. `.heic`/`.heif` are now here (they were
-  /// deliberately absent before this ruling, ranking below RAW). `.tif`/`.tiff`
-  /// are absent ON PURPOSE and are NOT cheap-by-extension: a TIFF can be a RAW
-  /// carrier, so its tier is decided by probing for an embedded already-rendered
-  /// image in [resolveBestFileToLoad] — with one it ranks just after PNG,
-  /// without one it stays in the expensive tier alongside DNG/RAW.
+  /// Cheap-format sibling ranking, cheapest-to-display first. Order set by
+  /// user ruling 2026-08-30 (Q6): jpg > heic > webp > avif > jxl, with png
+  /// retained last. `.tif`/`.tiff` stay absent ON PURPOSE — a TIFF can be a
+  /// RAW carrier, so its tier is decided by probing in [resolveBestFileToLoad].
   static const preferredLoadExtensions = <String>[
     '.jpg',
     '.jpeg',
     '.heic',
     '.heif',
     '.webp',
+    '.avif',
+    '.jxl',
     '.png',
   ];
 
@@ -118,6 +123,18 @@ class SupportedPhotoFormats {
   /// `package:image` instead.
   static bool isHeifPath(String path) {
     return heifExtensions.contains(p.extension(path).toLowerCase());
+  }
+
+  /// Everything the native libheif route decodes: HEIC, HEIF and AVIF.
+  /// `full_decoder_dispatch.dart` picks the heif arm with THIS predicate, not
+  /// [isHeifPath], precisely because AVIF must not get its own arm.
+  static bool isLibheifPath(String path) {
+    final ext = p.extension(path).toLowerCase();
+    return heifExtensions.contains(ext) || avifExtensions.contains(ext);
+  }
+
+  static bool isJxlPath(String path) {
+    return jxlExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static bool hasFullDecodeRoute(String path) {

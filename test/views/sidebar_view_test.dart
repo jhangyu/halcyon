@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,8 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
@@ -18,7 +15,6 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../support/sample_photos.dart';
 
 // A minimal valid 1x1 transparent PNG (same fixture as
 // image_preload_controller_test.dart) — the sidebar renders thumbnail bytes
@@ -29,6 +25,18 @@ final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
 );
+
+/// Polls [condition] to a deadline instead of a fixed wall-clock sleep —
+/// same remedy family as aacd973 (image_preload_window_test.dart's `_until`).
+Future<void> _until(bool Function() condition, {String? reason}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('timed out waiting for: ${reason ?? 'condition'}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 void main() {
   setUp(() {
@@ -171,16 +179,26 @@ void main() {
         find.byType(PopupMenuButton<String>),
       );
 
+      final outFile = File(p.join(exportDest.path, 'IMG_0001.jpg'));
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        // A fixed wall-clock sleep here is a load-dependent race (same
+        // remedy family as aacd973): poll the actual completion signal.
+        // exportStarredThumbnails writes the output file BEFORE setting the
+        // "已匯出" status message (app_state.dart's exportStarredThumbnails),
+        // so the poll condition must be the status text, not file existence
+        // -- polling the file alone can observe it written while the status
+        // assertion below still reads the pre-export null/progress value.
+        await _until(
+          () => state.status?.text.contains('已匯出') ?? false,
+          reason: 'the export to finish and set the "已匯出" status message',
+        );
       });
       await tester.pump();
       drainListTileWarning(tester);
 
       expect(state.status?.text, contains('已匯出'));
       expect(state.status?.revealPath, exportDest.path);
-      final outFile = File(p.join(exportDest.path, 'IMG_0001.jpg'));
       expect(outFile.existsSync(), isTrue);
     },
   );
@@ -221,67 +239,13 @@ void main() {
   // check would make a same-range explicit call a silent no-op on top of
   // that) — the byte-source route this task proves does not require
   // rendering the widget at all.
-  testWidgets(
-    'sidebar sweep routes sidebarThumbnail requests through the Dart producer',
-    (tester) async {
-      late AppState state;
-      var loaderCalls = 0;
-      // The same injected seam also serves the detail view's tier-1/tier-2
-      // preview loads (AppState._preloadImages) — only sidebarThumbnail
-      // calls are this test's concern.
-      Future<NativeImageResult> countingLoader(
-        String path, {
-        required ImageRequestPurpose purpose,
-      }) {
-        if (purpose == ImageRequestPurpose.sidebarThumbnail) loaderCalls++;
-        return dartImageLoad(path, purpose: purpose);
-      }
-
-      await tester.runAsync(() async {
-        final sampleDir = sampleDngDir;
-        // Known preview-bearing samples (cross-checked in
-        // dng_embedded_jpeg_extractor_test.dart) — keeps this test fast and
-        // deterministic rather than sweeping all 14 samples.
-        const previewBearing = [
-          '2026-02-15-19-37-38.dng',
-          '2026-02-15-20-53-24.dng',
-        ];
-        final samples = previewBearing
-            .map((name) => File(p.join(sampleDir.path, name)))
-            .where((f) => f.existsSync())
-            .toList();
-        expect(samples, isNotEmpty,
-            reason: 'missing ${sampleDir.path}; cannot run real-sample test');
-
-        final dir = await Directory.systemTemp.createTemp(
-          'halcyon_sidebar_dartproducer_',
-        );
-        addTempDirTeardown(dir);
-        for (final f in samples) {
-          await f.copy(p.join(dir.path, p.basename(f.path)));
-        }
-
-        state = AppState(imageLoader: countingLoader);
-        await state.loadFolder(dir);
-
-        await state.preloadThumbnails(0, state.items.length - 1);
-        // Let the controller's real 100ms debounce timer fire (this whole
-        // block runs in tester.runAsync's real zone, so it is a real Timer).
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-
-      expect(loaderCalls, greaterThan(0));
-      final anyBytes = state.items.any(
-        (i) => state.getThumbnailBytes(i.id) != null,
-      );
-      expect(
-        anyBytes,
-        isTrue,
-        reason: 'preview-bearing samples must yield sidebar bytes via Dart',
-      );
-    },
-    skip: !samplePhotosAvailable,
-  );
+  // RETIRED (2026-08-30, plan Task 6 / amendment E-C2): 'sidebar sweep routes
+  // sidebarThumbnail requests through the Dart producer'. It asserted that the
+  // controller calls the loader with `ImageRequestPurpose.sidebarThumbnail`.
+  // The controller no longer calls the loader for tiles at all -- it derives
+  // them from the shared payload. `ImageRequestPurpose.sidebarThumbnail`
+  // itself is NOT deleted and its semantics stay pinned by
+  // test/services/image_pipeline/dart_image_loader_test.dart.
 
   // M6 P2.5b (matrix P-12): the sidebar RAW-decode fallback for bare-CFA
   // DNGs with no embedded JPEG at any size. Drives ImagePreloadController
@@ -295,15 +259,6 @@ void main() {
     required ImageRequestPurpose purpose,
   }) async => const NativeImageFailure('FORCED_FAIL_FOR_TEST', 'forced');
 
-  DecodedRgba fourByTwoFixture() {
-    final bytes = Uint8List(4 * 2 * 4);
-    for (var i = 0; i < bytes.length; i += 4) {
-      bytes[i] = 100; // R marker, opaque
-      bytes[i + 3] = 255;
-    }
-    return DecodedRgba(rgba: bytes, width: 4, height: 2);
-  }
-
   Future<Directory> tempDirWith(WidgetTester tester, String fileName) async {
     late Directory dir;
     await tester.runAsync(() async {
@@ -314,102 +269,71 @@ void main() {
     return dir;
   }
 
-  testWidgets(
-    'sidebar RAW-decode fallback: decodable PNG for a bare-CFA DNG, maxDim'
-    ' 200 requested',
-    (tester) async {
-      var decoderCalls = 0;
-      int? capturedMaxDim;
-      Future<DecodedRgba> fakeDecoder(String path, {required int maxDim}) async {
-        decoderCalls++;
-        capturedMaxDim = maxDim;
-        return fourByTwoFixture();
-      }
+  // RETIRED (2026-08-30, plan Task 6 / amendment E-C1): the three
+  // 'sidebar RAW-decode fallback: ...' tests (maxDim 200 requested / a
+  // throwing decoder is a permanent miss / a non-RAW item never reaches the
+  // decoder). All three pinned the sidebar's OWN sized decoder, which is
+  // deleted -- measured NOT FASTER than the full decode it duplicated
+  // (ratio 0.916, payload-bench-report.md §4). Replacements:
+  // sidebar_shared_payload_test.dart TC-430..433 and
+  // sidebar_lane_production_test.dart TC-434..437.
 
-      final dir = await tempDirWith(tester, 'a.dng');
-      final controller = ImagePreloadController(
-        imageLoader: alwaysFailLoader,
-        sidebarRawDecoder: fakeDecoder,
-      );
-      final state = AppState(preloadController: controller);
-      await tester.runAsync(() async {
-        await state.loadFolder(dir);
-        await state.preloadThumbnails(0, state.items.length - 1);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
+  Future<void> pumpSidebarWithEncodedThumbnail(WidgetTester tester) async {
+    final dir = await tempDirWith(tester, 'd.jpg');
+    final state = AppState(
+      imageLoader: (path, {required purpose}) async {
+        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+      },
+    );
+    await tester.runAsync(() async {
+      await state.loadFolder(dir);
+      await state.preloadThumbnails(0, state.items.length - 1);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await pumpSidebar(tester, state);
+  }
 
-      expect(decoderCalls, 1);
-      expect(capturedMaxDim, 200);
-      final id = state.items.single.id;
-      final bytes = state.getThumbnailBytes(id);
-      expect(bytes, isNotNull);
-      // Decodable: a garbage buffer would fail this round-trip.
-      await tester.runAsync(() async {
-        final codec = await ui.instantiateImageCodec(bytes!);
-        final frame = await codec.getNextFrame();
-        // readOrientation on this non-DNG fixture file returns null ->
-        // kDefaultExifOrientation (1, identity) -> no dim swap.
-        expect(frame.image.width, 4);
-        expect(frame.image.height, 2);
-      });
-    },
-  );
-
-  testWidgets(
-    'sidebar RAW-decode fallback: decoder throwing is a permanent miss, no'
-    ' crash, no retry signal',
-    (tester) async {
-      var decoderCalls = 0;
-      Future<DecodedRgba> throwingDecoder(
-        String path, {
-        required int maxDim,
-      }) async {
-        decoderCalls++;
+  Future<void> pumpSidebarWithAllDecodersThrowing(WidgetTester tester) async {
+    final dir = await tempDirWith(tester, 'f.dng');
+    final controller = ImagePreloadController(
+      imageLoader: alwaysFailLoader,
+      dngDecoder: (path) async {
         throw StateError('simulated decode failure');
-      }
+      },
+      payloadEncoder: null,
+    );
+    final state = AppState(preloadController: controller);
+    await tester.runAsync(() async {
+      await state.loadFolder(dir);
+      await state.preloadThumbnails(0, state.items.length - 1);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await pumpSidebar(tester, state);
+  }
 
-      final dir = await tempDirWith(tester, 'b.dng');
-      final controller = ImagePreloadController(
-        imageLoader: alwaysFailLoader,
-        sidebarRawDecoder: throwingDecoder,
-      );
-      final state = AppState(preloadController: controller);
-      await tester.runAsync(() async {
-        await state.loadFolder(dir);
-        await state.preloadThumbnails(0, state.items.length - 1);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-
-      expect(decoderCalls, 1);
-      final id = state.items.single.id;
-      expect(state.getThumbnailBytes(id), isNull);
+  testWidgets(
+    'TC-376 the JPG / embedded-preview arm still renders through '
+    'ResizeImage + MemoryImage (scope-limit regression guard)',
+    (tester) async {
+      await pumpSidebarWithEncodedThumbnail(tester);
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(image.image, isA<ResizeImage>());
+      expect((image.image as ResizeImage).imageProvider, isA<MemoryImage>());
     },
   );
 
   testWidgets(
-    'sidebar RAW-decode fallback: a non-RAW item never reaches the decoder',
+    'TC-377 (narrowed) a fully failed item renders exactly the existing grey '
+    'box and nothing new',
     (tester) async {
-      var decoderCalls = 0;
-      Future<DecodedRgba> fakeDecoder(String path, {required int maxDim}) async {
-        decoderCalls++;
-        return fourByTwoFixture();
-      }
-
-      final dir = await tempDirWith(tester, 'c.jpg');
-      final controller = ImagePreloadController(
-        imageLoader: alwaysFailLoader,
-        sidebarRawDecoder: fakeDecoder,
-      );
-      final state = AppState(preloadController: controller);
-      await tester.runAsync(() async {
-        await state.loadFolder(dir);
-        await state.preloadThumbnails(0, state.items.length - 1);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-
-      expect(decoderCalls, 0);
-      final id = state.items.single.id;
-      expect(state.getThumbnailBytes(id), isNull);
+      // The original TC-377 also asserted that a preview-less RAW renders a
+      // RawPixelsImage tile. RETIRED 2026-08-30 (plan Task 6): the sidebar
+      // derives tiles from the shared payload now, so a tile's provider family
+      // follows the payload's kind rather than a sidebar-only decode. The
+      // failure half below is premise-independent and stays.
+      await pumpSidebarWithAllDecodersThrowing(tester);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byType(Container), findsWidgets); // today's grey box
     },
   );
 

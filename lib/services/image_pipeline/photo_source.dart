@@ -4,6 +4,8 @@ import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'image_source_types.dart';
+import 'payload_normalizer.dart';
+import 'payload_reencoder.dart';
 import 'photo_payload.dart';
 
 /// How expensive it is to produce this file's payload, MEASURED from content.
@@ -92,7 +94,11 @@ typedef ProbeResult = ({SourceCost? cost, int? exifOrientation});
 /// providers -- is type-blind by construction (user decision D3/D4). Design
 /// authority: `docs/logs/2026-08-23/image-pipeline-redesign-handover.md` §3.1.
 class PhotoSource {
-  const PhotoSource({required this.loader, this.dngDecoder});
+  const PhotoSource({
+    required this.loader,
+    this.dngDecoder,
+    this.payloadEncoder,
+  });
 
   final NativeImageLoad loader;
 
@@ -103,6 +109,26 @@ class PhotoSource {
   /// to; the caller records `payload: null, deferred: false` exactly as any
   /// other unrecoverable file.
   final DngFullDecoder? dngDecoder;
+
+  /// Phase 13: turns the decoded RAW's FULL-RESOLUTION pixels into the single
+  /// JPEG bitstream the item retains, so a no-preview RAW becomes the same
+  /// cache citizen as a JPG at both tiers. NULL means "do not re-encode" --
+  /// the pre-Phase-13 `PixelPayload` behaviour, which is what every
+  /// decode-only test keeps exercising.
+  final PayloadEncoder? payloadEncoder;
+
+  /// Every ENCODED bitstream this class emits goes through here, so a JPG's
+  /// bytes, an embedded preview and a decoded RAW all become the same q70
+  /// payload (USER RULING 2026-08-30, contract D5: "ALL items").
+  ///
+  /// A null [payloadEncoder] is the pre-change behaviour, byte-for-byte: the
+  /// bytes are wrapped and nothing is decoded. That is the binding every
+  /// decode-only test uses and it must stay a true no-op.
+  Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async {
+    final encoder = payloadEncoder;
+    if (encoder == null) return EncodedPayload(bytes);
+    return normalizeEncodedPayload(encoded: bytes, encoder: encoder);
+  }
 
   /// Produces the payload for [path] at [longEdge], plus what that attempt
   /// revealed about the file's cost.
@@ -136,10 +162,17 @@ class PhotoSource {
     switch (result) {
       case NativeImageBytes(:final bytes):
         return (
-          payload: EncodedPayload(bytes),
+          payload: await _normalizedEncoded(bytes),
           observedCost: SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
+          // Deliberately NULL. `fullRes` means "pixels from the SAME FFI
+          // decode that produced this payload" and feeds the tier-2
+          // piggyback; the normaliser's ENGINE decode is not that, and
+          // piggybacking it would upload a full-resolution frame for every
+          // cheap item in the window -- `imageCacheBudgetBytes` is sized for
+          // five, and this plan may not re-derive it. Cheap items keep
+          // reaching tier-2 through TierTwoScheduler's ordinary upgrade.
           fullRes: null,
           failureCode: null,
         );
@@ -186,8 +219,29 @@ class PhotoSource {
             decoded,
             exifOrientation: exifOrientation,
           );
+          // PHASE 13 (one buffer, user ruling 2026-08-30). The re-encode
+          // happens HERE, before the outcome exists, so the payload the
+          // controller writes to the cache is already final: publishing a
+          // PixelPayload and swapping it later would change payload object
+          // identity and orphan the tier-1 ImageCache key and the tier-2
+          // registry entry keyed on it.
+          //
+          // `pixels` is still computed on the success path because it is the
+          // FALLBACK: one GPU pass over pixels already resident, and without
+          // it there would be nothing to degrade to at the moment the encode
+          // fails. `fullRes` is still returned because those pixels are
+          // already decoded, so the piggyback upload is free and saves a
+          // JPEG decode this round.
+          final encoder = payloadEncoder;
+          final payload = encoder == null
+              ? pixels
+              : await reencodePayload(
+                  encoder: encoder,
+                  fallback: pixels,
+                  fullRes: fullRes,
+                );
           return (
-            payload: pixels,
+            payload: payload,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
@@ -232,7 +286,9 @@ class PhotoSource {
         // last resort; a null here is a genuine "unreadable".
         final recovered = await fallbackAfterNativeFailure(path);
         return (
-          payload: recovered == null ? null : EncodedPayload(recovered),
+          payload: recovered == null
+              ? null
+              : await _normalizedEncoded(recovered),
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
@@ -278,8 +334,18 @@ class PhotoSource {
         decoded,
         exifOrientation: exifOrientation,
       );
+      // PHASE 13: identical to the `load` arm above -- see its comment. The
+      // two decode paths must not diverge in whether an item re-encodes.
+      final encoder = payloadEncoder;
+      final payload = encoder == null
+          ? pixels
+          : await reencodePayload(
+              encoder: encoder,
+              fallback: pixels,
+              fullRes: fullRes,
+            );
       return (
-        payload: pixels,
+        payload: payload,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,

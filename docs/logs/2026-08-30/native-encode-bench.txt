@@ -1,0 +1,12 @@
+== versions ==
+libjpeg-turbo version 3.2.0 (build 20260630)
+1.6.0
+== cjpeg q80 x3 ==
+cjpeg|rep=1|bytes=1986685|ms=82
+cjpeg|rep=2|bytes=1986685|ms=58
+cjpeg|rep=3|bytes=1986685|ms=62
+== cwebp q80 x3 ==
+cwebp|rep=1|bytes=1651630|ms=3103
+cwebp|rep=2|bytes=1651630|ms=2876
+cwebp|rep=3|bytes=1651630|ms=2805
+RC=0

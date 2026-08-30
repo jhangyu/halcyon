@@ -1,0 +1,18 @@
+ERROR in Phase 1: fetch ceyx prebuilt (linux) from release v0.1.4: ceyx asset libdng_decoder_native-linux-x86_64.so sha256 MISMATCH - refusing to use it.
+       -> expected: 0000000000000000000000000000000000000000000000000000000000000000
+       -> observed: 296fa3d9324242fd1a163b18f3e399007fa946c53e3d75fa2b24e583211b351e
+       -> quarantined at: build/ceyx-release-cache/v0.1.4/libdng_decoder_native-linux-x86_64.so.part.REJECTED
+       -> The pinned release v0.1.4 was re-uploaded, or the download is corrupt. Delete the quarantined file and re-run; if it mismatches again the asset changed upstream and the pin in ceyx_release_pin.json must be re-derived deliberately (--ceyx-release latest).
+
+
+==> Phase 1: fetch ceyx prebuilt (linux) from release v0.1.4
+    [warn] cached libdng_decoder_native-linux-x86_64.so sha256 mismatch - re-downloading (was 296fa3d9324242fd1a163b18f3e399007fa946c53e3d75fa2b24e583211b351e).
+    downloading libdng_decoder_native-linux-x86_64.so.part
+    from https://github.com/jhangyu/ceyx/releases/download/v0.1.4/libdng_decoder_native-linux-x86_64.so
+      0% (0 MiB / 5 MiB)
+      27% (1 MiB / 5 MiB)
+      55% (3 MiB / 5 MiB)
+      82% (4 MiB / 5 MiB)
+      100% (5 MiB / 5 MiB)
+
+SystemExit rc=1

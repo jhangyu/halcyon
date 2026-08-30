@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:ceyx/ceyx.dart' show CeyxImageFormat;
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/exif_orientation.dart';
@@ -653,5 +655,352 @@ void main() {
     final outputTags = await pkg_exif.readExifFromBytes(jpeg);
     expect(outputTags['Image Orientation']?.values.firstAsInt(), 1,
         reason: 'pixels are already rotated; the tag must not double-apply');
+  });
+
+  group('round 2: settable export longEdge (docs/logs/2026-08-30 spec)', () {
+    Future<String> tiffFixture(String name) async {
+      final tmp = Directory.systemTemp.createTempSync('halcyon_size_export');
+      addTempDirTeardown(tmp);
+      final path = '${tmp.path}${Platform.pathSeparator}$name.tif';
+      File(path)
+          .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
+      return path;
+    }
+
+    Future<Uint8List> rgbaFixture(int width, int height) async {
+      final rgba = Uint8List(width * height * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255; // opaque
+      }
+      return rgba;
+    }
+
+    test('TC-473 a non-default stop (480) resizes to that long edge, not '
+        '2048', () async {
+      final path = await tiffFixture('scan480');
+      final rgba = await rgbaFixture(3000, 2000);
+
+      final jpeg = await PhotoExportService.exportBytesFor(
+        path,
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+        longEdge: 480,
+      );
+
+      expect(jpeg, isNotNull);
+      final out = img.decodeJpg(jpeg!)!;
+      expect(out.width, lessThanOrEqualTo(480));
+      expect(out.height, lessThanOrEqualTo(480));
+      expect(out.width == 480 || out.height == 480, isTrue,
+          reason: 'the long edge is capped AT the chosen stop, not below it');
+    });
+
+    test('TC-474 the Original sentinel (0) skips resizing entirely: a '
+        'source larger than every named stop comes out unresized', () async {
+      final path = await tiffFixture('scanOriginal');
+      final rgba = await rgbaFixture(5000, 3000);
+
+      final jpeg = await PhotoExportService.exportBytesFor(
+        path,
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 5000, height: 3000),
+        longEdge: kOriginalExportLongEdge,
+      );
+
+      expect(jpeg, isNotNull);
+      final out = img.decodeJpg(jpeg!)!;
+      expect(out.width, 5000);
+      expect(out.height, 3000);
+    });
+
+    test('TC-475 PhotoExportService.exportStarred reads longEdge at call '
+        'time via the default fetch (no fetchBytes injected)', () async {
+      final path = await tiffFixture('scanServiceLevel');
+      final rgba = await rgbaFixture(3000, 2000);
+
+      final destDir = Directory(p.join(tempDir.path, 'out'));
+      await destDir.create();
+      final items = [
+        PhotoItem(
+          id: 'sample',
+          status: PhotoStatus.starred,
+          files: [File(path)],
+        ),
+      ];
+
+      final service = PhotoExportService(
+        decoder: (p) async =>
+            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+      );
+      service.longEdge = 720;
+      final outcome = await service.exportStarred(items, destDir);
+
+      expect(outcome.failures, isEmpty);
+      expect(outcome.exportedCount, 1);
+      final outFile =
+          File(p.join(destDir.path, '${p.basenameWithoutExtension(path)}.jpg'));
+      final out = img.decodeJpg(await outFile.readAsBytes())!;
+      expect(out.width <= 720 && out.height <= 720, isTrue);
+      expect(out.width == 720 || out.height == 720, isTrue);
+    });
+  });
+
+  group('round 2b: Export Filetype (JPEG / WebP-lossy)', () {
+    // `CeyxEncodeService`'s default (real FFI) encode requires an app-bundle
+    // dylib search path that `flutter test` cannot resolve (verified: the
+    // default constructor's candidate list has no entry that matches this
+    // repo's layout when run outside a built .app). These tests inject a
+    // pure-Dart [WebpEncode] fake via `package:image`'s own WebP encoder
+    // instead -- real WebP bytes, no native dependency -- so the PLUMBING
+    // (resize target, quality pass-through, extension, EXIF non-carry) is
+    // exercised the same way [DngFullDecoder] fakes exercise the RAW-decode
+    // plumbing elsewhere in this file, without depending on a built app
+    // bundle. Wiring the real `CeyxEncodeService()` default is covered by
+    // this file's production code (`_defaultWebpEncode`) and by manual/CI
+    // app-level verification, matching how the real DNG decoder is never
+    // exercised in this suite either.
+    Future<Uint8List> fakeWebpEncode(
+      Uint8List rgba, {
+      required CeyxImageFormat format,
+      required int width,
+      required int height,
+      required int quality,
+      required bool lossless,
+      Uint8List? exif,
+    }) async {
+      final frame = img.Image.fromBytes(
+        width: width,
+        height: height,
+        bytes: rgba.buffer,
+        bytesOffset: rgba.offsetInBytes,
+        numChannels: 4,
+        order: img.ChannelOrder.rgba,
+      );
+      return img.encodeWebP(frame);
+    }
+
+    test(
+      'TC-479 filetype: webpLossy produces a real WebP (decodable, correct '
+      'dimensions), resized to the chosen long edge',
+      () async {
+        final tmp = Directory.systemTemp.createTempSync('halcyon_webp_export');
+        addTempDirTeardown(tmp);
+        final path = '${tmp.path}${Platform.pathSeparator}scan.tif';
+        File(path)
+            .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
+
+        final rgba = Uint8List(3000 * 2000 * 4);
+        for (var i = 3; i < rgba.length; i += 4) {
+          rgba[i] = 255;
+        }
+
+        final webp = await PhotoExportService.exportBytesFor(
+          path,
+          decoder: (p) async =>
+              DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+          longEdge: 480,
+          filetype: ExportFiletype.webpLossy,
+          stillEncode: fakeWebpEncode,
+        );
+
+        expect(webp, isNotNull);
+        final decoded = img.decodeWebP(webp!);
+        expect(decoded, isNotNull, reason: 'must be a real, decodable WebP');
+        expect(decoded!.width <= 480 && decoded.height <= 480, isTrue);
+        expect(decoded.width == 480 || decoded.height == 480, isTrue);
+      },
+    );
+
+    // TC-480 (INVERTED 2026-08-30, codec expansion). Before this round WebP
+    // exports carried zero EXIF because `ceyx_encode_webp_rgba8` took no
+    // metadata pointer. `stillEncode`/`encodeNative` now takes an `exif`
+    // block (see `_readSourceExifBlock`), so the original assertion is
+    // exactly backwards and is flipped here rather than removed -- an
+    // inverted assertion proves the change happened; a deleted one proves
+    // nothing.
+    test(
+      'TC-480: WebP export CARRIES an EXIF block (was: carries NO EXIF)',
+      () async {
+        final tmp = Directory.systemTemp.createTempSync('halcyon_webp_exif');
+        addTempDirTeardown(tmp);
+        final path = '${tmp.path}${Platform.pathSeparator}scan.tif';
+        File(path)
+            .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
+
+        final rgba = Uint8List(64 * 64 * 4);
+        for (var i = 3; i < rgba.length; i += 4) {
+          rgba[i] = 255;
+        }
+
+        Uint8List? capturedExif;
+        Future<Uint8List> capturingEncode(
+          Uint8List rgba, {
+          required CeyxImageFormat format,
+          required int width,
+          required int height,
+          required int quality,
+          required bool lossless,
+          Uint8List? exif,
+        }) async {
+          capturedExif = exif;
+          return fakeWebpEncode(
+            rgba,
+            format: format,
+            width: width,
+            height: height,
+            quality: quality,
+            lossless: lossless,
+            exif: exif,
+          );
+        }
+
+        final webp = await PhotoExportService.exportBytesFor(
+          path,
+          decoder: (p) async => DecodedRgba(rgba: rgba, width: 64, height: 64),
+          filetype: ExportFiletype.webpLossy,
+          stillEncode: capturingEncode,
+        );
+        expect(webp, isNotNull);
+        final decodedWebp = img.decodeWebP(webp!);
+        expect(decodedWebp, isNotNull);
+        // A TIFF source with no EXIF of its own still yields a non-empty
+        // block: `_readSourceExifBlock` always force-sets Orientation=1.
+        expect(capturedExif, isNotNull,
+            reason: 'exportBytesFor must hand the encoder an EXIF block for '
+                'a non-JPEG format');
+        expect(capturedExif!.isNotEmpty, isTrue);
+      },
+    );
+
+    test(
+      'TC-481 exportStarred names the output file with the filetype\'s '
+      'extension (.webp for webpLossy, not .jpg)',
+      () async {
+        final destDir = Directory(p.join(tempDir.path, 'out'));
+        await destDir.create();
+        final items = [
+          starred('a', ['a.jpg']),
+        ];
+        final service = PhotoExportService(
+          fetchBytes: (path) async => _fakeJpeg('webp-bytes-stand-in'),
+        )..filetype = ExportFiletype.webpLossy;
+
+        final outcome = await service.exportStarred(items, destDir);
+
+        expect(outcome.exportedCount, 1);
+        expect(await File(p.join(destDir.path, 'a.webp')).exists(), isTrue);
+        expect(await File(p.join(destDir.path, 'a.jpg')).exists(), isFalse);
+      },
+    );
+  });
+
+  group('codec expansion: all six export filetypes', () {
+    late List<({CeyxImageFormat format, int quality, bool lossless, bool hasExif})>
+        calls;
+
+    Future<Uint8List> fakeEncode(
+      Uint8List rgba, {
+      required CeyxImageFormat format,
+      required int width,
+      required int height,
+      required int quality,
+      required bool lossless,
+      Uint8List? exif,
+    }) async {
+      calls.add((
+        format: format,
+        quality: quality,
+        lossless: lossless,
+        hasExif: exif != null && exif.isNotEmpty,
+      ));
+      return Uint8List.fromList([1, 2, 3, 4]);
+    }
+
+    Future<String> tiffFixture(String name) async {
+      final tmp = Directory.systemTemp.createTempSync('halcyon_codec_export');
+      addTempDirTeardown(tmp);
+      final path = '${tmp.path}${Platform.pathSeparator}$name.tif';
+      File(path)
+          .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
+      return path;
+    }
+
+    setUp(() => calls = []);
+
+    test('every filetype produces bytes and the right extension', () async {
+      final path = await tiffFixture('allSix');
+      final rgba = Uint8List(64 * 64 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255;
+      }
+      for (final ft in ExportFiletype.values) {
+        final bytes = await PhotoExportService.exportBytesFor(
+          path,
+          decoder: (p) async => DecodedRgba(rgba: rgba, width: 64, height: 64),
+          filetype: ft,
+          stillEncode: fakeEncode,
+        );
+        expect(bytes, isNotNull, reason: '${ft.name} produced no bytes');
+      }
+      expect(ExportFiletype.jxl.extension, 'jxl');
+      expect(ExportFiletype.avif.extension, 'avif');
+      expect(ExportFiletype.heif.extension, 'heic');
+      expect(ExportFiletype.webpLossless.extension, 'webp');
+    });
+
+    test('lossless formats do not receive the quality knob', () async {
+      final path = await tiffFixture('lossless');
+      final rgba = Uint8List(64 * 64 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255;
+      }
+      await PhotoExportService.exportBytesFor(
+        path,
+        decoder: (p) async => DecodedRgba(rgba: rgba, width: 64, height: 64),
+        filetype: ExportFiletype.webpLossless,
+        quality: 42,
+        stillEncode: fakeEncode,
+      );
+      final call = calls.single;
+      expect(call.lossless, isTrue);
+      // The native side ignores quality when lossless != 0, but forwarding a
+      // user-visible knob that does nothing is how a misleading UI gets
+      // shipped.
+      expect(call.quality, isNot(42),
+          reason: 'quality must not be forwarded for a lossless format');
+    });
+
+    test('every non-JPEG format is handed an EXIF block', () async {
+      final path = await tiffFixture('exifAllFormats');
+      final rgba = Uint8List(64 * 64 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255;
+      }
+      for (final ft in [
+        ExportFiletype.webpLossy,
+        ExportFiletype.webpLossless,
+        ExportFiletype.heif,
+        ExportFiletype.avif,
+        ExportFiletype.jxl,
+      ]) {
+        calls = [];
+        await PhotoExportService.exportBytesFor(
+          path,
+          decoder: (p) async => DecodedRgba(rgba: rgba, width: 64, height: 64),
+          filetype: ft,
+          stillEncode: fakeEncode,
+        );
+        expect(calls.single.hasExif, isTrue,
+            reason: '${ft.name} exported without EXIF');
+      }
+    });
+
+    test('a runtime-unavailable format is absent from the UI list', () {
+      final state = AppState.forTesting(
+        runtimeCapabilities: {ExportFiletype.jpeg, ExportFiletype.webpLossy},
+      );
+      expect(state.selectableExportFiletypes, isNot(contains(ExportFiletype.jxl)));
+      expect(state.selectableExportFiletypes, contains(ExportFiletype.jpeg));
+    });
   });
 }

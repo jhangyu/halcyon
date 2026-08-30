@@ -1,0 +1,18 @@
+==============================================================
+ Halcyon build_apps.py - native + Flutter, one entry point
+==============================================================
+    halcyon: /Users/jhangyu/project/Halcyon
+    decoder: /Users/jhangyu/project/ceyx
+    host:    macos/arm64  mode: release
+
+==> Target: macos (release)
+
+==> Phase 0: prerequisite checks (macos)
+    [ok]   flutter: /Users/jhangyu/project/flutter/bin/flutter
+    [ok]   decoder package: /Users/jhangyu/project/ceyx
+    [ok]   host macos/arm64 can build 'macos'
+
+==============================================================
+ DONE - no warnings.
+==============================================================
+RC=0

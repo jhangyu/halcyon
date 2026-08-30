@@ -1,0 +1,33 @@
+Red-state demonstrations for the R-7 assertion suite (WP-C).
+Driver: scripts/tmp/wpc_red_state.py (scratch, gitignored).
+Baseline is GREEN with the real committed ceyx Windows DLLs, whose sha256
+match scripts/ceyx_release_pin.json exactly, so the only difference between
+the baseline and each red run is that assertion's declared mutation.
+Halcyon.exe in the staging archive is a synthetic header-only PE stub; it
+makes H-ARCH measurable and asserts nothing about Windows runtime behaviour.
+RC lines are self-captured by the producing process.
+
+=== baseline-green: build/wpc-redstate/baseline-green.zip ===
+ASSERT: target=windows assertions=5
+ASSERT-SOURCE: archive /Users/jhangyu/project/Halcyon/build/wpc-redstate/baseline-green.zip
+ASSERT-OK: H-ARCH — expected x86_64; Halcyon.exe=x86_64
+ASSERT-OK: H-DECODER-PRESENT — dng_decoder_native.dll at dng_decoder_native.dll
+ASSERT-OK: H-DECODER-DEPS — all pinned libraries present: dng_decoder_native.dll, heif.dll, libde265.dll
+ASSERT-OK: H-DECODER-HASH — pinned digests matched: dng_decoder_native.dll=c2fd85fb6643…, heif.dll=e8c84ae25794…, libde265.dll=339ac370586d…
+SKIP: H-SIZED-SYMBOL — a windows library cannot be loaded on a macos host; the functional probe runs on the artefact's own platform (cross-platform runs are covered by that platform's CI job)
+ASSERT-SUMMARY: windows assertions=5 failed=0 skipped=1
+RC=0
+
+=== H-DECODER-PRESENT-red: build/wpc-redstate/H-DECODER-PRESENT-red.zip ===
+ASSERT: target=windows assertions=5
+ASSERT-SOURCE: archive /Users/jhangyu/project/Halcyon/build/wpc-redstate/H-DECODER-PRESENT-red.zip
+ASSERT-OK: H-ARCH — expected x86_64; Halcyon.exe=x86_64
+ASSERT-FAIL: H-DECODER-PRESENT — dng_decoder_native.dll is absent from archive /Users/jhangyu/project/Halcyon/build/wpc-redstate/H-DECODER-PRESENT-red.zip — the app would fail at DynamicLibrary.open
+    red_state: remove the decoder library from a staging copy before packaging: the assertion fails naming the missing basename
+ASSERT-FAIL: H-DECODER-DEPS — pinned libraries missing from the artefact: dng_decoder_native.dll (present: heif.dll, libde265.dll)
+    red_state: delete heif.dll from a staging copy of the archive: the assertion fails naming heif.dll
+ASSERT-FAIL: H-DECODER-HASH — dng_decoder_native.dll: absent from the artefact
+    red_state: flip one byte of a library in a staging copy: the assertion fails printing the expected and observed digests
+SKIP: H-SIZED-SYMBOL — a windows library cannot be loaded on a macos host; the functional probe runs on the artefact's own platform (cross-platform runs are covered by that platform's CI job)
+ASSERT-SUMMARY: windows assertions=5 failed=3 skipped=1
+RC=1

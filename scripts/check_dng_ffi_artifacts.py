@@ -51,7 +51,14 @@ def resolve_manifest_path(repo_root: Path, raw_path: str) -> Path:
 
 
 def check_symbol(binary_path: Path, tool: str, tool_args: list[str], symbol: str) -> str:
-    """Return 'present', 'absent', or 'skipped' for the given symbol."""
+    """Return 'present', 'absent', or 'skipped' for the given symbol.
+
+    Importable: ``scripts/ci/assertions.py`` reuses this exact function for the
+    H-SIZED-SYMBOL-NM secondary record, so the CI gate and this manual checker
+    can never drift into two different symbol-table instruments. Note the
+    output is captured to a str and matched in Python — never ``| grep``, which
+    inverts under ``pipefail`` (2026-08-28).
+    """
     tool_bin = shutil.which(tool)
     if tool_bin is None:
         return "skipped"

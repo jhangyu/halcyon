@@ -122,22 +122,15 @@ RC=$?; echo "G1_RUN_RC=$RC" >> "$OUT"
 
 {
   echo ""
-  echo "## 4. G3 sidebar bench (verdict-bearing; full sidebar route incl. RAW-decode fallback)"
-  echo "-- DNG_NATIVE_BUILD_DIR=\$(dirname \$DYLIB) G3_LIST=$LIST G3_OUT=$WORK/g3.csv flutter test -j 1 tool/m6_dng_gate/g3_sidebar_bench.dart"
+  echo "## 4/5. G3 sidebar bench -- RETIRED 2026-08-30 (AD-039)."
+  echo "The sidebar RAW-decode fallback used to JPEG-re-encode every"
+  echo "produced thumbnail; that step is gone (sidebar tiles now store"
+  echo "oriented pixels directly), so there is nothing left for g3_sidebar_"
+  echo "bench.dart to time that matches its recorded baseline's semantics."
+  echo "g3_sidebar_bench.dart was deleted (user ruling) rather than"
+  echo "repaired. Do not resurrect this stage against the pixel path"
+  echo "without a new baseline recorded against that path's own timings."
 } >> "$OUT"
-DYLIB_DIR="$(dirname "$DYLIB")"
-DNG_NATIVE_BUILD_DIR="$DYLIB_DIR" G3_LIST="$LIST" G3_OUT="$WORK/g3.csv" flutter test -j 1 tool/m6_dng_gate/g3_sidebar_bench.dart >> "$OUT" 2>&1
-RC=$?; echo "G3_RUN_RC=$RC" >> "$OUT"
-
-{
-  echo ""
-  echo "## 5. G3 sidebar bench CSV (verdict_dng_extract.py parses lines between the markers below)"
-  echo "G3_SIDEBAR_CSV_BEGIN"
-} >> "$OUT"
-if [ -f "$WORK/g3.csv" ]; then
-  cat "$WORK/g3.csv" >> "$OUT"
-fi
-echo "G3_SIDEBAR_CSV_END" >> "$OUT"
 
 {
   echo ""

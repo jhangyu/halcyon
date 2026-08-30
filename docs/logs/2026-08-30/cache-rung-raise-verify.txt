@@ -1,0 +1,61 @@
+=== flutter analyze ===
+Analyzing Halcyon...                                            
+No issues found! (ran in 1.3s)
+RC=0
+=== retention_policy_test ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_policy_test.dart
+00:00 +0: TC-315: no reading and low-RAM machines get today shipped floor
+00:00 +1: TC-316: the mid and high rungs trigger at 12 GiB and 32 GiB
+00:00 +2: TC-317: every rung holds its own RAW window and stays modest
+00:00 +3: TC-347 lane ceiling follows the memory rung
+00:00 +4: TC-348 lane ceiling is also clamped by core count
+00:00 +5: TC-349 default width is the ceiling capped at kDefaultDecodeLaneWidth (3, per user ruling 2026-08-30 overriding the decode-only Task 7 re-benchmark verdict pending combined decode+re-encode re-measurement)
+00:00 +6: All tests passed!
+RC=0
+=== retention_tier_test ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/retention_tier_test.dart
+00:00 +0: TC-441 each tier maps to its shipped rung, and RAM selection agrees
+00:00 +1: TC-442 tierForPolicy round-trips, and unknown policies fall back
+00:00 +2: TC-443 shrinking the byte budget evicts immediately, without a put
+00:00 +3: TC-444 setRetention updates the window and the cache budget
+00:00 +4: All tests passed!
+RC=0
+=== photo_payload_cache_test ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/photo_payload_cache_test.dart
+00:00 +0: PhotoPayloadCache (D4: retention is type-blind) TC-060 eviction order is identical when the payload KINDS are swapped
+00:00 +1: PhotoPayloadCache (D4: retention is type-blind) TC-061 eviction with priority set evicts the FARTHEST item, not the oldest (user ruling 2026-08-27)
+00:00 +2: PhotoPayloadCache (D4: retention is type-blind) TC-300 over-budget put evicts the farthest id, not the oldest
+00:00 +3: PhotoPayloadCache (D4: retention is type-blind) TC-301 selected (first-priority) item survives even when it is the oldest entry
+00:00 +4: PhotoPayloadCache (D4: retention is type-blind) TC-062 peek does not count as a use
+00:00 +5: PhotoPayloadCache (D4: retention is type-blind) TC-063 a payload larger than the whole budget is still retained
+00:00 +6: PhotoPayloadCache (D4: retention is type-blind) TC-064 retainOnly drops exactly the ids outside the window and reports them
+00:00 +7: PhotoPayloadCache (D4: retention is type-blind) TC-065 the retention window is -3..+5, clamped at both ends
+00:00 +8: PhotoPayloadCache (D4: retention is type-blind) TC-219 retentionWindowIds honours explicit before/after
+00:00 +9: PhotoPayloadCache (D4: retention is type-blind) TC-220 retentionWindowIds defaults are still -3..+5
+00:00 +10: All tests passed!
+RC=0
+=== image_preload_window_test ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/services/image_pipeline/image_preload_window_test.dart
+00:00 +0: TC-095 every slot of the -3..+5 retention window holds a tier-1 entry (AC2)
+00:00 +1: TC-096 an item at -3 and one at +5 keep their tier-1 entries while in-window, and lose them on leaving (AC2 killer)
+00:00 +2: TC-097 tier-2 full-size entries cover -1..+3 after the debounce settles (AC3)
+00:00 +3: TC-098a an all-expensive folder fills the WHOLE -3..+5 payload window, not just +/-1 (criterion 2)
+00:00 +4: TC-098b at most ONE expensive decode is ever in flight, while cheap window loads still issue in parallel (criterion 3)
+00:00 +5: TC-098c fresh settle decode START order is 0, +1, -1, +2, -2, +3, -3, +4, +5 (criterion 4)
+00:00 +6: TC-098d navigating mid-queue reprioritises the lane: no decode starts outside the new window, and the next one is its nearest missing item (criterion 5)
+00:01 +7: TC-099 widening tier-1 creates no payloads of its own
+00:02 +8: TC-100 the two budget constants are pinned as raw byte counts
+00:02 +9: TC-318 a mid-rung policy fills out to +8 and retains nothing at +9
+00:02 +10: TC-319 the default policy is still the shipped -3..+5 floor
+00:02 +11: TC-356 a width-3 controller runs more than one expensive decode at once, and never more than three
+00:02 +12: TC-357 width 3 keeps the near-to-far START order: the first three starts are distances 0, +1, -1
+00:02 +13: All tests passed!
+RC=0
+=== app_state_settings_test ===
+00:00 +0: loading /Users/jhangyu/project/Halcyon/test/providers/app_state_settings_test.dart
+00:00 +0: TC-449 hydrates every new setting, and falls back PER FIELD on garbage
+00:00 +1: TC-450 export quality is normalised to a 5-step in 70..100 and persisted
+00:00 +2: TC-451 the tier reaches the pipeline, and reset returns to the auto tier
+00:00 +3: TC-452 restoreSettings reverts state AND prefs for every field
+00:00 +4: All tests passed!
+RC=0

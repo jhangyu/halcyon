@@ -1,0 +1,6 @@
+android /Users/jhangyu/project/ceyx/plugin/android/src/main/jniLibs/arm64-v8a/libdng_decoder_native.so present=True symbol=present
+linux /Users/jhangyu/project/ceyx/plugin/linux/Libraries/libdng_decoder_native.so present=False symbol=skipped
+macos /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib present=True symbol=present
+windows /Users/jhangyu/project/ceyx/plugin/windows/Libraries/dng_decoder_native.dll present=True symbol=skipped
+SUMMARY: 1 check(s) skipped (tool unavailable on this host)
+RC=0

@@ -294,41 +294,9 @@ void main() {
     },
   );
 
-  test(
-    'D2 sidebar fix: a browse-only RAW (.cr2) never invokes the sized '
-    'sidebar decoder, even though isRawPath(".cr2") is true -- the gate must '
-    'be isDecodablePath, not isRawPath',
-    () async {
-      var sidebarDecoderCalls = 0;
-      final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
-          return const NativeImageFailure('NO_THUMBNAIL', 'no candidate');
-        },
-        dngDecoder: (path) async => throw UnimplementedError(),
-        sidebarRawDecoder: (path, {required maxDim}) async {
-          sidebarDecoderCalls++;
-          throw StateError(
-            'the sidebar decoder must never be invoked for a D2 browse-only '
-            'RAW (.cr2)',
-          );
-        },
-      );
-      addTearDown(controller.dispose);
-
-      final items = [
-        PhotoItem(id: 'cr2-2', files: [File('/tmp/cr2-2.cr2')]),
-      ];
-
-      await controller.preloadThumbnails(
-        items: items,
-        startIdx: 0,
-        endIdx: 0,
-        notifyLoaded: () {},
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-
-      expect(sidebarDecoderCalls, 0);
-      expect(controller.thumbnailBytesFor('cr2-2'), isNull);
-    },
-  );
+  // RETIRED (2026-08-30, plan Task 6): 'D2 sidebar fix: a browse-only RAW
+  // (.cr2) never invokes the sized sidebar decoder'. The sized sidebar decoder
+  // is deleted, so the gate it asserted on (isDecodablePath vs isRawPath) no
+  // longer exists on this path. The D2 ruling itself is still enforced -- by
+  // PhotoSource, covered by this file's failureCode tests above.
 }

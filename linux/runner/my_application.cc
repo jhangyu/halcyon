@@ -55,6 +55,33 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
+  // Set the window icon. The icon is installed alongside the binary at
+  // <bundle>/data/icons/halcyon.png (see linux/CMakeLists.txt); resolve it
+  // relative to the running executable so it works both from the build
+  // bundle and from a packaged install.
+  {
+    g_autoptr(GError) icon_error = nullptr;
+    g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", &icon_error);
+    if (exe_path != nullptr) {
+      g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+      g_autofree gchar* icon_path =
+          g_build_filename(exe_dir, "data", "icons", "halcyon.png", nullptr);
+      g_autoptr(GError) load_error = nullptr;
+      if (!gtk_window_set_icon_from_file(window, icon_path, &load_error) &&
+          load_error != nullptr) {
+        g_warning("Failed to load window icon from %s: %s", icon_path,
+                   load_error->message);
+      }
+    } else if (icon_error != nullptr) {
+      g_warning("Failed to resolve executable path for window icon: %s",
+                icon_error->message);
+    }
+    // Also register the icon name so GTK/desktop environments that resolve
+    // icons via the .desktop file's Icon= key (installed icon theme lookup)
+    // can find it too.
+    gtk_window_set_icon_name(window, "halcyon");
+  }
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
 

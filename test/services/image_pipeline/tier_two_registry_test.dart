@@ -133,6 +133,28 @@ void main() {
     );
   });
 
+  test(
+      'TC-385 fullResProviderFor serves the ENCODED family through the '
+      'display-path getter, not just RawFullResImage (2026-08-30 root-cause '
+      'fix, tier2-rootcause.md)', () async {
+    final payload = _freshEncodedPayload();
+    final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
+    addTearDown(registry.clear);
+
+    final provider = await _publishAndAwait(registry, 'IMG_00', payload);
+
+    expect(registry.isReady('IMG_00'), isTrue);
+    expect(
+      registry.fullResProviderFor('IMG_00'),
+      same(provider),
+      reason: 'the display path (AppState.displayProvider ->'
+          ' fullResProviderFor) must serve an encoded-payload tier-2 entry, '
+          'not just a RawFullResImage one -- the old `key is RawFullResImage` '
+          'filter silently dropped this whole family, so the view fell back '
+          'to tier-1 forever for every re-encoded RAW/JPG item',
+    );
+  });
+
   test('TC-234 isReady goes false when the payload object is replaced', () async {
     final original = _freshEncodedPayload();
     // The BLOCKER-1 scenario as a one-line closure swap. Reaching this through

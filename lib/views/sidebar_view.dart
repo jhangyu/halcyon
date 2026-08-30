@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
+import '../services/image_pipeline/photo_payload.dart';
+import '../services/image_pipeline/raw_pixels_image.dart';
 import 'package:file_selector/file_selector.dart';
 import 'batch_delete_feedback.dart';
 import 'rename_dialog/rename_dialog.dart';
@@ -262,8 +264,8 @@ class _SidebarViewState extends State<SidebarView> {
   }
 
   Widget _buildListThumbnail(AppState state, String id) {
-    final thumbBytes = state.getThumbnailBytes(id);
-    if (thumbBytes == null) {
+    final payload = state.thumbnailPayloadFor(id);
+    if (payload == null) {
       return Container(
         width: 32,
         height: 32,
@@ -273,32 +275,48 @@ class _SidebarViewState extends State<SidebarView> {
         ),
       );
     }
-    // M1 (image-pipeline redesign, docs/logs/2026-08-23/
-    // image-pipeline-redesign-handover.md §6 M1): width/height on
-    // Image.memory alone are LAYOUT constraints only — the decoder still
-    // produces a full-resolution bitmap. Today that is masked because the
-    // native side caps sidebarThumbnail requests at 200px, but a future
-    // shared cache (M3) can hand this widget a full-size image. Cap the
-    // DECODE itself at 32 * devicePixelRatio on the longest edge via
-    // ResizeImage's `fit` policy, which fits the source within a
-    // cap x cap box while preserving aspect ratio — `exact` (or naive
-    // cacheWidth+cacheHeight) would silently squash non-square sources.
-    final cap = (32 * MediaQuery.devicePixelRatioOf(context)).round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: Image(
-        image: ResizeImage(
-          MemoryImage(thumbBytes),
-          width: cap,
-          height: cap,
-          policy: ResizeImagePolicy.fit,
-        ),
+        image: _thumbnailProvider(payload),
         width: 32,
         height: 32,
         fit: BoxFit.cover,
         gaplessPlayback: true,
       ),
     );
+  }
+
+  ImageProvider _thumbnailProvider(SourcePayload payload) {
+    switch (payload) {
+      case EncodedPayload(:final bytes):
+        // M1 (image-pipeline redesign, docs/logs/2026-08-23/
+        // image-pipeline-redesign-handover.md §6 M1): width/height on
+        // Image.memory alone are LAYOUT constraints only — the decoder still
+        // produces a full-resolution bitmap. Cap the DECODE itself at
+        // 32 * devicePixelRatio on the longest edge via ResizeImage's `fit`
+        // policy, which fits the source within a cap x cap box while
+        // preserving aspect ratio — `exact` (or naive cacheWidth +
+        // cacheHeight) would silently squash non-square sources.
+        final cap = (32 * MediaQuery.devicePixelRatioOf(context)).round();
+        return ResizeImage(
+          MemoryImage(bytes),
+          width: cap,
+          height: cap,
+          policy: ResizeImagePolicy.fit,
+        );
+      case PixelPayload():
+        // NOT wrapped in ResizeImage, deliberately: ResizeImage applies its
+        // cap only through the `decode` callback it hands down
+        // (flutter image_provider.dart:1350-1418), and RawPixelsImage ignores
+        // that callback -- it builds the image with decodeImageFromPixels
+        // (raw_pixels_image.dart:36-45). A wrapper here would cap nothing
+        // while reading in review as protection that exists. The bound is
+        // enforced at PRODUCTION time instead: the payload is already capped
+        // at 200px long edge (image_preload_controller.dart, RAW branch), and
+        // TC-373 asserts that on the payload rather than on a wrapper.
+        return RawPixelsImage(payload);
+    }
   }
 
   Widget _buildTopActions(BuildContext context) {

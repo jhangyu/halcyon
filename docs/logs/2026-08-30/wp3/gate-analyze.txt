@@ -1,0 +1,4 @@
+56257d1
+Analyzing Halcyon...                                            
+No issues found! (ran in 1.5s)
+ANALYZE_RC=0

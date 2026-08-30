@@ -10,12 +10,12 @@ void main() {
   const mid = RetentionPolicy(
     before: 3,
     after: 8,
-    payloadByteBudget: 318767104, // 304 MiB
+    payloadByteBudget: 402653184, // 384 MiB
   );
   const high = RetentionPolicy(
     before: 3,
     after: 11,
-    payloadByteBudget: 402653184, // 384 MiB
+    payloadByteBudget: 536870912, // 512 MiB
   );
 
   test('TC-315: no reading and low-RAM machines get today shipped floor', () {
@@ -26,7 +26,7 @@ void main() {
     expect(floor.before, kRetentionBefore);
     expect(floor.after, kRetentionAfter);
     expect(floor.payloadByteBudget, kPayloadByteBudget);
-    expect(floor.payloadByteBudget, 234881024, reason: '224 MiB exactly');
+    expect(floor.payloadByteBudget, 268435456, reason: '256 MiB exactly');
   });
 
   test('TC-316: the mid and high rungs trigger at 12 GiB and 32 GiB', () {
@@ -69,5 +69,30 @@ void main() {
       math.min(mid.payloadByteBudget, high.payloadByteBudget),
       greaterThan(floor.payloadByteBudget),
     );
+  });
+
+  test('TC-347 lane ceiling follows the memory rung', () {
+    expect(laneCeilingFor(physicalMemoryBytes: null, processors: 28), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 8 * gib, processors: 28), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 16 * gib, processors: 28), 4);
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 28), 5);
+  });
+
+  test('TC-348 lane ceiling is also clamped by core count', () {
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 8), 1,
+        reason: 'one decode measures ~4.7 cores, so 8 cores fit exactly one');
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 10), 2);
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 200), 5,
+        reason: 'hard cap, not a bandwidth experiment');
+    expect(laneCeilingFor(physicalMemoryBytes: 64 * gib, processors: 1), 1);
+  });
+
+  test('TC-349 default width is the ceiling capped at kDefaultDecodeLaneWidth '
+      '(3, per user ruling 2026-08-30 overriding the decode-only Task 7 '
+      're-benchmark verdict pending combined decode+re-encode re-measurement)', () {
+    expect(defaultLaneWidthFor(5), 3);
+    expect(defaultLaneWidthFor(3), 3);
+    expect(defaultLaneWidthFor(2), 2);
+    expect(defaultLaneWidthFor(1), 1);
   });
 }
