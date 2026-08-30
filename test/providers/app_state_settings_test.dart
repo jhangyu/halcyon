@@ -83,30 +83,51 @@ void main() {
     expect(prefs.getInt('exportLongEdge'), 0);
   });
 
-  test('TC-476 export filetype hydrates, normalises garbage AND recognised-'
-      'but-unavailable names to the default, and persists by name', () async {
+  // TC-476 (UPDATED 2026-08-30, codec expansion): availability is no longer
+  // a compile-time `ExportFiletype.available` flag -- it is
+  // `AppState.selectableExportFiletypes`, resolved once at startup by
+  // [AppState.resolveExportCapabilities] probing the real native library
+  // (ruling Q4). `flutter test` cannot resolve the ceyx dylib, so in THIS
+  // suite every non-JPEG format resolves runtime-unavailable and hydration
+  // always settles on the default -- deterministic once
+  // `resolveExportCapabilities` is awaited explicitly rather than raced via
+  // the bare `Future<void>.delayed(Duration.zero)` inside `hydrated()`. The
+  // WITH-capability path (a persisted/selected non-default name actually
+  // sticking) is covered by `AppState.forTesting` in
+  // `settings_dialog_test.dart` TC-477 and
+  // `photo_export_service_test.dart`'s "codec expansion" group.
+  test('TC-476 export filetype hydrates by name, then falls back to the '
+      'default once runtime capability resolves (no dylib in this test '
+      'environment); persists by name', () async {
     final good = await hydrated(prefs: {'exportFiletype': 'webpLossy'});
-    expect(good.exportFiletype, ExportFiletype.webpLossy);
+    await good.resolveExportCapabilities();
+    expect(good.exportFiletype, ExportFiletype.jpeg);
 
     final missing = await hydrated();
+    await missing.resolveExportCapabilities();
     expect(missing.exportFiletype, ExportFiletype.jpeg);
 
     final garbage = await hydrated(prefs: {'exportFiletype': 'not-a-type'});
+    await garbage.resolveExportCapabilities();
     expect(garbage.exportFiletype, ExportFiletype.jpeg);
 
     final unavailable = await hydrated(prefs: {'exportFiletype': 'heif'});
+    await unavailable.resolveExportCapabilities();
     expect(unavailable.exportFiletype, ExportFiletype.jpeg,
-        reason: 'a recognised-but-unencodable name must fall back too, not '
-            'just an unrecognised one');
+        reason: 'a recognised-but-runtime-unavailable name must fall back '
+            'too, not just an unrecognised one');
 
     final state = await hydrated();
-    state.setExportFiletype(ExportFiletype.webpLossy);
-    expect(state.exportFiletype, ExportFiletype.webpLossy);
+    await state.resolveExportCapabilities();
+    // setExportFiletype refuses a runtime-unavailable value -- defence in
+    // depth alongside the hydration guard. JPEG is the only format this
+    // dylib-less test run ever resolves as selectable, so it is the only
+    // value that can round-trip through persistence here.
+    state.setExportFiletype(ExportFiletype.jpeg);
+    expect(state.exportFiletype, ExportFiletype.jpeg);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('exportFiletype'), 'webpLossy');
+    expect(prefs.getString('exportFiletype'), 'jpeg');
 
-    // setExportFiletype itself refuses an unavailable value rather than
-    // trusting the caller -- defence in depth alongside the hydration guard.
     state.setExportFiletype(ExportFiletype.heif);
     expect(state.exportFiletype, ExportFiletype.jpeg);
   });

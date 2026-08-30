@@ -164,12 +164,16 @@ void main() {
   });
 
   testWidgets(
-      'TC-477 (round 2c: supersedes disabled-segment assertions) the '
-      'filetype segmented control shows exactly JPEG and WebP (lossy) -- '
-      'HEIF/WebP(lossless) are not rendered at all -- and selecting WebP '
-      '(lossy) updates the rail', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+      'TC-477 (round 2c: supersedes disabled-segment assertions; codec '
+      'expansion 2026-08-30: capabilities now come from '
+      'AppState.forTesting, since flutter test cannot resolve the ceyx '
+      'dylib to probe real runtime capability) the filetype segmented '
+      'control shows exactly the runtime-available formats -- an '
+      'unavailable one is not rendered at all -- and selecting an '
+      'available non-default format updates the rail', (tester) async {
+    final state = AppState.forTesting(
+      runtimeCapabilities: {ExportFiletype.jpeg, ExportFiletype.webpLossy},
+    );
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 

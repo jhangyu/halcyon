@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 
@@ -76,13 +77,36 @@ void main() {
     expect(service.longEdge, kDefaultExportLongEdge);
   });
 
-  test('TC-477b exactly JPEG and WebP(lossy) are available -- HEIF and '
-      'WebP(lossless) are NOT, per the round-2b ceyx feasibility finding',
+  // TC-477b (UPDATED 2026-08-30, codec expansion): `ExportFiletype.available`
+  // was deleted -- build intent is now `ExportFiletype.buildIntent` (all six
+  // entries declare it true), and real selectability is
+  // `AppState.selectableExportFiletypes` (build intent INTERSECTED with
+  // runtime capability, ruling Q4). This asserts the intersection itself at
+  // its two extremes (full capability set, and an empty one falling back to
+  // the default); `photo_export_service_test.dart`'s "codec expansion" group
+  // covers the partial-intersection case (one format present, one absent)
+  // from a different angle (the settings-panel UI-filtering entry point).
+  test('TC-477b all six filetypes declare build intent true; '
+      'selectableExportFiletypes is the full set when every format has '
+      'runtime capability, and falls back to just the default when none do',
       () {
-    expect(ExportFiletype.jpeg.available, isTrue);
-    expect(ExportFiletype.webpLossy.available, isTrue);
-    expect(ExportFiletype.heif.available, isFalse);
-    expect(ExportFiletype.webpLossless.available, isFalse);
+    for (final ft in ExportFiletype.values) {
+      expect(ft.buildIntent, isTrue, reason: '${ft.name} buildIntent');
+    }
+
+    final fullyCapable = AppState.forTesting(
+      runtimeCapabilities: ExportFiletype.values.toSet(),
+    );
+    addTearDown(fullyCapable.dispose);
+    expect(
+      fullyCapable.selectableExportFiletypes.toSet(),
+      ExportFiletype.values.toSet(),
+    );
+
+    final noCapability =
+        AppState.forTesting(runtimeCapabilities: const {});
+    addTearDown(noCapability.dispose);
+    expect(noCapability.selectableExportFiletypes, [kDefaultExportFiletype]);
   });
 
   test('TC-478 every filetype has the correct output extension', () {

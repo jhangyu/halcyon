@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService, CeyxImageFormat;
 import 'package:exif/exif.dart' as pkg_exif;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:image/image.dart' as img;
@@ -35,17 +35,21 @@ class PhotoExportOutcome {
 /// touches a real decode/encode pipeline.
 typedef ExportBytesFetch = Future<Uint8List?> Function(String path);
 
-/// Injection seam for the WebP-lossy encode step of [exportBytesFor]
-/// (round-2b Export Filetype). The default implementation is
-/// `CeyxEncodeService().encodeWebpNative`, a real native FFI call that
-/// `flutter test` cannot resolve outside an app bundle (its dylib search
-/// path assumes ceyx's own repo layout) -- tests inject a fake here the same
-/// way [DngFullDecoder] lets RAW-decode tests avoid the real native decoder.
-typedef WebpEncode = Future<Uint8List> Function(
+/// Injection seam for the native encode step of [exportBytesFor]
+/// (codec-expansion round, 2026-08-30). One seam for every non-JPEG format,
+/// not one per format: `flutter test` cannot resolve the dylib outside a
+/// built .app bundle (its dylib search path assumes ceyx's own repo
+/// layout), so every format's test injects a pure-Dart fake and a
+/// per-format typedef would multiply that boilerplate by six with no gain.
+/// The default implementation is `CeyxEncodeService().encodeNative`.
+typedef StillEncode = Future<Uint8List> Function(
   Uint8List rgba, {
+  required CeyxImageFormat format,
   required int width,
   required int height,
   required int quality,
+  required bool lossless,
+  Uint8List? exif,
 });
 
 /// Default quality every JPEG export is encoded at, matching today's three
@@ -86,58 +90,117 @@ const List<int> kExportLongEdgeStops = [
 String exportLongEdgeLabel(int longEdge) =>
     longEdge == kOriginalExportLongEdge ? 'Original' : '${longEdge}px';
 
-/// The output codec an export is encoded as (round-2b "Export Filetype"
-/// setting). [available] gates which options the settings panel offers as
-/// selectable: [heif] and [webpLossless] are NOT wired up because the ceyx
-/// native encode surface (`native/include/ceyx_encode_api.h`, 2026-08-30
-/// drop) exports exactly two encoders -- `ceyx_encode_jpeg_rgba8` and
-/// `ceyx_encode_webp_rgba8` (which itself calls libwebp's one-shot LOSSY
-/// `WebPEncodeRGBA`, no `WebPConfig`/lossless knob threaded through the FFI
-/// signature) -- and no HEIF encode entry point exists anywhere in ceyx (its
-/// heif_bindings.dart/heif_decoder_service.dart are decode-only). Both gaps
-/// need native-side ceyx work before they can be real options here; this
-/// enum keeps their identity (for the UI's disabled segment + a stable pref
-/// value that degrades cleanly) without faking an encode path.
+/// The output codec an export is encoded as (grown from two to six entries
+/// in the 2026-08-30 codec-expansion round). [buildIntent] is a compile-time
+/// "this app wants to offer the format" flag; the settings panel and
+/// `AppState._normaliseExportFiletype` must NOT gate on it alone -- see
+/// [buildIntent]'s own doc. Real selectability is
+/// `AppState.selectableExportFiletypes` (build intent INTERSECTED with
+/// runtime capability, ruling Q4).
 enum ExportFiletype {
-  jpeg(label: 'JPEG', extension: 'jpg', available: true),
-  heif(label: 'HEIF', extension: 'heic', available: false),
-  webpLossy(label: 'WebP (lossy)', extension: 'webp', available: true),
-  webpLossless(label: 'WebP (lossless)', extension: 'webp', available: false);
+  jpeg(
+    label: 'JPEG',
+    extension: 'jpg',
+    format: CeyxImageFormat.jpeg,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  heif(
+    label: 'HEIF',
+    extension: 'heic',
+    format: CeyxImageFormat.heic,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  webpLossy(
+    label: 'WebP (lossy)',
+    extension: 'webp',
+    format: CeyxImageFormat.webp,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  webpLossless(
+    label: 'WebP (lossless)',
+    extension: 'webp',
+    format: CeyxImageFormat.webp,
+    buildIntent: true,
+    usesQuality: false,
+    lossless: true,
+  ),
+  avif(
+    label: 'AVIF',
+    extension: 'avif',
+    format: CeyxImageFormat.avif,
+    buildIntent: true,
+    usesQuality: true,
+  ),
+  jxl(
+    label: 'JPEG XL',
+    extension: 'jxl',
+    format: CeyxImageFormat.jxl,
+    buildIntent: true,
+    usesQuality: true,
+  );
 
   const ExportFiletype({
     required this.label,
     required this.extension,
-    required this.available,
+    required this.format,
+    required this.buildIntent,
+    required this.usesQuality,
+    this.lossless = false,
   });
 
   final String label;
   final String extension;
 
-  /// False for [heif] and [webpLossless] -- see the enum doc. The settings
-  /// panel must not let the user select an unavailable filetype; AppState's
-  /// normaliser falls back to [kDefaultExportFiletype] for any unavailable
-  /// or unrecognised persisted value.
-  final bool available;
+  /// The native format selector this entry encodes to.
+  final CeyxImageFormat format;
+
+  /// BUILD INTENT only -- "this app wants to offer the format". Real
+  /// availability is build intent INTERSECTED with the runtime capability
+  /// the native library reports (user ruling Q4, 2026-08-30). Never gate UI
+  /// on this field alone: HEIF is absent on Android, WebP was absent on
+  /// Windows before this round, and a const flag cannot know that --
+  /// `AppState.selectableExportFiletypes` is the source of truth.
+  final bool buildIntent;
+
+  /// False for formats whose encoder ignores the quality knob (currently
+  /// only [webpLossless]).
+  final bool usesQuality;
+
+  /// Requests mathematically lossless encoding.
+  final bool lossless;
 }
 
 const ExportFiletype kDefaultExportFiletype = ExportFiletype.jpeg;
 
-/// Default [WebpEncode]: the real native call, off the caller's isolate
+/// Default [StillEncode]: the real native call, off the caller's isolate
 /// (matches [CeyxEncodeService]'s own off-UI-isolate contract).
-Future<Uint8List> _defaultWebpEncode(
+Future<Uint8List> _defaultStillEncode(
   Uint8List rgba, {
+  required CeyxImageFormat format,
   required int width,
   required int height,
   required int quality,
+  required bool lossless,
+  Uint8List? exif,
 }) =>
-    CeyxEncodeService()
-        .encodeWebpNative(rgba, width: width, height: height, quality: quality);
+    CeyxEncodeService().encodeNative(
+      rgba,
+      format: format,
+      width: width,
+      height: height,
+      quality: quality,
+      lossless: lossless,
+      exif: exif,
+    );
 
 class PhotoExportService {
   PhotoExportService({
     ExportBytesFetch? fetchBytes,
     DngFullDecoder? decoder,
-    WebpEncode webpEncode = _defaultWebpEncode,
+    StillEncode stillEncode = _defaultStillEncode,
   }) {
     _fetchBytes = fetchBytes ??
         ((path) => exportBytesFor(
@@ -146,7 +209,7 @@ class PhotoExportService {
               quality: jpegQuality,
               longEdge: longEdge,
               filetype: filetype,
-              webpEncode: webpEncode,
+              stillEncode: stillEncode,
             ));
   }
 
@@ -168,8 +231,8 @@ class PhotoExportService {
 
   /// Output codec the export is encoded as. Set from the app-wide setting
   /// (`AppState.setExportFiletype`); read at call time, same reasoning as
-  /// [jpegQuality]. Only [ExportFiletype.jpeg] and [ExportFiletype.webpLossy]
-  /// are actually encodable today -- see the enum doc.
+  /// [jpegQuality]. What is actually encodable is
+  /// `AppState.selectableExportFiletypes` -- see the enum doc.
   ExportFiletype filetype = kDefaultExportFiletype;
 
   /// Byte source = the same producer the detail view uses (P2.1). Purpose is
@@ -188,7 +251,7 @@ class PhotoExportService {
     int quality = kDefaultExportJpegQuality,
     int longEdge = kDefaultExportLongEdge,
     ExportFiletype filetype = kDefaultExportFiletype,
-    WebpEncode webpEncode = _defaultWebpEncode,
+    StillEncode stillEncode = _defaultStillEncode,
   }) async {
     final result =
         await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
@@ -227,13 +290,11 @@ class PhotoExportService {
     final quarterTurnsCw = transform.quarterTurnsCw;
     final mirrored = transform.mirrored;
 
-    if (filetype == ExportFiletype.webpLossy) {
-      // WebP has no EXIF re-embed path here: `ceyx_encode_webp_rgba8` takes
-      // no metadata pointer, and `_attachSourceExif` only knows how to
-      // mutate an `img.Image` that then gets re-encoded as JPEG. A WebP
-      // export therefore ships with NO EXIF (round-2b feasibility finding,
-      // reported to the team lead) -- this is a real limitation, not an
-      // oversight, until ceyx grows a WebP metadata mux entry point.
+    if (filetype != ExportFiletype.jpeg) {
+      // All non-JPEG formats share the decode/orient/resize step and then
+      // hand raw RGBA to the native encoder with an EXIF block attached.
+      // JPEG keeps its historical decode-mutate-re-encode path below,
+      // unchanged.
       final resized = await Isolate.run<(Uint8List, int, int)?>(() {
         final frame = _decodeAndResizeFrame(
           encodedSource: encodedSource,
@@ -249,17 +310,28 @@ class PhotoExportService {
       });
       if (resized == null) return null;
       final (rgbaBytes, width, height) = resized;
+
+      // Orientation is forced to 1: the pixels above are already rotated, so
+      // a carried-over Orientation tag would rotate them a second time.
+      final exifBlock =
+          await _readSourceExifBlock(path, forceOrientationOne: true);
+
       try {
-        return await webpEncode(
+        return await stillEncode(
           rgbaBytes,
+          format: filetype.format,
           width: width,
           height: height,
-          quality: quality,
+          // A lossless format's encoder ignores quality; passing the user's
+          // value would imply it does something.
+          quality: filetype.usesQuality ? quality : 100,
+          lossless: filetype.lossless,
+          exif: exifBlock,
         );
       } catch (_) {
-        // Native encode unavailable/failed (e.g. this dylib predates the
-        // encode symbols, or was built without libwebp) -- reported to the
-        // caller the same way a null decode does: no file written, no crash.
+        // Native encode unavailable or failed -- reported like a null
+        // decode: no file written, no crash. Unchanged from the round-2c
+        // behaviour.
         return null;
       }
     }
@@ -362,8 +434,18 @@ class PhotoExportService {
       return;
     }
     if (tags.isEmpty) return;
+    _applyCoreExifTags(frame.exif, tags);
+  }
 
-    final exif = frame.exif;
+  /// The core tag set carried over from a source file's EXIF into an export,
+  /// shared by [_attachSourceExif] (JPEG, mutates an `img.Image`) and
+  /// [_readSourceExifBlock] (every other format, emits a raw byte block).
+  /// Two divergent tag sets would mean a JPEG export and a WebP export of
+  /// the same photo disagree about its own metadata.
+  static void _applyCoreExifTags(
+    img.ExifData exif,
+    Map<String, pkg_exif.IfdTag> tags,
+  ) {
     final imageIfd = exif.imageIfd;
     final exifIfd = exif.exifIfd;
     final gpsIfd = exif.gpsIfd;
@@ -418,6 +500,39 @@ class PhotoExportService {
     setRationalList(gpsIfd, 'GPSLatitude', 'GPS GPSLatitude');
     setAscii(gpsIfd, 'GPSLongitudeRef', 'GPS GPSLongitudeRef');
     setRationalList(gpsIfd, 'GPSLongitude', 'GPS GPSLongitude');
+  }
+
+  /// Reads the source file's EXIF with `package:exif` -- the same reader
+  /// [_attachSourceExif] uses -- and serialises the shared core tag set
+  /// ([_applyCoreExifTags]) as a raw big-endian TIFF/EXIF block, which is
+  /// exactly what `CeyxEncodeMetadata.exif` expects (no APP1 marker, no JXL
+  /// offset prefix; each container's writer adds its own wrapper).
+  ///
+  /// Returns null when the source has no EXIF: a missing block must not
+  /// fail an export, matching the swallow-and-continue behaviour
+  /// [_attachSourceExif] has always had.
+  static Future<Uint8List?> _readSourceExifBlock(
+    String sourcePath, {
+    required bool forceOrientationOne,
+  }) async {
+    Map<String, pkg_exif.IfdTag> tags;
+    try {
+      tags = await pkg_exif.readExifFromFile(File(sourcePath));
+    } catch (_) {
+      return null;
+    }
+    if (tags.isEmpty) return null;
+
+    final exif = img.ExifData();
+    _applyCoreExifTags(exif, tags);
+    if (forceOrientationOne) {
+      exif.imageIfd['Orientation'] = 1;
+    }
+    if (exif.isEmpty) return null;
+
+    final out = img.OutputBuffer();
+    exif.write(out);
+    return out.getBytes();
   }
 
   // ponytail: concurrency ceiling of 4 — a RAW full decode can cost hundreds

@@ -43,13 +43,13 @@ class ExportTab extends StatelessWidget {
   }
 
   Widget _filetype(BuildContext context, HalcyonTokens t, AppState state) {
-    // Round 2c (user ruling): only the two ACTUALLY encodable filetypes are
-    // shown. HEIF and WebP-lossless are dropped from the UI entirely rather
-    // than shown disabled -- see docs/logs/2026-08-30/ceyx-encode-handoff.md
-    // for what ceyx needs to grow before a future round can add them back.
-    // Filtering on [ExportFiletype.available] means the day they become
-    // available this loop needs no change.
-    final available = ExportFiletype.values.where((f) => f.available).toList();
+    // Round 2c (user ruling): only ACTUALLY encodable filetypes are shown.
+    // A format with no runtime capability is dropped from the UI entirely
+    // rather than shown disabled -- do not reintroduce a "shown but
+    // disabled" treatment without re-confirming that's still wanted.
+    // `selectableExportFiletypes` is build intent INTERSECTED with runtime
+    // capability (ruling Q4), resolved once at startup.
+    final available = state.selectableExportFiletypes;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -116,9 +116,11 @@ class ExportTab extends StatelessWidget {
   }
 
   Widget _quality(BuildContext context, HalcyonTokens t, AppState state) {
-    // Both available filetypes (JPEG, WebP-lossy) are quality-driven, so
-    // this round the slider is unconditionally enabled -- no disabled state
-    // needed (user ruling, round 2c).
+    // Re-introduced 2026-08-30: with WebP-lossless and JXL selectable, the
+    // quality slider is genuinely inert for some selections. Round 2c
+    // removed this only because both available formats happened to be
+    // quality-driven. Keyed on the enum field, not a hardcoded pair.
+    final usesQuality = state.exportFiletype.usesQuality;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -129,19 +131,28 @@ class ExportTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               settingsRowLabel(t, 'Quality setting of the encoder'),
-              settingsCaption(t, '${state.exportJpegQuality}'),
-              settingsSlider(
-                key: const Key('exportQualitySlider'),
-                min: 50,
-                max: 100,
-                divisions: 10,
-                label: '${state.exportJpegQuality}',
-                value: state.exportJpegQuality.toDouble(),
-                activeColor: t.accent,
-                inactiveColor: t.border,
-                onChanged: (double value) => context
-                    .read<AppState>()
-                    .setExportJpegQuality(value.round()),
+              settingsCaption(
+                t,
+                usesQuality ? '${state.exportJpegQuality}' : 'N/A (lossless)',
+              ),
+              IgnorePointer(
+                ignoring: !usesQuality,
+                child: Opacity(
+                  opacity: usesQuality ? 1.0 : 0.4,
+                  child: settingsSlider(
+                    key: const Key('exportQualitySlider'),
+                    min: 50,
+                    max: 100,
+                    divisions: 10,
+                    label: '${state.exportJpegQuality}',
+                    value: state.exportJpegQuality.toDouble(),
+                    activeColor: t.accent,
+                    inactiveColor: t.border,
+                    onChanged: (double value) => context
+                        .read<AppState>()
+                        .setExportJpegQuality(value.round()),
+                  ),
+                ),
               ),
             ],
           ),

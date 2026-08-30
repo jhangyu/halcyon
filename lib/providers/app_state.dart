@@ -4,6 +4,7 @@ import 'dart:async';
 // LogicalKeyboardKey) already re-exports Uint8List.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -119,6 +120,41 @@ class AppState extends ChangeNotifier {
     _initPrefs();
   }
 
+  /// Test-only constructor: skips prefs hydration and native capability
+  /// resolution entirely, seeding [_runtimeExportCapabilities] directly.
+  /// [resolveExportCapabilities] talks to the real (or injected)
+  /// [CeyxEncodeService], which `flutter test` cannot resolve outside a
+  /// built app bundle -- this seam lets UI-filtering tests exercise
+  /// [selectableExportFiletypes] without going anywhere near that call.
+  @visibleForTesting
+  AppState.forTesting({required Set<ExportFiletype> runtimeCapabilities})
+    : _laneCeiling = 1,
+      _decodeLaneWidth = defaultLaneWidthFor(1),
+      _scanner = PhotoLibraryScanner(),
+      _exifReader = ExifMetadataService.readBatch,
+      _statusStore = PhotoStatusStore(),
+      _fileActions = PhotoFileActions(),
+      _exportService = PhotoExportService(),
+      _preloadController = ImagePreloadController(
+        imageLoader: dartImageLoad,
+        dngDecoder: null,
+        retention: const RetentionPolicy.floor(),
+        decodeLaneWidth: defaultLaneWidthFor(1),
+      ) {
+    _autoRetentionTier = tierForPolicy(const RetentionPolicy.floor());
+    _renameCoordinator = RenameCoordinator(
+      statusStore: _statusStore,
+      itemsOf: () => _items,
+      dirOf: () => _currentDir,
+      selectedIdOf: () => _selectedItemID,
+      readMetadata: readMetadataFor,
+      showStatus: showStatus,
+      reloadFolder: loadFolder,
+      notify: notifyListeners,
+    );
+    _runtimeExportCapabilities = runtimeCapabilities;
+  }
+
   final PhotoLibraryScanner _scanner;
   final PhotoStatusStore _statusStore;
   final PhotoFileActions _fileActions;
@@ -149,6 +185,29 @@ class AppState extends ChangeNotifier {
   int _exportJpegQuality = kDefaultExportJpegQuality;
   int _exportLongEdge = kDefaultExportLongEdge;
   ExportFiletype _exportFiletype = kDefaultExportFiletype;
+
+  /// The user's actual intent for [exportFiletype] -- the persisted pref
+  /// name at hydration time, or the name last passed to [setExportFiletype].
+  /// Runtime capability is not known yet when [_initPrefs] first computes
+  /// [_exportFiletype] (see [resolveExportCapabilities]'s doc), so that
+  /// first computation can downgrade to the default; without recording the
+  /// ORIGINAL name separately, [resolveExportCapabilities] would renormalise
+  /// from the already-downgraded `_exportFiletype.name` once capability
+  /// resolves, and could never recover the user's real preference.
+  String? _exportFiletypeIntentName;
+
+  /// Formats the loaded native library can actually encode, resolved ONCE at
+  /// startup by [resolveExportCapabilities]. Empty until that completes; the
+  /// [selectableExportFiletypes] getter below therefore falls back to JPEG,
+  /// which libjpeg-turbo always provides.
+  Set<ExportFiletype> _runtimeExportCapabilities = const {};
+
+  /// Set by [dispose]. [resolveExportCapabilities] is fired-and-forgotten
+  /// from [_initPrefs] and may still be awaiting its native probe when this
+  /// object is disposed (short-lived tests, a view torn down mid-startup);
+  /// this flag lets it bail out instead of calling `notifyListeners()` on a
+  /// disposed `ChangeNotifier`, which throws.
+  bool _disposed = false;
   RetentionTier? _retentionTierOverride;
   late final RetentionTier _autoRetentionTier;
   ShortcutBindings _shortcuts = ShortcutBindings.defaults();
@@ -187,8 +246,14 @@ class AppState extends ChangeNotifier {
     _exportLongEdge = _normaliseExportLongEdge(_readIntPref('exportLongEdge'));
     _exportService.longEdge = _exportLongEdge;
 
-    _exportFiletype = _normaliseExportFiletype(_readStringPref('exportFiletype'));
+    _exportFiletypeIntentName = _readStringPref('exportFiletype');
+    _exportFiletype = _normaliseExportFiletype(_exportFiletypeIntentName);
     _exportService.filetype = _exportFiletype;
+    // Fire-and-forget: resolving runtime capability requires a native call
+    // that must not block prefs hydration/first paint. It normalises
+    // `_exportFiletype` again and notifies once it completes (see doc on
+    // [resolveExportCapabilities]).
+    unawaited(resolveExportCapabilities());
 
     final tierId = _readStringPref('retentionTier');
     _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
@@ -240,14 +305,16 @@ class AppState extends ChangeNotifier {
           : kDefaultExportLongEdge;
 
   /// Falls back to the default for a garbage/unknown name AND for a
-  /// recognised-but-unavailable one (`heif`/`webpLossless` -- see
-  /// [ExportFiletype]'s doc): a value this build cannot encode must never be
-  /// applied, whether it arrived from a corrupt pref or from an older build
-  /// of this app that had a filetype ceyx has since dropped.
+  /// recognised-but-runtime-unavailable one (see [ExportFiletype]'s doc): a
+  /// value this build cannot encode must never be applied, whether it
+  /// arrived from a corrupt pref or from an older/different build of this
+  /// app whose capability set differs from this one's.
   ExportFiletype _normaliseExportFiletype(String? raw) {
     for (final type in ExportFiletype.values) {
       if (type.name == raw) {
-        return type.available ? type : kDefaultExportFiletype;
+        return selectableExportFiletypes.contains(type)
+            ? type
+            : kDefaultExportFiletype;
       }
     }
     return kDefaultExportFiletype;
@@ -275,6 +342,46 @@ class AppState extends ChangeNotifier {
   int get exportLongEdge => _exportLongEdge;
 
   ExportFiletype get exportFiletype => _exportFiletype;
+
+  /// Build intent INTERSECTED with runtime capability (ruling Q4). The
+  /// settings panel's segmented control and [_normaliseExportFiletype] both
+  /// read this, not [ExportFiletype.buildIntent] alone.
+  List<ExportFiletype> get selectableExportFiletypes {
+    final caps = _runtimeExportCapabilities;
+    if (caps.isEmpty) return const [kDefaultExportFiletype];
+    return ExportFiletype.values
+        .where((f) => f.buildIntent && caps.contains(f))
+        .toList();
+  }
+
+  /// Probes the native library once. Safe to call before the dylib exists:
+  /// every failure degrades to "only the default is offered" rather than
+  /// throwing, matching the never-throws contract the probe layer already
+  /// has.
+  Future<void> resolveExportCapabilities({CeyxEncodeService? service}) async {
+    final svc = service ?? CeyxEncodeService();
+    final found = <ExportFiletype>{};
+    for (final ft in ExportFiletype.values) {
+      if (!ft.buildIntent) continue;
+      if (await svc.supports(ft.format)) found.add(ft);
+    }
+    // The probe above is fired-and-forgotten from `_initPrefs`/the app-startup
+    // caller; by the time every `supports()` call has resolved this AppState
+    // may already have been disposed (a short-lived test, or a view torn
+    // down mid-startup) -- `notifyListeners()` on a disposed ChangeNotifier
+    // throws, so this must bail out instead of touching state or listeners.
+    if (_disposed) return;
+    _runtimeExportCapabilities = found.isEmpty ? const {} : found;
+    // Re-normalise from the ORIGINAL intent name, not `_exportFiletype.name`:
+    // `_initPrefs` may already have downgraded `_exportFiletype` to the
+    // default before capability was known, and renormalising from that
+    // already-downgraded name would permanently discard the user's real
+    // preference the moment it turns out to be runtime-available.
+    _exportFiletype =
+        _normaliseExportFiletype(_exportFiletypeIntentName ?? _exportFiletype.name);
+    _exportService.filetype = _exportFiletype;
+    notifyListeners();
+  }
 
   /// The tier this machine derives from its own RAM, i.e. what "Auto" means.
   RetentionTier get autoRetentionTier => _autoRetentionTier;
@@ -565,7 +672,14 @@ class AppState extends ChangeNotifier {
   }
 
   void setExportFiletype(ExportFiletype filetype) {
-    _exportFiletype = filetype.available ? filetype : kDefaultExportFiletype;
+    // Record the user's real intent BEFORE gating: a later
+    // resolveExportCapabilities() re-normalises from this name, so an
+    // explicit pick a capability probe hasn't caught up with yet is not
+    // lost the way a persisted-but-unresolved pref would be.
+    _exportFiletypeIntentName = filetype.name;
+    _exportFiletype = selectableExportFiletypes.contains(filetype)
+        ? filetype
+        : kDefaultExportFiletype;
     _prefs?.setString('exportFiletype', _exportFiletype.name);
     _exportService.filetype = _exportFiletype;
     notifyListeners();
@@ -829,6 +943,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _viewDebounceTimer?.cancel();
     _preloadController.dispose();
     super.dispose();
