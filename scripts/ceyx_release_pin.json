@@ -22,7 +22,7 @@
     "An upstream release therefore cannot alter Halcyon's decoder without a",
     "visible, reviewable change to this file.",
     "",
-    "sha256 provenance: pin moved to v0.1.4 on 2026-08-30 via",
+    "sha256 provenance: pin moved to v0.1.5 on 2026-08-30 via",
     "`python3 scripts/build_apps.py --ceyx-release latest`, which downloaded each",
     "asset from https://github.com/jhangyu/ceyx/releases/download/v0.1.5/<asset>",
     "and recorded the digests below; cross-checked by hand against the downloaded",
