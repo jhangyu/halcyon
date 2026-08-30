@@ -74,8 +74,8 @@ class AppState extends ChangeNotifier {
     // floor: a test or a platform with no hardware reading behaves exactly as
     // it did before this setting existed.
     int laneCeiling = 1,
-  }) : _laneCeiling = laneCeiling,
-       _decodeLaneWidth = defaultLaneWidthFor(laneCeiling),
+  }) : _laneCeiling = laneCeiling < 1 ? 1 : laneCeiling,
+       _decodeLaneWidth = defaultLaneWidthFor(laneCeiling < 1 ? 1 : laneCeiling),
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -102,7 +102,7 @@ class AppState extends ChangeNotifier {
                  ? null
                  : halcyonSizedDecoder,
              retention: retention,
-             decodeLaneWidth: defaultLaneWidthFor(laneCeiling),
+             decodeLaneWidth: defaultLaneWidthFor(laneCeiling < 1 ? 1 : laneCeiling),
            ) {
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
@@ -161,8 +161,18 @@ class AppState extends ChangeNotifier {
     _overwriteExisting = _prefs?.getBool('overwriteExisting') ?? true;
     // Clamp on READ, not only on write: a value persisted on a 28-core desktop
     // must not be applied verbatim after the folder moves to an 8-core laptop.
+    // getInt() throws a TypeError if the stored value was written under a
+    // different type (e.g. a corrupted or hand-edited prefs store) -- guard
+    // that so a bad stored value falls back to the default width instead of
+    // crashing app startup.
+    int? storedLaneWidth;
+    try {
+      storedLaneWidth = _prefs?.getInt('decodeLaneWidth');
+    } catch (_) {
+      storedLaneWidth = null;
+    }
     _decodeLaneWidth =
-        (_prefs?.getInt('decodeLaneWidth') ?? defaultLaneWidthFor(_laneCeiling))
+        (storedLaneWidth ?? defaultLaneWidthFor(_laneCeiling))
             .clamp(1, _laneCeiling);
     _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
     notifyListeners();
