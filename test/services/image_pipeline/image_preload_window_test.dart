@@ -483,12 +483,16 @@ void main() {
 
     // Drain enough of the new window to prove the stale entries never decode.
     for (var i = 0; i < 6; i++) {
+      // Wait for a NEW gate, not for `gates.length == starts.length`: the fake
+      // decoder appends to both lists in the same synchronous step, so that
+      // equality is ALWAYS true and guards nothing. The loop then completed
+      // whichever gate happened to be last -- which, whenever the next decode
+      // had not yet started, was the gate it had just completed.
       await _until(
-        () => gates.length == starts.length,
-        reason: 'the running decode to reach its gate',
+        () => gates.length >= i + 2,
+        reason: 'decode #${i + 2} to start and reach its gate',
       );
       gates.last.complete();
-      await Future<void>.delayed(const Duration(milliseconds: 5));
     }
     final stale = photos
         .sublist(2, 11)
