@@ -338,21 +338,33 @@ CEYX_REPO = "jhangyu/ceyx"
 # reviewable, revertible diff without editing this script's source.
 CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 
-# The release asset filename per platform (which differs from the on-disk
-# filename the plugin expects), and where the library must land inside the ceyx
-# checkout. dest/artifact mirror plugin/<os>/CMakeLists.txt's bundled-library
-# path. The asset<->destination filename mismatch is why an explicit mapping
-# exists here rather than being derived from either name.
+# Per platform: where the libraries must land inside the ceyx checkout, and the
+# release asset -> on-disk filename mapping for each library. dest mirrors
+# plugin/<os>/CMakeLists.txt's bundled-library path. The asset<->artifact
+# filename mismatch is why an explicit mapping exists here rather than being
+# derived from either name.
+#
+# Windows is a LIST of three because dng_decoder_native.dll dynamically imports
+# heif.dll and de265.dll (LGPL-3 keeps libheif/libde265 as separate shared
+# libraries). Placing only the decoder produces an installation that fails at
+# DynamicLibrary.open with an error naming the decoder and nothing else. Linux
+# uses a one-element list so there is exactly one code path here.
 CEYX_FETCH_SPECS = {
     "linux": {
-        "asset": "libdng_decoder_native-linux-x86_64.so",
         "dest": Path("plugin") / "linux" / "Libraries",
-        "artifact": "libdng_decoder_native.so",
+        "libraries": [
+            {"asset": "libdng_decoder_native-linux-x86_64.so",
+             "artifact": "libdng_decoder_native.so"},
+        ],
     },
     "windows": {
-        "asset": "dng_decoder_native-windows-x86_64.dll",
         "dest": Path("plugin") / "windows" / "Libraries",
-        "artifact": "dng_decoder_native.dll",
+        "libraries": [
+            {"asset": "dng_decoder_native-windows-x86_64.dll",
+             "artifact": "dng_decoder_native.dll"},
+            {"asset": "heif-windows-x86_64.dll",  "artifact": "heif.dll"},
+            {"asset": "de265-windows-x86_64.dll", "artifact": "de265.dll"},
+        ],
     },
 }
 
@@ -1265,6 +1277,29 @@ def load_ceyx_pin():
     assets = data.get("assets")
     if not tag or not isinstance(assets, dict):
         fail(f"{CEYX_PIN_PATH} is missing a 'tag' or 'assets' section.")
+    for plat, entry in assets.items():
+        libs = entry.get("libraries") if isinstance(entry, dict) else None
+        if libs is None:
+            fail(
+                f"{CEYX_PIN_PATH} entry for '{plat}' uses the retired "
+                "single-asset shape.",
+                hints=[
+                    "Each platform now holds a 'libraries' list, because Windows "
+                    "ships the decoder plus heif.dll and de265.dll.",
+                    "Re-derive it with: python3 scripts/build_apps.py "
+                    "--ceyx-release latest",
+                ],
+            )
+        if not isinstance(libs, list) or not libs:
+            fail(f"{CEYX_PIN_PATH} entry for '{plat}' has an empty 'libraries' list.")
+        for lib in libs:
+            if not lib.get("asset") or not lib.get("sha256"):
+                fail(
+                    f"{CEYX_PIN_PATH} '{plat}' has a library entry without an "
+                    f"asset or sha256: {lib}",
+                    hints=["An unpinned fetch is refused: the sha256 is the only "
+                           "control over which bytes reach the build."],
+                )
     return tag, assets
 
 
@@ -1349,44 +1384,57 @@ def ceyx_fetch_is_due(ft, layout, args):
         # An explicit local-compile request wins over auto-fetch; --fetch-native
         # (handled above) is the way to force the download instead.
         return False
+    # ANY missing artifact makes the fetch due. Checking only the decoder would
+    # report "nothing to do" on every checkout that predates the HEIF rollout --
+    # they have dng_decoder_native.dll and neither of its two dependency DLLs --
+    # and then ship an application that cannot load its decoder at all.
     spec = CEYX_FETCH_SPECS[ft]
-    dest = layout.decoder / spec["dest"] / spec["artifact"]
-    return not dest.exists()
+    dest_dir = layout.decoder / spec["dest"]
+    return any(not (dest_dir / lib["artifact"]).exists()
+               for lib in spec["libraries"])
 
 
 def fetch_ceyx_library(ft, layout):
-    """Download the pinned release asset for `ft` and place it at the plugin's
-    expected path. Returns the placed Path."""
+    """Download the pinned release assets for `ft` and place each at the
+    plugin's expected path. Returns the list of placed Paths."""
     spec = CEYX_FETCH_SPECS[ft]
     tag, assets = load_ceyx_pin()
     if ft not in assets:
         fail(f"{CEYX_PIN_PATH.name} has no '{ft}' asset entry - cannot fetch.")
     entry = assets[ft]
-    asset = entry.get("asset") or spec["asset"]
-    sha256 = entry.get("sha256")
-    if not sha256:
-        fail(f"{CEYX_PIN_PATH.name} '{ft}' entry has no sha256 - refusing an "
-             "unpinned fetch.")
+    pinned = {lib["asset"]: lib["sha256"] for lib in entry["libraries"]}
 
     phase(f"Phase 1: fetch ceyx prebuilt ({ft}) from release {tag}")
     dest_dir = layout.decoder / spec["dest"]
     if not dest_dir.parent.exists():
         fail(
             f"{dest_dir.parent} does not exist - this ceyx checkout has no "
-            f"{spec['dest'].parts[1]} plugin folder, so the fetched library "
-            "would be placed where nothing reads it.",
+            f"{spec['dest'].parts[1]} plugin folder, so the fetched libraries "
+            "would be placed where nothing reads them.",
         )
-    verified = fetch_ceyx_asset(tag, asset, sha256, layout)
-
     dest_dir.mkdir(parents=True, exist_ok=True)
-    placed = dest_dir / spec["artifact"]
-    shutil.copy2(verified, placed)
-    if not placed.exists():
-        fail(f"copy to {dest_dir} did not produce {spec['artifact']}")
-    step(f"asset:  {asset}")
-    step(f"sha256: {sha256}  (pinned, verified)")
-    ok(f"placed: {placed}")
-    return placed
+
+    placed_paths = []
+    for lib in spec["libraries"]:
+        asset = lib["asset"]
+        sha256 = pinned.get(asset)
+        if not sha256:
+            # Not a warning: an asset the pin file does not cover would be
+            # placed with no integrity control at all.
+            fail(f"{CEYX_PIN_PATH.name} '{ft}' has no sha256 for '{asset}' - "
+                 "refusing an unpinned fetch.")
+        verified = fetch_ceyx_asset(tag, asset, sha256, layout)
+        placed = dest_dir / lib["artifact"]
+        shutil.copy2(verified, placed)
+        if not placed.exists():
+            fail(f"copy to {dest_dir} did not produce {lib['artifact']}")
+        step(f"asset:  {asset}  ->  {lib['artifact']}")
+        step(f"sha256: {sha256}  (pinned, verified)")
+        placed_paths.append(placed)
+
+    ok(f"placed {len(placed_paths)} librar{'y' if len(placed_paths) == 1 else 'ies'}: "
+       + ", ".join(p.name for p in placed_paths))
+    return placed_paths
 
 
 def resolve_latest_ceyx_release():
@@ -1430,20 +1478,25 @@ def update_ceyx_pin_latest(layout):
 
     new_assets = {}
     for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
-        asset = spec["asset"]
-        url = ceyx_asset_url(tag, asset)
-        cache_dir = ceyx_cache_dir(layout, tag)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        dest = cache_dir / asset
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(60)
-        try:
-            download_with_progress(url, str(dest))
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-        digest = sha256_of(dest)
-        ok(f"{ft}: {asset}  sha256 {digest}")
-        new_assets[ft] = {"asset": asset, "sha256": digest}
+        libs = []
+        for lib in spec["libraries"]:
+            asset = lib["asset"]
+            url = ceyx_asset_url(tag, asset)
+            cache_dir = ceyx_cache_dir(layout, tag)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            dest = cache_dir / asset
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(60)
+            try:
+                download_with_progress(url, str(dest))
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+            digest = sha256_of(dest)
+            ok(f"{ft}: {asset}  sha256 {digest}")
+            libs.append({"asset": asset,
+                         "artifact": lib["artifact"],
+                         "sha256": digest})
+        new_assets[ft] = {"libraries": libs}
 
     # Preserve the file's comment block; only tag + assets are machine-managed.
     try:
