@@ -10,6 +10,7 @@ import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart';
 import 'dng_embedded_jpeg_extractor.dart';
 import 'heif_decode_service.dart';
+import 'jxl_decode_service.dart';
 
 /// One production implementation of [DngFullDecoder]/[DngSizedDecoder] for
 /// every format Halcyon can turn into RGBA, so that `dart_image_loader.dart`
@@ -157,8 +158,15 @@ Future<DecodedRgba> dispatchFullDecode(
   DngFullDecoder rawArm = halcyonDngFullDecoder,
   DngFullDecoder tiffArm = decodeTiffFull,
   DngFullDecoder heifArm = halcyonHeifFullDecoder,
+  DngFullDecoder jxlArm = halcyonJxlFullDecoder,
 }) async {
-  if (SupportedPhotoFormats.isHeifPath(path)) return heifArm(path);
+  // isLibheifPath, NOT isHeifPath: .avif is AV1 in the same container and goes
+  // through the same libheif entry point. Checked FIRST, and with its own
+  // predicate, because all three extensions are also in
+  // bitmapDecodeExtensions, and a plain isBitmapDecodePath test would send
+  // them to package:image, which cannot read ISO-BMFF.
+  if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
+  if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);
   if (SupportedPhotoFormats.isDecodablePath(path)) return rawArm(path);
   throw UnsupportedError('no full-decode route for $path');
@@ -189,9 +197,13 @@ Future<DecodedRgba> _sizedArm(
   required DngSizedDecoder rawArm,
   required DngSizedDecoder tiffArm,
   required DngSizedDecoder heifArm,
+  required DngSizedDecoder jxlArm,
 }) {
-  if (SupportedPhotoFormats.isHeifPath(path)) {
+  if (SupportedPhotoFormats.isLibheifPath(path)) {
     return heifArm(path, maxDim: maxDim);
+  }
+  if (SupportedPhotoFormats.isJxlPath(path)) {
+    return jxlArm(path, maxDim: maxDim);
   }
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) {
     return tiffArm(path, maxDim: maxDim);
@@ -219,6 +231,7 @@ Future<DecodedRgba> dispatchSizedDecode(
   DngSizedDecoder rawArm = halcyonDngSizedDecoder,
   DngSizedDecoder tiffArm = decodeTiffSized,
   DngSizedDecoder heifArm = halcyonHeifSizedDecoder,
+  DngSizedDecoder jxlArm = halcyonJxlSizedDecoder,
   DngFullDecoder fullDecodeFallback = dispatchFullDecode,
 }) async {
   if (_sizedDecodeUntrusted) return fullDecodeFallback(path);
@@ -230,6 +243,7 @@ Future<DecodedRgba> dispatchSizedDecode(
       rawArm: rawArm,
       tiffArm: tiffArm,
       heifArm: heifArm,
+      jxlArm: jxlArm,
     );
   } on ImageTooLargeException {
     // A designed refusal, not a broken symbol: the full path would refuse

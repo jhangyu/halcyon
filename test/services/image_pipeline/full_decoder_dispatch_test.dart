@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import 'package:ceyx/ceyx.dart';
 
+import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/full_decoder_dispatch.dart';
 import 'package:halcyon_flutter/services/image_pipeline/heif_decode_service.dart';
@@ -326,6 +327,65 @@ void main() {
       expect(decoded.width, 4);
       expect(decoded.height, 2);
       expect(decoded.rgba[0], 0xA5);
+    });
+  });
+
+  group('codec expansion: AVIF and JXL routing', () {
+    late List<String> firedArms;
+
+    Future<DecodedRgba> spyArm(String name) async {
+      firedArms.add(name);
+      return DecodedRgba(rgba: Uint8List(4), width: 1, height: 1);
+    }
+
+    setUp(() => firedArms = []);
+
+    test('.avif routes to the HEIF arm, not a new one', () async {
+      // AVIF is AV1 in the SAME ISO-BMFF container libheif already parses. A
+      // separate AVIF arm would be a second decode path for one format.
+      await dispatchFullDecode(
+        'tmp/x.avif',
+        heifArm: (p) => spyArm('heif'),
+        tiffArm: (p) => spyArm('tiff'),
+        rawArm: (p) => spyArm('raw'),
+        jxlArm: (p) => spyArm('jxl'),
+      );
+      expect(firedArms, ['heif']);
+    });
+
+    test('.jxl routes to the JXL arm', () async {
+      await dispatchFullDecode(
+        'tmp/x.jxl',
+        heifArm: (p) => spyArm('heif'),
+        tiffArm: (p) => spyArm('tiff'),
+        rawArm: (p) => spyArm('raw'),
+        jxlArm: (p) => spyArm('jxl'),
+      );
+      expect(firedArms, ['jxl']);
+    });
+
+    test('.webp is NOT routed to any FFI arm', () async {
+      // Ratified ruling: WebP import stays on the Flutter engine path. Skia
+      // already decodes it; routing every WebP through FFI is a regression in
+      // the common case with no user benefit.
+      expect(SupportedPhotoFormats.isEncodedBitstreamPath('tmp/x.webp'), isTrue);
+      expect(SupportedPhotoFormats.isBitmapDecodePath('tmp/x.webp'), isFalse);
+    });
+
+    test('an unknown extension still throws UnsupportedError', () async {
+      expect(
+        () => dispatchFullDecode('tmp/x.xyz',
+            heifArm: (p) => spyArm('heif'),
+            tiffArm: (p) => spyArm('tiff'),
+            rawArm: (p) => spyArm('raw'),
+            jxlArm: (p) => spyArm('jxl')),
+        throwsA(isA<UnsupportedError>()),
+      );
+    });
+
+    test('sibling preference order matches the Q6 ruling exactly', () {
+      expect(SupportedPhotoFormats.preferredLoadExtensions,
+          ['.jpg', '.jpeg', '.heic', '.heif', '.webp', '.avif', '.jxl', '.png']);
     });
   });
 }

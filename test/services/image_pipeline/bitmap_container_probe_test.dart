@@ -90,5 +90,27 @@ void main() {
         kDefaultExifOrientation,
       );
     });
+
+    test('a throwing JXL probe becomes null, never an exception', () async {
+      // The loader above this layer is documented as never throwing
+      // (bitmap_container_probe.dart:44-51); a new arm must not break that.
+      final extent = await probeBitmapContainer(
+        'tmp/x.jxl',
+        jxlProbe: (_) async => throw StateError('boom'),
+      );
+      expect(extent, isNull);
+    });
+
+    test('.avif probes through the libheif arm', () async {
+      var heifCalls = 0;
+      await probeBitmapContainer(
+        'tmp/x.avif',
+        heifProbe: (_) async {
+          heifCalls++;
+          return (width: 100, height: 50, orientation: 1);
+        },
+      );
+      expect(heifCalls, 1);
+    });
   });
 }
