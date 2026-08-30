@@ -29,19 +29,25 @@ const int kFullResPriorityBase = 1000;
 
 /// THE ONE place an expensive (real RAW) decode may run.
 ///
-/// User ruling 2026-08-26 (docs/logs/2026-08-26/serial-lane-unification-contract.md):
-/// the only permitted difference between a cheap and an expensive item is the
-/// payload-production CONCURRENCY MODE -- cheap loads run in parallel, expensive
-/// ones run one at a time on this lane, ordered near-to-far from the selected
-/// index. There is no radius: every slot of the retention window is eligible,
-/// it just has to queue.
+/// Up to [width] task bodies execute at once, ordered near-to-far by priority.
+/// Width 1 is the historical single-flight lane, bit-for-bit.
 ///
-/// Two properties make that safe, and both are the point of this class:
+/// User ruling 2026-08-30 (docs/logs/2026-08-30/spec-parallel-decode-lane.md)
+/// supersedes ONLY the single-flight clause of the 2026-08-26 ruling
+/// (docs/logs/2026-08-26/serial-lane-unification-contract.md): one ceyx decode
+/// measures ~4.7 cores of a 28-core machine
+/// (docs/logs/2026-08-30/decode-cpu-parallelism.txt:113), so a single slot left
+/// most of a large machine idle. Everything else from that ruling stands:
 ///
-///   * **Single flight.** At most one task body is ever executing. A RAW decode
-///     saturates cores rather than waiting on IO, so N in parallel is slower per
-///     image AND makes the item the user is looking at contend with its
-///     neighbours.
+///   * the only permitted difference between a cheap and an expensive item is
+///     the payload-production CONCURRENCY MODE -- cheap loads run in parallel,
+///     expensive ones queue on this lane, ordered near-to-far from the selected
+///     index. There is no radius: every slot of the retention window is
+///     eligible, it just has to queue.
+///   * **Counted slots.** At most [width] task bodies execute at once. A RAW
+///     decode is multi-core but does not saturate a high-core machine, so a
+///     bounded number in parallel raises throughput without starving the item
+///     the user is looking at.
 ///   * **Reprioritisation.** Pending (not yet started) entries are re-ordered by
 ///     a later [enqueue] of the same key, so a navigation event does not have to
 ///     drain a queue built for the position the user has left. Entries whose
@@ -50,15 +56,32 @@ const int kFullResPriorityBase = 1000;
 ///     doing any work (invariant I4), which keeps window policy in exactly one
 ///     owner instead of being duplicated into the queue.
 ///
-/// A failing task never wedges the lane: every body is run inside a guard.
-class SerialDecodeLane {
+/// A failing task never wedges any runner: every body is run inside a guard.
+class DecodeLane {
+  DecodeLane({int width = 1}) : _width = width < 1 ? 1 : width;
+
   final Map<LaneKey, _LaneTask> _pending = {};
-  bool _running = false;
+  int _running = 0;
   bool _pumpScheduled = false;
   int _seq = 0;
+  int _width;
 
-  /// Whether a task body is currently executing.
-  bool get isBusy => _running;
+  /// How many task bodies may execute at once.
+  int get width => _width;
+
+  /// Widening takes effect on the next microtask. NARROWING never pre-empts:
+  /// nothing can cancel an in-flight FFI decode, so surplus runners retire when
+  /// their current body finishes.
+  set width(int value) {
+    _width = value < 1 ? 1 : value;
+    if (_pending.isNotEmpty) _schedulePump();
+  }
+
+  /// Whether any task body is currently executing.
+  bool get isBusy => _running > 0;
+
+  /// How many task bodies are currently executing.
+  int get runningCount => _running;
 
   /// Number of tasks queued and not yet started.
   int get pendingCount => _pending.length;
@@ -104,11 +127,13 @@ class SerialDecodeLane {
   /// window rather than the item the user is looking at. Deferring by one
   /// microtask lets the batch finish so the priority comparison sees all of it.
   void _schedulePump() {
-    if (_running || _pumpScheduled) return;
+    if (_pumpScheduled) return;
     _pumpScheduled = true;
     scheduleMicrotask(() {
       _pumpScheduled = false;
-      unawaited(_pump());
+      while (_running < _width && _pending.isNotEmpty) {
+        unawaited(_runOne());
+      }
     });
   }
 
@@ -117,23 +142,24 @@ class SerialDecodeLane {
   /// completion instead. Used by `reset()`/`dispose()`.
   void clearPending() => _pending.clear();
 
-  Future<void> _pump() async {
-    if (_running) return;
-    _running = true;
+  Future<void> _runOne() async {
+    _running++;
     try {
-      while (_pending.isNotEmpty) {
+      // `_running <= _width` retires surplus runners after a width reduction:
+      // never mid-body (no FFI decode is cancellable), only between bodies.
+      while (_pending.isNotEmpty && _running <= _width) {
         final next = _takeNext();
         try {
           await next.body();
         } catch (_) {
-          // One item's failure must not wedge the lane for the rest of the
+          // One item's failure must not wedge this runner for the rest of the
           // session. Real failures are recorded by the body's own owner
           // (permanent misses, full-res failure memos); this only keeps the
           // lane runnable.
         }
       }
     } finally {
-      _running = false;
+      _running--;
     }
   }
 

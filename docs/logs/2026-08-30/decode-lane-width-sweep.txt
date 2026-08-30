@@ -1,0 +1,330 @@
+================================================================================
+DECODE-LANE WIDTH SWEEP -- TASK 7 RE-BENCHMARK (plan-parallel-decode-lane.md)
+PRE-REGISTRATION BLOCK -- written to this file BEFORE any measurement number
+existed. Everything below the RESULTS banner was appended after this block
+was committed.
+================================================================================
+
+Task: impl-3-sonnet, decode-lane-team, Task 7.
+Worktree: /Users/jhangyu/project/Halcyon-decode-lane (branch feat/parallel-decode-lane)
+
+INSTRUMENT DEVIATION (recorded before any number, per team-lead ruling):
+  plan step 7.2 assumed run_bench.sh could force a lane width; it cannot (it
+  is the cold/warm DngDecoderService gate from
+  docs/logs/2026-08-28/spec-tier2-bias-and-persistent-decoder.md Sec B.5, no
+  controller, no width). Instrument replaced by
+  tool/decode_worker_bench/width_sweep.dart, run via
+  tool/decode_worker_bench/run_width_sweep.sh: `width` concurrent async
+  workers pull DNG paths from a shared queue and call
+  `DngDecoderService.decodeOnWorker` (the same call
+  `halcyonDngFullDecoder` -> DecodeLane task bodies use in production; it
+  spawns a fresh worker Isolate per call, so concurrent calls genuinely
+  overlap, unlike the synchronous same-isolate `.decode()` the `warm` bench
+  variant uses). Verdict rule Sec 9.3 is unchanged, copied verbatim below.
+
+METHOD (Sec 9.2 of spec-parallel-decode-lane.md, verbatim):
+  * Fixed corpus: local_data/photo_samples/DNG, fixed MAX_SAMPLES, same
+    machine, same HEAD, all runs back-to-back.
+  * Sweep width in {1, 2, 3, ceiling}; report wall-clock seconds for the
+    whole batch and user+sys CPU seconds for each.
+  * Speedup(w) = wall(1) / wall(w).
+  * Every run captures its own exit code inside the artifact with RC=$? on
+    the line immediately after the command (never ${PIPESTATUS[0]}, never a
+    harness-reported code).
+  * The artifact records the git HEAD hash and is checked to be equal to
+    the delivered tip.
+  * Long runs (>30s) are split into smaller MAX_SAMPLES batches rather than
+    backgrounded, exactly as the 2026-08-30 measurement did
+    (decode-cpu-parallelism.txt:76-83).
+
+VERDICT RULE (Sec 9.3 of spec-parallel-decode-lane.md, verbatim):
+  * Speedup(3) >= 1.8 -> keep kDefaultLaneWidth = 3.
+  * 1.3 <= Speedup(3) < 1.8 -> set kDefaultLaneWidth = 2 and record why.
+  * Speedup(3) < 1.3 -> set kDefaultLaneWidth = 1; the setting stays
+    shipped (the user asked for it) but stops being on by default, and the
+    number goes in the memory.md entry.
+  * If Speedup(w) < Speedup(w-1) for any w (contention regression), the
+    ceiling for that rung is lowered to w-1.
+  * Re-running with different parameters until a favourable number appears
+    is forbidden. The first clean run under the above method decides.
+
+MACHINE (this host, sysctl):
+  hw.physicalcpu = 28, hw.logicalcpu = 28, hw.memsize = 274877906944 (256 GiB)
+  laneCeilingFor(physicalMemoryBytes: 256 GiB, processors: 28):
+    byMemory = 5 (high rung, >= kHighRungTriggerBytes)
+    byCpu    = (28 ~/ 5).clamp(1, 5) = 5
+    ceiling  = min(5, 5) = 5
+  Sweep widths chosen: 1, 2, 3, 5 (ceiling).
+
+CORPUS: local_data/photo_samples/DNG (27 DNG files present in this
+worktree, copied in by team-lead from the main Halcyon worktree;
+local_data/ is gitignored, never committed).
+MAX_SAMPLES = 12 (chosen to keep every width's run comfortably under the
+30s foreground cap; the same MAX_SAMPLES value is used for every width --
+no parameter shopping between widths).
+
+================================================================================
+RESULTS  (everything below this banner was produced AFTER the block above)
+================================================================================
+
+-- git rev-parse HEAD
+091a7b180b4146e38d37e1a510593a0be425ac27
+HEAD_RC=0
+
+-- git status --porcelain (informational; local_data/ is gitignored)
+?? docs/logs/2026-08-30/
+?? tool/decode_worker_bench/run_width_sweep.sh
+?? tool/decode_worker_bench/width_sweep.dart
+STATUS_RC=0
+
+## SMOKE (width 1, 2 samples -- proves the harness executes, NOT a measurement)
+-- bash tool/decode_worker_bench/run_width_sweep.sh 1 local_data/photo_samples/DNG 2
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+1,2,370
+        1.18 real         1.80 user         0.29 sys
+           565018624  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               71394  page reclaims
+                  30  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                3699  involuntary context switches
+          9174288077  instructions retired
+          3714749750  cycles elapsed
+           906202496  peak memory footprint
+SMOKE_RC=0
+
+## MEASUREMENT width 1
+-- bash tool/decode_worker_bench/run_width_sweep.sh 1 local_data/photo_samples/DNG 12
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+1,12,1541
+        2.45 real         6.01 user         0.71 sys
+           630636544  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              155108  page reclaims
+                  30  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  36  voluntary context switches
+               11458  involuntary context switches
+         36808413054  instructions retired
+         13123567883  cycles elapsed
+           928027200  peak memory footprint
+WIDTH1_RC=0
+
+## MEASUREMENT width 2
+-- bash tool/decode_worker_bench/run_width_sweep.sh 2 local_data/photo_samples/DNG 12
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+2,12,1707
+        2.62 real         6.37 user         0.73 sys
+           619577344  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              152883  page reclaims
+                  30  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+               13497  involuntary context switches
+         36763475717  instructions retired
+         13119341676  cycles elapsed
+           920768512  peak memory footprint
+WIDTH2_RC=0
+
+## MEASUREMENT width 3
+-- bash tool/decode_worker_bench/run_width_sweep.sh 3 local_data/photo_samples/DNG 12
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+3,12,1421
+        2.10 real         5.96 user         0.73 sys
+           634732544  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              155340  page reclaims
+                  30  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+               14177  involuntary context switches
+         36905403705  instructions retired
+         13265825936  cycles elapsed
+           978588416  peak memory footprint
+WIDTH3_RC=0
+
+## MEASUREMENT width 5 (ceiling)
+-- bash tool/decode_worker_bench/run_width_sweep.sh 5 local_data/photo_samples/DNG 12
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[Pipeline] GPU backend: metal (available=yes)
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+[DngNativeBindings] loaded: /Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib
+5,12,1418
+        2.17 real         6.09 user         0.74 sys
+           632094720  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              155312  page reclaims
+                  30  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+               14061  involuntary context switches
+         36886790143  instructions retired
+         13117549636  cycles elapsed
+           924373824  peak memory footprint
+WIDTH5_RC=0
+
+================================================================================
+COMPUTATION
+================================================================================
+
+wall(1) = 2.45 s   user+sys(1) = 6.01 + 0.71 = 6.72 s
+wall(2) = 2.62 s   user+sys(2) = 6.37 + 0.73 = 7.10 s
+wall(3) = 2.10 s   user+sys(3) = 5.96 + 0.73 = 6.69 s
+wall(5) = 2.17 s   user+sys(5) = 6.09 + 0.74 = 6.83 s
+
+Speedup(2) = wall(1) / wall(2) = 2.45 / 2.62 = 0.935
+Speedup(3) = wall(1) / wall(3) = 2.45 / 2.10 = 1.167
+Speedup(5) = wall(1) / wall(5) = 2.45 / 2.17 = 1.129
+
+================================================================================
+VERDICT
+================================================================================
+
+Speedup(3) = 1.167, which is < 1.3.
+Per the pre-registered verdict rule (Sec 9.3): Speedup(3) < 1.3 -> set
+kDefaultDecodeLaneWidth = 1. The setting stays shipped (the user asked for
+it, and DecodeLane does still admit multiple concurrent decodes when the
+user raises the slider), but it stops being on by default.
+
+No re-run was performed to seek a more favourable number; this is the first
+and only clean run under the pre-registered method.
+
+Contention-regression sub-rule: Speedup(2) = 0.935 < 1.0 (worse than
+sequential), and Speedup(w) is non-monotonic across the sweep (2 < 1 < 5 <
+3 in wall-clock terms) rather than climbing with width. On a 28-core / 256
+GiB machine with the memory-rung ceiling at 5 and the CPU ceiling also at
+5, this indicates the bottleneck for this corpus/machine combination is not
+memory or CPU count but something else in the decode path that does not
+parallelise across concurrent worker isolates for this sample size (most
+likely the single shared Metal GPU backend the pipeline reports at startup
+-- `[Pipeline] GPU backend: metal` -- serialising the actual decode/process
+stage regardless of how many isolates request it, and/or per-isolate
+`DynamicLibrary.load()` + pipeline cold-start overhead dominating a
+12-sample batch). This is consistent with -- not a contradiction of -- the
+kDefaultDecodeLaneWidth=1 verdict above: whatever the root cause, extra
+concurrent decode requests are not paying for themselves on this
+measurement, so the shipped default should not ask for them.
+
+The formal "ceiling for that rung is lowered to w-1" contention-regression
+clause is stated in terms of the width sweep points {1,2,3,ceiling}, not
+the separate memory/CPU ceiling rungs in retention_policy.dart; the
+practical effect of applying it here is identical to the primary verdict:
+the shipped DEFAULT drops to 1. The `laneCeilingFor` MAXIMUM (still 5 on
+this machine) is left untouched by this task -- lowering the hard ceiling
+itself is out of Task 7's owned-file scope (kDefaultDecodeLaneWidth is the
+only constant this task is authorised to change) and is noted below as an
+open question for the team-lead / user, not applied unilaterally.
+
+================================================================================
+CODE CHANGE APPLIED
+================================================================================
+
+lib/services/image_pipeline/retention_policy.dart: kDefaultDecodeLaneWidth
+changed from 3 to 1, per the verdict above.
+test/services/image_pipeline/retention_policy_test.dart: TC-349 updated to
+expect defaultLaneWidthFor(5|3|2|1) == 1 for all four inputs (ceiling no
+longer caps a >1 default because the default itself is 1).
+Full suite + flutter analyze re-run results: see test-runner-haiku's report
+referenced in docs/sop/unit_test.md's TC-349 row.
+
+================================================================================
+FULL-SUITE GATE NOTE
+================================================================================
+
+test-runner-haiku's gate for this change (kDefaultDecodeLaneWidth 3->1)
+observed skip counts drop to 0 in two batches that previously showed
+skipped tests (services/platform+library+rename: 4 skipped -> 0;
+image_pipeline part A: 50 skipped -> 0). This is EXPLAINED, not a
+regression: team-lead copied local_data/photo_samples into this worktree
+for this task (it did not exist here before Task 7), and those tests are
+sample-gated -- they now execute because the samples are present.
+TC-098d ("Bad state: Future already completed",
+image_preload_window_test.dart) fired once in a 16-file batch during this
+gate; per baton-2 this is a pre-existing, already-escalated, non-
+deterministic issue unrelated to this task's change (it fired on the
+unmodified tree in earlier gates too) -- team-lead is dispatching a
+dedicated debugger for it, separately from Task 7.

@@ -80,3 +80,47 @@ RetentionPolicy retentionPolicyFor({int? physicalMemoryBytes}) {
     payloadByteBudget: 384 * 1024 * 1024,
   );
 }
+
+/// Cores one expensive (real RAW) decode occupies.
+///
+/// Measured 4.666 on a 28-core (20P+8E) machine, differenced across two runs to
+/// cancel Dart VM startup: docs/logs/2026-08-30/decode-cpu-parallelism.txt:113.
+/// Rounded UP, so the clamp below errs toward fewer concurrent decodes.
+const int kCoresPerDecode = 5;
+
+/// Hard cap on lane width, regardless of how large the machine is.
+const int kMaxDecodeLaneWidth = 5;
+
+/// Width a machine gets before the user touches the setting (capped by ceiling).
+///
+/// Was 3 at authoring time; lowered to 1 per the pre-registered Sec 9.3
+/// verdict rule after the post-landing re-benchmark measured
+/// Speedup(3) = 1.167 < 1.3 on a 28-core/256 GiB machine
+/// (docs/logs/2026-08-30/decode-lane-width-sweep.txt). The setting stays
+/// user-adjustable up to [laneCeilingFor]'s ceiling; it is just no longer
+/// on by default.
+const int kDefaultDecodeLaneWidth = 1;
+
+/// How many expensive decodes may run at once on this machine.
+///
+/// Two independent ceilings, minimum wins:
+///   * MEMORY -- each in-flight decode transiently peaks at ~3x the full-res
+///     RGBA size (~275 MiB for the 91.55 MiB 24MP entry of cache_budget.dart),
+///     so the rung caps it at 2 / 4 / 5. Thresholds are SHARED with
+///     [retentionPolicyFor] so the two mechanisms cannot disagree.
+///   * CPU -- [kCoresPerDecode] each, capped at [kMaxDecodeLaneWidth]. An
+///     8-core machine gets 1, i.e. exactly the pre-2026-08-30 behaviour.
+int laneCeilingFor({int? physicalMemoryBytes, required int processors}) {
+  final byMemory =
+      physicalMemoryBytes == null || physicalMemoryBytes < kMidRungTriggerBytes
+      ? 2
+      : physicalMemoryBytes < kHighRungTriggerBytes
+      ? 4
+      : 5;
+  final byCpu = (processors ~/ kCoresPerDecode).clamp(1, kMaxDecodeLaneWidth);
+  return byMemory < byCpu ? byMemory : byCpu;
+}
+
+/// The shipped default for a machine whose ceiling is [ceiling].
+int defaultLaneWidthFor(int ceiling) =>
+    ceiling < kDefaultDecodeLaneWidth ? ceiling : kDefaultDecodeLaneWidth;

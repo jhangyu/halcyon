@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
-import 'package:halcyon_flutter/services/image_pipeline/serial_decode_lane.dart';
+import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
@@ -70,7 +70,7 @@ class _Harness {
     );
   }
 
-  final SerialDecodeLane lane = SerialDecodeLane();
+  final DecodeLane lane = DecodeLane();
   late final TierTwoRegistry registry;
   late final TierTwoScheduler scheduler;
   final Map<String, SourcePayload> payloads = {};
