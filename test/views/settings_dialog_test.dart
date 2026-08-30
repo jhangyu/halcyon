@@ -219,6 +219,11 @@ void main() {
     expect(state.retentionPolicy.after, 11);
     expect(find.byKey(const Key('retentionResetToAuto')), findsOneWidget);
 
+    // Round-3 layout (Parallelism | Memory Retention side by side) makes
+    // the reset button wrap onto its own line under the caption, which can
+    // land outside the scrolled viewport -- ensure it's visible before tap.
+    await tester.ensureVisible(find.byKey(const Key('retentionResetToAuto')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('retentionResetToAuto')));
     await tester.pump();
     expect(state.isRetentionTierOverridden, isFalse);

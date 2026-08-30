@@ -6,10 +6,12 @@ import '../theme_tokens.dart';
 import 'settings_primitives.dart';
 import 'settings_section_label.dart';
 
-/// E1's "Export" tab (docs/logs/2026-08-30/mockups/E1.html): the round-2
-/// tab restructure moves the export-quality slider out of the old
-/// Performance tab and adds the new export-size slider alongside it, each
-/// as its own full-width section (E1.html:130-158).
+/// E1's "Export" tab (docs/logs/2026-08-30/mockups/E1.html), with the
+/// round-3 layout tweak from F1.html (docs/logs/2026-08-30/mockups/F1.html):
+/// Export Quality and Export Size now sit side by side, each 50% width,
+/// using the same 2-column grid pattern the mockups already establish
+/// (D1.html/E1.html `.grid`). Export Filetype (unaffected by this round's
+/// request) stays full-width above the paired row.
 class ExportTab extends StatelessWidget {
   const ExportTab({super.key});
 
@@ -23,9 +25,16 @@ class ExportTab extends StatelessWidget {
       children: [
         _filetype(context, t, state),
         const SizedBox(height: 10),
-        _quality(context, t, state),
-        const SizedBox(height: 18),
-        _size(context, t, state),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _quality(context, t, state)),
+              const SizedBox(width: 16),
+              Expanded(child: _size(context, t, state)),
+            ],
+          ),
+        ),
       ],
     );
   }

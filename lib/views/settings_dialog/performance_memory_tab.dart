@@ -7,10 +7,12 @@ import 'settings_primitives.dart';
 import 'settings_section_label.dart';
 
 /// E1's merged "Performance & Memory" tab (docs/logs/2026-08-30/mockups/
-/// E1.html): the round-2 tab restructure folds the old Performance tab's
-/// Parallelism + Workflow sections and the old Memory tab's Memory Retention
-/// section into one scroll, each still under its own section label. Export
-/// moved OUT to its own tab ([ExportTab]) since it now hosts two controls.
+/// E1.html), with the round-3 layout tweak from F1.html
+/// (docs/logs/2026-08-30/mockups/F1.html): Parallelism and Memory Retention
+/// now sit side by side, each 50% width, using the same 2-column grid
+/// pattern the mockups already establish (D1.html/E1.html `.grid`). Workflow
+/// (unaffected by this round's request) stays full-width, placed after the
+/// paired row so the two named sections are visually adjacent.
 class PerformanceMemoryTab extends StatelessWidget {
   const PerformanceMemoryTab({super.key});
 
@@ -22,11 +24,18 @@ class PerformanceMemoryTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _parallelism(context, t, state),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _parallelism(context, t, state)),
+              const SizedBox(width: 16),
+              Expanded(child: _memoryRetention(context, t, state)),
+            ],
+          ),
+        ),
         const SizedBox(height: 18),
         _workflow(context, t, state),
-        const SizedBox(height: 18),
-        _memoryRetention(context, t, state),
       ],
     );
   }
@@ -154,16 +163,21 @@ class PerformanceMemoryTab extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              Row(
+              // A Row here would overflow once the column is half-width
+              // (this round's layout change): the caption text plus the
+              // reset button no longer both fit on one line at half the
+              // dialog's content width. Wrap lets the button drop to its
+              // own line instead of clipping/overflowing.
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 4,
                 children: [
-                  Expanded(
-                    child: settingsCaption(
-                      t,
-                      state.isRetentionTierOverridden
-                          ? 'Overriding the detected default '
-                                '(${state.autoRetentionTier.label}).'
-                          : 'Auto-picked from detected RAM; override anytime.',
-                    ),
+                  settingsCaption(
+                    t,
+                    state.isRetentionTierOverridden
+                        ? 'Overriding the detected default '
+                              '(${state.autoRetentionTier.label}).'
+                        : 'Auto-picked from detected RAM; override anytime.',
                   ),
                   if (state.isRetentionTierOverridden)
                     settingsSmallButton(
