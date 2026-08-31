@@ -8,6 +8,10 @@
 # environment-setup `uses:` steps. `fail-fast: false` is NOT `continue-on-error`:
 # a job still fails when it fails; it only lets sibling OS jobs in the matrix
 # finish instead of being cancelled — don't "clean up" one into the other.
+#
+# Every `jhangyu/ceyx` checkout below is pinned to a fixed `ref` (current ceyx
+# main HEAD, verified green) so unrelated ceyx pushes can't redden Halcyon CI.
+# To bump: update the ref in both ci.yml and release.yml.
 name: CI
 
 on:
@@ -36,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jhangyu/ceyx
+          ref: ad3e87871d3b8d48d139cacc5540f26306fced86
           path: ceyx
 
       - uses: subosito/flutter-action@v2
@@ -69,6 +74,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jhangyu/ceyx
+          ref: ad3e87871d3b8d48d139cacc5540f26306fced86
           path: ceyx
 
       - uses: subosito/flutter-action@v2

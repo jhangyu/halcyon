@@ -25,12 +25,19 @@ CI_PY = REPO_ROOT / "scripts" / "ci.py"
 CI_PKG_DIR = REPO_ROOT / "scripts" / "ci"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
-# G-6: 载体中立 — this repo's pin file must never be touched by the CI rewrite.
-# Frozen at branch start; a future edit to this file (values or prose) fails
-# this test rather than silently landing.
+# G-6: the pin file changes only by DELIBERATE, REVIEWED rounds. The digest
+# below is the last reviewed content; any later edit (values or prose) fails
+# this test rather than silently landing, so an upstream release can never
+# alter what Halcyon consumes without someone updating this line too.
+#
+# Updated 2026-08-31 (round 6, ceyx tar.gz-only consumption): the pin was
+# regenerated against the live v0.1.6 release and moved to the archive-based
+# shape (archive + sha256 + per-extracted-library digests, plus the release's
+# artifacts.lock digest). The previous value froze round 5's 载体中立 state,
+# in which no pin change was in scope.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
-PIN_FILE_SHA256_AT_BRANCH_START = (
-    "ddd97d8786d2676293f01b51893d5dd6e1fd6a6bd00ff7a6a031ad837cfa7404"
+PIN_FILE_SHA256_REVIEWED = (
+    "cb7899d7b7d2ca514cffbfb0a30c421650ab2352c75c555a02d3a49f25745979"
 )
 
 
@@ -233,8 +240,9 @@ class TestNoBashShellInWorkflows(unittest.TestCase):
 
 
 class TestPinFileUntouched(unittest.TestCase):
-    """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the value frozen in
-    this test at branch start. 载体中立 — no third-party pin change this round."""
+    """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
+    value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6
+    deliberately, so the frozen digest tracks that reviewed content."""
 
     def test_pin_file_untouched(self):
         if not PIN_FILE.is_file():
@@ -242,9 +250,10 @@ class TestPinFileUntouched(unittest.TestCase):
         actual = hashlib.sha256(PIN_FILE.read_bytes()).hexdigest()
         self.assertEqual(
             actual,
-            PIN_FILE_SHA256_AT_BRANCH_START,
-            f"{PIN_FILE} changed since branch start (G-6 violation): "
-            f"expected sha256 {PIN_FILE_SHA256_AT_BRANCH_START}, got {actual}",
+            PIN_FILE_SHA256_REVIEWED,
+            f"{PIN_FILE} changed since the last reviewed pin update "
+            f"(G-6 violation): expected sha256 {PIN_FILE_SHA256_REVIEWED}, "
+            f"got {actual}",
         )
 
 

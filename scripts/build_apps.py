@@ -338,36 +338,98 @@ CEYX_REPO = "jhangyu/ceyx"
 # reviewable, revertible diff without editing this script's source.
 CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 
-# Per platform: where the libraries must land inside the ceyx checkout, and the
-# release asset -> on-disk filename mapping for each library. dest mirrors
-# plugin/<os>/CMakeLists.txt's bundled-library path. The asset<->artifact
-# filename mismatch is why an explicit mapping exists here rather than being
-# derived from either name.
+# Upstream publishes ONE .tar.gz per component/platform (plus an artifacts.lock
+# covering every archive in the release); the loose per-file .so/.dll assets this
+# table used to name are retired from the next release onward. So each entry
+# below names an ARCHIVE, the members to take out of it, and where they land.
 #
-# Windows is a LIST of three because dng_decoder_native.dll dynamically imports
-# heif.dll and libde265.dll (upstream's real runtime name — heif.dll's import
-# table names it, so it must not be renamed; LGPL-3 keeps libheif/libde265 as separate shared
-# libraries). Placing only the decoder produces an installation that fails at
+# Per entry:
+#   archive      release asset name (.tar.gz). The pin file holds its sha256.
+#   members      [{member, artifact}] : path INSIDE the tarball -> on-disk name.
+#                Every listed member must exist in the archive, and for a
+#                placing entry exactly len(members) files are placed - that
+#                count assertion is what keeps an atomic group atomic.
+#   dest         path inside the ceyx checkout, mirroring plugin/<os>/
+#                CMakeLists.txt's bundled-library path. None = not placed.
+#   place        True: extracted into `dest` for the Flutter build to consume.
+#                False: fetched, sha256-verified and lock-cross-checked only,
+#                then extracted to a staging dir under build/. Used for entries
+#                whose destination is a COMMITTED tree in ceyx (android jniLibs,
+#                the native/third_party/*-dist-windows SDK trees) which this
+#                script must not overwrite; the pin still covers their bytes.
+#   atomic_group documents (and asserts) a set that is useless unless all of it
+#                arrives.
+#
+# The Windows decoder archive is an atomic group of three DLLs because
+# dng_decoder_native.dll dynamically imports heif.dll and libde265.dll
+# (upstream's real runtime name - heif.dll's import table names it, so it must
+# not be renamed; LGPL-3 keeps libheif/libde265 as separate shared libraries).
+# Placing only the decoder produces an installation that fails at
 # DynamicLibrary.open with an error naming the decoder and nothing else. Linux
 # uses a one-element list so there is exactly one code path here.
+#
+# macOS is ABSENT on purpose (its plugin vendors six interdependent dylibs with
+# install-name/codesign wiring a release archive cannot satisfy - it keeps its
+# committed libraries), even though the release does publish macOS archives.
 CEYX_FETCH_SPECS = {
     "linux": {
+        "archive": "dng_decoder_native-linux-x86_64.tar.gz",
         "dest": Path("plugin") / "linux" / "Libraries",
-        "libraries": [
-            {"asset": "libdng_decoder_native-linux-x86_64.so",
+        "place": True,
+        "members": [
+            {"member": "libdng_decoder_native.so",
              "artifact": "libdng_decoder_native.so"},
         ],
     },
     "windows": {
+        "archive": "dng_decoder_native-windows-x86_64.tar.gz",
         "dest": Path("plugin") / "windows" / "Libraries",
-        "libraries": [
-            {"asset": "dng_decoder_native-windows-x86_64.dll",
-             "artifact": "dng_decoder_native.dll"},
-            {"asset": "heif-windows-x86_64.dll",  "artifact": "heif.dll"},
-            {"asset": "libde265-windows-x86_64.dll", "artifact": "libde265.dll"},
+        "place": True,
+        "atomic_group": True,
+        "members": [
+            {"member": "dng_decoder_native.dll", "artifact": "dng_decoder_native.dll"},
+            {"member": "heif.dll",               "artifact": "heif.dll"},
+            {"member": "libde265.dll",           "artifact": "libde265.dll"},
+        ],
+    },
+    # Verified but NOT placed: plugin/android/src/main/jniLibs is a committed
+    # ceyx tree this script is forbidden to overwrite. Covering it here keeps
+    # the Android decoder inside the pin + lock cross-check.
+    "android": {
+        "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
+        "dest": None,
+        "place": False,
+        "members": [
+            {"member": "libdng_decoder_native.so",
+             "artifact": "libdng_decoder_native.so"},
+        ],
+    },
+    # Third-party Windows SDK dists. Their consumers are ceyx's committed
+    # native/third_party/*-dist-windows trees, so they are verified, not placed.
+    "heif-dist-windows": {
+        "archive": "heif-dist-windows-x86_64.tar.gz",
+        "dest": None,
+        "place": False,
+        "atomic_group": True,
+        "members": [
+            {"member": "bin/heif.dll",     "artifact": "heif.dll"},
+            {"member": "bin/libde265.dll", "artifact": "libde265.dll"},
+        ],
+    },
+    "libwebp-dist-windows": {
+        "archive": "libwebp-dist-windows-x86_64.tar.gz",
+        "dest": None,
+        "place": False,
+        "members": [
+            {"member": "lib/libwebp.lib", "artifact": "libwebp.lib"},
         ],
     },
 }
+
+# The provenance file every release carries: asset -> {sha256, size} for every
+# archive in that release. It is CROSS-CHECKED against the pin (both must agree)
+# so a re-uploaded asset cannot pass by matching only one of the two records.
+CEYX_LOCK_ASSET = "artifacts.lock"
 
 WARNING_COUNT = 0
 CURRENT_PHASE = "startup"
@@ -1264,9 +1326,10 @@ def fetch_target_for(target):
 
 
 def load_ceyx_pin():
-    """The committed pin: {tag, assets:{plat:{asset, sha256}}}. Fails loudly if
-    the file is missing or malformed - a build must never fall back to an
-    unpinned fetch by accident."""
+    """The committed pin: {tag, lock:{asset,sha256}, assets:{entry:{archive,
+    sha256}}}. Returns (tag, assets, lock). Fails loudly if the file is missing
+    or malformed - a build must never fall back to an unpinned fetch by
+    accident."""
     if not CEYX_PIN_PATH.exists():
         fail(
             f"the ceyx release pin {CEYX_PIN_PATH} is missing.",
@@ -1282,30 +1345,51 @@ def load_ceyx_pin():
     assets = data.get("assets")
     if not tag or not isinstance(assets, dict):
         fail(f"{CEYX_PIN_PATH} is missing a 'tag' or 'assets' section.")
+    lock = data.get("lock")
+    if not isinstance(lock, dict) or not lock.get("asset") or not lock.get("sha256"):
+        fail(
+            f"{CEYX_PIN_PATH} is missing a 'lock' section with an asset + sha256.",
+            hints=[
+                "Every release now ships artifacts.lock; its own digest is pinned "
+                "so the cross-check cannot be satisfied by a substituted lock.",
+                "Re-derive it with: python3 scripts/build_apps.py "
+                "--ceyx-release latest",
+            ],
+        )
     for plat, entry in assets.items():
-        libs = entry.get("libraries") if isinstance(entry, dict) else None
-        if libs is None:
+        if not isinstance(entry, dict):
+            fail(f"{CEYX_PIN_PATH} entry for '{plat}' is not an object.")
+        if "archive" not in entry:
             fail(
                 f"{CEYX_PIN_PATH} entry for '{plat}' uses the retired "
-                "single-asset shape.",
+                "per-file asset shape (no 'archive').",
                 hints=[
-                    "Each platform now holds a 'libraries' list, because Windows "
-                    "ships the decoder plus heif.dll and libde265.dll.",
+                    "Upstream now publishes one .tar.gz per component/platform; "
+                    "each entry pins a single 'archive' + its sha256, plus the "
+                    "digest of every library extracted from it.",
                     "Re-derive it with: python3 scripts/build_apps.py "
                     "--ceyx-release latest",
                 ],
             )
+        if not entry.get("archive") or not entry.get("sha256"):
+            fail(
+                f"{CEYX_PIN_PATH} '{plat}' has no archive or sha256: {entry}",
+                hints=["An unpinned fetch is refused: the sha256 is the only "
+                       "control over which bytes reach the build."],
+            )
+        # The extracted-library records stay in the pin (key 'libraries') even
+        # though the ARCHIVE digest is what gates the download: scripts/ci/
+        # assertions.py reads them as data (H-DECODER-DEPS / H-DECODER-HASH),
+        # so the packaged artefact is checked against the same file a build is.
+        libs = entry.get("libraries")
         if not isinstance(libs, list) or not libs:
-            fail(f"{CEYX_PIN_PATH} entry for '{plat}' has an empty 'libraries' list.")
+            fail(f"{CEYX_PIN_PATH} '{plat}' has no 'libraries' records for the "
+                 "files extracted from its archive.")
         for lib in libs:
-            if not lib.get("asset") or not lib.get("sha256"):
-                fail(
-                    f"{CEYX_PIN_PATH} '{plat}' has a library entry without an "
-                    f"asset or sha256: {lib}",
-                    hints=["An unpinned fetch is refused: the sha256 is the only "
-                           "control over which bytes reach the build."],
-                )
-    return tag, assets
+            if not lib.get("member") or not lib.get("artifact") or not lib.get("sha256"):
+                fail(f"{CEYX_PIN_PATH} '{plat}' library record needs member, "
+                     f"artifact and sha256: {lib}")
+    return tag, assets, lock
 
 
 def ceyx_asset_url(tag, asset):
@@ -1402,19 +1486,128 @@ def ceyx_fetch_is_due(ft, layout, args):
     # and then ship an application that cannot load its decoder at all.
     spec = CEYX_FETCH_SPECS[ft]
     dest_dir = layout.decoder / spec["dest"]
-    return any(not (dest_dir / lib["artifact"]).exists()
-               for lib in spec["libraries"])
+    return any(not (dest_dir / m["artifact"]).exists()
+               for m in spec["members"])
+
+
+def fetch_ceyx_lock(tag, layout, expected_sha256):
+    """Download the release's artifacts.lock (itself sha256-pinned) and return
+    its {asset: {sha256, size}} mapping."""
+    path = fetch_ceyx_asset(tag, CEYX_LOCK_ASSET, expected_sha256, layout)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        fail(f"could not parse the ceyx {CEYX_LOCK_ASSET} of release {tag}: {e}")
+    entries = data.get("assets")
+    if not isinstance(entries, dict) or not entries:
+        fail(f"the ceyx {CEYX_LOCK_ASSET} of release {tag} has no 'assets' map.")
+    return entries
+
+
+def ceyx_lock_crosscheck(lock, asset, pinned_sha256, tag):
+    """Both records must agree. The pin says which bytes this repo reviewed; the
+    lock says which bytes the release claims to have published. Checking only
+    one of them lets a re-upload that also rewrote that one record pass."""
+    entry = lock.get(asset)
+    if not isinstance(entry, dict) or not entry.get("sha256"):
+        fail(
+            f"{asset} is not covered by {CEYX_LOCK_ASSET} of release {tag}.",
+            hints=["Every published archive must appear in the lock; an asset "
+                   "outside it has no upstream provenance record.",
+                   f"Assets in the lock: {', '.join(sorted(lock))}"],
+        )
+    if entry["sha256"].lower() != pinned_sha256.lower():
+        fail(
+            f"{asset}: pin and {CEYX_LOCK_ASSET} DISAGREE - refusing the fetch.",
+            hints=[f"pin  ({CEYX_PIN_PATH.name}): {pinned_sha256}",
+                   f"lock ({tag}):               {entry['sha256']}",
+                   "The release was re-published after the pin was reviewed. "
+                   "Re-derive the pin deliberately (--ceyx-release latest) and "
+                   "review the diff."],
+        )
+
+
+def extract_ceyx_archive(archive_path, members, dest_dir, atomic_group=False,
+                         pinned_digests=None):
+    """Extract exactly `members` from a verified .tar.gz into dest_dir under
+    their `artifact` names. Returns the list of written Paths.
+
+    Every member must be present and the written count must equal the requested
+    count: that is what makes an atomic group atomic - a Windows install that
+    got the decoder but not heif.dll fails at DynamicLibrary.open with an error
+    naming only the decoder, so a partial extraction must never be accepted."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    with tarfile.open(archive_path, "r:gz") as tf:
+        names = set(tf.getnames())
+        missing = [m["member"] for m in members if m["member"] not in names]
+        if missing:
+            fail(
+                f"{archive_path.name} is missing expected member(s): "
+                + ", ".join(missing),
+                hints=["The upstream archive layout changed; CEYX_FETCH_SPECS "
+                       "in this script must be updated deliberately.",
+                       f"Archive contains: {', '.join(sorted(names)[:20])}"],
+            )
+        for m in members:
+            src = tf.extractfile(m["member"])
+            if src is None:
+                fail(f"{archive_path.name}: '{m['member']}' is not a regular file.")
+            out = dest_dir / m["artifact"]
+            with src, open(out, "wb") as fh:
+                shutil.copyfileobj(src, fh)
+            written.append(out)
+
+    if len(written) != len(members):
+        fail(f"{archive_path.name}: extracted {len(written)} of {len(members)} "
+             "requested members.")
+    if pinned_digests:
+        # Defence in depth: the archive digest already gated the download, but
+        # the pin also records each extracted file, and those records are what
+        # scripts/ci/assertions.py measures the packaged app against. If the two
+        # ever drift the build must stop here, not ship a library the CI gate
+        # will then judge with a stale expectation.
+        for out in written:
+            expected = pinned_digests.get(out.name)
+            if not expected:
+                continue
+            observed = sha256_of(out)
+            if observed.lower() != expected.lower():
+                fail(
+                    f"{archive_path.name}: extracted {out.name} sha256 MISMATCH.",
+                    hints=[f"expected (pin): {expected}",
+                           f"observed:       {observed}",
+                           "Re-derive the pin with --ceyx-release latest and "
+                           "review the diff."],
+                )
+    present = [p for p in written if p.exists()]
+    if len(present) != len(members):
+        fail(
+            f"{archive_path.name}: only {len(present)} of {len(members)} files "
+            f"exist in {dest_dir} after extraction"
+            + (" - this is an ATOMIC GROUP and must arrive complete." if atomic_group else "."),
+        )
+    return written
 
 
 def fetch_ceyx_library(ft, layout):
-    """Download the pinned release assets for `ft` and place each at the
-    plugin's expected path. Returns the list of placed Paths."""
+    """Download the pinned release ARCHIVE for `ft`, verify its sha256 against
+    both the pin and the release's artifacts.lock, extract the members and place
+    them at the plugin's expected paths. Returns the list of placed Paths."""
     spec = CEYX_FETCH_SPECS[ft]
-    tag, assets = load_ceyx_pin()
+    tag, assets, lock_pin = load_ceyx_pin()
     if ft not in assets:
         fail(f"{CEYX_PIN_PATH.name} has no '{ft}' asset entry - cannot fetch.")
     entry = assets[ft]
-    pinned = {lib["asset"]: lib["sha256"] for lib in entry["libraries"]}
+    archive = entry["archive"]
+    sha256 = entry["sha256"]
+    if archive != spec["archive"]:
+        fail(
+            f"{CEYX_PIN_PATH.name} pins '{archive}' for '{ft}' but this script "
+            f"expects '{spec['archive']}'.",
+            hints=["Pin and CEYX_FETCH_SPECS must name the same asset; "
+                   "re-derive the pin with --ceyx-release latest."],
+        )
 
     phase(f"Phase 1: fetch ceyx prebuilt ({ft}) from release {tag}")
     dest_dir = layout.decoder / spec["dest"]
@@ -1424,25 +1617,21 @@ def fetch_ceyx_library(ft, layout):
             f"{spec['dest'].parts[1]} plugin folder, so the fetched libraries "
             "would be placed where nothing reads them.",
         )
-    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    placed_paths = []
-    for lib in spec["libraries"]:
-        asset = lib["asset"]
-        sha256 = pinned.get(asset)
-        if not sha256:
-            # Not a warning: an asset the pin file does not cover would be
-            # placed with no integrity control at all.
-            fail(f"{CEYX_PIN_PATH.name} '{ft}' has no sha256 for '{asset}' - "
-                 "refusing an unpinned fetch.")
-        verified = fetch_ceyx_asset(tag, asset, sha256, layout)
-        placed = dest_dir / lib["artifact"]
-        shutil.copy2(verified, placed)
-        if not placed.exists():
-            fail(f"copy to {dest_dir} did not produce {lib['artifact']}")
-        step(f"asset:  {asset}  ->  {lib['artifact']}")
-        step(f"sha256: {sha256}  (pinned, verified)")
-        placed_paths.append(placed)
+    lock = fetch_ceyx_lock(tag, layout, lock_pin["sha256"])
+    ceyx_lock_crosscheck(lock, archive, sha256, tag)
+    step(f"lock:   {CEYX_LOCK_ASSET} agrees with the pin for {archive}")
+
+    verified = fetch_ceyx_asset(tag, archive, sha256, layout)
+    placed_paths = extract_ceyx_archive(
+        verified, spec["members"], dest_dir,
+        atomic_group=spec.get("atomic_group", False),
+        pinned_digests={lib["artifact"]: lib["sha256"]
+                        for lib in entry["libraries"]})
+    step(f"archive: {archive}")
+    step(f"sha256:  {sha256}  (pinned, lock-cross-checked, verified)")
+    for m in spec["members"]:
+        step(f"member:  {m['member']}  ->  {m['artifact']}")
 
     ok(f"placed {len(placed_paths)} librar{'y' if len(placed_paths) == 1 else 'ies'}: "
        + ", ".join(p.name for p in placed_paths))
@@ -1479,44 +1668,83 @@ def resolve_latest_ceyx_release():
     return tag
 
 
-def update_ceyx_pin_latest(layout):
-    """--ceyx-release latest: resolve the newest release, download each fetched
-    platform's asset, record its real sha256 in the pin file, and STOP. It never
-    builds against the unpinned version - the maintainer reviews and commits the
-    rewritten pin, then a normal (pinned) build consumes it."""
-    phase("ceyx pin update: resolving the latest release")
-    tag = resolve_latest_ceyx_release()
-    ok(f"latest release: {tag}")
+def update_ceyx_pin_latest(layout, tag=None):
+    """--ceyx-release latest|<tag>: resolve the release, download every archive
+    this script consumes, record their real sha256 (plus artifacts.lock's own
+    digest, plus a digest per extracted library) in the pin file, and STOP. It
+    never builds against the unpinned version - the maintainer reviews and
+    commits the rewritten pin, then a normal (pinned) build consumes it.
+
+    An explicit tag is accepted because the API's "latest" is a MUTABLE GitHub
+    flag, not the newest tag: it can point at an older release than the one the
+    maintainer means to pin (observed 2026-08-31 - the API reported v0.1.5 while
+    v0.1.6 was published and not a prerelease)."""
+    if tag:
+        phase(f"ceyx pin update: explicit release {tag}")
+    else:
+        phase("ceyx pin update: resolving the latest release")
+        tag = resolve_latest_ceyx_release()
+    ok(f"target release: {tag}")
+
+    def download_asset(asset):
+        cache_dir = ceyx_cache_dir(layout, tag)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        dest = cache_dir / asset
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(60)
+        try:
+            download_with_progress(
+                ceyx_asset_url(tag, asset),
+                str(dest),
+                failure_hints=[f"Place the file at {dest} yourself, then re-run."],
+            )
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+        return dest, sha256_of(dest)
+
+    # The lock is recorded first: its own digest is pinned so that the
+    # cross-check on a later build cannot be satisfied by a substituted lock.
+    lock_path, lock_digest = download_asset(CEYX_LOCK_ASSET)
+    ok(f"{CEYX_LOCK_ASSET}  sha256 {lock_digest}")
+    try:
+        lock_entries = json.loads(lock_path.read_text(encoding="utf-8")).get("assets", {})
+    except (OSError, ValueError) as e:
+        fail(f"could not parse the downloaded {CEYX_LOCK_ASSET}: {e}")
 
     new_assets = {}
     for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
+        archive = spec["archive"]
+        archive_path, digest = download_asset(archive)
+        ok(f"{ft}: {archive}  sha256 {digest}")
+        # Record only what the release's own provenance file also vouches for:
+        # an archive absent from the lock, or disagreeing with it, must not be
+        # written into the pin as if it were reviewed.
+        entry = lock_entries.get(archive)
+        if not isinstance(entry, dict) or not entry.get("sha256"):
+            fail(f"{archive} is absent from {CEYX_LOCK_ASSET} of {tag} - "
+                 "refusing to pin an asset with no upstream provenance record.",
+                 hints=[f"lock covers: {', '.join(sorted(lock_entries))}"])
+        if entry["sha256"].lower() != digest.lower():
+            fail(f"{archive}: downloaded bytes disagree with {CEYX_LOCK_ASSET}.",
+                 hints=[f"downloaded: {digest}", f"lock:       {entry['sha256']}"])
+        # Record each extracted library too: the archive digest gates the
+        # download, these gate the files that actually reach the app (and are
+        # read as data by scripts/ci/assertions.py).
+        staging = ceyx_cache_dir(layout, tag) / "pin-extract" / ft
+        extracted = extract_ceyx_archive(
+            archive_path, spec["members"], staging,
+            atomic_group=spec.get("atomic_group", False))
+        by_name = {p.name: p for p in extracted}
         libs = []
-        for lib in spec["libraries"]:
-            asset = lib["asset"]
-            url = ceyx_asset_url(tag, asset)
-            cache_dir = ceyx_cache_dir(layout, tag)
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            dest = cache_dir / asset
-            old_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(60)
-            try:
-                download_with_progress(
-                    url,
-                    str(dest),
-                    failure_hints=[
-                        f"Place the file at {dest} yourself, then re-run.",
-                    ],
-                )
-            finally:
-                socket.setdefaulttimeout(old_timeout)
-            digest = sha256_of(dest)
-            ok(f"{ft}: {asset}  sha256 {digest}")
-            libs.append({"asset": asset,
-                         "artifact": lib["artifact"],
-                         "sha256": digest})
-        new_assets[ft] = {"libraries": libs}
+        for m in spec["members"]:
+            d = sha256_of(by_name[m["artifact"]])
+            step(f"    {m['member']} -> {m['artifact']}  sha256 {d}")
+            libs.append({"member": m["member"], "artifact": m["artifact"],
+                         "sha256": d})
+        new_assets[ft] = {"archive": archive, "sha256": digest,
+                          "libraries": libs}
 
-    # Preserve the file's comment block; only tag + assets are machine-managed.
+    # Preserve the file's comment block; only tag/lock/assets are machine-managed.
     try:
         existing = json.loads(CEYX_PIN_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -1526,6 +1754,7 @@ def update_ceyx_pin_latest(layout):
     if comment is not None:
         out["_comment"] = comment
     out["tag"] = tag
+    out["lock"] = {"asset": CEYX_LOCK_ASSET, "sha256": lock_digest}
     out["assets"] = new_assets
     CEYX_PIN_PATH.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
 
@@ -1534,6 +1763,59 @@ def update_ceyx_pin_latest(layout):
     step("REVIEW the diff and COMMIT it to update the pin. No build was run:")
     step("--ceyx-release latest only rewrites the pin; a normal pinned build then")
     step("consumes the reviewed version.")
+
+
+def verify_ceyx_release(layout, only=None):
+    """--ceyx-release verify: exercise the whole consumption path against the
+    PINNED release - download, sha256-verify, artifacts.lock cross-check and
+    extract every CEYX_FETCH_SPECS entry - WITHOUT writing anything into the
+    ceyx checkout. Extraction goes to a staging dir under halcyon build/.
+
+    This exists so the fetch mechanism can be proven end-to-end on any host
+    (a macOS box can verify the Linux and Windows archives it will never place),
+    instead of only being exercised as a side effect of a platform build."""
+    tag, assets, lock_pin = load_ceyx_pin()
+    phase(f"ceyx release verify: {tag} (no files placed in the ceyx checkout)")
+    lock = fetch_ceyx_lock(tag, layout, lock_pin["sha256"])
+    ok(f"{CEYX_LOCK_ASSET} sha256 matches the pin; covers {len(lock)} assets")
+
+    staging = layout.halcyon / "build" / "ceyx-release-verify" / tag
+    failures = 0
+    checked = []
+    for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
+        if only and ft not in only:
+            continue
+        if ft not in assets:
+            fail(f"{CEYX_PIN_PATH.name} has no '{ft}' entry - the pin does not "
+                 "cover everything this script fetches.")
+        entry = assets[ft]
+        if entry["archive"] != spec["archive"]:
+            fail(f"pin/spec archive mismatch for '{ft}': {entry['archive']} vs "
+                 f"{spec['archive']}")
+        step(f"--- {ft}: {entry['archive']}")
+        ceyx_lock_crosscheck(lock, entry["archive"], entry["sha256"], tag)
+        verified = fetch_ceyx_asset(tag, entry["archive"], entry["sha256"], layout)
+        written = extract_ceyx_archive(
+            verified, spec["members"], staging / ft,
+            atomic_group=spec.get("atomic_group", False),
+            pinned_digests={lib["artifact"]: lib["sha256"]
+                            for lib in entry["libraries"]})
+        n_expected = len(spec["members"])
+        if len(written) != n_expected:
+            failures += 1
+        ok(f"{ft}: lock+pin agree, extracted {len(written)}/{n_expected} member(s)"
+           + ("  [ATOMIC GROUP]" if spec.get("atomic_group") else ""))
+        for p in written:
+            step(f"  {p.name}  {p.stat().st_size} bytes")
+        checked.append(ft)
+
+    print()
+    if failures:
+        fail(f"{failures} entr(ies) did not extract the expected member count.")
+    ok(f"VERIFIED {len(checked)} entr(ies) against release {tag}: "
+       + ", ".join(checked))
+    step(f"staging dir (safe to delete): {staging}")
+    return checked
 
 
 # --------------------------------------------------------------------------
@@ -2127,13 +2409,20 @@ def make_parser():
                         "copy (Linux/Windows only). Without this flag a fetch "
                         "still happens automatically when the destination library "
                         "is absent - which is how a Linux build gets its .so.")
-    p.add_argument("--ceyx-release", choices=["pinned", "latest"], default="pinned",
+    p.add_argument("--ceyx-release", default="pinned", metavar="pinned|latest|verify|TAG",
                    help="Which ceyx release to use. 'pinned' (default) reads the "
                         "committed scripts/ceyx_release_pin.json and downloads by "
                         "tag without touching the rate-limited GitHub API. 'latest' "
                         "resolves the newest release via the API, records its real "
-                        "per-asset sha256 back into the pin file for review, and "
-                        "exits WITHOUT building - it never builds unpinned.")
+                        "per-asset sha256 (and artifacts.lock's own digest) back "
+                        "into the pin file for review, and exits WITHOUT building - "
+                        "it never builds unpinned. An explicit tag (e.g. v0.1.6) "
+                        "does the same for that release, because the API's "
+                        "'latest' is a mutable flag that can lag the newest "
+                        "published release. 'verify' exercises the full "
+                        "download + sha256 + artifacts.lock cross-check + extract "
+                        "path for every pinned archive into a staging dir and "
+                        "exits, writing nothing into the ceyx checkout.")
     p.add_argument("--clean", action="store_true",
                    help="Delete this target's build output before building (needed after a CMake "
                         "target rename - a cached target name cannot be updated in place).")
@@ -2204,10 +2493,22 @@ def main():
     step(f"decoder: {layout.decoder}")
     step(f"host:    {host_os()}/{host_arch()}  mode: {mode}")
 
-    if args.ceyx_release == "latest":
-        # Opt-in pin update: rewrite the pin from the newest release and STOP.
+    if args.ceyx_release == "verify":
+        # Mechanism proof only: verifies the pinned archives end-to-end and
+        # STOPS. Nothing is placed in the ceyx checkout, so it is safe to run
+        # on any host regardless of which platform it can build.
+        verify_ceyx_release(layout)
+        print()
+        print("=" * 62)
+        print(" DONE - ceyx pinned assets verified. No build ran.")
+        print("=" * 62)
+        return
+
+    if args.ceyx_release != "pinned":
+        # Opt-in pin update: rewrite the pin from the named release and STOP.
         # Never builds against an unpinned version (task decision).
-        update_ceyx_pin_latest(layout)
+        update_ceyx_pin_latest(
+            layout, tag=None if args.ceyx_release == "latest" else args.ceyx_release)
         print()
         print("=" * 62)
         print(" DONE - ceyx pin rewritten; review and commit it. No build ran.")
