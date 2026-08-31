@@ -75,12 +75,7 @@ class AppState extends ChangeNotifier {
     PhotoExportService? exportService,
     ExifBatchReader? exifReader,
     RetentionPolicy retention = const RetentionPolicy.floor(),
-    // Defaults to 1 for the same reason `retention` defaults to the shipped
-    // floor: a test or a platform with no hardware reading behaves exactly as
-    // it did before this setting existed.
-    int laneCeiling = 1,
-  }) : _laneCeiling = laneCeiling < 1 ? 1 : laneCeiling,
-       _decodeLaneWidth = defaultLaneWidthFor(laneCeiling < 1 ? 1 : laneCeiling),
+  }) : _decodeLaneWidth = kDefaultDecodeLaneWidth,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -102,7 +97,7 @@ class AppState extends ChangeNotifier {
              // than a full decode (ratio 0.916, payload-bench-report.md §4)
              // while costing a whole extra sensor decode outside the lane.
              retention: retention,
-             decodeLaneWidth: defaultLaneWidthFor(laneCeiling < 1 ? 1 : laneCeiling),
+             decodeLaneWidth: kDefaultDecodeLaneWidth,
            ) {
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
@@ -128,8 +123,7 @@ class AppState extends ChangeNotifier {
   /// [selectableExportFiletypes] without going anywhere near that call.
   @visibleForTesting
   AppState.forTesting({required Set<ExportFiletype> runtimeCapabilities})
-    : _laneCeiling = 1,
-      _decodeLaneWidth = defaultLaneWidthFor(1),
+    : _decodeLaneWidth = kDefaultDecodeLaneWidth,
       _scanner = PhotoLibraryScanner(),
       _exifReader = ExifMetadataService.readBatch,
       _statusStore = PhotoStatusStore(),
@@ -139,7 +133,7 @@ class AppState extends ChangeNotifier {
         imageLoader: dartImageLoad,
         dngDecoder: null,
         retention: const RetentionPolicy.floor(),
-        decodeLaneWidth: defaultLaneWidthFor(1),
+        decodeLaneWidth: kDefaultDecodeLaneWidth,
       ) {
     _autoRetentionTier = tierForPolicy(const RetentionPolicy.floor());
     _renameCoordinator = RenameCoordinator(
@@ -180,7 +174,6 @@ class AppState extends ChangeNotifier {
   // Settings
   bool _autoAdvance = false;
   bool _overwriteExisting = true;
-  final int _laneCeiling;
   int _decodeLaneWidth;
   int _exportJpegQuality = kDefaultExportJpegQuality;
   int _exportLongEdge = kDefaultExportLongEdge;
@@ -233,9 +226,10 @@ class AppState extends ChangeNotifier {
     // that so a bad stored value falls back to the default width instead of
     // crashing app startup.
     final storedLaneWidth = _readIntPref('decodeLaneWidth');
-    _decodeLaneWidth =
-        (storedLaneWidth ?? defaultLaneWidthFor(_laneCeiling))
-            .clamp(1, _laneCeiling);
+    _decodeLaneWidth = (storedLaneWidth ?? kDefaultDecodeLaneWidth).clamp(
+      1,
+      kMaxDecodeLaneWidth,
+    );
     _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
 
     // Each read below stands alone: a corrupt export quality must not take
@@ -334,8 +328,8 @@ class AppState extends ChangeNotifier {
 
   int get decodeLaneWidth => _decodeLaneWidth;
 
-  /// The largest width this machine allows (memory rung AND core count).
-  int get maxDecodeLaneWidth => _laneCeiling;
+  /// The largest width the user may set. Fixed on every platform (AD-044).
+  int get maxDecodeLaneWidth => kMaxDecodeLaneWidth;
 
   int get exportJpegQuality => _exportJpegQuality;
 
@@ -651,7 +645,7 @@ class AppState extends ChangeNotifier {
   }
 
   void setDecodeLaneWidth(int value) {
-    _decodeLaneWidth = value.clamp(1, _laneCeiling);
+    _decodeLaneWidth = value.clamp(1, kMaxDecodeLaneWidth);
     _prefs?.setInt('decodeLaneWidth', _decodeLaneWidth);
     _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
     notifyListeners();

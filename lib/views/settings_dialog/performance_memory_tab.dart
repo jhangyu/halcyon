@@ -69,27 +69,20 @@ class PerformanceMemoryTab extends StatelessWidget {
                 settingsRowLabel(t, 'Concurrent RAW decodes'),
                 settingsCaption(
                   t,
-                  state.maxDecodeLaneWidth > 1
-                      ? '${state.decodeLaneWidth} of ${state.maxDecodeLaneWidth} max'
-                      : 'This machine can only decode one RAW at a time',
+                  '${state.decodeLaneWidth} of ${state.maxDecodeLaneWidth} max',
                 ),
                 settingsSlider(
                   key: const Key('decodeLaneWidthSlider'),
                   min: 1,
                   max: state.maxDecodeLaneWidth.toDouble(),
-                  // Flutter asserts divisions > 0, so a ceiling of 1 passes null.
-                  divisions: state.maxDecodeLaneWidth > 1
-                      ? state.maxDecodeLaneWidth - 1
-                      : null,
+                  divisions: state.maxDecodeLaneWidth - 1,
                   label: '${state.decodeLaneWidth}',
                   value: state.decodeLaneWidth.toDouble(),
                   activeColor: t.accent,
                   inactiveColor: t.border,
-                  onChanged: state.maxDecodeLaneWidth > 1
-                      ? (double value) => context
-                            .read<AppState>()
-                            .setDecodeLaneWidth(value.round())
-                      : null,
+                  onChanged: (double value) => context
+                      .read<AppState>()
+                      .setDecodeLaneWidth(value.round()),
                 ),
               ],
             ),

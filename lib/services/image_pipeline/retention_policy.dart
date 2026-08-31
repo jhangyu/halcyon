@@ -136,51 +136,15 @@ RetentionTier retentionTierFor({int? physicalMemoryBytes}) {
   return RetentionTier.generous;
 }
 
-/// Cores one expensive (real RAW) decode occupies.
-///
-/// Measured 4.666 on a 28-core (20P+8E) machine, differenced across two runs to
-/// cancel Dart VM startup: docs/logs/2026-08-30/decode-cpu-parallelism.txt:113.
-/// Rounded UP, so the clamp below errs toward fewer concurrent decodes.
-const int kCoresPerDecode = 5;
-
 /// Hard cap on lane width, regardless of how large the machine is.
-const int kMaxDecodeLaneWidth = 5;
-
-/// Width a machine gets before the user touches the setting (capped by ceiling).
 ///
-/// The §9.3 decode-only verdict rule (post-landing re-benchmark measured
-/// Speedup(3) = 1.167 < 1.3 on a 28-core/256 GiB machine,
-/// docs/logs/2026-08-30/decode-lane-width-sweep.txt) said this should be 1.
-/// The user overrode that to 3 on 2026-08-30, because that measurement only
-/// covered the decode stage (`DngDecoderService.decodeOnWorker`) and did not
-/// cover the production lane body, which also runs the libjpeg-turbo
-/// re-encode added in Phase 13 -- the CPU-bound encode stage is the part
-/// expected to scale with width, and it was not exercised by the sweep. The
-/// final value awaits a combined decode+re-encode re-measurement; see the
-/// addendum at the end of decode-lane-width-sweep.txt. The setting stays
-/// user-adjustable up to [laneCeilingFor]'s ceiling regardless of this value.
-const int kDefaultDecodeLaneWidth = 3;
+/// AD-044 (2026-08-31): the CPU/memory decode-lane capability probe was
+/// deleted after failing cross-platform three times -- the last on a
+/// 32 GB/8-thread Windows machine, which computed a ceiling of 1 and
+/// disabled the slider entirely. Lane width is now a plain user setting:
+/// slider 1..8 on every platform, default 2, with no CPU- or memory-derived
+/// ceiling anywhere.
+const int kMaxDecodeLaneWidth = 8;
 
-/// How many expensive decodes may run at once on this machine.
-///
-/// Two independent ceilings, minimum wins:
-///   * MEMORY -- each in-flight decode transiently peaks at ~3x the full-res
-///     RGBA size (~275 MiB for the 91.55 MiB 24MP entry of cache_budget.dart),
-///     so the rung caps it at 2 / 4 / 5. Thresholds are SHARED with
-///     [retentionPolicyFor] so the two mechanisms cannot disagree.
-///   * CPU -- [kCoresPerDecode] each, capped at [kMaxDecodeLaneWidth]. An
-///     8-core machine gets 1, i.e. exactly the pre-2026-08-30 behaviour.
-int laneCeilingFor({int? physicalMemoryBytes, required int processors}) {
-  final byMemory =
-      physicalMemoryBytes == null || physicalMemoryBytes < kMidRungTriggerBytes
-      ? 2
-      : physicalMemoryBytes < kHighRungTriggerBytes
-      ? 4
-      : 5;
-  final byCpu = (processors ~/ kCoresPerDecode).clamp(1, kMaxDecodeLaneWidth);
-  return byMemory < byCpu ? byMemory : byCpu;
-}
-
-/// The shipped default for a machine whose ceiling is [ceiling].
-int defaultLaneWidthFor(int ceiling) =>
-    ceiling < kDefaultDecodeLaneWidth ? ceiling : kDefaultDecodeLaneWidth;
+/// Width a machine gets before the user touches the setting.
+const int kDefaultDecodeLaneWidth = 2;

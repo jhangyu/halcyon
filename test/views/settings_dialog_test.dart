@@ -50,7 +50,7 @@ void main() {
       'TC-458 (round 2: supersedes tab labels) the dialog renders the '
       'three restructured tabs and the rail on every tab', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -73,7 +73,7 @@ void main() {
       'through, is labelled "Concurrent RAW decodes", and no "lane" copy '
       'is visible', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -82,7 +82,7 @@ void main() {
     );
     expect(slider.onChanged, isNotNull);
     expect(slider.min, 1);
-    expect(slider.max, 5);
+    expect(slider.max, 8);
     slider.onChanged!(4);
     await tester.pump();
     expect(state.decodeLaneWidth, 4);
@@ -92,28 +92,27 @@ void main() {
   });
 
   testWidgets(
-      'TC-460 (supersedes TC-355) the row is shown but DISABLED on a '
-      'machine whose ceiling is 1 (never hidden)', (tester) async {
+      'TC-460 (revised, AD-044) the width slider is always enabled, '
+      'min 1, max 8, 7 divisions', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 1);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
     final finder = find.byKey(const Key('decodeLaneWidthSlider'));
-    expect(finder, findsOneWidget, reason: 'a hidden control reads as a '
-        'missing feature when the user compares two machines');
-    expect(tester.widget<Slider>(finder).onChanged, isNull);
-    expect(
-      find.text('This machine can only decode one RAW at a time'),
-      findsOneWidget,
-    );
+    expect(finder, findsOneWidget);
+    final slider = tester.widget<Slider>(finder);
+    expect(slider.onChanged, isNotNull);
+    expect(slider.min, 1);
+    expect(slider.max, 8);
+    expect(slider.divisions, 7);
   });
 
   testWidgets(
       'TC-461 (round 2: supersedes 70..100) the export-quality slider is '
       '50..100 step 5 and rounds to the nearest stop', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -135,7 +134,7 @@ void main() {
       'TC-469 the export-size slider offers the 8 named stops, rounds to '
       'the nearest one, and Original is reachable', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -206,7 +205,7 @@ void main() {
       'TC-462 tapping a tier card sets the retention tier; the reset '
       'button appears only after an override and clears it', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -238,11 +237,11 @@ void main() {
       'TC-463 the rail shows concurrent decodes, quality, tier and a '
       'clean conflicts value', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
-    expect(find.text('3 / 5'), findsOneWidget);
+    expect(find.text('2 / 8'), findsOneWidget);
     expect(find.text('90'), findsOneWidget); // rail value only -- Export
     // quality's own caption lives on the Export tab now, not this one.
     expect(find.text('2048px'), findsOneWidget); // rail's Export size value
@@ -262,7 +261,7 @@ void main() {
   testWidgets('TC-464 recording flow binds a new key and leaves recording mode',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -287,7 +286,7 @@ void main() {
       'TC-465 recording rejects a reserved key and Escape cancels without '
       'changing the binding', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -315,7 +314,7 @@ void main() {
       'TC-466 conflict surfacing: binding recycle-mode to X names both '
       'conflicting actions and updates the rail', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     // AppState's prefs hydration is async (_initPrefs); let it settle before
     // binding, otherwise the hydration completes afterwards and overwrites
@@ -353,7 +352,7 @@ void main() {
       'TC-467 Cancel reverts every changed field; Done persists them',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
 
     final openingLaneWidth = state.decodeLaneWidth;
@@ -401,7 +400,7 @@ void main() {
       'TC-482 round-4: Export tab renamed section labels and row labels for '
       'Quality, Size and File Type', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -430,7 +429,7 @@ void main() {
       'TC-483 round-4: Performance & Memory tab pairs Parallelism and Memory '
       'Retention at a 2:3 flex ratio', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -453,7 +452,7 @@ void main() {
       'TC-486 round-5: Parallelism and Memory Retention blocks in the paired '
       'row render at equal height', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 
@@ -481,7 +480,7 @@ void main() {
       'TC-485 F1 fidelity: every settings slider uses a SliderTheme with '
       'trackHeight 4 and a radius-7 thumb (F1.html:70-71)', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final state = AppState(laneCeiling: 5);
+    final state = AppState();
     addTearDown(state.dispose);
     await pumpDialog(tester, state);
 

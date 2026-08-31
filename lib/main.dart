@@ -40,16 +40,12 @@ Future<void> main() async {
     physicalMemoryBytes: physicalMemoryBytes,
   );
   final processors = Platform.numberOfProcessors;
-  final laneCeiling = laneCeilingFor(
-    physicalMemoryBytes: physicalMemoryBytes,
-    processors: processors,
-  );
   // The one line that makes the mechanism self-reporting: without it, "the
   // app adapts to this machine" is a claim about code rather than an
   // observed fact. Compared against `sysctl -n hw.memsize` on macOS.
   debugPrint(
     'startup.memory|bytes=$physicalMemoryBytes|policy=$retention'
-    '|processors=$processors|laneCeiling=$laneCeiling',
+    '|processors=$processors',
   );
   // Composition root: injects the real RAW decoder. When dngDecoder is null
   // (tests, and any platform without the native dylib) a DNG carrying no
@@ -63,7 +59,6 @@ Future<void> main() async {
   final appState = AppState(
     dngDecoder: halcyonFullDecoder,
     retention: retention,
-    laneCeiling: laneCeiling,
   ); // PERF-INSTRUMENTATION
   // Finder "Open With" / shell association: load the file's folder and select
   // that photo. Registered before runApp so a launch-time file isn't missed.

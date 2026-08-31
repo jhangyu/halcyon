@@ -618,12 +618,16 @@ void main() {
   });
 
   group('AppState.decodeLaneWidth', () {
-    test('TC-351 lane width defaults to 1 with no ceiling injected', () async {
+    test(
+        'TC-351 (revised, AD-044) lane width defaults to 2 with max fixed at 8, '
+        'no probe injected',
+        () async {
       SharedPreferences.setMockInitialValues({});
       final state = AppState();
       addTearDown(state.dispose);
-      expect(state.maxDecodeLaneWidth, 1);
-      expect(state.decodeLaneWidth, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.maxDecodeLaneWidth, 8);
+      expect(state.decodeLaneWidth, 2);
     });
 
     test('TC-352 a persisted width is read back and pushed to the controller',
@@ -634,7 +638,7 @@ void main() {
             const NativeImageNeedsRawDecode(exifOrientation: 1),
       );
       addTearDown(controller.dispose);
-      final state = AppState(preloadController: controller, laneCeiling: 5);
+      final state = AppState(preloadController: controller);
       addTearDown(state.dispose);
       await Future<void>.delayed(Duration.zero);
       expect(state.decodeLaneWidth, 4);
@@ -642,13 +646,14 @@ void main() {
     });
 
     test(
-        'TC-353 a persisted width above this machine ceiling is clamped on read',
+        'TC-353 (revised, AD-044) a persisted width above the fixed 1..8 '
+        'range is clamped on read',
         () async {
       SharedPreferences.setMockInitialValues({'decodeLaneWidth': 9});
-      final state = AppState(laneCeiling: 2);
+      final state = AppState();
       addTearDown(state.dispose);
       await Future<void>.delayed(Duration.zero);
-      expect(state.decodeLaneWidth, 2);
+      expect(state.decodeLaneWidth, 8);
 
       state.setDecodeLaneWidth(1);
       final prefs = await SharedPreferences.getInstance();
@@ -656,30 +661,18 @@ void main() {
       expect(state.decodeLaneWidth, 1);
     });
 
-    // TC number provisional: docs/sop is not present in this worktree, so
-    // this could not be checked against the shared TC-NNN registry; next
-    // free number observed in-tree at authoring time was TC-382.
     test(
-        'TC-382 (provisional) a non-positive injected laneCeiling does not '
-        'throw and normalizes to 1',
+        'TC-382 (revised, AD-044) a stored width below 1 clamps up to 1, '
+        'not down to zero or below',
         () async {
-      SharedPreferences.setMockInitialValues({});
-      final zeroState = AppState(laneCeiling: 0);
-      addTearDown(zeroState.dispose);
-      expect(zeroState.maxDecodeLaneWidth, 1);
+      SharedPreferences.setMockInitialValues({'decodeLaneWidth': 0});
+      final state = AppState();
+      addTearDown(state.dispose);
       await Future<void>.delayed(Duration.zero);
-      expect(zeroState.decodeLaneWidth, 1);
-      zeroState.setDecodeLaneWidth(5);
-      expect(zeroState.decodeLaneWidth, 1);
+      expect(state.decodeLaneWidth, 1);
 
-      SharedPreferences.setMockInitialValues({});
-      final negativeState = AppState(laneCeiling: -2);
-      addTearDown(negativeState.dispose);
-      expect(negativeState.maxDecodeLaneWidth, 1);
-      await Future<void>.delayed(Duration.zero);
-      expect(negativeState.decodeLaneWidth, 1);
-      negativeState.setDecodeLaneWidth(5);
-      expect(negativeState.decodeLaneWidth, 1);
+      state.setDecodeLaneWidth(-2);
+      expect(state.decodeLaneWidth, 1);
     });
 
     // TC number provisional; see TC-382 above for the same caveat.
@@ -688,10 +681,10 @@ void main() {
         'back to the default instead of crashing prefs init',
         () async {
       SharedPreferences.setMockInitialValues({'decodeLaneWidth': 'garbage'});
-      final state = AppState(laneCeiling: 5);
+      final state = AppState();
       addTearDown(state.dispose);
       await Future<void>.delayed(Duration.zero);
-      expect(state.decodeLaneWidth, defaultLaneWidthFor(5));
+      expect(state.decodeLaneWidth, kDefaultDecodeLaneWidth);
     });
   });
 }

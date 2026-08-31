@@ -12,10 +12,9 @@ void main() {
   Future<AppState> hydrated({
     Map<String, Object> prefs = const {},
     RetentionPolicy retention = const RetentionPolicy.floor(),
-    int laneCeiling = 5,
   }) async {
     SharedPreferences.setMockInitialValues(prefs);
-    final state = AppState(retention: retention, laneCeiling: laneCeiling);
+    final state = AppState(retention: retention);
     addTearDown(state.dispose);
     // _initPrefs is async and fired from the constructor; let it settle.
     await Future<void>.delayed(Duration.zero);
