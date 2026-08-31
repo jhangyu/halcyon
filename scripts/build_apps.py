@@ -1869,6 +1869,95 @@ def native_is_due(target, layout, mode):
     return not dest.exists()
 
 
+# --------------------------------------------------------------------------
+# FFI export assertion for LOCALLY BUILT decoder libraries.
+#
+# Mirrors the per-platform checks ceyx CI runs before publishing a release
+# asset (macos_build.yml G3, windows_build.yml AC-W4, android_build.yml G6):
+# a locally compiled library that passes every build/gate step above can still
+# be missing FFI exports (Windows: a definition without FFI_EXPORT compiles,
+# links, and fails only at Dart's lookupFunction on the user's machine) or be
+# missing whole capabilities the fetched release binaries carry. Presence is
+# the contract; on Windows ceyx_encode_webp_rgba8 is deliberately NOT gated
+# (it is exported even when compiled as a stub), same as CI.
+FFI_EXPORT_SYMBOLS = {
+    "macos": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8",
+              "ceyx_encode_webp_rgba8"],
+    "windows": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8",
+                "heif_probe", "heif_decode_rgba", "heif_release",
+                "heif_error_name"],
+    "android": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8"],
+}
+
+
+def _export_listing_commands(nt, built):
+    """The command(s) that can read this artifact's export table, in
+    preference order — exactly the tools ceyx CI uses per platform."""
+    if nt == "macos":
+        return [["nm", "-gU", str(built)]]
+    if nt == "windows":
+        # dumpbin needs the MSVC environment; llvm-nm ships beside clang-cl.
+        return [["dumpbin", "-exports", str(built)],
+                ["llvm-nm", "--extern-only", "--defined-only", str(built)]]
+    # android: a cross-compiled ELF needs the NDK's own llvm-nm, not host nm.
+    ndk = os.environ.get("ANDROID_NDK_HOME", "")
+    exe = "llvm-nm.exe" if host_os() == "windows" else "llvm-nm"
+    candidates = sorted(
+        (Path(ndk) / "toolchains" / "llvm" / "prebuilt").glob(f"*/bin/{exe}")
+    ) if ndk else []
+    return [[str(c), "-D", str(built)] for c in candidates]
+
+
+def assert_ffi_exports(nt, built):
+    """Fail the build unless every gated FFI symbol is in the export table.
+
+    Unreadable export table = UNVERIFIED = fail (never warn-and-continue),
+    matching ceyx CI's refusal to publish an unverified artifact.
+    """
+    commands = _export_listing_commands(nt, built)
+    if not commands:
+        fail(
+            f"cannot verify FFI exports of {built}: no symbol-listing tool found.",
+            hints=["android needs ANDROID_NDK_HOME set (llvm-nm comes from the NDK)."],
+        )
+    listing = None
+    for argv in commands:
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if proc.returncode == 0:
+            listing = proc.stdout
+            step(f"export table read with: {argv[0]}")
+            break
+    if listing is None:
+        fail(
+            f"could not read the export table of {built} "
+            f"(tried: {', '.join(a[0] for a in commands)}); export presence is "
+            "UNVERIFIED, refusing to place the library.",
+        )
+    # Match semantics mirror ceyx CI: plain substring on macOS/android (Mach-O
+    # exports carry a leading underscore — `_dng_decode_and_process` — which a
+    # word-boundary match would reject), `grep -w` word match on Windows.
+    if nt == "windows":
+        missing = [s for s in FFI_EXPORT_SYMBOLS[nt]
+                   if re.search(rf"\b{re.escape(s)}\b", listing) is None]
+    else:
+        missing = [s for s in FFI_EXPORT_SYMBOLS[nt] if s not in listing]
+    if missing:
+        fail(
+            f"missing exported FFI symbol(s) in {built}: {' '.join(missing)} — "
+            "the library does not export the FFI surface Dart looks up.",
+            hints=[
+                "On Windows this needs __declspec(dllexport) via FFI_EXPORT on the "
+                "definitions in ceyx native/src/ffi/.",
+                "A locally built library missing capabilities the pinned release "
+                "carries must not replace it; prefer the release fetch.",
+            ],
+        )
+    ok(f"FFI exports verified ({len(FFI_EXPORT_SYMBOLS[nt])} gated symbols): {built.name}")
+
+
 def build_native(target, layout, args):
     nt = native_target_for(target)
     if nt is None:
@@ -1912,6 +2001,8 @@ def build_native(target, layout, args):
             ],
         )
     ok(f"built: {built}")
+
+    assert_ffi_exports(nt, built)
 
     if args.cfa_sample_dng:
         # runbook S4 colour gate: blue-sky B >> R, before the library is trusted.
