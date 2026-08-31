@@ -1,66 +1,135 @@
 {
   "_comment": [
     "PINNED ceyx native-decoder release consumed by scripts/build_apps.py.",
-    "The tag fixes WHICH GitHub release the Linux/Windows prebuilt libraries come",
-    "from; the per-asset sha256 fixes WHICH BYTES, because a tag can be moved and",
-    "an asset re-uploaded. build_apps.py downloads the asset directly by tag (no",
-    "GitHub API call, so anonymous rate limits cannot fail a pinned build) and",
-    "refuses to place a library whose sha256 does not match.",
+    "The tag fixes WHICH GitHub release the prebuilt libraries come from; the",
+    "sha256 values fix WHICH BYTES, because a tag can be moved and an asset",
+    "re-uploaded. build_apps.py downloads by tag URL (no GitHub API call, so",
+    "anonymous rate limits cannot fail a pinned build) and refuses to place a",
+    "library whose sha256 does not match.",
     "",
-    "Each platform holds a LIST of libraries, not a single one. Windows ships",
-    "three: the decoder plus heif.dll and libde265.dll, which it dynamically imports",
-    "(LGPL-3 requires libheif/libde265 stay separate shared libraries -- see",
-    "ceyx native/third_party/heif-dist-windows/PROVENANCE.md). A Windows install",
+    "Upstream publishes ONE .tar.gz per component/platform, so each entry pins:",
+    "  archive + sha256    the release asset, gating the download;",
+    "  libraries[]         member (path inside the tarball) -> artifact (on-disk",
+    "                      name) + the sha256 of that EXTRACTED file. Those are",
+    "                      re-checked after extraction and are read as data by",
+    "                      scripts/ci/assertions.py (H-DECODER-DEPS / -HASH), so",
+    "                      the packaged app is judged against this same file.",
+    "",
+    "'lock' pins the release's own artifacts.lock. Every fetched archive must",
+    "appear in that lock AND its digest must equal the pin's; a release that was",
+    "re-published cannot pass by rewriting just one of the two records. The lock's",
+    "own digest is pinned so a substituted lock cannot satisfy the cross-check.",
+    "",
+    "Windows is an ATOMIC GROUP of three DLLs shipped inside one archive: the",
+    "decoder plus heif.dll and libde265.dll, which it dynamically imports (LGPL-3",
+    "requires libheif/libde265 stay separate shared libraries -- see ceyx",
+    "native/third_party/heif-dist-windows/PROVENANCE.md). A Windows install",
     "missing either dependency fails at DynamicLibrary.open with an error naming",
-    "only the decoder, so all three are fetched and verified together. Linux uses",
-    "a one-element list so there is exactly one code path.",
+    "only the decoder, so all three are extracted and verified together or none",
+    "is placed. Linux uses a one-element list so there is exactly one code path.",
+    "",
+    "'android', 'heif-dist-windows' and 'libwebp-dist-windows' are VERIFIED BUT",
+    "NOT PLACED: their destinations (plugin/android/src/main/jniLibs, ceyx's",
+    "committed native/third_party/*-dist-windows trees) are committed upstream",
+    "trees this script must not overwrite. Pinning them still keeps their bytes",
+    "inside the integrity + provenance check.",
     "",
     "This file is edited by hand OR, deliberately, by",
-    "`python3 scripts/build_apps.py --ceyx-release latest`, which resolves the",
-    "newest release, downloads its assets, records their real digests here, and",
-    "STOPS without building. The maintainer then reviews this diff and commits it.",
-    "An upstream release therefore cannot alter Halcyon's decoder without a",
-    "visible, reviewable change to this file.",
+    "`python3 scripts/build_apps.py --ceyx-release latest|<tag>`, which downloads",
+    "the release's assets, records their real digests here, and STOPS without",
+    "building. The maintainer then reviews this diff and commits it. An upstream",
+    "release therefore cannot alter Halcyon's decoder without a visible,",
+    "reviewable change to this file. Use an explicit tag when the GitHub API's",
+    "mutable 'latest' flag lags the release you mean to pin.",
     "",
-    "sha256 provenance: pin moved to v0.1.5 on 2026-08-30 via",
-    "`python3 scripts/build_apps.py --ceyx-release latest`, which downloaded each",
-    "asset from https://github.com/jhangyu/ceyx/releases/download/v0.1.5/<asset>",
-    "and recorded the digests below; cross-checked by hand against the downloaded",
-    "assets with `shasum -a 256`. Trust-on-first-use (same authority that serves",
-    "the bytes): catches any FUTURE substitution, not one predating this date.",
-    "All three Windows digests are real values from the v0.1.5 release (Windows",
-    "HEIF round, docs/logs/2026-08-30/plan-windows-heif-impl.md).",
+    "sha256 provenance: pin moved to v0.1.6 on 2026-08-31 via",
+    "`python3 scripts/build_apps.py --ceyx-release v0.1.6` (the API's 'latest'",
+    "still reported v0.1.5 that day), which downloaded each archive from",
+    "https://github.com/jhangyu/ceyx/releases/download/v0.1.6/<asset>, checked it",
+    "against that release's artifacts.lock, and recorded the digests below.",
+    "Evidence: tmp/verify/r6-fetch.txt (fetch+extract+verify, RC=0) and",
+    "tmp/verify/r6-redstate.txt (each gate proven to fail when tampered with).",
+    "Trust-on-first-use (same authority that serves the bytes): catches any",
+    "FUTURE substitution, not one predating this date. Cross-check: heif.dll and",
+    "libde265.dll inside the v0.1.6 windows archive have the SAME digests as the",
+    "v0.1.5 raw DLL assets this pin previously carried.",
     "",
-    "macOS is intentionally ABSENT: its plugin vendors six interdependent dylibs",
-    "(decoder + lcms2 + jpeg + heif + de265 + omp) with install-name/codesign",
-    "wiring the release assets cannot satisfy. macOS keeps its committed",
-    "libraries. Android is out of scope for this pin."
+    "macOS is intentionally ABSENT even though the release publishes macOS",
+    "archives: its plugin vendors six interdependent dylibs (decoder + lcms2 +",
+    "jpeg + heif + de265 + omp) with install-name/codesign wiring the release",
+    "assets cannot satisfy. macOS keeps its committed libraries."
   ],
-  "tag": "v0.1.5",
+  "tag": "v0.1.6",
+  "lock": {
+    "asset": "artifacts.lock",
+    "sha256": "b068c556f7c7327cafb54cf059d713f5fc84689408a1d905ed8dc1585e24d332"
+  },
   "assets": {
-    "linux": {
+    "android": {
+      "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
+      "sha256": "622ba3661528345b908053d927f145f304cab4e218682fd0bf6c283982d70ef4",
       "libraries": [
         {
-          "asset": "libdng_decoder_native-linux-x86_64.so",
+          "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "817fbd69b1b9a31aae19147228bd21113c0b8753c0b2f93c8dd3105b41e7807a"
+          "sha256": "24f3f1b4d18c464ceb2e260df11be85d188d00801148dac7edeae1251691008a"
         }
       ]
     },
-    "windows": {
+    "heif-dist-windows": {
+      "archive": "heif-dist-windows-x86_64.tar.gz",
+      "sha256": "3bc41ee88d6a4926ebce2cccbe83a86d598d38365aecbbfea5a14f5d59017a63",
       "libraries": [
         {
-          "asset": "dng_decoder_native-windows-x86_64.dll",
-          "artifact": "dng_decoder_native.dll",
-          "sha256": "c2fd85fb664308e63542b4cb30119f1a6166bad263d012cd1af70c670d287575"
-        },
-        {
-          "asset": "heif-windows-x86_64.dll",
+          "member": "bin/heif.dll",
           "artifact": "heif.dll",
           "sha256": "e8c84ae257941c85f05a8236cb012f3090484d93ed541cd78139083e982e7d4a"
         },
         {
-          "asset": "libde265-windows-x86_64.dll",
+          "member": "bin/libde265.dll",
+          "artifact": "libde265.dll",
+          "sha256": "339ac370586d78f5ba1550f4a1ffbb39f7076f897c41c5b75e0e80daec41466d"
+        }
+      ]
+    },
+    "libwebp-dist-windows": {
+      "archive": "libwebp-dist-windows-x86_64.tar.gz",
+      "sha256": "85e52b95131f67782c4e430e608352d4d9031e8bb10f656404aaa99fab718420",
+      "libraries": [
+        {
+          "member": "lib/libwebp.lib",
+          "artifact": "libwebp.lib",
+          "sha256": "9b241e55e0ba5eeca6f903042a0f6818ed9c72a891b4b4b34acaa21dcc174943"
+        }
+      ]
+    },
+    "linux": {
+      "archive": "dng_decoder_native-linux-x86_64.tar.gz",
+      "sha256": "d0824c0b9eb77a9b1943fb74560c7702f8dc87cf518f50d2550b4059a632c7fe",
+      "libraries": [
+        {
+          "member": "libdng_decoder_native.so",
+          "artifact": "libdng_decoder_native.so",
+          "sha256": "09b940a3335f8c69d74909cf682ef25c47ecb13ef428c80ba14d3a966ad45700"
+        }
+      ]
+    },
+    "windows": {
+      "archive": "dng_decoder_native-windows-x86_64.tar.gz",
+      "sha256": "a505ed5a17a6481c8cd327b2aaf74d870d3114ec863301373f86002b4ad81aae",
+      "libraries": [
+        {
+          "member": "dng_decoder_native.dll",
+          "artifact": "dng_decoder_native.dll",
+          "sha256": "b402746830b450bd2edbd76b23f68b3394095a1c2de1404303079464d2fd8443"
+        },
+        {
+          "member": "heif.dll",
+          "artifact": "heif.dll",
+          "sha256": "e8c84ae257941c85f05a8236cb012f3090484d93ed541cd78139083e982e7d4a"
+        },
+        {
+          "member": "libde265.dll",
           "artifact": "libde265.dll",
           "sha256": "339ac370586d78f5ba1550f4a1ffbb39f7076f897c41c5b75e0e80daec41466d"
         }
