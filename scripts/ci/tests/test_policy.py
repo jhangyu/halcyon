@@ -30,14 +30,15 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # this test rather than silently landing, so an upstream release can never
 # alter what Halcyon consumes without someone updating this line too.
 #
-# Updated 2026-08-31 (round 6, ceyx tar.gz-only consumption): the pin was
-# regenerated against the live v0.1.6 release and moved to the archive-based
-# shape (archive + sha256 + per-extracted-library digests, plus the release's
-# artifacts.lock digest). The previous value froze round 5's 载体中立 state,
-# in which no pin change was in scope.
+# Updated 2026-08-31 (round 6, ceyx tar.gz-only consumption): the pin moved to
+# the archive-based shape (archive + sha256 + per-extracted-library digests,
+# plus the release's artifacts.lock digest) against v0.1.6, then was regenerated
+# against v0.1.7 -- the first tar.gz-ONLY ceyx release, which also added the
+# libjxl Linux/Windows dists. The value before that froze round 5's 载体中立
+# state, in which no pin change was in scope.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "cb7899d7b7d2ca514cffbfb0a30c421650ab2352c75c555a02d3a49f25745979"
+    "e8b355a8d2430af813abf9ef5e7d42b52cc1ec6f6d4bc7e0f8d505e0cc55b768"
 )
 
 

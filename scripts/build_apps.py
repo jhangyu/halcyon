@@ -404,8 +404,14 @@ CEYX_FETCH_SPECS = {
              "artifact": "libdng_decoder_native.so"},
         ],
     },
-    # Third-party Windows SDK dists. Their consumers are ceyx's committed
-    # native/third_party/*-dist-windows trees, so they are verified, not placed.
+    # Third-party SDK dists. Their consumers are ceyx's own native build and its
+    # committed native/third_party/* trees, so they are verified, not placed.
+    # Only heif ships runtime DLLs (and those already travel inside the Windows
+    # decoder archive above); libwebp and libjxl are STATIC-ONLY dists (.lib on
+    # Windows, .a on Linux) linked into the decoder at ceyx build time, so there
+    # is nothing for a halcyon build to place. They are pinned anyway, so every
+    # archive this project's platforms depend on stays inside the sha256 +
+    # artifacts.lock provenance check.
     "heif-dist-windows": {
         "archive": "heif-dist-windows-x86_64.tar.gz",
         "dest": None,
@@ -422,6 +428,22 @@ CEYX_FETCH_SPECS = {
         "place": False,
         "members": [
             {"member": "lib/libwebp.lib", "artifact": "libwebp.lib"},
+        ],
+    },
+    "libjxl-dist-windows": {
+        "archive": "libjxl-dist-windows-x86_64.tar.gz",
+        "dest": None,
+        "place": False,
+        "members": [
+            {"member": "lib/jxl.lib", "artifact": "jxl.lib"},
+        ],
+    },
+    "libjxl-dist-linux": {
+        "archive": "libjxl-dist-linux-x86_64.tar.gz",
+        "dest": None,
+        "place": False,
+        "members": [
+            {"member": "lib/libjxl.a", "artifact": "libjxl.a"},
         ],
     },
 }
