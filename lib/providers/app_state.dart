@@ -65,6 +65,13 @@ class StatusMessage {
   final VoidCallback? onAction;
 }
 
+/// The idle window after which a selection's EXIF read starts. Mirrors the
+/// tier-2 navigation debounce (`tierTwoNavigationDebounce`) so holding an
+/// arrow key cannot spawn one isolate per photo; the caption for the photo the
+/// user finally stops on is worth one batched read, the intermediate ones are
+/// not.
+const Duration kSelectionExifDebounce = Duration(milliseconds: 250);
+
 class AppState extends ChangeNotifier {
   AppState({
     PhotoLibraryScanner? scanner,
@@ -171,6 +178,23 @@ class AppState extends ChangeNotifier {
   List<PhotoItem> _items = [];
   String? _selectedItemID;
   Timer? _viewDebounceTimer;
+
+  // Per-selection EXIF (T13): EXIF for the currently selected photo, read
+  // through the SAME [_exifReader] the rename dialog uses. Deliberately NOT a
+  // second constructor parameter: the reader determines what a caption can
+  // know only after 250ms of navigation quiet — see [readMetadataFor].
+  //
+  // [_exifCache] is id -> metadata, unbounded WITHIN a folder: a revisited
+  // photo never re-reads, and a folder re-loads through [loadFolder] (not a
+  // lifetime that could leak across folders). [_exifGeneration] is the
+  // staleness guard: it bumps on every selection change AND every folder
+  // switch, and a read whose result arrives under an older generation is
+  // discarded instead of written. One guard that is also folded into the
+  // debounce, so a stale read cannot even disarm the current item's pending
+  // read early.
+  final Map<String, ExifMetadata?> _exifCache = <String, ExifMetadata?>{};
+  int _exifGeneration = 0;
+  Timer? _exifDebounceTimer;
 
   // Settings
   bool _autoAdvance = false;
@@ -418,6 +442,21 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// EXIF for the currently selected photo, or null while unread/unreadable.
+  ///
+  /// A caption's single source of truth: the last read that LANDED for this
+  /// selection (or null when navigation is still in flight, the read has not
+  /// been started by the debounce yet, or the read failed). Never reflects a
+  /// different photo: reads land under the generation they were started with
+  /// ([_exifGeneration]), and that generation increments on every selection
+  /// and folder change, so a stale result is discarded before it can be
+  /// exposed here.
+  ExifMetadata? get currentExif {
+    final id = _selectedItemID;
+    if (id == null) return null;
+    return _exifCache[id];
+  }
+
   Uint8List? get currentImageBytes =>
       _preloadController.imageBytesFor(_selectedItemID);
 
@@ -519,6 +558,15 @@ class AppState extends ChangeNotifier {
     _currentDir = dir;
     _items.clear();
     _preloadController.reset();
+    // Per-folder EXIF cache, cleared with every folder switch: ids are not
+    // globally unique (a card from one shoot and a card from another both hold
+    // "IMG_0001"), so an entry cached under the old folder's "IMG_0001" must
+    // not be read out for the new one. Bumped BEFORE the first await so any
+    // in-flight read from the previous folder is discarded on land.
+    _exifCache.clear();
+    _exifGeneration++;
+    _exifDebounceTimer?.cancel();
+    _exifDebounceTimer = null;
     // The single largest release moment in the app: reset() has just evicted
     // both ImageCache tiers and dropped every retained payload, and nothing is
     // about to be re-read, so the page re-fault cost is minimal. Deliberately
@@ -585,6 +633,7 @@ class AppState extends ChangeNotifier {
         'cache.${cached != null ? "hit" : "miss"}|$id|${cached?.length ?? 0}',
       );
       _preloadImages();
+      _scheduleExifRead();
 
       _viewDebounceTimer?.cancel();
       _viewDebounceTimer = Timer(const Duration(seconds: 5), _saveLastViewedId);
@@ -956,10 +1005,81 @@ class AppState extends ChangeNotifier {
   /// Thin forwarder — see [RenameCoordinator].
   Future<void> undoRename() => _renameCoordinator.undoRename();
 
+  /// Arms the 250ms quiet debounce for the current selection's EXIF read.
+  ///
+  /// Every selection change cancels and re-arms the timer, so only the photo
+  /// the user finally STOPS on gets read — the photos merely passed through
+  /// never reach the reader. Mirrors the tier-2 debounce so holding an arrow
+  /// key cannot spawn one isolate per photo.
+  void _scheduleExifRead() {
+    final id = _selectedItemID;
+    if (id == null) {
+      _exifDebounceTimer?.cancel();
+      _exifDebounceTimer = null;
+      return;
+    }
+    // A revisited photo never re-reads: the cache already holds its answer.
+    if (_exifCache.containsKey(id)) return;
+    // Every navigation event supersedes the ones before it: bump the
+    // generation NOW (before any await), so a read that later lands for an
+    // older selection is discarded on arrival instead of being written over
+    // the current photo's entry.
+    _exifGeneration++;
+    final generation = _exifGeneration;
+    _exifDebounceTimer?.cancel();
+    _exifDebounceTimer = Timer(kSelectionExifDebounce, () {
+      _readSelectionExif(id, generation);
+    });
+  }
+
+  /// Fires one batched EXIF read for the selection captured by the debounce.
+  ///
+  /// The reader is [_exifReader] — the same injected seam the rename dialog
+  /// uses ([readMetadataFor]) — carrying a ONE-element path list because that
+  /// is what a batch-shaped seam takes; the element's metadata is pulled back
+  /// out and keyed by the item id. The single-element list is the price of not
+  /// adding a second single-path injection parameter to [AppState]: one
+  /// reader, one way to fake it (round1-plan T13).
+  ///
+  /// [generation] is the selection's generation captured at schedule time; if
+  /// the selection (or folder) changed since, the result is for a photo nobody
+  /// is looking at and is discarded. Checked BEFORE any branch so every write
+  /// (the null-file `null` cache and the real read) is generation-protected,
+  /// then again after the reader await so the stale read cannot notify for the
+  /// current photo.
+  Future<void> _readSelectionExif(String id, int generation) async {
+    if (generation != _exifGeneration) return;
+    final item = currentItem;
+    if (item == null || item.id != id) return;
+    // A read already landed for this selection (or was cached as unreadable):
+    // the caption is settled, do not buy the read again.
+    if (_exifCache.containsKey(id)) return;
+    final file = item.bestFileToLoad;
+    if (file == null) {
+      _exifCache[id] = null;
+      return;
+    }
+
+    List<ExifMetadata?> all;
+    try {
+      all = await _exifReader([file.path]);
+    } catch (_) {
+      // A reader that throws is treated as "nothing to show": the caption
+      // stays empty rather than crashing the app over a caption.
+      all = const [null];
+    }
+    if (generation != _exifGeneration) return;
+    _exifCache[id] = all.isEmpty ? null : all.first;
+    // Exactly one notify on landing: the selection moved once, the caption
+    // appears once.
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _viewDebounceTimer?.cancel();
+    _exifDebounceTimer?.cancel();
     _preloadController.dispose();
     super.dispose();
   }
