@@ -31,14 +31,18 @@ import '../../../services/image_pipeline/raw_pixels_image.dart';
 ///   (image_preload_controller.dart:156) and TC-373 asserts that on the payload
 ///   rather than on a wrapper.
 ///
-/// The 200px production cap therefore bounds this widget's ceiling from above:
-/// within the gallery's 90-200px column range (plan R8, `round1-plan.md` §5),
-/// the chip this widget renders is always within what the source already
-/// produces — raising the source to feed a larger chip elsewhere is exactly what
-/// the dropped T12 (thumbnail source cap, `round1-plan.md` §4 T12) would have
-/// cost (≈6.5x memory per cached thumbnail plus a re-derivation of the retention
-/// budgets). Touch the image pipeline instead of this doc if a future theme asks
-/// for a larger chip.
+/// The 200px production cap therefore bounds this widget's ceiling from above,
+/// but only partially: within the gallery's 90-200px column range (plan R8,
+/// `round1-plan.md` §5) the widest chip the design can ask for stays within what
+/// the source already produces at 2× density. At 3× the cap falls short — the
+/// 74px chip wants 222 physical px against 200 available (a pre-existing 22px
+/// shortfall, true of the app today); it is unchanged by this round and is not a
+/// new defect. The frozen plan records this honestly at `round1-plan.md:1021-1023`
+/// ("the supply arithmetic holds at 2×, not 3×"). Raising the source to feed a
+/// larger chip elsewhere is exactly what the dropped T12 (thumbnail source cap,
+/// `round1-plan.md` §4 T12) would have cost (≈6.5x memory per cached thumbnail
+/// plus a re-derivation of the retention budgets). Touch the image pipeline
+/// instead of this doc if a future theme asks for a larger chip.
 class PhotoThumbnail extends StatelessWidget {
   const PhotoThumbnail({
     super.key,

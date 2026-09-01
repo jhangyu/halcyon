@@ -1,5 +1,4 @@
-// TC-494, TC-495 (renumbered from TC-487/488 by the +7 gallery registry shift;
-// labels are provisional until the docs registry is reconciled at sign-off).
+// TC-494, TC-495 (final — the +7 gallery registry shift, user-ruled).
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
