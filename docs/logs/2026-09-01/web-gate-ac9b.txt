@@ -1,0 +1,2317 @@
+== AC-9b web gate ==
+commit-under-test=56eaa66daaf7e33b429f38b333b9285b274186ad
+--- PRE (baseline) ---
+baseline-worktree-head=56eaa66daaf7e33b429f38b333b9285b274186ad
+[1/1] Web SDK                                                    2,794ms
+Compiling lib/main.dart for the Web...                          
+Wasm dry run findings:
+Found incompatibilities with WebAssembly.
+
+package:ceyx/src/dng_decoder_service.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/raw_bindings.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/heif_decoder_service.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/encode_bindings.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/encode_service.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/still_decoder_service.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/dng_bindings.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/heif_bindings.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/encode_bindings_v2.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/encode_options.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ceyx/src/still_bindings.dart 1:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ffi/src/allocation.dart 5:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ffi/src/arena.dart 8:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ffi/src/utf16.dart 5:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+package:ffi/src/utf8.dart 6:1 - dart:ffi unsupported without --enable-experimental-ffi (16)
+
+Consider addressing these issues to enable wasm builds. See docs for more info: https://docs.flutter.dev/platform-integration/web/wasm
+
+Use --no-wasm-dry-run to disable these warnings.
+Target dart2js failed: ProcessException: Process exited abnormally with exit code 1:
+../ceyx/plugin/lib/src/dng_decoder_service.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+Info: The unavailable library 'dart:ffi' is imported through these packages:
+
+    main.dart => package:halcyon_flutter => package:ceyx => dart:ffi
+    main.dart => package:halcyon_flutter => package:ceyx => package:ffi => dart:ffi
+    ...
+
+Detailed import paths for (some of) the these imports:
+
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/allocation.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/arena.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/utf16.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/utf8.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/allocation.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/arena.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/utf16.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/utf8.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ceyx/src/raw_bindings.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/dng_decoder_service.dart => package:ceyx/src/raw_bindings.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/raw_bindings.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/allocation.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/arena.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/utf16.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ffi/ffi.dart => package:ffi/src/utf8.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ceyx/src/dng_bindings.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/allocation.dart => dart:ffi
+    main.dart => package:halcyon_flutter/main.dart => package:halcyon_flutter/perf/perf_driver.dart => package:halcyon_flutter/providers/app_state.dart => package:ceyx/ceyx.dart => package:ceyx/src/heif_decoder_service.dart => package:ceyx/src/dng_bindings.dart => package:ffi/ffi.dart => package:ffi/src/arena.dart => dart:ffi
+    ...
+
+../ceyx/plugin/lib/src/raw_bindings.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../ceyx/plugin/lib/src/encode_bindings.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/encode_service.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/still_decoder_service.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../ceyx/plugin/lib/src/dng_bindings.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/heif_bindings.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/encode_options.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../ceyx/plugin/lib/src/still_bindings.dart:1:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi' as ffi;
+       ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:5:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:8:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:5:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:6:8:
+Error: Dart library 'dart:ffi' is not available on this platform.
+import 'dart:ffi';
+       ^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:31:27:
+Error: Type 'Finalizable' not found.
+class DngImage implements Finalizable {
+                          ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:130:3:
+Error: Type 'NativeFinalizer' not found.
+  NativeFinalizer? _rgbaFinalizer;
+  ^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:440:5:
+Error: Type 'Pointer' not found.
+    Pointer<DngResult> resultPtr, {
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:606:5:
+Error: Type 'Pointer' not found.
+    Pointer<DngResult> resultPtr, {
+    ^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:16:42:
+Error: Type 'ffi.Struct' not found.
+final class RawDecodeDiagnostics extends ffi.Struct {
+                                         ^^^^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:143:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(ffi.Pointer<RawDecodeDiagnostics> out);
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:143:24:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Int32 Function(ffi.Pointer<RawDecodeDiagnostics> out);
+                       ^^^^^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:145:18:
+Error: Type 'ffi.Pointer' not found.
+    int Function(ffi.Pointer<RawDecodeDiagnostics> out);
+                 ^^^^^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:148:40:
+Error: Type 'ffi.Size' not found.
+typedef DngDebugPoolCheckedOutNative = ffi.Size Function();
+                                       ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:12:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<Utf8> Function(ffi.Int32 code);
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:12:32:
+Error: Type 'ffi.Int32' not found.
+    ffi.Pointer<Utf8> Function(ffi.Int32 code);
+                               ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:13:35:
+Error: Type 'ffi.Pointer' not found.
+typedef CeyxEncodeErrorNameDart = ffi.Pointer<Utf8> Function(int code);
+                                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:16:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:17:19:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:17:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:18:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 width,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:19:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 height,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:20:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 quality,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:21:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:21:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:21:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:22:19:
+Error: Type 'ffi.Size' not found.
+      ffi.Pointer<ffi.Size> outLen,
+                  ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:22:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Size> outLen,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:26:19:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:26:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:30:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:30:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:30:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:31:19:
+Error: Type 'ffi.Size' not found.
+      ffi.Pointer<ffi.Size> outLen,
+                  ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:31:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Size> outLen,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:37:32:
+Error: Type 'ffi.Void' not found.
+typedef CeyxEncodeFreeNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buf);
+                               ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:37:62:
+Error: Type 'ffi.Uint8' not found.
+typedef CeyxEncodeFreeNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buf);
+                                                             ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:37:50:
+Error: Type 'ffi.Pointer' not found.
+typedef CeyxEncodeFreeNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buf);
+                                                 ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:38:56:
+Error: Type 'ffi.Uint8' not found.
+typedef CeyxEncodeFreeDart = void Function(ffi.Pointer<ffi.Uint8> buf);
+                                                       ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:38:44:
+Error: Type 'ffi.Pointer' not found.
+typedef CeyxEncodeFreeDart = void Function(ffi.Pointer<ffi.Uint8> buf);
+                                           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings.dart:91:42:
+Error: Type 'ffi.DynamicLibrary' not found.
+  factory CeyxEncodeBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:25:31:
+Error: Type 'ffi.Struct' not found.
+final class DngResult extends ffi.Struct {
+                              ^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:26:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> rgbaData;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:26:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> rgbaData;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:46:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath);
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:46:37:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath);
+                                    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:48:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath);
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:48:37:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath);
+                                    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:53:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:54:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> filePath,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:55:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 maxDim,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:58:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath, int maxDim);
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:58:37:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath, int maxDim);
+                                    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:60:31:
+Error: Type 'ffi.Void' not found.
+typedef DngFreeResultNative = ffi.Void Function(ffi.Pointer<DngResult> result);
+                              ^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:60:49:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeResultNative = ffi.Void Function(ffi.Pointer<DngResult> result);
+                                                ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:61:43:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeResultDart = void Function(ffi.Pointer<DngResult> result);
+                                          ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:63:35:
+Error: Type 'ffi.Void' not found.
+typedef DngFreeRgbaBufferNative = ffi.Void Function(ffi.Pointer<ffi.Void> ptr);
+                                  ^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:63:65:
+Error: Type 'ffi.Void' not found.
+typedef DngFreeRgbaBufferNative = ffi.Void Function(ffi.Pointer<ffi.Void> ptr);
+                                                                ^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:63:53:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeRgbaBufferNative = ffi.Void Function(ffi.Pointer<ffi.Void> ptr);
+                                                    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:64:59:
+Error: Type 'ffi.Void' not found.
+typedef DngFreeRgbaBufferDart = void Function(ffi.Pointer<ffi.Void> ptr);
+                                                          ^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:64:47:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeRgbaBufferDart = void Function(ffi.Pointer<ffi.Void> ptr);
+                                              ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:71:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:72:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> filePath,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:73:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 maxDim,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:76:5:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath, int maxDim);
+    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:76:37:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Pointer<DngResult> Function(ffi.Pointer<Utf8> filePath, int maxDim);
+                                    ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:79:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(ffi.Int32 width, ffi.Int32 height);
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:79:24:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(ffi.Int32 width, ffi.Int32 height);
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:79:41:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(ffi.Int32 width, ffi.Int32 height);
+                                        ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:85:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(ffi.Pointer<Utf8> path);
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:85:24:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Int32 Function(ffi.Pointer<Utf8> path);
+                       ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:87:18:
+Error: Type 'ffi.Pointer' not found.
+    int Function(ffi.Pointer<Utf8> path);
+                 ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:89:45:
+Error: Type 'ffi.Int32' not found.
+typedef DngDecoderSavePipelineCacheNative = ffi.Int32 Function();
+                                            ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:92:47:
+Error: Type 'ffi.Int32' not found.
+typedef DngDecoderPipelineCacheStatusNative = ffi.Int32 Function();
+                                              ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:96:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:97:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> filePath,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:98:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:98:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:98:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:99:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> outSize,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:99:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> outSize,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:103:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> filePath,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:104:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:104:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:104:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> outBuffer,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:105:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> outSize,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:105:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> outSize,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:108:31:
+Error: Type 'ffi.Void' not found.
+typedef DngFreeBufferNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buffer);
+                              ^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:108:61:
+Error: Type 'ffi.Uint8' not found.
+typedef DngFreeBufferNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buffer);
+                                                            ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:108:49:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeBufferNative = ffi.Void Function(ffi.Pointer<ffi.Uint8> buffer);
+                                                ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:109:55:
+Error: Type 'ffi.Uint8' not found.
+typedef DngFreeBufferDart = void Function(ffi.Pointer<ffi.Uint8> buffer);
+                                                      ^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:109:43:
+Error: Type 'ffi.Pointer' not found.
+typedef DngFreeBufferDart = void Function(ffi.Pointer<ffi.Uint8> buffer);
+                                          ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:113:9:
+Error: Type 'ffi.DynamicLibrary' not found.
+  final ffi.DynamicLibrary _lib;
+        ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:140:26:
+Error: Type 'ffi.NativeFunction' not found.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeResultNative>>
+                         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:140:14:
+Error: Type 'ffi.Pointer' not found.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeResultNative>>
+             ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:144:26:
+Error: Type 'ffi.NativeFunction' not found.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeRgbaBufferNative>>
+                         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:144:14:
+Error: Type 'ffi.Pointer' not found.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeRgbaBufferNative>>
+             ^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:199:3:
+Error: Type 'ffi.DynamicLibrary' not found.
+  ffi.DynamicLibrary get library => _lib;
+  ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:310:10:
+Error: Type 'ffi.DynamicLibrary' not found.
+  static ffi.DynamicLibrary _openFirst(List<String> paths) {
+         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:337:10:
+Error: Type 'ffi.DynamicLibrary' not found.
+  static ffi.DynamicLibrary openFirstForTesting(List<String> paths) =>
+         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:359:36:
+Error: Type 'ffi.DynamicLibrary' not found.
+  static String _resolvedImagePath(ffi.DynamicLibrary lib, String candidate) {
+                                   ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:372:38:
+Error: Type 'ffi.DynamicLibrary' not found.
+  static String? _imagePathViaDladdr(ffi.DynamicLibrary lib) {
+                                     ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:13:32:
+Error: Type 'ffi.Struct' not found.
+final class HeifResult extends ffi.Struct {
+                               ^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:26:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:26:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> rgba;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:33:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:34:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:35:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> width,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:35:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> width,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:36:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> height,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:36:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> height,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:37:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:37:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:41:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:42:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> width,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:42:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> width,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:43:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> height,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:43:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> height,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:44:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:44:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:48:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:49:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:50:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 maxDim,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:51:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<HeifResult> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:55:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:57:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<HeifResult> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:60:29:
+Error: Type 'ffi.Void' not found.
+typedef HeifReleaseNative = ffi.Void Function(ffi.Pointer<HeifResult> result);
+                            ^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:60:47:
+Error: Type 'ffi.Pointer' not found.
+typedef HeifReleaseNative = ffi.Void Function(ffi.Pointer<HeifResult> result);
+                                              ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:61:41:
+Error: Type 'ffi.Pointer' not found.
+typedef HeifReleaseDart = void Function(ffi.Pointer<HeifResult> result);
+                                        ^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:85:42:
+Error: Type 'ffi.DynamicLibrary' not found.
+  factory HeifNativeBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                         ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:15:36:
+Error: Type 'ffi.Int32' not found.
+typedef CeyxEncodeSupportsNative = ffi.Int32 Function(ffi.Int32 format);
+                                   ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:15:55:
+Error: Type 'ffi.Int32' not found.
+typedef CeyxEncodeSupportsNative = ffi.Int32 Function(ffi.Int32 format);
+                                                      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:19:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:20:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 format,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:21:19:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:21:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:22:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 width,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:23:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 height,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:24:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxEncodeOptions> opts,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:25:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxEncodeMetadata> meta,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:26:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:26:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:26:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:27:19:
+Error: Type 'ffi.Size' not found.
+      ffi.Pointer<ffi.Size> outLen,
+                  ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:27:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Size> outLen,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:32:19:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:32:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint8> rgba,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:35:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxEncodeOptions> opts,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:36:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxEncodeMetadata> meta,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:37:31:
+Error: Type 'ffi.Uint8' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:37:19:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+                  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:37:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Pointer<ffi.Uint8>> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:38:19:
+Error: Type 'ffi.Size' not found.
+      ffi.Pointer<ffi.Size> outLen,
+                  ^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:38:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Size> outLen,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:60:44:
+Error: Type 'ffi.DynamicLibrary' not found.
+  factory CeyxEncodeV2Bindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                           ^^^^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:9:39:
+Error: Type 'ffi.Struct' not found.
+final class CeyxEncodeOptions extends ffi.Struct {
+                                      ^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:30:40:
+Error: Type 'ffi.Struct' not found.
+final class CeyxEncodeMetadata extends ffi.Struct {
+                                       ^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:34:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> exif;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:34:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> exif;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:38:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> xmp;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:38:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> xmp;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:42:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> icc;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:42:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> icc;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:52:37:
+Error: Type 'ffi.Struct' not found.
+final class CeyxStillResult extends ffi.Struct {
+                                    ^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:65:24:
+Error: Type 'ffi.Uint8' not found.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                       ^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:65:12:
+Error: Type 'ffi.Pointer' not found.
+  external ffi.Pointer<ffi.Uint8> rgba;
+           ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:14:41:
+Error: Type 'ffi.Int32' not found.
+typedef CeyxStillDecodeSupportsNative = ffi.Int32 Function(ffi.Int32 format);
+                                        ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:14:60:
+Error: Type 'ffi.Int32' not found.
+typedef CeyxStillDecodeSupportsNative = ffi.Int32 Function(ffi.Int32 format);
+                                                           ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:18:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:19:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:20:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 formatHint,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:21:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> width,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:21:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> width,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:22:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> height,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:22:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> height,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:23:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:23:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:27:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:29:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> width,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:29:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> width,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:30:19:
+Error: Type 'ffi.Uint32' not found.
+      ffi.Pointer<ffi.Uint32> height,
+                  ^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:30:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Uint32> height,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:31:19:
+Error: Type 'ffi.Int32' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+                  ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:31:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<ffi.Int32> orientation,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:35:5:
+Error: Type 'ffi.Int32' not found.
+    ffi.Int32 Function(
+    ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:36:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:37:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 formatHint,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:38:7:
+Error: Type 'ffi.Int32' not found.
+      ffi.Int32 maxDim,
+      ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:39:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxStillResult> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:43:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<Utf8> path,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:46:7:
+Error: Type 'ffi.Pointer' not found.
+      ffi.Pointer<CeyxStillResult> out,
+      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:50:5:
+Error: Type 'ffi.Void' not found.
+    ffi.Void Function(ffi.Pointer<CeyxStillResult> result);
+    ^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:50:23:
+Error: Type 'ffi.Pointer' not found.
+    ffi.Void Function(ffi.Pointer<CeyxStillResult> result);
+                      ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:52:3:
+Error: Type 'ffi.Pointer' not found.
+  ffi.Pointer<CeyxStillResult> result,
+  ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:55:36:
+Error: Type 'ffi.Pointer' not found.
+typedef CeyxStillErrorNameNative = ffi.Pointer<Utf8> Function(ffi.Int32 code);
+                                   ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:55:63:
+Error: Type 'ffi.Int32' not found.
+typedef CeyxStillErrorNameNative = ffi.Pointer<Utf8> Function(ffi.Int32 code);
+                                                              ^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:56:34:
+Error: Type 'ffi.Pointer' not found.
+typedef CeyxStillErrorNameDart = ffi.Pointer<Utf8> Function(int code);
+                                 ^^^^^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:105:41:
+Error: Type 'ffi.DynamicLibrary' not found.
+  factory CeyxStillBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                        ^^^^^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:23:15:
+Error: Type 'NativeFunction' not found.
+final Pointer<NativeFunction<PosixFreeNative>> posixFreePointer =
+              ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:23:7:
+Error: Type 'Pointer' not found.
+final Pointer<NativeFunction<PosixFreeNative>> posixFreePointer =
+      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:27:7:
+Error: Type 'DynamicLibrary' not found.
+final DynamicLibrary ole32lib = DynamicLibrary.open('ole32.dll');
+      ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:38:15:
+Error: Type 'NativeFunction' not found.
+final Pointer<NativeFunction<WinCoTaskMemFreeNative>> winCoTaskMemFreePointer =
+              ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:38:7:
+Error: Type 'Pointer' not found.
+final Pointer<NativeFunction<WinCoTaskMemFreeNative>> winCoTaskMemFreePointer =
+      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:8:29:
+Error: Type 'Pointer' not found.
+typedef PosixMallocNative = Pointer Function(IntPtr);
+                            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:8:46:
+Error: Type 'IntPtr' not found.
+typedef PosixMallocNative = Pointer Function(IntPtr);
+                                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:11:10:
+Error: Type 'Pointer' not found.
+external Pointer posixMalloc(int size);
+         ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:13:29:
+Error: Type 'Pointer' not found.
+typedef PosixCallocNative = Pointer Function(IntPtr num, IntPtr size);
+                            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:13:46:
+Error: Type 'IntPtr' not found.
+typedef PosixCallocNative = Pointer Function(IntPtr num, IntPtr size);
+                                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:13:58:
+Error: Type 'IntPtr' not found.
+typedef PosixCallocNative = Pointer Function(IntPtr num, IntPtr size);
+                                                         ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:16:10:
+Error: Type 'Pointer' not found.
+external Pointer posixCalloc(int num, int size);
+         ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:18:27:
+Error: Type 'Void' not found.
+typedef PosixFreeNative = Void Function(Pointer);
+                          ^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:18:41:
+Error: Type 'Pointer' not found.
+typedef PosixFreeNative = Void Function(Pointer);
+                                        ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:20:9:
+Error: Type 'Void' not found.
+@Native<Void Function(Pointer)>(symbol: 'free')
+        ^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:20:23:
+Error: Type 'Pointer' not found.
+@Native<Void Function(Pointer)>(symbol: 'free')
+                      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:21:25:
+Error: Type 'Pointer' not found.
+external void posixFree(Pointer ptr);
+                        ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:29:35:
+Error: Type 'Pointer' not found.
+typedef WinCoTaskMemAllocNative = Pointer Function(Size);
+                                  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:29:52:
+Error: Type 'Size' not found.
+typedef WinCoTaskMemAllocNative = Pointer Function(Size);
+                                                   ^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:30:29:
+Error: Type 'Pointer' not found.
+typedef WinCoTaskMemAlloc = Pointer Function(int);
+                            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:36:34:
+Error: Type 'Void' not found.
+typedef WinCoTaskMemFreeNative = Void Function(Pointer);
+                                 ^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:36:48:
+Error: Type 'Pointer' not found.
+typedef WinCoTaskMemFreeNative = Void Function(Pointer);
+                                               ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:37:42:
+Error: Type 'Pointer' not found.
+typedef WinCoTaskMemFree = void Function(Pointer);
+                                         ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:49:40:
+Error: Type 'Allocator' not found.
+final class MallocAllocator implements Allocator {
+                                       ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:61:3:
+Error: Type 'Pointer' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:61:33:
+Error: Type 'NativeType' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+                                ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:80:13:
+Error: Type 'Pointer' not found.
+  void free(Pointer pointer) {
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:116:11:
+Error: Type 'NativeFinalizerFunction' not found.
+  Pointer<NativeFinalizerFunction> get nativeFree =>
+          ^^^^^^^^^^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:116:3:
+Error: Type 'Pointer' not found.
+  Pointer<NativeFinalizerFunction> get nativeFree =>
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:135:40:
+Error: Type 'Allocator' not found.
+final class CallocAllocator implements Allocator {
+                                       ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:139:20:
+Error: Type 'Pointer' not found.
+  void _fillMemory(Pointer destination, int length, int fill) {
+                   ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:148:20:
+Error: Type 'Pointer' not found.
+  void _zeroMemory(Pointer destination, int length) =>
+                   ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:161:3:
+Error: Type 'Pointer' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:161:33:
+Error: Type 'NativeType' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+                                ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:183:13:
+Error: Type 'Pointer' not found.
+  void free(Pointer pointer) {
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:219:11:
+Error: Type 'NativeFinalizerFunction' not found.
+  Pointer<NativeFinalizerFunction> get nativeFree =>
+          ^^^^^^^^^^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:219:3:
+Error: Type 'Pointer' not found.
+  Pointer<NativeFinalizerFunction> get nativeFree =>
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:24:24:
+Error: Type 'Allocator' not found.
+class Arena implements Allocator {
+                       ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:26:9:
+Error: Type 'Allocator' not found.
+  final Allocator _wrappedAllocator;
+        ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:29:22:
+Error: Type 'NativeType' not found.
+  final List<Pointer<NativeType>> _managedMemoryPointers = [];
+                     ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:29:14:
+Error: Type 'Pointer' not found.
+  final List<Pointer<NativeType>> _managedMemoryPointers = [];
+             ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:40:10:
+Error: Type 'Allocator' not found.
+  Arena([Allocator allocator = calloc]) : _wrappedAllocator = allocator;
+         ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:50:3:
+Error: Type 'Pointer' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:50:33:
+Error: Type 'NativeType' not found.
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+                                ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:101:21:
+Error: Type 'NativeType' not found.
+  void free(Pointer<NativeType> pointer) {}
+                    ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:101:13:
+Error: Type 'Pointer' not found.
+  void free(Pointer<NativeType> pointer) {}
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:122:3:
+Error: Type 'Allocator' not found.
+  Allocator wrappedAllocator = calloc,
+  ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:148:3:
+Error: Type 'Allocator' not found.
+  Allocator wrappedAllocator = calloc,
+  ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:15:27:
+Error: Type 'Opaque' not found.
+final class Utf16 extends Opaque {}
+                          ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:18:27:
+Error: Type 'Pointer' not found.
+extension Utf16Pointer on Pointer<Utf16> {
+                          ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:51:46:
+Error: Type 'Uint16' not found.
+  static String _toKnownLengthString(Pointer<Uint16> codeUnits, int length) =>
+                                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:51:38:
+Error: Type 'Pointer' not found.
+  static String _toKnownLengthString(Pointer<Uint16> codeUnits, int length) =>
+                                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:54:48:
+Error: Type 'Uint16' not found.
+  static String _toUnknownLengthString(Pointer<Uint16> codeUnits) {
+                                               ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:54:40:
+Error: Type 'Pointer' not found.
+  static String _toUnknownLengthString(Pointer<Uint16> codeUnits) {
+                                       ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:67:30:
+Error: Type 'Uint16' not found.
+  static int _length(Pointer<Uint16> codeUnits) {
+                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:67:22:
+Error: Type 'Pointer' not found.
+  static int _length(Pointer<Uint16> codeUnits) {
+                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:93:3:
+Error: Type 'Pointer' not found.
+  Pointer<Utf16> toNativeUtf16({Allocator allocator = malloc}) {
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:93:33:
+Error: Type 'Allocator' not found.
+  Pointer<Utf16> toNativeUtf16({Allocator allocator = malloc}) {
+                                ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:15:26:
+Error: Type 'Opaque' not found.
+final class Utf8 extends Opaque {}
+                         ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:18:26:
+Error: Type 'Pointer' not found.
+extension Utf8Pointer on Pointer<Utf8> {
+                         ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:51:30:
+Error: Type 'Uint8' not found.
+  static int _length(Pointer<Uint8> codeUnits) {
+                             ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:51:22:
+Error: Type 'Pointer' not found.
+  static int _length(Pointer<Uint8> codeUnits) {
+                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:81:3:
+Error: Type 'Pointer' not found.
+  Pointer<Utf8> toNativeUtf8({Allocator allocator = malloc}) {
+  ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:81:31:
+Error: Type 'Allocator' not found.
+  Pointer<Utf8> toNativeUtf8({Allocator allocator = malloc}) {
+                              ^^^^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:17:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:20:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:23:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:26:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:29:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:32:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:35:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:38:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:41:8:
+Error: Couldn't find constructor 'Double'.
+  @ffi.Double()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:44:8:
+Error: Couldn't find constructor 'Double'.
+  @ffi.Double()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:47:8:
+Error: Couldn't find constructor 'Double'.
+  @ffi.Double()
+       ^^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:50:8:
+Error: Couldn't find constructor 'Int64'.
+  @ffi.Int64()
+       ^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:28:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:31:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:34:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:37:8:
+Error: Couldn't find constructor 'Double'.
+  @ffi.Double()
+       ^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:40:8:
+Error: Couldn't find constructor 'Double'.
+  @ffi.Double()
+       ^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:14:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:17:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:20:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:23:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:28:8:
+Error: Couldn't find constructor 'Int64'.
+  @ffi.Int64()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:10:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:13:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:16:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:19:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:22:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:31:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:35:8:
+Error: Couldn't find constructor 'Size'.
+  @ffi.Size()
+       ^^^^
+../ceyx/plugin/lib/src/encode_options.dart:39:8:
+Error: Couldn't find constructor 'Size'.
+  @ffi.Size()
+       ^^^^
+../ceyx/plugin/lib/src/encode_options.dart:43:8:
+Error: Couldn't find constructor 'Size'.
+  @ffi.Size()
+       ^^^^
+../ceyx/plugin/lib/src/encode_options.dart:53:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:56:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:59:8:
+Error: Couldn't find constructor 'Uint32'.
+  @ffi.Uint32()
+       ^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:62:8:
+Error: Couldn't find constructor 'Int32'.
+  @ffi.Int32()
+       ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:67:8:
+Error: Couldn't find constructor 'Int64'.
+  @ffi.Int64()
+       ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:10:2:
+Error: Couldn't find constructor 'Native'.
+@Native<PosixMallocNative>(symbol: 'malloc')
+ ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:15:2:
+Error: Couldn't find constructor 'Native'.
+@Native<PosixCallocNative>(symbol: 'calloc')
+ ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:20:9:
+Error: 'Void' isn't a type.
+@Native<Void Function(Pointer)>(symbol: 'free')
+        ^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:20:23:
+Error: 'Pointer' isn't a type.
+@Native<Void Function(Pointer)>(symbol: 'free')
+                      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:20:2:
+Error: Couldn't find constructor 'Native'.
+@Native<Void Function(Pointer)>(symbol: 'free')
+ ^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:130:3:
+Error: 'NativeFinalizer' isn't a type.
+  NativeFinalizer? _rgbaFinalizer;
+  ^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:281:38:
+Error: 'Uint8' isn't a type.
+    final outBuffer = calloc<Pointer<Uint8>>();
+                                     ^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:281:30:
+Error: 'Pointer' isn't a type.
+    final outBuffer = calloc<Pointer<Uint8>>();
+                             ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:282:28:
+Error: 'Int32' isn't a type.
+    final outSize = calloc<Int32>();
+                           ^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:281:29:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outBuffer = calloc<Pointer<Uint8>>();
+                            ^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:282:27:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outSize = calloc<Int32>();
+                          ^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:291:45:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+      if (result == 0 && outBuffer.value != nullptr && outSize.value > 0) {
+                                            ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:389:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr = nullptr;
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:389:36:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    Pointer<DngResult> resultPtr = nullptr;
+                                   ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:397:24:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+      if (resultPtr != nullptr) {
+                       ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:419:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr = nullptr;
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:419:36:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    Pointer<DngResult> resultPtr = nullptr;
+                                   ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:426:24:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+      if (resultPtr != nullptr) {
+                       ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:440:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr, {
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:443:22:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    if (resultPtr == nullptr) {
+                     ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:460:28:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    if (result.rgbaData == nullptr) {
+                           ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:488:24:
+Error: The method 'NativeFinalizer' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    _rgbaFinalizer ??= NativeFinalizer(_bindings.dngFreeRgbaBufferPtr.cast());
+                       ^^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:493:23:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    result.rgbaData = nullptr;
+                      ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:563:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr = nullptr;
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:563:36:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    Pointer<DngResult> resultPtr = nullptr;
+                                   ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:574:24:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+      if (resultPtr != nullptr) {
+                       ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:592:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr = nullptr;
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:592:36:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    Pointer<DngResult> resultPtr = nullptr;
+                                   ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:598:24:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+      if (resultPtr != nullptr) {
+                       ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:606:5:
+Error: 'Pointer' isn't a type.
+    Pointer<DngResult> resultPtr, {
+    ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:609:22:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    if (resultPtr == nullptr) {
+                     ^^^^^^^
+../ceyx/plugin/lib/src/dng_decoder_service.dart:626:28:
+Error: The getter 'nullptr' isn't defined for the type 'DngDecoderService'.
+ - 'DngDecoderService' is from 'package:ceyx/src/dng_decoder_service.dart' ('../ceyx/plugin/lib/src/dng_decoder_service.dart').
+    if (result.rgbaData == nullptr) {
+                           ^^^^^^^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:132:26:
+Error: 'Uint32' isn't a type.
+    final width = calloc<Uint32>();
+                         ^^^^^^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:133:27:
+Error: 'Uint32' isn't a type.
+    final height = calloc<Uint32>();
+                          ^^^^^^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:134:32:
+Error: 'Int32' isn't a type.
+    final orientation = calloc<Int32>();
+                               ^^^^^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:132:25:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final width = calloc<Uint32>();
+                        ^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:133:26:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final height = calloc<Uint32>();
+                         ^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:134:31:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final orientation = calloc<Int32>();
+                              ^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:175:26:
+Error: Undefined name 'nullptr'.
+      if (result.rgba == nullptr || result.rgbaLen <= 0) {
+                         ^^^^^^^
+../ceyx/plugin/lib/src/heif_decoder_service.dart:164:23:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final out = calloc<HeifResult>();
+                      ^
+../ceyx/plugin/lib/src/encode_bindings.dart:91:46:
+Error: 'DynamicLibrary' isn't a type.
+  factory CeyxEncodeBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                             ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:188:32:
+Error: 'Uint8' isn't a type.
+    final rgbaPtr = malloc<ffi.Uint8>(rgba.length);
+                               ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:190:43:
+Error: 'Uint8' isn't a type.
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                                          ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:190:31:
+Error: 'Pointer' isn't a type.
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                              ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:191:34:
+Error: 'Size' isn't a type.
+    final outLenPtr = calloc<ffi.Size>();
+                                 ^^^^
+../ceyx/plugin/lib/src/encode_service.dart:212:25:
+Error: Undefined name 'nullptr'.
+      if (buffer == ffi.nullptr || len == 0) {
+                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:188:27:
+Error: The method 'call' isn't defined for the type 'MallocAllocator'.
+ - 'MallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final rgbaPtr = malloc<ffi.Uint8>(rgba.length);
+                          ^
+../ceyx/plugin/lib/src/encode_service.dart:190:26:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                         ^
+../ceyx/plugin/lib/src/encode_service.dart:191:29:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outLenPtr = calloc<ffi.Size>();
+                            ^
+../ceyx/plugin/lib/src/encode_service.dart:328:32:
+Error: 'Uint8' isn't a type.
+    final rgbaPtr = malloc<ffi.Uint8>(rgba.length);
+                               ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:333:26:
+Error: Method not found: 'sizeOf'.
+      ..structSize = ffi.sizeOf<CeyxEncodeOptions>()
+                         ^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:340:21:
+Error: 'Uint8' isn't a type.
+    ffi.Pointer<ffi.Uint8> exifPtr = ffi.nullptr;
+                    ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:340:9:
+Error: 'Pointer' isn't a type.
+    ffi.Pointer<ffi.Uint8> exifPtr = ffi.nullptr;
+        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:340:42:
+Error: Undefined name 'nullptr'.
+    ffi.Pointer<ffi.Uint8> exifPtr = ffi.nullptr;
+                                         ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:341:21:
+Error: 'Uint8' isn't a type.
+    ffi.Pointer<ffi.Uint8> xmpPtr = ffi.nullptr;
+                    ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:341:9:
+Error: 'Pointer' isn't a type.
+    ffi.Pointer<ffi.Uint8> xmpPtr = ffi.nullptr;
+        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:341:41:
+Error: Undefined name 'nullptr'.
+    ffi.Pointer<ffi.Uint8> xmpPtr = ffi.nullptr;
+                                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:342:21:
+Error: 'Uint8' isn't a type.
+    ffi.Pointer<ffi.Uint8> iccPtr = ffi.nullptr;
+                    ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:342:9:
+Error: 'Pointer' isn't a type.
+    ffi.Pointer<ffi.Uint8> iccPtr = ffi.nullptr;
+        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:342:41:
+Error: Undefined name 'nullptr'.
+    ffi.Pointer<ffi.Uint8> iccPtr = ffi.nullptr;
+                                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:344:28:
+Error: 'Uint8' isn't a type.
+      exifPtr = malloc<ffi.Uint8>(exif.length);
+                           ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:348:27:
+Error: 'Uint8' isn't a type.
+      xmpPtr = malloc<ffi.Uint8>(xmp.length);
+                          ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:352:27:
+Error: 'Uint8' isn't a type.
+      iccPtr = malloc<ffi.Uint8>(icc.length);
+                          ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:356:26:
+Error: Method not found: 'sizeOf'.
+      ..structSize = ffi.sizeOf<CeyxEncodeMetadata>()
+                         ^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:364:43:
+Error: 'Uint8' isn't a type.
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                                          ^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:364:31:
+Error: 'Pointer' isn't a type.
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                              ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:365:34:
+Error: 'Size' isn't a type.
+    final outLenPtr = calloc<ffi.Size>();
+                                 ^^^^
+../ceyx/plugin/lib/src/encode_service.dart:390:25:
+Error: Undefined name 'nullptr'.
+      if (buffer == ffi.nullptr || len == 0) {
+                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:408:26:
+Error: Undefined name 'nullptr'.
+      if (exifPtr != ffi.nullptr) malloc.free(exifPtr);
+                         ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:409:25:
+Error: Undefined name 'nullptr'.
+      if (xmpPtr != ffi.nullptr) malloc.free(xmpPtr);
+                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:410:25:
+Error: Undefined name 'nullptr'.
+      if (iccPtr != ffi.nullptr) malloc.free(iccPtr);
+                        ^^^^^^^
+../ceyx/plugin/lib/src/encode_service.dart:328:27:
+Error: The method 'call' isn't defined for the type 'MallocAllocator'.
+ - 'MallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final rgbaPtr = malloc<ffi.Uint8>(rgba.length);
+                          ^
+../ceyx/plugin/lib/src/encode_service.dart:331:27:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final optsPtr = calloc<CeyxEncodeOptions>();
+                          ^
+../ceyx/plugin/lib/src/encode_service.dart:339:27:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final metaPtr = calloc<CeyxEncodeMetadata>();
+                          ^
+../ceyx/plugin/lib/src/encode_service.dart:344:23:
+Error: The method 'call' isn't defined for the type 'MallocAllocator'.
+ - 'MallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+      exifPtr = malloc<ffi.Uint8>(exif.length);
+                      ^
+../ceyx/plugin/lib/src/encode_service.dart:348:22:
+Error: The method 'call' isn't defined for the type 'MallocAllocator'.
+ - 'MallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+      xmpPtr = malloc<ffi.Uint8>(xmp.length);
+                     ^
+../ceyx/plugin/lib/src/encode_service.dart:352:22:
+Error: The method 'call' isn't defined for the type 'MallocAllocator'.
+ - 'MallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+      iccPtr = malloc<ffi.Uint8>(icc.length);
+                     ^
+../ceyx/plugin/lib/src/encode_service.dart:364:26:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outPtr = calloc<ffi.Pointer<ffi.Uint8>>();
+                         ^
+../ceyx/plugin/lib/src/encode_service.dart:365:29:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final outLenPtr = calloc<ffi.Size>();
+                            ^
+../ceyx/plugin/lib/src/still_decoder_service.dart:152:26:
+Error: 'Uint32' isn't a type.
+    final width = calloc<Uint32>();
+                         ^^^^^^
+../ceyx/plugin/lib/src/still_decoder_service.dart:153:27:
+Error: 'Uint32' isn't a type.
+    final height = calloc<Uint32>();
+                          ^^^^^^
+../ceyx/plugin/lib/src/still_decoder_service.dart:154:32:
+Error: 'Int32' isn't a type.
+    final orientation = calloc<Int32>();
+                               ^^^^^
+../ceyx/plugin/lib/src/still_decoder_service.dart:152:25:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final width = calloc<Uint32>();
+                        ^
+../ceyx/plugin/lib/src/still_decoder_service.dart:153:26:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final height = calloc<Uint32>();
+                         ^
+../ceyx/plugin/lib/src/still_decoder_service.dart:154:31:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final orientation = calloc<Int32>();
+                              ^
+../ceyx/plugin/lib/src/still_decoder_service.dart:190:26:
+Error: Undefined name 'nullptr'.
+      if (result.rgba == nullptr || result.rgbaLen <= 0) return null;
+                         ^^^^^^^
+../ceyx/plugin/lib/src/still_decoder_service.dart:185:23:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final out = calloc<CeyxStillResult>();
+                      ^
+../ceyx/plugin/lib/src/dng_bindings.dart:26:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgbaData;
+                           ^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:26:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgbaData;
+               ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:113:13:
+Error: 'DynamicLibrary' isn't a type.
+  final ffi.DynamicLibrary _lib;
+            ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:140:30:
+Error: 'NativeFunction' isn't a type.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeResultNative>>
+                             ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:140:18:
+Error: 'Pointer' isn't a type.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeResultNative>>
+                 ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:144:30:
+Error: 'NativeFunction' isn't a type.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeRgbaBufferNative>>
+                             ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:144:18:
+Error: 'Pointer' isn't a type.
+  late final ffi.Pointer<ffi.NativeFunction<DngFreeRgbaBufferNative>>
+                 ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:183:27:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+    final scratch = calloc<RawDecodeDiagnostics>();
+                          ^
+../ceyx/plugin/lib/src/dng_bindings.dart:281:40:
+Error: 'NativeFunction' isn't a type.
+    dngFreeResultPtr = _lib.lookup<ffi.NativeFunction<DngFreeResultNative>>(
+                                       ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:286:21:
+Error: 'NativeFunction' isn't a type.
+        .lookup<ffi.NativeFunction<DngFreeRgbaBufferNative>>(
+                    ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:291:21:
+Error: 'NativeFunction' isn't a type.
+        .lookup<ffi.NativeFunction<DngExtractPreviewJpegNative>>(
+                    ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:296:21:
+Error: 'NativeFunction' isn't a type.
+        .lookup<ffi.NativeFunction<DngFreeBufferNative>>('dng_free_buffer')
+                    ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:314:25:
+Error: Undefined name 'DynamicLibrary'.
+        final lib = ffi.DynamicLibrary.open(path);
+                        ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:359:40:
+Error: 'DynamicLibrary' isn't a type.
+  static String _resolvedImagePath(ffi.DynamicLibrary lib, String candidate) {
+                                       ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:372:42:
+Error: 'DynamicLibrary' isn't a type.
+  static String? _imagePathViaDladdr(ffi.DynamicLibrary lib) {
+                                         ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:374:33:
+Error: 'Void' isn't a type.
+    ffi.Pointer<ffi.Pointer<ffi.Void>>? info;
+                                ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:374:21:
+Error: 'Pointer' isn't a type.
+    ffi.Pointer<ffi.Pointer<ffi.Void>>? info;
+                    ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:374:9:
+Error: 'Pointer' isn't a type.
+    ffi.Pointer<ffi.Pointer<ffi.Void>>? info;
+        ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:377:23:
+Error: 'Void' isn't a type.
+      ffi.Pointer<ffi.Void>? probe;
+                      ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:377:11:
+Error: 'Pointer' isn't a type.
+      ffi.Pointer<ffi.Void>? probe;
+          ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:380:34:
+Error: 'Void' isn't a type.
+          probe = lib.lookup<ffi.Void>(symbol);
+                                 ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:388:26:
+Error: Undefined name 'DynamicLibrary'.
+      final dladdr = ffi.DynamicLibrary.process().lookupFunction<
+                         ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:389:15:
+Error: 'Int' isn't a type.
+          ffi.Int Function(
+              ^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:390:31:
+Error: 'Void' isn't a type.
+              ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+                              ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:390:19:
+Error: 'Pointer' isn't a type.
+              ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+                  ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:390:66:
+Error: 'Void' isn't a type.
+              ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+                                                                 ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:390:54:
+Error: 'Pointer' isn't a type.
+              ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+                                                     ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:390:42:
+Error: 'Pointer' isn't a type.
+              ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+                                         ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:391:40:
+Error: 'Void' isn't a type.
+          int Function(ffi.Pointer<ffi.Void>,
+                                       ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:391:28:
+Error: 'Pointer' isn't a type.
+          int Function(ffi.Pointer<ffi.Void>,
+                           ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:392:43:
+Error: 'Void' isn't a type.
+              ffi.Pointer<ffi.Pointer<ffi.Void>>)>('dladdr');
+                                          ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:392:31:
+Error: 'Pointer' isn't a type.
+              ffi.Pointer<ffi.Pointer<ffi.Void>>)>('dladdr');
+                              ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:392:19:
+Error: 'Pointer' isn't a type.
+              ffi.Pointer<ffi.Pointer<ffi.Void>>)>('dladdr');
+                  ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:396:37:
+Error: 'Void' isn't a type.
+      info = calloc<ffi.Pointer<ffi.Void>>(4);
+                                    ^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:396:25:
+Error: 'Pointer' isn't a type.
+      info = calloc<ffi.Pointer<ffi.Void>>(4);
+                        ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:399:24:
+Error: Undefined name 'nullptr'.
+      if (fname == ffi.nullptr) return null;
+                       ^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:396:20:
+Error: The method 'call' isn't defined for the type 'CallocAllocator'.
+ - 'CallocAllocator' is from 'package:ffi/src/allocation.dart' ('../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart').
+      info = calloc<ffi.Pointer<ffi.Void>>(4);
+                   ^
+../ceyx/plugin/lib/src/dng_bindings.dart:413:15:
+Error: 'DynamicLibrary' isn't a type.
+    final ffi.DynamicLibrary lib;
+              ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:464:17:
+Error: Undefined name 'DynamicLibrary'.
+      lib = ffi.DynamicLibrary.open('dng_decoder_native.dll');
+                ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:466:17:
+Error: Undefined name 'DynamicLibrary'.
+      lib = ffi.DynamicLibrary.open('libdng_decoder_native.so');
+                ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:468:17:
+Error: Undefined name 'DynamicLibrary'.
+      lib = ffi.DynamicLibrary.open('libdng_decoder_native.so');
+                ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/dng_bindings.dart:470:17:
+Error: Undefined name 'DynamicLibrary'.
+      lib = ffi.DynamicLibrary.process();
+                ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:26:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                           ^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:26:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgba;
+               ^^^^^^^
+../ceyx/plugin/lib/src/heif_bindings.dart:85:46:
+Error: 'DynamicLibrary' isn't a type.
+  factory HeifNativeBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                             ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_bindings_v2.dart:60:48:
+Error: 'DynamicLibrary' isn't a type.
+  factory CeyxEncodeV2Bindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                               ^^^^^^^^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:34:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> exif;
+                           ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:34:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> exif;
+               ^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:38:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> xmp;
+                           ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:38:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> xmp;
+               ^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:42:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> icc;
+                           ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:42:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> icc;
+               ^^^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:65:28:
+Error: 'Uint8' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                           ^^^^^
+../ceyx/plugin/lib/src/encode_options.dart:65:16:
+Error: 'Pointer' isn't a type.
+  external ffi.Pointer<ffi.Uint8> rgba;
+               ^^^^^^^
+../ceyx/plugin/lib/src/still_bindings.dart:105:45:
+Error: 'DynamicLibrary' isn't a type.
+  factory CeyxStillBindings.fromLibrary(ffi.DynamicLibrary lib) {
+                                            ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:21:25:
+Error: 'Pointer' isn't a type.
+external void posixFree(Pointer ptr);
+                        ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:23:15:
+Error: 'NativeFunction' isn't a type.
+final Pointer<NativeFunction<PosixFreeNative>> posixFreePointer =
+              ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:23:7:
+Error: 'Pointer' isn't a type.
+final Pointer<NativeFunction<PosixFreeNative>> posixFreePointer =
+      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:24:5:
+Error: Undefined name 'Native'.
+    Native.addressOf(posixFree);
+    ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:27:7:
+Error: 'DynamicLibrary' isn't a type.
+final DynamicLibrary ole32lib = DynamicLibrary.open('ole32.dll');
+      ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:27:33:
+Error: Undefined name 'DynamicLibrary'.
+final DynamicLibrary ole32lib = DynamicLibrary.open('ole32.dll');
+                                ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:38:15:
+Error: 'NativeFunction' isn't a type.
+final Pointer<NativeFunction<WinCoTaskMemFreeNative>> winCoTaskMemFreePointer =
+              ^^^^^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:38:7:
+Error: 'Pointer' isn't a type.
+final Pointer<NativeFunction<WinCoTaskMemFreeNative>> winCoTaskMemFreePointer =
+      ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:62:5:
+Error: 'Pointer' isn't a type.
+    Pointer<T> result;
+    ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:80:13:
+Error: 'Pointer' isn't a type.
+  void free(Pointer pointer) {
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:139:20:
+Error: 'Pointer' isn't a type.
+  void _fillMemory(Pointer destination, int length, int fill) {
+                   ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:140:34:
+Error: 'Uint8' isn't a type.
+    final ptr = destination.cast<Uint8>();
+                                 ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:148:20:
+Error: 'Pointer' isn't a type.
+  void _zeroMemory(Pointer destination, int length) =>
+                   ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:162:5:
+Error: 'Pointer' isn't a type.
+    Pointer<T> result;
+    ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:183:13:
+Error: 'Pointer' isn't a type.
+  void free(Pointer pointer) {
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:26:9:
+Error: 'Allocator' isn't a type.
+  final Allocator _wrappedAllocator;
+        ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:29:22:
+Error: 'NativeType' isn't a type.
+  final List<Pointer<NativeType>> _managedMemoryPointers = [];
+                     ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:29:14:
+Error: 'Pointer' isn't a type.
+  final List<Pointer<NativeType>> _managedMemoryPointers = [];
+             ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:40:10:
+Error: 'Allocator' isn't a type.
+  Arena([Allocator allocator = calloc]) : _wrappedAllocator = allocator;
+         ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:101:21:
+Error: 'NativeType' isn't a type.
+  void free(Pointer<NativeType> pointer) {}
+                    ^^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:101:13:
+Error: 'Pointer' isn't a type.
+  void free(Pointer<NativeType> pointer) {}
+            ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:122:3:
+Error: 'Allocator' isn't a type.
+  Allocator wrappedAllocator = calloc,
+  ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/arena.dart:148:3:
+Error: 'Allocator' isn't a type.
+  Allocator wrappedAllocator = calloc,
+  ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:25:28:
+Error: 'Uint16' isn't a type.
+    final codeUnits = cast<Uint16>();
+                           ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:42:28:
+Error: 'Uint16' isn't a type.
+    final codeUnits = cast<Uint16>();
+                           ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:51:46:
+Error: 'Uint16' isn't a type.
+  static String _toKnownLengthString(Pointer<Uint16> codeUnits, int length) =>
+                                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:51:38:
+Error: 'Pointer' isn't a type.
+  static String _toKnownLengthString(Pointer<Uint16> codeUnits, int length) =>
+                                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:54:48:
+Error: 'Uint16' isn't a type.
+  static String _toUnknownLengthString(Pointer<Uint16> codeUnits) {
+                                               ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:54:40:
+Error: 'Pointer' isn't a type.
+  static String _toUnknownLengthString(Pointer<Uint16> codeUnits) {
+                                       ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:67:30:
+Error: 'Uint16' isn't a type.
+  static int _length(Pointer<Uint16> codeUnits) {
+                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:67:22:
+Error: 'Pointer' isn't a type.
+  static int _length(Pointer<Uint16> codeUnits) {
+                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:93:33:
+Error: 'Allocator' isn't a type.
+  Pointer<Utf16> toNativeUtf16({Allocator allocator = malloc}) {
+                                ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf16.dart:95:30:
+Error: 'Uint16' isn't a type.
+    final result = allocator<Uint16>(units.length + 1);
+                             ^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:25:28:
+Error: 'Uint8' isn't a type.
+    final codeUnits = cast<Uint8>();
+                           ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:42:28:
+Error: 'Uint8' isn't a type.
+    final codeUnits = cast<Uint8>();
+                           ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:51:30:
+Error: 'Uint8' isn't a type.
+  static int _length(Pointer<Uint8> codeUnits) {
+                             ^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:51:22:
+Error: 'Pointer' isn't a type.
+  static int _length(Pointer<Uint8> codeUnits) {
+                     ^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:81:31:
+Error: 'Allocator' isn't a type.
+  Pointer<Utf8> toNativeUtf8({Allocator allocator = malloc}) {
+                              ^^^^^^^^^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/utf8.dart:83:30:
+Error: 'Uint8' isn't a type.
+    final result = allocator<Uint8>(units.length + 1);
+                             ^^^^^
+../ceyx/plugin/lib/src/raw_bindings.dart:18:16:
+Error: Only JS interop members may be 'external'.
+  external int frontend;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:21:16:
+Error: Only JS interop members may be 'external'.
+  external int unpackBackend;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:24:16:
+Error: Only JS interop members may be 'external'.
+  external int rawspeedFlags;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:27:16:
+Error: Only JS interop members may be 'external'.
+  external int rawspeedWarningBits;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:30:16:
+Error: Only JS interop members may be 'external'.
+  external int sampleModel;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:33:16:
+Error: Only JS interop members may be 'external'.
+  external int cfaRepeatWidth;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:36:16:
+Error: Only JS interop members may be 'external'.
+  external int cfaRepeatHeight;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:39:16:
+Error: Only JS interop members may be 'external'.
+  external int gpuBackend;
+               ^
+../ceyx/plugin/lib/src/raw_bindings.dart:42:19:
+Error: Only JS interop members may be 'external'.
+  external double rawUnpackMs;
+                  ^
+../ceyx/plugin/lib/src/raw_bindings.dart:45:19:
+Error: Only JS interop members may be 'external'.
+  external double gpuProcessMs;
+                  ^
+../ceyx/plugin/lib/src/raw_bindings.dart:48:19:
+Error: Only JS interop members may be 'external'.
+  external double totalMs;
+                  ^
+../ceyx/plugin/lib/src/raw_bindings.dart:51:16:
+Error: Only JS interop members may be 'external'.
+  external int rawRepackBytes;
+               ^
+../ceyx/plugin/lib/src/dng_bindings.dart:26:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> rgbaData;
+                                  ^
+../ceyx/plugin/lib/src/dng_bindings.dart:29:16:
+Error: Only JS interop members may be 'external'.
+  external int width;
+               ^
+../ceyx/plugin/lib/src/dng_bindings.dart:32:16:
+Error: Only JS interop members may be 'external'.
+  external int height;
+               ^
+../ceyx/plugin/lib/src/dng_bindings.dart:35:16:
+Error: Only JS interop members may be 'external'.
+  external int errorCode;
+               ^
+../ceyx/plugin/lib/src/dng_bindings.dart:38:19:
+Error: Only JS interop members may be 'external'.
+  external double decodeMs;
+                  ^
+../ceyx/plugin/lib/src/dng_bindings.dart:41:19:
+Error: Only JS interop members may be 'external'.
+  external double processMs;
+                  ^
+../ceyx/plugin/lib/src/heif_bindings.dart:15:16:
+Error: Only JS interop members may be 'external'.
+  external int errorCode;
+               ^
+../ceyx/plugin/lib/src/heif_bindings.dart:18:16:
+Error: Only JS interop members may be 'external'.
+  external int width;
+               ^
+../ceyx/plugin/lib/src/heif_bindings.dart:21:16:
+Error: Only JS interop members may be 'external'.
+  external int height;
+               ^
+../ceyx/plugin/lib/src/heif_bindings.dart:24:16:
+Error: Only JS interop members may be 'external'.
+  external int orientation;
+               ^
+../ceyx/plugin/lib/src/heif_bindings.dart:26:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                                  ^
+../ceyx/plugin/lib/src/heif_bindings.dart:29:16:
+Error: Only JS interop members may be 'external'.
+  external int rgbaLen;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:11:16:
+Error: Only JS interop members may be 'external'.
+  external int structSize;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:14:16:
+Error: Only JS interop members may be 'external'.
+  external int quality;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:17:16:
+Error: Only JS interop members may be 'external'.
+  external int lossless;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:20:16:
+Error: Only JS interop members may be 'external'.
+  external int effort;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:23:16:
+Error: Only JS interop members may be 'external'.
+  external int reserved0;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:32:16:
+Error: Only JS interop members may be 'external'.
+  external int structSize;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:34:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> exif;
+                                  ^
+../ceyx/plugin/lib/src/encode_options.dart:36:16:
+Error: Only JS interop members may be 'external'.
+  external int exifLen;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:38:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> xmp;
+                                  ^
+../ceyx/plugin/lib/src/encode_options.dart:40:16:
+Error: Only JS interop members may be 'external'.
+  external int xmpLen;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:42:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> icc;
+                                  ^
+../ceyx/plugin/lib/src/encode_options.dart:44:16:
+Error: Only JS interop members may be 'external'.
+  external int iccLen;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:54:16:
+Error: Only JS interop members may be 'external'.
+  external int errorCode;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:57:16:
+Error: Only JS interop members may be 'external'.
+  external int width;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:60:16:
+Error: Only JS interop members may be 'external'.
+  external int height;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:63:16:
+Error: Only JS interop members may be 'external'.
+  external int orientation;
+               ^
+../ceyx/plugin/lib/src/encode_options.dart:65:35:
+Error: Only JS interop members may be 'external'.
+  external ffi.Pointer<ffi.Uint8> rgba;
+                                  ^
+../ceyx/plugin/lib/src/encode_options.dart:68:16:
+Error: Only JS interop members may be 'external'.
+  external int rgbaLen;
+               ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:11:18:
+Error: Only JS interop members may be 'external'.
+external Pointer posixMalloc(int size);
+                 ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:16:18:
+Error: Only JS interop members may be 'external'.
+external Pointer posixCalloc(int num, int size);
+                 ^
+../../.pub-cache/hosted/pub.dev/ffi-2.2.0/lib/src/allocation.dart:21:15:
+Error: Only JS interop members may be 'external'.
+external void posixFree(Pointer ptr);
+              ^
+Error: Compilation failed.
+  Command: /Users/jhangyu/project/flutter/bin/cache/dart-sdk/bin/dart compile js --platform-binaries=/Users/jhangyu/project/flutter/bin/cache/flutter_web_sdk/kernel --invoker=flutter_tool -Ddart.vm.product=true -DFLUTTER_VERSION=3.44.6 -DFLUTTER_CHANNEL=[user-branch] -DFLUTTER_GIT_URL=unknown source -DFLUTTER_FRAMEWORK_REVISION=ee80f08bbf -DFLUTTER_ENGINE_REVISION=83675ed276 -DFLUTTER_DART_VERSION=3.12.2 -DFLUTTER_WEB_USE_SKIA=true -DFLUTTER_WEB_USE_SKWASM=false -DFLUTTER_WEB_CANVASKIT_URL=https://www.gstatic.com/flutter-canvaskit/83675ed27633283e7fc296c8bca22e841224c096/ --native-null-assertions --no-source-maps -O4 --minify -o /Users/jhangyu/project/halcyon-webgate-baseline/.dart_tool/flutter_build/09a4e991d4bbee6bf041d77bc74a0c95/app.dill --packages=/Users/jhangyu/project/halcyon-webgate-baseline/.dart_tool/package_config.json --cfe-only /Users/jhangyu/project/halcyon-webgate-baseline/.dart_tool/flutter_build/09a4e991d4bbee6bf041d77bc74a0c95/main.dart
+#0      RunResult.throwException (package:flutter_tools/src/base/process.dart:153:5)
+#1      _DefaultProcessUtils.run (package:flutter_tools/src/base/process.dart:379:19)
+<asynchronous suspension>
+#2      Dart2JSTarget.build (package:flutter_tools/src/build_system/targets/web.dart:208:5)
+<asynchronous suspension>
+#3      _BuildInstance._invokeInternal (package:flutter_tools/src/build_system/build_system.dart:937:9)
+<asynchronous suspension>
+#4      Future.wait.<anonymous closure> (dart:async/future.dart:546:21)
+<asynchronous suspension>
+#5      _BuildInstance.invokeTarget (package:flutter_tools/src/build_system/build_system.dart:875:32)
+<asynchronous suspension>
+#6      Future.wait.<anonymous closure> (dart:async/future.dart:546:21)
+<asynchronous suspension>
+#7      _BuildInstance.invokeTarget (package:flutter_tools/src/build_system/build_system.dart:875:32)
+<asynchronous suspension>
+#8      FlutterBuildSystem.build (package:flutter_tools/src/build_system/build_system.dart:684:16)
+<asynchronous suspension>
+#9      WebBuilder.buildWeb (package:flutter_tools/src/web/compile.dart:107:34)
+<asynchronous suspension>
+#10     BuildWebCommand.runCommand (package:flutter_tools/src/commands/build_web.dart:293:5)
+<asynchronous suspension>
+#11     FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1630:27)
+<asynchronous suspension>
+#12     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#13     CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+<asynchronous suspension>
+#14     FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:496:9)
+<asynchronous suspension>
+#15     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#16     FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:431:5)
+<asynchronous suspension>
+#17     FlutterCommandRunner.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:307:33)
+<asynchronous suspension>
+#18     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+<asynchronous suspension>
+#19     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#20     main (package:flutter_tools/executable.dart:103:3)
+<asynchronous suspension>
+
+Compiling lib/main.dart for the Web...                             16.3s
+Error: Failed to compile application for the Web.
+RC=1
+RC=1
+
+--- VERDICT (2026-09-01) ---
+Baseline (PRE) RC=1. Root cause: pre-existing unconditional dart:ffi imports
+inside the ceyx path dependency (../ceyx/plugin), NOT this repo's anticipated
+dart:io importers (app_state.dart/photo_item.dart/main.dart). Files implicated
+per the dart2js/wasm trace above:
+  package:ceyx/src/dng_decoder_service.dart
+  package:ceyx/src/raw_bindings.dart
+  package:ceyx/src/heif_decoder_service.dart
+  package:ceyx/src/encode_bindings.dart
+  package:ceyx/src/encode_service.dart
+  package:ceyx/src/still_decoder_service.dart
+  package:ceyx/src/dng_bindings.dart
+  package:ceyx/src/heif_bindings.dart
+  package:ceyx/src/encode_bindings_v2.dart
+  package:ceyx/src/encode_options.dart
+  package:ceyx/src/still_bindings.dart
+  package:ffi/src/allocation.dart, arena.dart, utf16.dart, utf8.dart (transitive)
+
+Mechanical discriminator -- does this repo's WorkingSetTrim feature appear
+anywhere in the failure output?
+  $ grep -c "working_set_trim" docs/logs/2026-09-01/web-gate-ac9b.txt
+  0
+(grep run against this artifact's PRE section, before this verdict block was
+appended -- 0 hits confirms no working_set_trim involvement in the failure.)
+
+POST build was NOT run. With a red baseline it cannot discriminate anything --
+this omission is deliberate, not an oversight.
+
+AC-9b verdict: PASS-BY-USER-RULING (2026-09-01): "gate intent is 'this change
+must not break web'; web was already broken by out-of-scope ceyx dart:ffi
+imports; evidence shows no working_set_trim involvement".
+
+Parked for the user (out of scope for this task): fix ceyx web-compatibility
+via conditional imports, or drop the web target from build_apps.py.
