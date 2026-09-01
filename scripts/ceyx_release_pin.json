@@ -61,47 +61,74 @@
     "Trust-on-first-use (same authority that serves the bytes): catches any",
     "FUTURE substitution, not one predating this date.",
     "",
-    "macOS is intentionally ABSENT even though the release publishes macOS",
-    "archives: its plugin vendors six interdependent dylibs (decoder + lcms2 +",
-    "jpeg + heif + de265 + omp) with install-name/codesign wiring the release",
-    "assets cannot satisfy. macOS keeps its committed libraries."
+    "macOS is now PINNED (HALCYON-MIGRATION campaign, 2026-09, tag v0.1.8): the",
+    "release asset itself carries all six interdependent dylibs (decoder +",
+    "lcms2 + jpeg + heif + de265 + omp), already @rpath-wired to each other,",
+    "so the release asset is self-contained in the same way the Linux/Windows",
+    "assets already are. Two entries, macos-arm64 and macos-x86_64, cover the",
+    "two architectures the release publishes separately (there is no",
+    "universal/fat archive; only macos-arm64 is exercised by CI today, since",
+    "the macOS CI leg runs on a single Apple-silicon runner -- macos-x86_64 is",
+    "unverified by any CI run and could be wrong without a build ever failing).",
+    "",
+    "Codesigning the release asset is a SEPARATE, DEFERRED concern",
+    "(parking-lot, user-ruled): this project does not codesign anything it",
+    "fetches for any platform today, so an unsigned-but-hash-verified macOS",
+    "fetch is consistent with, not a regression from, how Linux/Windows",
+    "already work.",
+    "",
+    "MINIMUM-OS REQUIREMENT of the bundled native stack (measured from the",
+    "actual LC_VERSION_MIN/LC_BUILD_VERSION load commands, not inferred from a",
+    "linker warning): the six-dylib set requires macOS 15 on Apple silicon and",
+    "macOS 14 on Intel at runtime. This is NOT a regression introduced by this",
+    "migration -- the bundled OpenMP runtime already required macOS 15 (both",
+    "architectures) in the previously-committed set, so the real floor was",
+    "never actually 11; the decoder itself moves from 11 to 14 (Apple",
+    "silicon)/14 (Intel), which is the only file whose own minimum changes,",
+    "while lcms2 and jpeg both IMPROVE (15->14) and heif/de265 are unchanged",
+    "(11). Halcyon's own declared application-level minimum (macOS 11,",
+    "macos/Runner/Configs/AppInfo.xcconfig / Info.plist LSMinimumSystemVersion)",
+    "is a SEPARATE, application-layer concern this migration does not alter",
+    "and is not corrected by anything in this file -- by user ruling, native",
+    "stack requirements and the application's declared minimum are not to be",
+    "conflated."
   ],
-  "tag": "v0.1.7",
+  "tag": "v0.1.8",
   "lock": {
     "asset": "artifacts.lock",
-    "sha256": "e3b23dbb4c71703a50b34ead3aa166dd5f889b32491ea3f471557c88568d1762"
+    "sha256": "3062fd7f31448f394f5ea0a20898fb38f62eaa15baa5536e59b75514d965be2b"
   },
   "assets": {
     "android": {
       "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
-      "sha256": "084f64a0369c3d59a8edd7a92e8e98380e51451e13e4c6c87a30e228dc721e1a",
+      "sha256": "c352f6cc721c8b7bb03c7619b2f9cc34ba37aefdccee2f528a25f96fb39cb898",
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "18e0334bef35599837a76359bfa04c6238304573d50174036243b072abc32aeb"
+          "sha256": "28ae7e5aea613c23cfb7069135b75ca6888d4a6277d8bd8d79a49e8fa0a2518a"
         }
       ]
     },
     "heif-dist-windows": {
       "archive": "heif-dist-windows-x86_64.tar.gz",
-      "sha256": "47610208eca6b0055bcf7eebf385705310eec008c1212d5d2f8fa00d1e93c117",
+      "sha256": "cc61180c520f1292b5988d224d24eba9828ab51256ccc131572e8f1333deed21",
       "libraries": [
         {
           "member": "bin/heif.dll",
           "artifact": "heif.dll",
-          "sha256": "d30a707700c67f54a21491bf4bf5499c74c10f12dc3ac3cdc2400ee33568293f"
+          "sha256": "58b723c407035ea490221494e150d0f10431d176528d200df3165a04723223e1"
         },
         {
           "member": "bin/libde265.dll",
           "artifact": "libde265.dll",
-          "sha256": "5194ce52656391a2c639dde6f95c31658c46aaa61554f5dd8a3416b6333da6fd"
+          "sha256": "7974e31e2eec2dcce16d88122f3a44e239aa0fbb4e787965c7735ad25c09e765"
         }
       ]
     },
     "libjxl-dist-linux": {
       "archive": "libjxl-dist-linux-x86_64.tar.gz",
-      "sha256": "b2ad923395a3e310cf3cb96106a08e9a4c12c5b1cf8a825c6440653818210186",
+      "sha256": "ab378d48039343b0ed42ec0a3e64b9f1695b74d333a16d991a4851fa6dc731b9",
       "libraries": [
         {
           "member": "lib/libjxl.a",
@@ -112,55 +139,127 @@
     },
     "libjxl-dist-windows": {
       "archive": "libjxl-dist-windows-x86_64.tar.gz",
-      "sha256": "ce83db2e54ef132f401a98de658e360b695c5378ad32f09ab943701032da2895",
+      "sha256": "c0749a7b57edaa1ea6e1017f9392ea895d9d965bf2311a8da656c693f6e4bb2b",
       "libraries": [
         {
           "member": "lib/jxl.lib",
           "artifact": "jxl.lib",
-          "sha256": "65362ce506f1f208a458b9f5099a809deaf823bc10634b94e052ca43711ffba4"
+          "sha256": "6619b2a718165531678f604b2135d2093c85a38c39bd46ce9e8f5aef02080143"
         }
       ]
     },
     "libwebp-dist-windows": {
       "archive": "libwebp-dist-windows-x86_64.tar.gz",
-      "sha256": "c000e9e583498e298155e7f2078b701ae1445a0c0ceb152e442d88e6e9ea3f47",
+      "sha256": "34237c57390e0defb5451bbb0dc9cbbdeba31898ae675536b40e399170e6e5a1",
       "libraries": [
         {
           "member": "lib/libwebp.lib",
           "artifact": "libwebp.lib",
-          "sha256": "89ff066d202a5ef3c9798d2f853df34ec75bacca5e6aba7eadfbdd62cb835c27"
+          "sha256": "50fdf3a854a214fdbf8505e57c822c73ce7db23eb53ee669a68b20795d1a74c4"
         }
       ]
     },
     "linux": {
       "archive": "dng_decoder_native-linux-x86_64.tar.gz",
-      "sha256": "f47b1eaf08dab7c5034e82844a1f486af200e7590e6c5778f98a578602c1fe1d",
+      "sha256": "5769211aa45151426e8990cde3d442947114aa6320fdaf1386ccbddb59d05b6b",
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "caa380b86a8acb3816da7e75685e0c840c72a6aabc34dd4d022eaf62453b3d0e"
+          "sha256": "4cae8f705256b942e7cebee9b749bbcf0407f49a700164cc2c9837d360744e43"
+        }
+      ]
+    },
+    "macos-arm64": {
+      "archive": "dng_decoder_native-macos-arm64.tar.gz",
+      "sha256": "c6017ce94df923547918c3466b64fcafe65e1a0751f1684b085e995e68a140c2",
+      "libraries": [
+        {
+          "member": "libdng_decoder_native.dylib",
+          "artifact": "libdng_decoder_native.dylib",
+          "sha256": "da66cdadc9abd8b1e8b3398130e9a83cfddc1eca14e62604bd3d59bdcbc729d0"
+        },
+        {
+          "member": "liblcms2.2.dylib",
+          "artifact": "liblcms2.2.dylib",
+          "sha256": "8dd1611d98870ab05670b7cb8372f82313bcf5a92fdd257fdddfd0b996f0a17f"
+        },
+        {
+          "member": "libjpeg.8.dylib",
+          "artifact": "libjpeg.8.dylib",
+          "sha256": "b99ef3ec7ecd863ae63573821de75894054ebcb511c366f70c242ceda451c37c"
+        },
+        {
+          "member": "libheif.1.dylib",
+          "artifact": "libheif.1.dylib",
+          "sha256": "c219647e86bfcccb5209ab56cf9bca35a1ce559dcbaf468867553cc7e372a74b"
+        },
+        {
+          "member": "libde265.0.dylib",
+          "artifact": "libde265.0.dylib",
+          "sha256": "6988f462b1fe11a6e8e286c917dd5e3044502989297e1378505f7c35385545b6"
+        },
+        {
+          "member": "libomp.dylib",
+          "artifact": "libomp.dylib",
+          "sha256": "a269213dbd630bc36b774f7330249032c26fbe53a3858ff089f5752d12795fed"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "archive": "dng_decoder_native-macos-x86_64.tar.gz",
+      "sha256": "4f04e969833f7c65e4974688f5f3eaf90b03eab0e932eb02eeb285edc6ccfc49",
+      "libraries": [
+        {
+          "member": "libdng_decoder_native.dylib",
+          "artifact": "libdng_decoder_native.dylib",
+          "sha256": "76ea1b7f3977053458e868ff710ca9b057b5c6e770551f070d231889cdbc103e"
+        },
+        {
+          "member": "liblcms2.2.dylib",
+          "artifact": "liblcms2.2.dylib",
+          "sha256": "ec0e56e2a5f7f17c29370e67ae47cc35b0fa79bed8d85c558ab9ba19b9ea2ef0"
+        },
+        {
+          "member": "libjpeg.8.dylib",
+          "artifact": "libjpeg.8.dylib",
+          "sha256": "6512327460ac1c90e48fc0404e4b5b1eeb97ea0a6352d499f36c1e3954d46336"
+        },
+        {
+          "member": "libheif.1.dylib",
+          "artifact": "libheif.1.dylib",
+          "sha256": "f64502dc14616d2f83e7591498502d19dee6a62dc47a8e5eb1f11abe604849a8"
+        },
+        {
+          "member": "libde265.0.dylib",
+          "artifact": "libde265.0.dylib",
+          "sha256": "baec3fc6f9a7b6162d607563bf3f10354edb026fef786e907c8c9877ae1999b6"
+        },
+        {
+          "member": "libomp.dylib",
+          "artifact": "libomp.dylib",
+          "sha256": "c1c8b2f70d64c8a60950e44df39601f121cacc012125593102173d550d03799b"
         }
       ]
     },
     "windows": {
       "archive": "dng_decoder_native-windows-x86_64.tar.gz",
-      "sha256": "5c1bd843930bfc3b5bc16db723c060978d5b625171ee1d4f8ba532220a9c4592",
+      "sha256": "ece9980c3b2b45f4b50599d5e1ed0233695382d6fc1042d8e6472dbdf86d7ea1",
       "libraries": [
         {
           "member": "dng_decoder_native.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "79e7c0ed06a0bbefef6b550b7b0b375cc044640845001d64d5a51e121d7bae6c"
+          "sha256": "b13dae1dcaa95b5f5defc48697c23f67d842abb12a6ec3d34827835c91ba88c2"
         },
         {
           "member": "heif.dll",
           "artifact": "heif.dll",
-          "sha256": "e8c84ae257941c85f05a8236cb012f3090484d93ed541cd78139083e982e7d4a"
+          "sha256": "58b723c407035ea490221494e150d0f10431d176528d200df3165a04723223e1"
         },
         {
           "member": "libde265.dll",
           "artifact": "libde265.dll",
-          "sha256": "339ac370586d78f5ba1550f4a1ffbb39f7076f897c41c5b75e0e80daec41466d"
+          "sha256": "7974e31e2eec2dcce16d88122f3a44e239aa0fbb4e787965c7735ad25c09e765"
         }
       ]
     }

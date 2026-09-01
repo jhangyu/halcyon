@@ -127,16 +127,21 @@ SUITE = {
         measures=(
             "every ceyx library the pin declares for this platform is in the "
             "artefact TOGETHER (on Windows: the decoder plus heif.dll and "
-            "libde265.dll)"
+            "libde265.dll; on macOS: the decoder plus lcms2, jpeg, heif, de265 "
+            "and omp — six interdependent dylibs, ceyx.podspec vendored_libraries)"
         ),
-        valid_on=("windows",),
+        valid_on=("windows", "macos"),
         why_valid=(
             "The expected list is read as data from ceyx_release_pin.json's "
             "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so "
             "adding a fourth DLL to the pin automatically extends the gate. It "
             "measures the exact failure ceyx_release_pin.json:11-16 describes: "
             "a Windows install missing a dynamic import fails at "
-            "DynamicLibrary.open with an error naming only the decoder."
+            "DynamicLibrary.open with an error naming only the decoder. On "
+            "macOS the same shape applies to the six-dylib atomic group added "
+            "by the HALCYON-MIGRATION campaign (2026-09, tag v0.1.8): a "
+            "partial fetch/package would produce an app that fails at load "
+            "time naming only the decoder, never the missing companion."
         ),
         red_state=(
             "delete heif.dll from a staging copy of the archive: the assertion "
@@ -149,15 +154,23 @@ SUITE = {
         measures=(
             "the SHA-256 of each ceyx library AS SHIPPED equals the pinned digest"
         ),
-        valid_on=("linux", "windows"),
+        valid_on=("linux", "windows", "macos"),
         why_valid=(
             "hashlib over the artefact member's own bytes. build_apps.py "
             "verifies the digest at FETCH time; hashing the shipped member "
             "instead is what distinguishes 'we downloaded the right bytes' from "
             "'we shipped the right bytes' — the two differ whenever anything "
-            "between fetch and package rewrites the file. macOS is excluded "
-            "because it is intentionally absent from the pin (its six dylibs "
-            "are committed and install-name/codesign wired)."
+            "between fetch and package rewrites the file. macOS was previously "
+            "excluded because it was intentionally absent from the pin; as of "
+            "tag v0.1.8 (HALCYON-MIGRATION campaign, 2026-09) the pin covers "
+            "macos-arm64/macos-x86_64 with a full libraries[] list, so this "
+            "assertion now applies there too. Note the fetched decoder itself "
+            "requires macOS 15 on Apple silicon / macOS 14 on Intel at runtime "
+            "(the bundled OpenMP runtime already required macOS 15 in the "
+            "previously-committed set, on both architectures) — a fact this "
+            "assertion does not measure (it checks bytes, not the minimum-OS "
+            "load command) but that is recorded in ceyx_release_pin.json's "
+            "comment and should be read alongside a pass here."
         ),
         red_state=(
             "flip one byte of a library in a staging copy: the assertion fails "

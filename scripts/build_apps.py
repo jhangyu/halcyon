@@ -317,7 +317,7 @@ HEIF_RUNTIME_LIBS = {
 HEIF_VERIFIED_TARGETS = ("macos",)
 
 # --------------------------------------------------------------------------
-# ceyx prebuilt-library fetch (Linux/Windows) from a PINNED GitHub Release
+# ceyx prebuilt-library fetch (Linux/Windows/macOS) from a PINNED GitHub Release
 # --------------------------------------------------------------------------
 # Historically each platform's native library was committed into the ceyx repo.
 # That broke down: ceyx main now DECLARES linux ffiPlugin but ships only a
@@ -327,10 +327,25 @@ HEIF_VERIFIED_TARGETS = ("macos",)
 # library for a target from a release and place it where the plugin's packaging
 # CMake expects it.
 #
-# Only Linux and Windows are fetched. macOS is DELIBERATELY excluded: its plugin
-# vendors six interdependent dylibs (ceyx.podspec vendored_libraries) with
-# install-name/codesign wiring that the single-decoder release asset cannot
-# satisfy, so macOS keeps its committed libraries. Android is out of scope.
+# Linux, Windows and macOS are fetched; Android is out of scope (its jniLibs
+# tree is committed upstream and this script must not overwrite it - see the
+# "android" entry below).
+#
+# macOS was EXCLUDED until the CI-T11/HALCYON-MIGRATION campaign (2026-09):
+# its plugin vendors six interdependent dylibs (ceyx.podspec vendored_libraries
+# - decoder + lcms2 + jpeg + heif + de265 + omp) with install-name wiring that
+# earlier ceyx releases, which published only the bare decoder, could not
+# satisfy. As of ceyx tag v0.1.8 the release asset itself carries all six
+# dylibs, already @rpath-wired to each other (verified independently: lipo
+# reports a single, consistent architecture per file within each of the two
+# per-architecture archives; `otool -L` on the decoder names all five
+# companions via @rpath with no non-system, non-rpath load command), so the
+# release asset is self-contained and there is no longer a technical reason to
+# keep macOS on committed libraries. Codesigning the release asset is a
+# SEPARATE, DEFERRED concern (parking-lot, user-ruled) and does not block this
+# migration: this script does not codesign what it fetches for any platform
+# today, so macOS fetching an unsigned-but-verified dylib set is consistent
+# with, not a regression from, how Linux/Windows are already handled.
 CEYX_REPO = "jhangyu/ceyx"
 
 # The pin (tag + per-asset sha256) lives in a committed JSON file, NOT a Python
@@ -368,9 +383,19 @@ CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 # DynamicLibrary.open with an error naming the decoder and nothing else. Linux
 # uses a one-element list so there is exactly one code path here.
 #
-# macOS is ABSENT on purpose (its plugin vendors six interdependent dylibs with
-# install-name/codesign wiring a release archive cannot satisfy - it keeps its
-# committed libraries), even though the release does publish macOS archives.
+# macOS is now fetched too (ceyx tag v0.1.8 onward - see the module comment
+# above for why the earlier exclusion no longer applies). It is keyed by
+# BUILD TARGET ARCHITECTURE, not by the host machine running this script:
+# "macos-arm64" and "macos-x86_64" are two separate entries, matching the two
+# separate per-architecture release archives (there is no universal/fat
+# archive), and the entry selected at fetch time is whichever one
+# --macos-arch already told the rest of this script to build (see
+# fetch_target_for() below) - never the host's own architecture, since this
+# script already supports cross-building macOS for an architecture other than
+# the one it runs on (MACOS_DEFAULT_ARCH / PL-6), and a host-arch guess would
+# silently fetch the wrong slice on exactly that cross-build. Six-file
+# atomic_group for the same reason windows is: a partial set fails at
+# dlopen/DynamicLibrary.open naming only the decoder.
 CEYX_FETCH_SPECS = {
     "linux": {
         "archive": "dng_decoder_native-linux-x86_64.tar.gz",
@@ -390,6 +415,34 @@ CEYX_FETCH_SPECS = {
             {"member": "dng_decoder_native.dll", "artifact": "dng_decoder_native.dll"},
             {"member": "heif.dll",               "artifact": "heif.dll"},
             {"member": "libde265.dll",           "artifact": "libde265.dll"},
+        ],
+    },
+    "macos-arm64": {
+        "archive": "dng_decoder_native-macos-arm64.tar.gz",
+        "dest": Path("plugin") / "macos" / "Libraries",
+        "place": True,
+        "atomic_group": True,
+        "members": [
+            {"member": "libdng_decoder_native.dylib", "artifact": "libdng_decoder_native.dylib"},
+            {"member": "liblcms2.2.dylib",             "artifact": "liblcms2.2.dylib"},
+            {"member": "libjpeg.8.dylib",              "artifact": "libjpeg.8.dylib"},
+            {"member": "libheif.1.dylib",              "artifact": "libheif.1.dylib"},
+            {"member": "libde265.0.dylib",             "artifact": "libde265.0.dylib"},
+            {"member": "libomp.dylib",                 "artifact": "libomp.dylib"},
+        ],
+    },
+    "macos-x86_64": {
+        "archive": "dng_decoder_native-macos-x86_64.tar.gz",
+        "dest": Path("plugin") / "macos" / "Libraries",
+        "place": True,
+        "atomic_group": True,
+        "members": [
+            {"member": "libdng_decoder_native.dylib", "artifact": "libdng_decoder_native.dylib"},
+            {"member": "liblcms2.2.dylib",             "artifact": "liblcms2.2.dylib"},
+            {"member": "libjpeg.8.dylib",              "artifact": "libjpeg.8.dylib"},
+            {"member": "libheif.1.dylib",              "artifact": "libheif.1.dylib"},
+            {"member": "libde265.0.dylib",             "artifact": "libde265.0.dylib"},
+            {"member": "libomp.dylib",                 "artifact": "libomp.dylib"},
         ],
     },
     # Verified but NOT placed: plugin/android/src/main/jniLibs is a committed
@@ -1338,12 +1391,37 @@ def ensure_halide(native_dir, expected_sha256=None):
 # --------------------------------------------------------------------------
 # ceyx prebuilt fetch from a pinned release
 # --------------------------------------------------------------------------
-def fetch_target_for(target):
-    """Which CEYX_FETCH_SPECS entry a Flutter target consumes (None if none)."""
+def fetch_target_for(target, args=None):
+    """Which CEYX_FETCH_SPECS entry a Flutter target consumes (None if none).
+
+    macOS is resolved by the BUILD's target architecture (args.macos_arch),
+    never by the host machine running this script - this script already
+    supports cross-building macOS for an architecture other than its own
+    (MACOS_DEFAULT_ARCH / PL-6), and a host-arch guess would silently fetch
+    the wrong slice on exactly that cross-build. There is no universal/fat
+    release archive, so --macos-arch universal has no matching entry and
+    fails loudly here rather than guessing arm64 or x86_64 on its behalf."""
     if target == "linux":
         return "linux"
     if target == "windows":
         return "windows"
+    if target == "macos":
+        arch = getattr(args, "macos_arch", None)
+        if arch == "universal":
+            fail(
+                "the ceyx fetch path does not support --macos-arch universal "
+                "- no single release archive contains both slices.",
+                hints=["Pass --macos-arch arm64 or --macos-arch x86_64 to "
+                       "fetch a matching prebuilt, or --native always to "
+                       "compile a universal build locally."],
+            )
+        if arch not in ("arm64", "x86_64"):
+            fail(
+                f"cannot resolve which macOS ceyx release asset to fetch: "
+                f"--macos-arch is {arch!r}.",
+                hints=["Expected 'arm64' or 'x86_64'."],
+            )
+        return f"macos-{arch}"
     return None
 
 
@@ -2390,16 +2468,17 @@ def build_target(target, layout, mode, args):
         phase(f"Phase 0: clean ({target})")
         clean_target(target, layout)
 
-    # Whether a prebuilt from the pinned ceyx release (Linux/Windows) will
-    # supply the library. Decided BEFORE Phase 0 because it decides whether a
-    # LOCAL native build is due at all, and Phase 0's native prerequisites
-    # (Vulkan SDK, HEIF dist, the runbook S4 colour gate) only apply to a local
-    # compile. Deciding it afterwards made `windows --fetch-native` fail Phase 0
-    # on a clean checkout for prerequisites it was never going to need. The
-    # decision is purely local (pin file + destination paths), so no network
-    # traffic happens here; the download itself still runs after --check has
-    # returned, and still precedes the Flutter build that consumes the library.
-    ft = fetch_target_for(target)
+    # Whether a prebuilt from the pinned ceyx release (Linux/Windows/macOS)
+    # will supply the library. Decided BEFORE Phase 0 because it decides
+    # whether a LOCAL native build is due at all, and Phase 0's native
+    # prerequisites (Vulkan SDK, HEIF dist, the runbook S4 colour gate) only
+    # apply to a local compile. Deciding it afterwards made `windows
+    # --fetch-native` fail Phase 0 on a clean checkout for prerequisites it
+    # was never going to need. The decision is purely local (pin file + args +
+    # destination paths), so no network traffic happens here; the download
+    # itself still runs after --check has returned, and still precedes the
+    # Flutter build that consumes the library.
+    ft = fetch_target_for(target, args)
     if ft is not None and args.native == "always" and args.fetch_native:
         fail(
             "--native always (local compile) and --fetch-native (download the "
@@ -2417,7 +2496,53 @@ def build_target(target, layout, mode, args):
         return
 
     if fetch_due:
-        fetch_ceyx_library(ft, layout)
+        fetched = fetch_ceyx_library(ft, layout)
+        if target == "macos":
+            # A correct pin/lock/sha256 chain only proves the BYTES are the
+            # ones reviewed - it says nothing about whether those bytes are
+            # actually the architecture this build asked for (ft already
+            # encodes args.macos_arch via fetch_target_for(), but this reads
+            # the placed file's own Mach-O header, independent of that
+            # string, using the same lipo_slices() helper verify_macos_slices
+            # already trusts). Fail loudly rather than let a mismatch surface
+            # later as an obscure link/runtime error.
+            decoder = next(
+                (p for p in fetched if p.name == "libdng_decoder_native.dylib"),
+                None)
+            if decoder is None:
+                fail(
+                    f"fetch_ceyx_library placed {len(fetched)} file(s) for "
+                    f"'{ft}' but libdng_decoder_native.dylib is not among "
+                    "them - cannot verify the fetched architecture.",
+                    hints=["This should be unreachable if the atomic-group "
+                           "extraction succeeded; treat it as a defect in "
+                           f"CEYX_FETCH_SPECS['{ft}'] or extract_ceyx_archive."],
+                )
+            slices = lipo_slices(decoder)
+            if slices is None:
+                fail(
+                    f"could not determine the architecture of the fetched "
+                    f"{decoder} (lipo failed or produced no usable output) - "
+                    "refusing to proceed on an unverified architecture.",
+                    hints=["Run `lipo -info` on this file directly to see "
+                           "the underlying error.",
+                           f"Re-derive the pin against tag v0.1.8 (this "
+                           "project's pinned tag) and review the diff if the "
+                           "archive itself looks corrupt."],
+                )
+            if slices != {args.macos_arch}:
+                fail(
+                    f"fetched {decoder} is {' '.join(sorted(slices))}, not "
+                    f"{args.macos_arch} - the release asset does not match "
+                    "the requested build architecture.",
+                    hints=[f"CEYX_FETCH_SPECS['{ft}'] pinned the wrong "
+                           "archive, or the release asset itself is "
+                           "mislabelled.",
+                           "Re-derive the pin against tag v0.1.8 (this "
+                           "project's pinned tag) and review the diff."],
+                )
+            ok(f"fetched decoder architecture confirmed: "
+               f"{' '.join(sorted(slices))}")
 
     placed_native = None
     if native_due:
@@ -2519,7 +2644,7 @@ def make_parser():
     p.add_argument("--fetch-native", action="store_true",
                    help="Obtain the target's native library from the PINNED ceyx "
                         "GitHub Release and place it, OVERWRITING any committed "
-                        "copy (Linux/Windows only). Without this flag a fetch "
+                        "copy (Linux/Windows/macOS). Without this flag a fetch "
                         "still happens automatically when the destination library "
                         "is absent - which is how a Linux build gets its .so.")
     p.add_argument("--ceyx-release", default="pinned", metavar="pinned|latest|verify|TAG",

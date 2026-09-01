@@ -1194,6 +1194,14 @@ the app.
 **macOS builds are arm64 only,** because the bundled decoder is built for Apple Silicon. An
 Intel Mac build would need an x86_64 decoder first.
 
+### macOS system requirements
+
+Halcyon's declared minimum macOS version is 11. The bundled native decoder stack it
+ships with, however, requires **macOS 15 on Apple silicon and macOS 14 on Intel** at
+runtime — the two are separate facts, not a correction of one by the other: the
+application's own declared minimum is unchanged, and the higher figure describes what
+the bundled decoder libraries themselves need to load.
+
 ---
 
 ## Building from source

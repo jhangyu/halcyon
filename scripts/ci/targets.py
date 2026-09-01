@@ -27,9 +27,19 @@ from __future__ import annotations
 TARGETS: dict = {
     "macos": {
         "runs_on": "macos-14",
-        # No --fetch-native: macOS keeps its six committed, install-name/codesign
-        # wired dylibs and is excluded from the ceyx release pin (CLAUDE.md).
-        "build_flags": [],
+        # --fetch-native: as of the HALCYON-MIGRATION campaign (2026-09, tag
+        # v0.1.8) macOS is fetched from the ceyx release pin, the same as
+        # windows/linux, rather than keeping its six dylibs committed. This CI
+        # leg is a single fixed architecture (Apple silicon, runs_on above), so
+        # it consumes the "macos-arm64" pin entry via pin_platform below — the
+        # same one-leg-one-key shape windows/linux already use, not a new
+        # architecture-aware mechanism. See scripts/ceyx_release_pin.json's
+        # comment for the full decision and its minimum-OS consequence (the
+        # bundled decoder stack now requires macOS 15 on Apple silicon / macOS
+        # 14 on Intel at runtime — this project's user-facing declared minimum
+        # of macOS 11 is unchanged and is a separate, application-layer
+        # concern this migration does not alter).
+        "build_flags": ["--fetch-native"],
         # `flutter pub get` (cwd=<repo_root>) then `pod install` (cwd=<repo_root>/macos,
         # ci.yml:121-123). The pub get is NOT optional and NOT a duplicate of the
         # one `flutter build` does implicitly: macos/Podfile:12-17 raises unless
@@ -49,10 +59,12 @@ TARGETS: dict = {
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
+            "H-DECODER-DEPS",
+            "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",
         ],
-        "pin_platform": None,
+        "pin_platform": "macos-arm64",
     },
     "windows": {
         "runs_on": "windows-latest",
