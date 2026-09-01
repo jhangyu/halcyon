@@ -15,7 +15,8 @@ import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// T13 — per-selection EXIF read + cache (round1-plan T13, TC-494..497).
+/// T13 — per-selection EXIF read + cache (round1-plan T13, TC-501..504 —
+/// the full gallery block shifted +7 by user ruling 2026-09-02).
 ///
 /// All tests inject the FAKE reader through the EXISTING `exifReader`
 /// constructor parameter — there is deliberately no second reader seam — and a
@@ -45,7 +46,7 @@ void main() {
   });
 
   group('AppState selection EXIF cache', () {
-    test('TC-494 selecting and going quiet past 250ms reads once and '
+    test('TC-501 selecting and going quiet past 250ms reads once and '
         'notifies listeners once on landing', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif494_');
       addTempDirTeardown(dir);
@@ -90,7 +91,7 @@ void main() {
       expect(notifies, 1, reason: 'exactly one notify once the read lands');
     });
 
-    test('TC-495 stepping through five photos inside the window fires '
+    test('TC-502 stepping through five photos inside the window fires '
         'exactly one read, for the photo the user stopped on', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif495_');
       addTempDirTeardown(dir);
@@ -129,7 +130,7 @@ void main() {
       expect(state.currentExif, isNotNull);
     });
 
-    test('TC-496 a reader result that arrives after the selection changed is '
+    test('TC-503 a reader result that arrives after the selection changed is '
         'discarded', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif496_');
       addTempDirTeardown(dir);
@@ -185,7 +186,7 @@ void main() {
       expect(identical(state.currentExif, p2Meta), isTrue);
     });
 
-    test('TC-497 re-selecting an already-read photo reads zero times',
+    test('TC-504 re-selecting an already-read photo reads zero times',
         () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif497_');
       addTempDirTeardown(dir);
