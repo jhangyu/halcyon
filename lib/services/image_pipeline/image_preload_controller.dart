@@ -499,7 +499,7 @@ class ImagePreloadController {
     _thumbWantedIds = {};
     _navPriorityIds = [];
     _thumbPriorityIds = [];
-    _tierOneKeys.clear();
+    _evictTierOneKeys();
     _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
@@ -529,10 +529,7 @@ class ImagePreloadController {
     _thumbnailDebounceTimer?.cancel();
     _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
-    for (final key in _tierOneKeys.values) {
-      PaintingBinding.instance.imageCache.evict(key);
-    }
-    _tierOneKeys.clear();
+    _evictTierOneKeys();
     _tierTwo.clear();
     _navRetentionIds = {};
     _thumbWantedIds = {};
@@ -545,6 +542,25 @@ class ImagePreloadController {
     // Nothing else to do: no image is owned here. A source still in flight at
     // teardown resolves into a payload nobody reads and is collected -- it
     // cannot leak a ~50MB handle, because there is no handle.
+  }
+
+  /// Evicts every recorded tier-1 [ImageCache] entry, then drops the keys.
+  ///
+  /// Called from BOTH [reset] and [dispose]. It exists as one helper rather
+  /// than two copies because the defect it fixes WAS the drift: [dispose] had
+  /// the evict loop and [reset] -- the folder-switch path -- had only the
+  /// `clear()`, which orphaned a whole retention window of window-resolution
+  /// entries per folder switch. Once the map is cleared, nothing can evict
+  /// those entries by key ever again (the stale sweep and [dispose] both walk
+  /// this same map), so byte-LRU pressure was their only remaining exit.
+  ///
+  /// `evict` already defaults to `includeLive: true`, so no argument is passed
+  /// here: adding one would be a no-op.
+  void _evictTierOneKeys() {
+    for (final key in _tierOneKeys.values) {
+      PaintingBinding.instance.imageCache.evict(key);
+    }
+    _tierOneKeys.clear();
   }
 
   Future<void> preloadImages({
