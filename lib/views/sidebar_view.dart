@@ -4,22 +4,16 @@ import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import '../services/image_pipeline/photo_payload.dart';
 import '../services/image_pipeline/raw_pixels_image.dart';
-import 'package:file_selector/file_selector.dart';
-import 'batch_delete_feedback.dart';
-import 'rename_dialog/rename_dialog.dart';
-import 'settings_dialog.dart';
 import 'theme_tokens.dart';
+import 'layout/common/app_actions_menu.dart';
 
-/// Shared menu-item value for "Thumbnail Starred...", referenced by
-/// itemBuilder, onSelected, AND the widget test so the two ends of the
-/// PopupMenuButton can never drift apart — this codebase has already shipped
-/// a bug where a hardcoded value/onSelected string mismatch silently
-/// disabled a menu button.
-const String kThumbnailStarredMenuValue = 'thumbnailStarred';
-const String kCopyMenuValue = 'copy';
-const String kMoveMenuValue = 'move';
-const String kDeleteMenuValue = 'delete';
-const String kSettingsMenuValue = 'settings';
+// The overflow menu lives in `layout/common/app_actions_menu.dart` (T4
+// extraction); the constants live next to the widget that builds them and are
+// re-exported here so the widget test and existing callers keep importing from
+// one place.
+export 'layout/common/app_actions_menu.dart'
+    show kThumbnailStarredMenuValue, kCopyMenuValue, kMoveMenuValue,
+        kDeleteMenuValue, kSettingsMenuValue;
 
 class SidebarView extends StatefulWidget {
   const SidebarView({super.key});
@@ -333,111 +327,9 @@ class _SidebarViewState extends State<SidebarView> {
           onPressed: () => context.read<AppState>().openFolder(),
         ),
         const SizedBox(width: 12),
-        _buildActionMenu(context),
+        // The single overflow menu, shared with every layout theme (T4).
+        AppActionsMenu(iconColor: iconColor),
       ],
-    );
-  }
-
-  Widget _buildActionMenu(BuildContext context) {
-    final iconColor = _iconColor(context);
-
-    return PopupMenuButton<String>(
-      icon: Icon(Icons.more_horiz, size: 20, color: iconColor),
-      tooltip: 'Actions',
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(),
-      onSelected: (value) async {
-        final state = context.read<AppState>();
-        if (value == kCopyMenuValue || value == kMoveMenuValue) {
-          final String? dest = await getDirectoryPath(
-            confirmButtonText: value == kCopyMenuValue ? 'Copy Here' : 'Move Here',
-          );
-          if (dest != null) {
-            await state.processStarred(dest, value == kMoveMenuValue);
-          }
-        } else if (value == kThumbnailStarredMenuValue) {
-          final String? dest = await getDirectoryPath(
-            confirmButtonText: 'Export Here',
-          );
-          if (dest != null) {
-            await state.exportStarredThumbnails(dest);
-          }
-        } else if (value == kDeleteMenuValue) {
-          final result = await state.deleteTrashed();
-          if (!context.mounted) return;
-          showBatchDeleteFeedback(context, result);
-        } else if (value == kRenameMenuValue) {
-          showDialog(context: context, builder: (ctx) => const RenameDialog());
-        } else if (value == kSettingsMenuValue) {
-          showDialog(context: context, builder: (ctx) => SettingsDialog());
-        }
-      },
-      itemBuilder: (context) {
-        final state = context.read<AppState>();
-        final hasStarred = state.items.any(
-          (i) => i.status == PhotoStatus.starred,
-        );
-        final hasTrashed = state.items.any(
-          (i) => i.status == PhotoStatus.trashed,
-        );
-
-        final iconColor = _iconColor(context);
-
-        return [
-          PopupMenuItem(
-            value: kCopyMenuValue,
-            enabled: hasStarred,
-            child: Text(
-              'Copy Starred...',
-              style: TextStyle(color: iconColor),
-            ),
-          ),
-          PopupMenuItem(
-            value: kMoveMenuValue,
-            enabled: hasStarred,
-            child: Text(
-              'Move Starred...',
-              style: TextStyle(color: iconColor),
-            ),
-          ),
-          PopupMenuItem(
-            value: kThumbnailStarredMenuValue,
-            enabled: hasStarred,
-            child: Text(
-              'Thumbnail Starred...',
-              style: TextStyle(color: iconColor),
-            ),
-          ),
-          PopupMenuItem(
-            value: kRenameMenuValue,
-            enabled: state.items.isNotEmpty,
-            child: Text(
-              'Rename by EXIF...',
-              style: TextStyle(color: iconColor),
-            ),
-          ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: kDeleteMenuValue,
-            enabled: hasTrashed,
-            child: Text(
-              state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
-              style: TextStyle(color: HalcyonTokens.of(context).danger),
-            ),
-          ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: kSettingsMenuValue,
-            child: Row(
-              children: [
-                Icon(Icons.settings, size: 18, color: iconColor),
-                const SizedBox(width: 8),
-                Text('Options...', style: TextStyle(color: iconColor)),
-              ],
-            ),
-          ),
-        ];
-      },
     );
   }
 }
