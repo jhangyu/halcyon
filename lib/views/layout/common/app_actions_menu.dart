@@ -38,10 +38,18 @@ class AppActionsMenu extends StatelessWidget {
     super.key,
     required this.iconColor,
     this.iconSize = 17,
+    this.offset = Offset.zero,
   });
 
   final Color iconColor;
   final double iconSize;
+
+  /// Shift applied to the panel relative to the `⋮` glyph while it floats
+  /// [PopupMenuPosition.over]. [Offset.zero] preserves the behavior of the
+  /// old sidebar menu; the gallery column (T6) passes `Offset(
+  /// 98 - columnWidth, 0)` so the panel's left edge lands 98px from the
+  /// window edge.
+  final Offset offset;
 
   void _onSelected(BuildContext context, String value) async {
     final state = context.read<AppState>();
@@ -79,11 +87,10 @@ class AppActionsMenu extends StatelessWidget {
       tooltip: 'Actions',
       padding: EdgeInsets.zero,
       // Float over the photo, anchored at the `⋮` glyph (mockup frame 2:
-      // `.menu {position:absolute;left:98px;bottom:14px;width:246px}`). The
-      // caller supplies the horizontal offset once the gallery column exists
-      // (`Offset(98 - columnWidth, 0)`); until then the panel hangs at the
-      // glyph, exactly where the old sidebar menu did.
+      // `.menu {position:absolute;left:98px;bottom:14px;width:246px}`),
+      // shifted by the caller-supplied [offset] (default zero).
       position: PopupMenuPosition.over,
+      offset: offset,
       constraints: const BoxConstraints.tightFor(width: 246),
       elevation: 24,
       color: Theme.of(context).colorScheme.surface,

@@ -14,8 +14,7 @@ import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 ///
 /// TC numbering: user ruled a full +7 shift of the gallery block — gallery
 /// TC-487..522 maps to TC-494..529, so this task's width-constraint case is
-/// TC-496 (was TC-489). This ID is final; docs registry is out of this task's
-/// ownership.
+/// TC-496. This ID is final; docs registry is out of this task's ownership.
 void main() {
   setUp(() {
     // No SharedPreferences dependency is touched by these tests, but folder
@@ -30,15 +29,19 @@ void main() {
         },
       );
 
-  Future<void> pumpMenu(WidgetTester tester, AppState state) async {
+  Future<void> pumpMenu(WidgetTester tester, AppState state,
+      {Offset? offset}) async {
+    // Omit the offset argument entirely when the caller does — that exercises
+    // the widget's own `Offset.zero` default rather than an explicit value.
+    Widget menu() => offset == null
+        ? const AppActionsMenu(iconColor: Colors.black)
+        : AppActionsMenu(iconColor: Colors.black, offset: offset);
     await tester.pumpWidget(
       ChangeNotifierProvider<AppState>.value(
         value: state,
-        child: const MaterialApp(
+        child: MaterialApp(
           home: Scaffold(
-            body: Center(
-              child: AppActionsMenu(iconColor: Colors.black),
-            ),
+            body: Center(child: menu()),
           ),
         ),
       ),
@@ -62,6 +65,20 @@ void main() {
     // dropdown underneath it.
     expect(button.constraints, const BoxConstraints.tightFor(width: 246));
     expect(button.position, PopupMenuPosition.over);
+    // Default offset: the extracted menu must not shift SidebarView's panel —
+    // the old sidebar menu floated over the glyph at Offset.zero.
+    expect(button.offset, Offset.zero);
+  });
+
+  testWidgets('a caller-supplied offset is passed through to the floating panel',
+      (tester) async {
+    // The gallery column (T6) supplies Offset(98 - columnWidth, 0) so the
+    // panel's left edge lands 98px from the window edge; this test proves the
+    // menu does not swallow that value.
+    await pumpMenu(tester, bareState(), offset: const Offset(98, 0));
+
+    final button = menuButton(tester);
+    expect(button.offset, const Offset(98, 0));
   });
 
   testWidgets('the menu roster is Open Folder + the six current rows',
