@@ -1248,6 +1248,35 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+def macho_uuid_of(path):
+    """The Mach-O LC_UUID build identifier of `path`, or None if unavailable.
+
+    Only meaningful for Mach-O members (macOS .dylib). Returns None rather
+    than raising when `dwarfdump` is missing or the file carries no UUID load
+    command (e.g. on a non-macOS host running this script), so pinning stays
+    optional and never blocks a build on platforms this field does not apply
+    to. Consumed by scripts/ci/assertions.py's H-DECODER-HASH stage 3 as the
+    reference identifier for files a legitimate re-sign has changed the bytes
+    of (see ceyx_release_pin.json's _comment for the full rationale)."""
+    if shutil.which("dwarfdump") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["dwarfdump", "--uuid", str(path)],
+            capture_output=True, text=True, check=False,
+        ).stdout
+    except OSError:
+        return None
+    # Expected line shape: "UUID: 328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA (arm64) <path>"
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("UUID:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                return parts[1]
+    return None
+
+
 def _skip_doc(name):
     # Doxygen HTML under share/doc/ has MAX_PATH-busting filenames on Windows
     # and is not needed by the build.
@@ -1837,10 +1866,22 @@ def update_ceyx_pin_latest(layout, tag=None):
         by_name = {p.name: p for p in extracted}
         libs = []
         for m in spec["members"]:
-            d = sha256_of(by_name[m["artifact"]])
-            step(f"    {m['member']} -> {m['artifact']}  sha256 {d}")
-            libs.append({"member": m["member"], "artifact": m["artifact"],
-                         "sha256": d})
+            member_path = by_name[m["artifact"]]
+            d = sha256_of(member_path)
+            record = {"member": m["member"], "artifact": m["artifact"],
+                      "sha256": d}
+            # UUID is optional and only meaningful for Mach-O (.dylib) members:
+            # macOS's Xcode-embed step re-signs some of these after fetch,
+            # changing their bytes without changing their build identifier.
+            # H-DECODER-HASH (scripts/ci/assertions.py) uses this as its stage-3
+            # fallback reference when the digest no longer matches.
+            if m["artifact"].endswith(".dylib"):
+                u = macho_uuid_of(member_path)
+                if u:
+                    record["uuid"] = u
+            step(f"    {m['member']} -> {m['artifact']}  sha256 {d}"
+                 + (f"  uuid {record['uuid']}" if "uuid" in record else ""))
+            libs.append(record)
         new_assets[ft] = {"archive": archive, "sha256": digest,
                           "libraries": libs}
 

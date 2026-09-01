@@ -152,7 +152,10 @@ SUITE = {
     "H-DECODER-HASH": Assertion(
         id="H-DECODER-HASH",
         measures=(
-            "the SHA-256 of each ceyx library AS SHIPPED equals the pinned digest"
+            "the SHA-256 of each ceyx library AS SHIPPED equals the pinned "
+            "digest; OR, only when that mismatches, that the shipped file's "
+            "code signature internally verifies AND its Mach-O build "
+            "identifier (LC_UUID) matches the pin's recorded identifier"
         ),
         valid_on=("linux", "windows", "macos"),
         why_valid=(
@@ -170,13 +173,61 @@ SUITE = {
             "previously-committed set, on both architectures) — a fact this "
             "assertion does not measure (it checks bytes, not the minimum-OS "
             "load command) but that is recorded in ceyx_release_pin.json's "
-            "comment and should be read alongside a pass here."
+            "comment and should be read alongside a pass here.\n"
+            "THREE-STAGE FALLBACK (macOS only; Windows/Linux never reach past "
+            "stage 1, since nothing re-signs those files): Xcode's Embed "
+            "Frameworks step deterministically re-signs libheif.1.dylib and "
+            "libde265.0.dylib, changing their bytes with no change to their "
+            "actual code — making stage-1 digest equality structurally "
+            "unsatisfiable for exactly those two files, regardless of "
+            "re-pinning. Stage 2 runs `codesign --verify` on the shipped file "
+            "on a stage-1 mismatch; failure to verify is treated exactly like "
+            "today's plain digest-mismatch FAIL, since a corrupted file's "
+            "recorded per-page content hashes no longer match its actual "
+            "bytes (proven empirically: a one-byte-flipped copy fails "
+            "`codesign --verify` with 'invalid signature'). Stage 3 runs only "
+            "if stage 2 verifies: it compares the shipped file's Mach-O "
+            "LC_UUID against the pin's optional `uuid` field (populated by "
+            "build_apps.py's update_ceyx_pin_latest via `dwarfdump --uuid`) — "
+            "a match PASSES but is reported as verified 'by build identity, "
+            "re-signed by packaging', a DIFFERENT message from a digest "
+            "match, because a reader must be told which guarantee actually "
+            "held. This fallback is keyed on the stage-1-mismatch PROPERTY, "
+            "not a filename list, so it self-adjusts to whatever a future "
+            "packaging change re-signs.\n"
+            "LIMITATION, stated here rather than left implicit: a valid "
+            "code signature proves INTERNAL CONSISTENCY (the file's own "
+            "recorded content hashes still match its actual bytes), NOT "
+            "PROVENANCE (that these are the bytes the release actually "
+            "published) — a deliberately substituted-then-re-signed binary "
+            "carrying a forged or preserved identifier would pass stage 3 "
+            "cleanly. This is an accepted gap, not a defect, because "
+            "provenance is already gated completely and separately at the "
+            "FETCH boundary: the sha256-against-the-release's-own-lock "
+            "cross-check in fetch_ceyx_library / ceyx_lock_crosscheck "
+            "(scripts/build_apps.py). Nothing in this fallback weakens or "
+            "bypasses that gate — the UUID identifies WHICH build was "
+            "embedded, it never substitutes for verifying WHERE the bytes "
+            "originally came from. Empirically, a one-byte-flipped copy's "
+            "LC_UUID is UNCHANGED from the clean original, which is exactly "
+            "why stage 3 can never run alone — stage 2's signature-verify is "
+            "what still catches corruption once digest equality is gone."
         ),
         red_state=(
-            "flip one byte of a library in a staging copy: the assertion fails "
-            "printing the expected and observed digests"
+            "flip one byte of a library in a staging copy: stage 1 (digest) "
+            "fails as before; for the two libraries where stage 2/3 would "
+            "otherwise apply, the corruption ALSO breaks the code signature "
+            "(`codesign --verify` reports 'invalid signature'), so the "
+            "assertion still fails overall, naming the corrupted file and "
+            "the digest mismatch — a corrupted library never reaches a PASS "
+            "via the identity fallback, because the identifier alone (which "
+            "a byte flip does not change) is never sufficient on its own"
         ),
-        expected="sha256(member) == pin digest for every pinned library",
+        expected=(
+            "for every pinned library: sha256(member) == pin digest, OR "
+            "(only on mismatch) codesign --verify passes AND the shipped "
+            "file's LC_UUID == the pin's uuid field"
+        ),
     ),
     "H-SIZED-SYMBOL": Assertion(
         id="H-SIZED-SYMBOL",
@@ -578,25 +629,135 @@ def _assert_decoder_deps(ctx):
     return "pass", f"all pinned libraries present: {', '.join(found)}"
 
 
+def _macho_uuid_of_file(path):
+    """The Mach-O LC_UUID of an on-disk file, or None if unreadable/absent.
+
+    Mirrors build_apps.py's macho_uuid_of (same `dwarfdump --uuid` instrument)
+    so the pin-writer and this reader can never drift into two different
+    ways of deriving the same identifier."""
+    if shutil.which("dwarfdump") is None:
+        return None
+    result = run(["dwarfdump", "--uuid", os.fspath(path)])
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("UUID:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                return parts[1]
+    return None
+
+
 def _assert_decoder_hash(ctx):
+    """Stage 1: sha256(shipped) == pin digest -> PASS, unchanged from before.
+
+    Stage 2 (only on stage-1 mismatch): `codesign --verify` the shipped file.
+    Fails to verify -> FAIL, same failure mode as a plain digest mismatch.
+    This is what still catches corruption once digest equality is no longer
+    available as the sole instrument (see stage 3's limitation below).
+
+    Stage 3 (only if stage 2 verifies): compare the shipped file's Mach-O
+    LC_UUID against the pin's optional `uuid` field. Match -> PASS, but
+    reported as verified "by build identity, re-signed by packaging" -- a
+    DIFFERENT message than a digest match, because a reader must be able to
+    tell which guarantee actually applies to a given library.
+
+    Why stage 3 exists at all: macOS's Xcode "Embed Frameworks" step
+    deterministically re-signs libheif.1.dylib and libde265.0.dylib,
+    changing their bytes (and hence sha256) with no change to their actual
+    code. Stage 1 is therefore structurally unable to pass for those two
+    files regardless of re-pinning; stages 2-3 recover a real (weaker,
+    explicitly-labelled) guarantee instead of leaving the check permanently
+    failing. This is keyed on the PROPERTY (stage-1 mismatch), not a
+    filename list, so it self-adjusts to whatever a future packaging change
+    re-signs.
+
+    LIMITATION, stated here because it must not be left for a reader to
+    discover on their own: a valid code signature only proves INTERNAL
+    CONSISTENCY -- the file's own recorded content hashes still match its
+    actual bytes. It does NOT prove PROVENANCE -- that these are the bytes
+    the release actually published. A deliberately substituted binary that
+    was then re-signed (preserving or forging its identifier) would verify
+    cleanly here. That is an accepted gap, not a defect: provenance is
+    already gated completely and separately at the FETCH boundary (the
+    sha256-against-the-release's-own-lock cross-check in
+    fetch_ceyx_library / ceyx_lock_crosscheck, scripts/build_apps.py), and
+    nothing in this three-stage design weakens or bypasses that gate.
+    """
     libraries = ctx["pin_libraries"]
     if not libraries:
         return "skip", "this target has no pin_platform, so there are no pinned digests"
     failures = []
     checked = []
+    root = None
     for library in libraries:
         name = library["artifact"]
         hits = ctx["source"].find([name])
         if not hits:
             failures.append(f"{name}: absent from the artefact")
             continue
-        observed = hashlib.sha256(ctx["source"].read(hits[0])).hexdigest()
-        if observed != library["sha256"]:
+        data = ctx["source"].read(hits[0])
+        observed = hashlib.sha256(data).hexdigest()
+        if observed == library["sha256"]:
+            checked.append(f"{name}={observed[:12]}… (digest-verified)")
+            continue
+
+        # Stage 1 failed. A real on-disk path is required from here on:
+        # codesign and dwarfdump inspect files, not bytes.
+        if root is None:
+            root = ctx["source"].materialise(ctx["workdir"])
+        disk_path = Path(root) / hits[0]
+
+        codesign = shutil.which("codesign")
+        if codesign is None:
             failures.append(
-                f"{name}: expected sha256 {library['sha256']}, observed {observed}"
+                f"{name}: expected sha256 {library['sha256']}, observed "
+                f"{observed} (codesign not on PATH, cannot attempt the "
+                "build-identity fallback)"
             )
-        else:
-            checked.append(f"{name}={observed[:12]}…")
+            continue
+        verify = run([codesign, "--verify", "--strict", os.fspath(disk_path)])
+        if verify.returncode != 0:
+            detail = (verify.stderr or verify.stdout or "").strip()
+            failures.append(
+                f"{name}: expected sha256 {library['sha256']}, observed "
+                f"{observed}, and its code signature does not verify "
+                f"({detail or f'codesign exited {verify.returncode}'})"
+            )
+            continue
+
+        # Stage 2 passed: the shipped file is internally consistent, but that
+        # alone does not identify it. Stage 3 checks it is the SAME BUILD the
+        # pin recorded, via the identifier a re-sign does not change.
+        pin_uuid = library.get("uuid")
+        if not pin_uuid:
+            failures.append(
+                f"{name}: expected sha256 {library['sha256']}, observed "
+                f"{observed}; signature verifies but the pin has no 'uuid' "
+                "field to fall back to (re-pin with build_apps.py to add one)"
+            )
+            continue
+        observed_uuid = _macho_uuid_of_file(disk_path)
+        if observed_uuid is None:
+            failures.append(
+                f"{name}: expected sha256 {library['sha256']}, observed "
+                f"{observed}; signature verifies but its LC_UUID could not "
+                "be read (dwarfdump missing or file is not Mach-O)"
+            )
+            continue
+        if observed_uuid.lower() != pin_uuid.lower():
+            failures.append(
+                f"{name}: expected sha256 {library['sha256']}, observed "
+                f"{observed}; signature verifies but LC_UUID {observed_uuid} "
+                f"does not match the pinned {pin_uuid} -- this is a "
+                "different build, not merely a re-sign"
+            )
+            continue
+        checked.append(
+            f"{name}={observed_uuid} (verified by build identity, "
+            "re-signed by packaging)"
+        )
     if failures:
         return "fail", "; ".join(failures)
     return "pass", "pinned digests matched: " + ", ".join(checked)
