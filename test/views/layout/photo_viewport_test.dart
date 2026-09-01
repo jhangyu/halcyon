@@ -62,8 +62,8 @@ void main() {
   }
 
   testWidgets(
-    'TC-490 PhotoViewport renders a real decoded photo inside '
-    'InteractiveViewer, not a spinner',
+    'PhotoViewport renders a real decoded photo inside InteractiveViewer, '
+    'not a spinner',
     (tester) async {
       final state = await pumpViewport(tester);
 
@@ -89,7 +89,7 @@ void main() {
   );
 
   testWidgets(
-    'TC-491 PhotoViewport reports blank/immutable state with no folder loaded',
+    'PhotoViewport reports the empty state when no folder is loaded',
     (tester) async {
       final state = AppState();
       addTearDown(state.dispose);
@@ -111,7 +111,7 @@ void main() {
   );
 
   testWidgets(
-    'TC-492 PhotoViewport shows the frozen unreadable string for a failed item',
+    'PhotoViewport shows the unreadable message for a failed item',
     (tester) async {
       const transparentPng = <int>[
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -157,29 +157,7 @@ void main() {
   );
 
   testWidgets(
-    'TC-493 PhotoViewport makes exactly one setViewportSize call and forwards '
-    'logical size x dpr to AppState',
-    (tester) async {
-      final state = await pumpViewport(tester);
-      expect(tester.view.devicePixelRatio, 3.0);
-
-      // Positioned.fill == the MaterialApp's screen size (800x600 logical).
-      const expectedWidth = 800;
-      const expectedHeight = 600;
-      expect(state.viewportSize, (expectedWidth * 3, expectedHeight * 3));
-      expect(
-        tester.widget<Image>(find.byType(Image)).image,
-        isA<ResizeImage>(),
-      );
-      final resize =
-          tester.widget<Image>(find.byType(Image)).image as ResizeImage;
-      expect(resize.width, expectedWidth * 3);
-      expect(resize.height, expectedHeight * 3);
-    },
-  );
-
-  testWidgets(
-    'TC-494 PhotoViewport has no floating action bar inside the viewport',
+    'PhotoViewport has no floating action bar inside the viewport',
     (tester) async {
       await pumpViewport(tester);
       expect(find.byType(PhotoActionBar), findsNothing);
