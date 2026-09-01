@@ -4,15 +4,17 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/theme_tokens.dart';
 
 void main() {
-  group('TC-490 galleryThemeData scaffold background follows the mockup', () {
-    test('light scaffoldBackgroundColor is the mockup --canvas #FAF9F7', () {
+  group('TC-497 galleryThemeData scaffold background follows the mockup', () {
+    test('TC-497 light scaffoldBackgroundColor is the mockup --canvas #FAF9F7',
+        () {
       expect(
         galleryThemeData(Brightness.light).scaffoldBackgroundColor,
         const Color(0xFFFAF9F7),
       );
     });
 
-    test('dark scaffoldBackgroundColor is the mockup --canvas #141414', () {
+    test('TC-497 dark scaffoldBackgroundColor is the mockup --canvas #141414',
+        () {
       expect(
         galleryThemeData(Brightness.dark).scaffoldBackgroundColor,
         const Color(0xFF141414),
@@ -20,7 +22,7 @@ void main() {
     });
   });
 
-  group('TC-491 galleryThemeData registers gallery and legacy tokens', () {
+  group('TC-498 galleryThemeData registers gallery and legacy tokens', () {
     test('light registers a GalleryPalette and keeps HalcyonTokens unchanged',
         () {
       final theme = galleryThemeData(Brightness.light);
@@ -42,7 +44,7 @@ void main() {
     });
   });
 
-  group('TC-491 continuation: mockup palette spans every slot', () {
+  group('TC-498 continuation: mockup palette spans every slot', () {
     test('light palette values match the mockup --canvas gallery block', () {
       final theme = galleryThemeData(Brightness.light);
       final scheme = theme.colorScheme;
@@ -89,7 +91,7 @@ void main() {
     });
   });
 
-  group('TC-491 constraint: chrome slots recoloured to the gallery hues', () {
+  group('TC-498 constraint: chrome slots recoloured to the gallery hues', () {
     test('light popup menu and divider use --rail and --hair, no legacy grey',
         () {
       final theme = galleryThemeData(Brightness.light);
@@ -108,7 +110,7 @@ void main() {
     });
   });
 
-  group('TC-491 verify M3 and the seam contract', () {
+  group('TC-498 verify M3 and the seam contract', () {
     test('useMaterial3 is carried over', () {
       expect(galleryThemeData(Brightness.light).useMaterial3, isTrue);
       expect(galleryThemeData(Brightness.dark).useMaterial3, isTrue);
