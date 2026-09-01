@@ -26,6 +26,7 @@ import '../models/rename_rule.dart';
 import '../models/shortcut_bindings.dart';
 import 'settings_snapshot.dart';
 import '../services/library/photo_export_service.dart';
+import '../services/platform/working_set_trim.dart';
 import '../services/rename/rename_coordinator.dart';
 
 /// Outcome of a batch delete, returned to the view layer so feedback lives
@@ -507,6 +508,11 @@ class AppState extends ChangeNotifier {
     _currentDir = dir;
     _items.clear();
     _preloadController.reset();
+    // The single largest release moment in the app: reset() has just evicted
+    // both ImageCache tiers and dropped every retained payload, and nothing is
+    // about to be re-read, so the page re-fault cost is minimal. Deliberately
+    // bypasses the rate limit.
+    WorkingSetTrim.trimNow();
     _selectedItemID = null;
     notifyListeners();
 
@@ -571,6 +577,10 @@ class AppState extends ChangeNotifier {
 
       _viewDebounceTimer?.cancel();
       _viewDebounceTimer = Timer(const Duration(seconds: 5), _saveLastViewedId);
+      // Reuses this existing "the user has moved" site. The trim's own 2s idle
+      // delay plus 10s rate limit keep it off the navigation hot path; it is a
+      // no-op off Windows.
+      WorkingSetTrim.request();
 
       // PERF-INSTRUMENTATION
       PerfLog.log('selectItem.notify|$id|sinceEnter=${PerfLog.us - tEnter}');
