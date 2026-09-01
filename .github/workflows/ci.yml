@@ -32,6 +32,12 @@ jobs:
       matrix:
         os: [macos-14, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Belt-and-suspenders alongside scripts/ci/run.py's explicit
+      # encoding="utf-8" on subprocess.run: without this, Python on Windows
+      # defaults to the console codepage (cp1252) for text I/O, which can
+      # decode flutter test's UTF-8 output incorrectly.
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
         with:

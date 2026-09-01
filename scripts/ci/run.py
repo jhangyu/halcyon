@@ -105,6 +105,8 @@ def run(argv, cwd=None, env=None):
             shell=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=workdir,
             env=env,
         )
