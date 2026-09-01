@@ -68,5 +68,8 @@ MemAvailable:   198765432 kB
         expect(bytes, isNull);
       }
     },
+    // WMI/CIM provider cold-start on fresh Windows VMs can exceed the
+    // suite's global 10s timeout (dart_test.yaml).
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }
