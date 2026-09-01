@@ -505,18 +505,7 @@ class AppState extends ChangeNotifier {
   // will request. Silent update, no notifyListeners: this doesn't change what
   // is displayed this frame, and it is written from inside a LayoutBuilder
   // builder where notifying would rebuild forever.
-  // Record the last viewport decode target so tests can assert the view is
-  // forwarding exactly one logical-size x dpr pair (T2 extraction contract).
-  (int, int)? _lastViewportSize;
-
-  /// Last (width, height) forwarded via [setViewportSize], or null before the
-  /// first layout. Test seam; deliberately empty in release behaviour — the
-  /// preload controller's target size is what actually consumes this.
-  @visibleForTesting
-  (int, int)? get viewportSize => _lastViewportSize;
-
   void setViewportSize(int width, int height) {
-    _lastViewportSize = (width, height);
     _preloadController.updateTargetSize(width, height);
   }
 
