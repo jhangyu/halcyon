@@ -28,6 +28,17 @@ const ValueKey<String> kGalleryColumnShadowKey =
 const ValueKey<String> kGalleryWidthBadgeKey =
     ValueKey<String>('gallery.width.badge');
 
+/// Key on the gutter's `Positioned` slot in the desktop `Stack`, so that slot
+/// can never be reconciled against a sibling `Positioned` (see the comment at
+/// the width-readout child — that is what killed the resize drag).
+const ValueKey<String> kGalleryColumnSlotKey =
+    ValueKey<String>('gallery.column.slot');
+
+/// Test key on the resize handle's outer dead zone — the sliver of hit region
+/// that lies over the photo viewport rather than inside the gutter.
+const ValueKey<String> kGalleryHandleDeadZoneKey =
+    ValueKey<String>('gallery.handle.deadzone');
+
 /// How long after the last width delta the width-readout badge stays visible.
 /// Deltas keep arriving for the whole gesture, so this is reset on every delta
 /// and only expires once the drag truly stalls.
@@ -80,8 +91,23 @@ class GalleryDesktopSurface extends StatefulWidget {
 }
 
 class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
-  // Resting width: the free gutter width, which IS the minimum of the range.
-  double _columnWidth = kGalleryColumnMinWidth;
+  // The EXACT accumulated width, resting at the free gutter width (which IS
+  // the minimum of the range).
+  //
+  // Load-bearing that this is unrounded: pointer deltas arrive fractional (a
+  // trackpad or a slow mouse move reports well under 1 logical px per event).
+  // Rounding the accumulator itself — `_columnWidth = (_columnWidth + dx)
+  // .roundToDouble()` — quantises every individual delta instead of the
+  // total, so a stream of 0.4px deltas rounds to +0 forever and the gutter
+  // never moves at all, while 0.6px deltas each round to +1 and it moves
+  // nearly twice as fast as the pointer. Measured before the fix: 150 x 0.4px
+  // (a 60px drag) produced 0px of movement; 100 x 0.6px produced 100px.
+  double _rawColumnWidth = kGalleryColumnMinWidth;
+
+  /// The width actually handed to layout: whole pixels, so the gutter never
+  /// paints on a subpixel seam. Rounding happens HERE, at the consumer, never
+  /// in the accumulator above.
+  double get _columnWidth => _rawColumnWidth.roundToDouble();
 
   // True only while a drag is in flight, so the width readout badge is shown
   // during the gesture and hidden once it stalls (see [GalleryDesktopSurface]).
@@ -105,8 +131,12 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
   void _onWidthDelta(double dx) {
     _dragStallTimer?.cancel();
     setState(() {
-      _columnWidth = (_columnWidth + dx)
-          .roundToDouble()
+      // Accumulate raw, clamp raw, round only on the way out (see the field).
+      // Clamping the accumulator (rather than only the rounded output) is what
+      // keeps the gutter responsive the instant the pointer turns around: an
+      // unclamped accumulator would wind far past the bound while the user
+      // keeps pushing, then owe that whole distance back before anything moved.
+      _rawColumnWidth = (_rawColumnWidth + dx)
           .clamp(kGalleryColumnMinWidth, kGalleryColumnMaxWidth)
           .toDouble();
       _dragActive = true;
@@ -164,37 +194,57 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
         // Width readout while dragging (mockup `.wtag`, top 14 / right 14 /
         // radius 20 / padding 3v-10h / 10px). Shown only while a drag is in
         // flight, so it never lingers over the photo at rest.
-        if (_dragActive)
-          Positioned(
-            top: 14,
-            right: 14,
-            child: IgnorePointer(
-              child: Container(
-                key: kGalleryWidthBadgeKey,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: colors.surface,
-                  border: Border.all(color: colors.outlineVariant),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${_columnWidth.round()} px',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 0.08 * 10, // 0.08 em at 10px
-                    color: colors.onSurfaceVariant,
+        //
+        // The width readout occupies a PERMANENT slot and empties itself when
+        // idle; it must never be a `if (_dragActive) Positioned(...)`
+        // conditional child. Every child of this Stack is an unkeyed
+        // `Positioned`, so `Widget.canUpdate` returns true between ANY pair of
+        // them: inserting one mid-list shifts every following slot by one, and
+        // Flutter then updates each surviving element with its NEIGHBOUR's
+        // widget. The gutter's element (and with it the resize handle's
+        // GestureDetector, and with it the live pan recognizer) was therefore
+        // destroyed the instant the first delta set `_dragActive` — which is
+        // why a resize drag moved 1-2px and then went dead for the rest of the
+        // gesture. Measured: a 60px drag delivered 4px before the fix and the
+        // full 60px after it.
+        Positioned(
+          top: 14,
+          right: 14,
+          child: IgnorePointer(
+            child: !_dragActive
+                ? const SizedBox.shrink()
+                : Container(
+                    key: kGalleryWidthBadgeKey,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.surface,
+                      border: Border.all(color: colors.outlineVariant),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_columnWidth.round()} px',
+                      style: TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 0.08 * 10, // 0.08 em at 10px
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
           ),
+        ),
         // The gutter column + drag handle. Its own Positioned grows over the
         // photo while the viewport inset stays pinned (the float rule); the
         // float shadow is painted here, on the desktop, only while floating.
         Positioned(
+          // Belt and braces against the slot-shift failure described above:
+          // with a key, `canUpdate` is false against any other Stack child, so
+          // this element can only ever be matched with itself — a future
+          // conditional sibling cannot silently steal the gutter's element and
+          // kill the live pan recognizer again.
+          key: kGalleryColumnSlotKey,
           left: 0,
           top: 0,
           bottom: 0,
@@ -219,6 +269,26 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
               surface: surface,
               width: _columnWidth,
               onWidthDelta: _onWidthDelta,
+            ),
+          ),
+        ),
+        // The outer half of the resize handle's hit region. The gutter's own
+        // Stack clips, so it cannot hit-test past its right edge; without this
+        // strip a pointer-down one or two pixels right of the grip lands in
+        // the viewport's InteractiveViewer and becomes an image pan instead of
+        // a resize. Last child, so it wins the hit test against the viewport;
+        // it paints nothing and only forwards the same deltas the grip does.
+        Positioned(
+          key: kGalleryHandleDeadZoneKey,
+          left: _columnWidth,
+          top: 0,
+          bottom: 0,
+          width: kGalleryHandleOverhang,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.resizeColumn,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanUpdate: (details) => _onWidthDelta(details.delta.dx),
             ),
           ),
         ),

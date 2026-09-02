@@ -15,6 +15,23 @@ import '../main_surface.dart';
 const double kChipWidth = 74;
 const double kChipHeight = 49; // 3:2, matching the photos
 
+/// The height at which the gutter's fixed sections (cap + identity plate +
+/// the vertical marks stack) exactly fill the column, leaving the filmstrip at
+/// zero. Measured, not guessed: at 300px the `Column` overflowed by 5px and at
+/// 340px it did not. Below this the column scrolls rather than overflowing.
+const double kGalleryColumnMinContentHeight = 320;
+
+/// The width of the resize handle's hit region at the gutter's right edge.
+/// The painted grip is still 1px (see `_buildGrip`); this is the pointer
+/// target only. 5px was too narrow to reliably grab — pointer-downs a pixel or
+/// two off landed in the photo `InteractiveViewer` and became image pans.
+const double kGalleryHandleHitWidth = 12;
+
+/// How far the handle's hit region extends PAST the gutter's right edge, over
+/// the photo viewport, as a dead zone. Owned by the desktop surface (the
+/// gutter's own `Stack` clips, so it cannot paint or hit-test outside itself).
+const double kGalleryHandleOverhang = 4;
+
 /// The `gallery` theme's filmstrip gutter (T7 of the gallery layout plan).
 ///
 /// Presentational only: every behaviour arrives as a [MainSurface] with its
@@ -188,24 +205,48 @@ class _GalleryColumnState extends State<GalleryColumn> {
       children: [
         Material(
           color: Theme.of(context).colorScheme.surface,
-          child: Column(
-            children: [
-              _buildCap(context),
-              Expanded(child: _buildFilmstrip(context)),
-              _buildIdentityPlate(context),
-              _buildMarks(context),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final content = Column(
+                children: [
+                  _buildCap(context),
+                  Expanded(child: _buildFilmstrip(context)),
+                  _buildIdentityPlate(context),
+                  _buildMarks(context),
+                ],
+              );
+              // Only the filmstrip is flexible; the cap, the identity plate
+              // and the marks are fixed and together need about
+              // [kGalleryColumnMinContentHeight]. Below that the Column would
+              // overflow and push the marks off the bottom edge — rendered
+              // outside the parent's bounds, so invisible AND unhittable.
+              // Under that height the whole gutter becomes a scroll view at
+              // its minimum comfortable height instead, which keeps every
+              // mark reachable at any window height.
+              if (constraints.maxHeight >= kGalleryColumnMinContentHeight) {
+                return content;
+              }
+              return SingleChildScrollView(
+                child: SizedBox(
+                  height: kGalleryColumnMinContentHeight,
+                  child: content,
+                ),
+              );
+            },
           ),
         ),
-        // Drag handle: a 5px full-height hit area at the right edge
-        // (mockup `.handle`), reporting raw horizontal deltas upward.
-        // `MouseRegion(cursor: resizeColumn)` + `onPanUpdate` is the exact
-        // mechanism MainScreen used for the old sidebar width drag.
+        // Drag handle: a [kGalleryHandleHitWidth] full-height hit area at the
+        // right edge (mockup `.handle`), reporting raw horizontal deltas
+        // upward. `MouseRegion(cursor: resizeColumn)` + `onPanUpdate` is the
+        // exact mechanism MainScreen used for the old sidebar width drag.
+        // The hit region grew from 5px to 12px; the painted grip did not move
+        // (it is right-aligned below, at the same [w-3, w-2] it occupied when
+        // it was centred in a 5px band).
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
-          width: 5,
+          width: kGalleryHandleHitWidth,
           child: MouseRegion(
             cursor: SystemMouseCursors.resizeColumn,
             child: GestureDetector(
@@ -221,18 +262,27 @@ class _GalleryColumnState extends State<GalleryColumn> {
   }
 
   // The 1x26 grip centred vertically, 1x44 in `primary` on hover
-  // (`.handle`, mockup:188-193). The 5px handle is wider than the grip so
-  // the hit area and the visual are separate concerns.
+  // (`.handle`, mockup:188-193). The handle is wider than the grip so the hit
+  // area and the visual are separate concerns — which is the whole point of
+  // widening the hit area without touching this.
+  //
+  // Right-aligned with a 2px inset rather than centred, so that widening the
+  // hit band from 5px to [kGalleryHandleHitWidth] leaves the painted grip at
+  // exactly the columns it occupied before ([width-3, width-2]).
   Widget _buildGrip(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Center(
-      child: MouseRegion(
-        cursor: SystemMouseCursors.resizeColumn,
-        child: Container(
-          key: const ValueKey<String>('gallery-grip'),
-          width: 1,
-          height: 26,
-          color: colors.outline,
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 2),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          child: Container(
+            key: const ValueKey<String>('gallery-grip'),
+            width: 1,
+            height: 26,
+            color: colors.outline,
+          ),
         ),
       ),
     );
@@ -461,18 +511,27 @@ class _GalleryColumnState extends State<GalleryColumn> {
     ];
 
     if (_dragged) {
-      // A 5-child row at 34px each plus 4x2px gaps is 178px — wider than the
-      // gutter at 140/179. Keep the horizontal Row (`.dragged .marks
-      // {flex-direction:row}`) but let it scroll horizontally instead of
-      // overflowing off-screen into the photo.
+      // A 5-child row at 34px each plus 4x2px gaps measures ~187px — wider
+      // than the gutter everywhere below 200. The previous formulation put
+      // that Row in a horizontal SingleChildScrollView, which CLIPPED the
+      // overflowing children: at width 100-120 both `Open Folder` and the
+      // menu were invisible and unhittable, at 140-179 the menu was. That is
+      // the "buttons disappear when I resize the sidebar" bug — it is a pure
+      // function of the dragged width, which is why it read as intermittent.
+      //
+      // `Wrap` keeps the horizontal reading order of `.dragged .marks
+      // {flex-direction:row}` but flows the remainder onto a second line
+      // instead of off the edge, so every mark stays visible and clickable at
+      // every width in the 90-200 range. It must NOT go back to a Row (in a
+      // scroll view or otherwise): a Row cannot represent "does not fit".
       return Container(
         padding: const EdgeInsets.only(top: 6, bottom: 12),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: _withGaps(children),
-          ),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 2,
+          runSpacing: 2,
+          children: children,
         ),
       );
     }
