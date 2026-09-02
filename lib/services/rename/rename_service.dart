@@ -63,7 +63,14 @@ List<RenamePlan> planRenames({
     groups.putIfAbsent(renderFor(item, 1), () => []).add(item);
   }
 
-  final taken = <String>{...existingNames.map(_baseOf)};
+  // Case-FOLDED, because the volumes this app runs on are case-insensitive:
+  // APFS by default and exFAT always (the user's photo drives). `File.rename`
+  // silently REPLACES its destination, so planning `a1 -> target` while
+  // `TARGET.JPG` exists destroys a photograph with no error to report. A
+  // case-only difference must therefore count as a collision and take the
+  // `-1` suffix. Evidence: scripts/tmp/rename_probe_fs.dart, run against
+  // /Volumes/EVO_4T (exfat/fskit) -- "C case-collision rename: SUCCEEDED".
+  final taken = <String>{...existingNames.map((n) => _baseOf(n).toLowerCase())};
   final plans = <RenamePlan>[];
 
   for (final item in items) {
@@ -76,14 +83,14 @@ List<RenamePlan> planRenames({
     if (candidate == item.id) {
       continue;
     }
-    if (taken.contains(candidate)) {
+    if (taken.contains(candidate.toLowerCase())) {
       var suffix = 1;
-      while (taken.contains('$candidate-$suffix')) {
+      while (taken.contains('$candidate-$suffix'.toLowerCase())) {
         suffix++;
       }
       candidate = '$candidate-$suffix';
     }
-    taken.add(candidate);
+    taken.add(candidate.toLowerCase());
 
     final moves = <RenameMove>[];
     for (final file in item.files) {
@@ -134,11 +141,74 @@ class RenameOutcome {
     required this.renamedCount,
     required this.failures,
     required this.cancelled,
+    this.idMap = const {},
+    this.partialIdMap = const {},
   });
 
   final int renamedCount;
   final List<String> failures;
   final bool cancelled;
+
+  /// `oldId -> newId` for the plans that landed COMPLETELY, and for undo the
+  /// inverse for the journal entries that were actually reversed.
+  ///
+  /// This is the OUTCOME, not the intent. Callers that rewrite persisted
+  /// per-photo state (stars, trash marks, the last-viewed pointer) must key
+  /// off this and never off the plan list: a cancelled or partly failed batch
+  /// leaves files under their original names, and remapping their marks to a
+  /// name that does not exist orphans them, after which the next scan's
+  /// stale-key cleanup deletes them outright. See F1 in
+  /// docs/logs/2026-09-02/arch-review-defect-family.md.
+  final Map<String, String> idMap;
+
+  /// `oldId -> newId` for plans where SOME moves landed and a later one
+  /// failed, so the group is now split across both names on disk. Both keys
+  /// must keep the mark; neither name alone is the truth.
+  final Map<String, String> partialIdMap;
+}
+
+/// POSIX errno values that a rename can return transiently, where trying
+/// again a moment later is the correct response rather than reporting the
+/// item as failed.
+///
+/// Deliberately narrow, and deliberately NOT the same list as
+/// [isSharingViolation] (which is the Windows story). `ENOENT` is absent on
+/// purpose: a source that is gone stays gone, and retrying it would only slow
+/// the batch down. `EBUSY`/`EIO` are here because the user's photos live on
+/// exFAT volumes served by fskit, a userspace filesystem that -- unlike APFS
+/// -- can and does return transient I/O errors under load; the same family
+/// produced the transient read faults the image pipeline already retries.
+const Set<int> _kTransientRenameErrno = {
+  5, // EIO
+  16, // EBUSY
+  35, // EAGAIN / EWOULDBLOCK
+  60, // ETIMEDOUT (network/userspace volumes)
+};
+
+/// [retryOnSharingViolation] plus the transient POSIX errno set above.
+///
+/// Kept here rather than widened inside `file_retry.dart` on purpose: that
+/// helper also guards copy and delete on the starred-file batch path, where
+/// its narrowness is a deliberate contract ("do not weaken"). Rename is the
+/// one operation we have field evidence of failing transiently, so the wider
+/// policy stays scoped to it.
+Future<void> _renameWithRetry(
+  String from,
+  String to, {
+  List<int> delaysMs = const <int>[20, 40, 80, 160],
+}) async {
+  for (var attempt = 0; ; attempt++) {
+    try {
+      await retryOnSharingViolation(() => File(from).rename(to));
+      return;
+    } catch (e) {
+      final transient =
+          e is FileSystemException &&
+          _kTransientRenameErrno.contains(e.osError?.errorCode);
+      if (!transient || attempt >= delaysMs.length) rethrow;
+      await Future<void>.delayed(Duration(milliseconds: delaysMs[attempt]));
+    }
+  }
 }
 
 /// Executes [plans] serially. Rename is a same-volume metadata operation, so
@@ -157,6 +227,8 @@ Future<RenameOutcome> applyRenames(
   final log = File(p.join(dir.path, kRenameLogName));
   final sink = log.openWrite(mode: FileMode.write);
   final failures = <String>[];
+  final idMap = <String, String>{};
+  final partialIdMap = <String, String>{};
   var renamed = 0;
   var cancelled = false;
 
@@ -166,17 +238,28 @@ Future<RenameOutcome> applyRenames(
         cancelled = true;
         break;
       }
+      // Counted per plan so a failure on the second file of a RAW+JPG group
+      // is reported as PARTIAL rather than as "nothing happened" -- the item
+      // now exists under both ids and its marks belong to both.
+      var landed = 0;
       try {
         for (final move in plan.moves) {
-          await retryOnSharingViolation(() => File(move.from).rename(move.to));
+          await _renameWithRetry(move.from, move.to);
+          landed++;
           sink.writeln(json.encode({'from': move.from, 'to': move.to}));
         }
         // The doc above promises the journal survives a crash mid-batch. An
         // IOSink buffers, so without this flush that promise was false.
         await sink.flush();
         renamed++;
+        idMap[plan.oldId] = plan.newId;
       } catch (e) {
         failures.add('${p.basename(plan.moves.first.from)}: $e');
+        if (landed > 0) partialIdMap[plan.oldId] = plan.newId;
+        // Flush here too: the moves that DID land are already on disk, so
+        // their journal lines must be durable even though the plan failed,
+        // or undo cannot put them back.
+        await sink.flush();
       }
       onProgress?.call(renamed + failures.length, plans.length);
     }
@@ -189,6 +272,8 @@ Future<RenameOutcome> applyRenames(
     renamedCount: renamed,
     failures: failures,
     cancelled: cancelled,
+    idMap: idMap,
+    partialIdMap: partialIdMap,
   );
 }
 
@@ -211,6 +296,12 @@ Future<RenameOutcome> undoLastRename(Directory dir) async {
       .reversed
       .toList();
   final failures = <String>[];
+  // newId -> oldId, built from the JOURNAL rather than from anything the
+  // caller remembered. The caller's in-memory map is empty after a restart,
+  // and undo is exactly the feature a user reaches for on the next launch
+  // (F2). The journal is per FILE and the status file is keyed per ITEM, so
+  // the several moves of one RAW+JPG group collapse onto one entry here.
+  final idMap = <String, String>{};
   var restored = 0;
 
   for (var i = 0; i < lines.length; i++) {
@@ -229,8 +320,9 @@ Future<RenameOutcome> undoLastRename(Directory dir) async {
       continue;
     }
     try {
-      await retryOnSharingViolation(() => File(to).rename(from));
+      await _renameWithRetry(to, from);
       restored++;
+      idMap[_baseOf(p.basename(to))] = _baseOf(p.basename(from));
     } catch (e) {
       failures.add('${p.basename(to)}: $e');
     }
@@ -244,5 +336,6 @@ Future<RenameOutcome> undoLastRename(Directory dir) async {
     renamedCount: restored,
     failures: failures,
     cancelled: false,
+    idMap: idMap,
   );
 }

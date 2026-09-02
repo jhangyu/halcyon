@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -98,6 +99,221 @@ void main() {
         isFalse,
       );
     });
+
+    // -----------------------------------------------------------------
+    // F1 / AC2: the status remap used to be driven by the PLANS (the
+    // intent). Any plan that did not land left its star keyed to a name
+    // that does not exist, and the next scan's stale-key cleanup deleted
+    // it -- silent loss of the user's marks.
+    // -----------------------------------------------------------------
+
+    /// A coordinator over [tempDir] that re-reads its item list on every
+    /// call, the way AppState's supplier callbacks do.
+    ({RenameCoordinator coordinator, List<StatusMessage> messages})
+    buildCoordinator({
+      required PhotoStatusStore statusStore,
+      required List<PhotoItem> Function() itemsOf,
+      required String? Function() selectedIdOf,
+    }) {
+      final messages = <StatusMessage>[];
+      final coordinator = RenameCoordinator(
+        statusStore: statusStore,
+        itemsOf: itemsOf,
+        dirOf: () => tempDir,
+        selectedIdOf: selectedIdOf,
+        readMetadata: (its, {onProgress}) async => {
+          for (final item in its)
+            item.id: ExifMetadata(captureDate: DateTime(2026, 4, 7, 9, 3, 5)),
+        },
+        showStatus: messages.add,
+        reloadFolder: (d, {targetSelectionId}) async {},
+        notify: () {},
+      );
+      return (coordinator: coordinator, messages: messages);
+    }
+
+    Future<Map<String, dynamic>> readStatusJson() async {
+      final file = PhotoStatusStore().statusFileFor(tempDir);
+      return json.decode(await file.readAsString()) as Map<String, dynamic>;
+    }
+
+    test('TC-570 a failed rename keeps its mark under the ORIGINAL id',
+        () async {
+      await File(p.join(tempDir.path, 'A.JPG')).writeAsBytes(<int>[1]);
+      await File(p.join(tempDir.path, 'B.JPG')).writeAsBytes(<int>[1]);
+
+      final statusStore = PhotoStatusStore();
+      final items = [
+        PhotoItem(
+          id: 'A',
+          files: [File(p.join(tempDir.path, 'A.JPG'))],
+          status: PhotoStatus.starred,
+        ),
+        PhotoItem(
+          id: 'B',
+          files: [File(p.join(tempDir.path, 'B.JPG'))],
+          status: PhotoStatus.trashed,
+        ),
+      ];
+      await statusStore.saveStatuses(tempDir, items);
+
+      // Both items render the same name, so A takes it and B is planned onto
+      // '<name>-1.JPG'. The blocker has to appear AFTER planning (planning
+      // reads the directory and would simply route B around anything already
+      // there), so it is created from the first progress callback -- i.e.
+      // once A has landed and B has not yet been attempted. A non-empty
+      // directory at B's destination makes B's rename, and only B's, throw.
+      final messages = <StatusMessage>[];
+      final coordinator = RenameCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        dirOf: () => tempDir,
+        selectedIdOf: () => 'A',
+        readMetadata: (its, {onProgress}) async => {
+          for (final item in its)
+            item.id: ExifMetadata(captureDate: DateTime(2026, 4, 7, 9, 3, 5)),
+        },
+        showStatus: (message) {
+          messages.add(message);
+          if (message.actionLabel == '取消') {
+            final blocked = Directory(
+              p.join(tempDir.path, '2026-04-07-09-03-05-1.JPG'),
+            );
+            if (!blocked.existsSync()) {
+              blocked.createSync();
+              File(p.join(blocked.path, 'x')).writeAsStringSync('x');
+            }
+          }
+        },
+        reloadFolder: (d, {targetSelectionId}) async {},
+        notify: () {},
+      );
+      await coordinator.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      final map = await readStatusJson();
+      // B is still called B on disk; its trash mark must still be keyed 'B'.
+      expect(File(p.join(tempDir.path, 'B.JPG')).existsSync(), isTrue);
+      expect(map['B'], 'trashed',
+          reason: 'a mark was remapped to a name that never landed: $map');
+
+      // ...and the user is told WHICH file failed, not just a count.
+      expect(messages.last.text, contains('失敗'));
+      expect(messages.last.text, contains('B'));
+    });
+
+    test('TC-571 cancelling mid-batch leaves the untouched items\' marks '
+        'under their original ids', () async {
+      for (final name in ['A', 'B']) {
+        await File(p.join(tempDir.path, '$name.JPG')).writeAsBytes(<int>[1]);
+      }
+
+      final statusStore = PhotoStatusStore();
+      final items = [
+        PhotoItem(
+          id: 'A',
+          files: [File(p.join(tempDir.path, 'A.JPG'))],
+          status: PhotoStatus.starred,
+        ),
+        PhotoItem(
+          id: 'B',
+          files: [File(p.join(tempDir.path, 'B.JPG'))],
+          status: PhotoStatus.starred,
+        ),
+      ];
+      await statusStore.saveStatuses(tempDir, items);
+
+      late final RenameCoordinator coordinator;
+      coordinator = RenameCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        dirOf: () => tempDir,
+        selectedIdOf: () => 'A',
+        readMetadata: (its, {onProgress}) async => {
+          for (final item in its)
+            item.id: ExifMetadata(captureDate: DateTime(2026, 4, 7, 9, 3, 5)),
+        },
+        // The real cancel button fires from the progress status message.
+        showStatus: (message) {
+          if (message.actionLabel == '取消') coordinator.cancelRename();
+        },
+        reloadFolder: (d, {targetSelectionId}) async {},
+        notify: () {},
+      );
+
+      await coordinator.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      final map = await readStatusJson();
+      final onDisk = tempDir
+          .listSync()
+          .map((e) => p.basenameWithoutExtension(e.path))
+          .where((n) => !n.startsWith('.'))
+          .toSet();
+      // Every id that still exists on disk must still carry its mark.
+      for (final id in onDisk) {
+        expect(map[id], 'starred',
+            reason: 'mark lost for $id after cancel; status=$map disk=$onDisk');
+      }
+    });
+
+    // -----------------------------------------------------------------
+    // F2 / AC3: undo remapped marks from an IN-MEMORY map, so after a
+    // restart (fresh coordinator) undo renamed the files back but left
+    // every mark keyed to the abandoned new names.
+    // -----------------------------------------------------------------
+    test('TC-572 undo after a restart remaps marks from the journal',
+        () async {
+      await File(p.join(tempDir.path, 'A.JPG')).writeAsBytes(<int>[1]);
+
+      final statusStore = PhotoStatusStore();
+      var items = [
+        PhotoItem(
+          id: 'A',
+          files: [File(p.join(tempDir.path, 'A.JPG'))],
+          status: PhotoStatus.starred,
+        ),
+      ];
+      await statusStore.saveStatuses(tempDir, items);
+
+      final first = buildCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        selectedIdOf: () => 'A',
+      );
+      await first.coordinator.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+      expect((await readStatusJson())['2026-04-07-09-03-05'], 'starred');
+
+      // Simulate a restart: a brand new coordinator AND store, with no
+      // memory of the batch -- exactly what the user gets after quitting.
+      items = [
+        PhotoItem(
+          id: '2026-04-07-09-03-05',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-05.JPG'))],
+          status: PhotoStatus.starred,
+        ),
+      ];
+      final restarted = buildCoordinator(
+        statusStore: PhotoStatusStore(),
+        itemsOf: () => items,
+        selectedIdOf: () => '2026-04-07-09-03-05',
+      );
+
+      await restarted.coordinator.undoRename();
+
+      expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+      final map = await readStatusJson();
+      expect(map['A'], 'starred',
+          reason: 'undo restored the filename but not the mark key: $map');
+      expect(map.containsKey('2026-04-07-09-03-05'), isFalse);
+    });
   });
 
   testWidgets('TC-228 displayProvider returns the identical object '
@@ -117,7 +333,7 @@ void main() {
       await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes(<int>[1, 2, 3]);
 
       final state = AppState(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => DecodedRgba(
           rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),

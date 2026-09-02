@@ -113,4 +113,78 @@ void main() {
     expect(map['A'], 'starred');
     expect(map['_last_viewed_id'], isNotNull);
   });
+
+  // ---------------------------------------------------------------------
+  // F7 / AC9: photo ids share the flat JSON namespace with the reserved
+  // keys. A photo whose basename IS a reserved key must not be able to
+  // overwrite that key, and must keep its own mark.
+  // ---------------------------------------------------------------------
+
+  test('TC-566 a photo id equal to a reserved key cannot clobber the '
+      'last-viewed pointer', () async {
+    await store.saveLastViewedId(tempDir, 'REAL_TARGET');
+
+    // A folder really can contain `_last_viewed_id.JPG`.
+    await store.saveStatuses(tempDir, [
+      item('_last_viewed_id', PhotoStatus.starred),
+      item('B', PhotoStatus.trashed),
+    ]);
+
+    // The pointer still points at the photo the user was viewing...
+    final map = await readJson();
+    expect(map['_last_viewed_id'], 'REAL_TARGET');
+
+    // ...and the awkwardly named photo still has its star.
+    final items = [
+      item('_last_viewed_id', PhotoStatus.unmarked),
+      item('B', PhotoStatus.unmarked),
+    ];
+    final snapshot = await store.applySavedStatuses(tempDir, items);
+    expect(snapshot.lastViewedId, 'REAL_TARGET');
+    expect(items[0].status, PhotoStatus.starred);
+    expect(items[1].status, PhotoStatus.trashed);
+  });
+
+  test('TC-567 a reserved-key-named photo survives saveLastViewedId and '
+      'remapKeys without losing its mark', () async {
+    await store.saveStatuses(tempDir, [item('_rename_rule', PhotoStatus.starred)]);
+    await store.saveRenameRule(tempDir, '{YYYY}');
+    await store.saveLastViewedId(tempDir, '_rename_rule');
+
+    // The rule survived the photo of the same name.
+    expect(await store.loadRenameRule(tempDir), '{YYYY}');
+
+    await store.remapKeys(tempDir, {'_rename_rule': '2026-01-01'});
+
+    final map = await readJson();
+    expect(map['2026-01-01'], 'starred');
+    expect(map['_rename_rule'], '{YYYY}', reason: 'the rule is not a photo key');
+    expect(map['_last_viewed_id'], '2026-01-01');
+
+    final items = [item('2026-01-01', PhotoStatus.unmarked)];
+    await store.applySavedStatuses(tempDir, items);
+    expect(items.single.status, PhotoStatus.starred);
+  });
+
+  test('TC-568 remapKeys keeps the original key for partially-applied '
+      'renames', () async {
+    await store.saveStatuses(tempDir, [
+      item('A', PhotoStatus.starred),
+      item('B', PhotoStatus.trashed),
+    ]);
+
+    // 'A' only half-moved (its RAW landed, its JPG did not), so BOTH names
+    // exist on disk and both must keep the mark. 'B' moved cleanly.
+    await store.remapKeys(
+      tempDir,
+      {'A': 'newA', 'B': 'newB'},
+      keepOriginal: const {'A'},
+    );
+
+    final map = await readJson();
+    expect(map['newA'], 'starred');
+    expect(map['A'], 'starred');
+    expect(map['newB'], 'trashed');
+    expect(map.containsKey('B'), isFalse);
+  });
 }

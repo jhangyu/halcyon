@@ -55,9 +55,6 @@ class RenameCoordinator {
   bool _isRenaming = false;
   bool _renameCancelled = false;
 
-  /// old id -> new id for the most recent batch, used to unwind marks on undo.
-  Map<String, String> _lastRenameIdMap = const {};
-
   bool get isRenaming => _isRenaming;
 
   void cancelRename() {
@@ -114,10 +111,6 @@ class RenameCoordinator {
         return;
       }
 
-      // Assigned only after the early return: an empty batch must not clobber
-      // the previous batch's undo map.
-      _lastRenameIdMap = {for (final plan in plans) plan.oldId: plan.newId};
-
       final outcome = await applyRenames(
         plans,
         dir,
@@ -135,25 +128,39 @@ class RenameCoordinator {
 
       // The status file is keyed by item id (the basename), so without this
       // every star, trash mark and the last-viewed pointer would be orphaned.
-      await _statusStore.remapKeys(dir, {
-        for (final plan in plans) plan.oldId: plan.newId,
-      });
+      //
+      // Driven by the OUTCOME, never by `plans`: a cancelled batch, or one
+      // where some renames threw, leaves those files under their original
+      // names, and remapping their marks to a name that does not exist
+      // orphans them -- after which the next scan's stale-key cleanup deletes
+      // them. Half-applied plans exist under BOTH names, so they keep both
+      // keys rather than betting on either (F1).
+      await _statusStore.remapKeys(
+        dir,
+        {...outcome.idMap, ...outcome.partialIdMap},
+        keepOriginal: outcome.partialIdMap.keys.toSet(),
+      );
       await _statusStore.saveRenameRule(dir, isCustom ? rule.template : null);
 
       final selectedId = _selectedIdOf();
-      final currentPlan = plans.where((x) => x.oldId == selectedId);
       await _reloadFolder(
         dir,
-        targetSelectionId: currentPlan.isEmpty
-            ? selectedId
-            : currentPlan.first.newId,
+        targetSelectionId: outcome.idMap[selectedId] ?? selectedId,
       );
 
       var message = '已重新命名 *${outcome.renamedCount}* 個項目';
       if (outcome.cancelled) message += '（已取消）';
       if (outcome.failures.isNotEmpty) {
-        message += '，*${outcome.failures.length}* 個失敗';
-        for (final failure in outcome.failures.take(3)) {
+        // Named, not just counted. A bare count leaves the user unable to
+        // tell WHICH photos kept their old names, which is the whole
+        // complaint behind the "second rename pass fixes it" report.
+        final named = outcome.failures
+            .take(3)
+            .map((failure) => failure.split(':').first)
+            .join('、');
+        message += '，*${outcome.failures.length}* 個失敗：$named';
+        if (outcome.failures.length > 3) message += ' …';
+        for (final failure in outcome.failures) {
           debugPrint('Rename failure: $failure');
         }
       }
@@ -181,12 +188,12 @@ class RenameCoordinator {
 
     final outcome = await undoLastRename(dir);
 
-    // The journal is per FILE; the status file is keyed per ITEM (basename
-    // without extension), so remap with the inverse of the batch's id map.
-    await _statusStore.remapKeys(dir, {
-      for (final entry in _lastRenameIdMap.entries) entry.value: entry.key,
-    });
-    _lastRenameIdMap = const {};
+    // Sourced from the on-disk journal that `undoLastRename` just replayed,
+    // NOT from anything this object remembered: undo's whole point is to be
+    // available after the app has been closed and reopened, and an in-memory
+    // map is empty then -- the files went back to their old names while every
+    // mark stayed keyed to the abandoned new ones (F2).
+    await _statusStore.remapKeys(dir, outcome.idMap);
 
     await _reloadFolder(dir);
     _showStatus(StatusMessage('已還原 *${outcome.renamedCount}* 個檔案的原始檔名'));

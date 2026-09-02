@@ -242,5 +242,137 @@ void main() {
       expect(await File(p.join(tempDir.path, 'OLD_0001.jpg')).exists(), isTrue);
       expect(await File(p.join(tempDir.path, kRenameLogName)).exists(), isFalse);
     });
+
+    // -------------------------------------------------------------------
+    // F1 / AC2: the outcome must describe what LANDED, not what was
+    // intended, so the caller can remap persisted marks off the outcome.
+    // -------------------------------------------------------------------
+
+    test('TC-560 idMap contains only the plans that actually landed',
+        () async {
+      await touch('B.JPG');
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.NEF']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+      );
+
+      expect(outcome.idMap, {'B': 'new-B'});
+      expect(outcome.partialIdMap, isEmpty);
+    });
+
+    test('TC-561 a cancelled batch reports only the pre-cancel renames',
+        () async {
+      await touch('A.JPG');
+      await touch('B.JPG');
+      var seen = 0;
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.JPG']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+        isCancelled: () => seen++ > 0,
+      );
+
+      expect(outcome.cancelled, isTrue);
+      expect(outcome.idMap, {'A': 'new-A'});
+    });
+
+    test('TC-562 a half-applied plan is reported as partial, not as applied',
+        () async {
+      // The .NEF moves; the .JPG cannot, because its destination is a
+      // non-empty directory. The item therefore exists under BOTH ids.
+      await touch('A.NEF');
+      await touch('A.JPG');
+      await Directory(p.join(tempDir.path, 'new-A.JPG')).create();
+      await File(p.join(tempDir.path, 'new-A.JPG', 'blocker')).writeAsString('x');
+
+      final outcome = await applyRenames(
+        [planFor('A', 'new-A', ['.NEF', '.JPG'])],
+        tempDir,
+      );
+
+      expect(outcome.renamedCount, 0);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.idMap, isEmpty);
+      expect(outcome.partialIdMap, {'A': 'new-A'});
+      expect(File(p.join(tempDir.path, 'new-A.NEF')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+    });
+
+    // -------------------------------------------------------------------
+    // F2 / AC3: undo must be able to tell its caller which ids it reversed
+    // WITHOUT the caller having kept in-memory state from the batch.
+    // -------------------------------------------------------------------
+
+    test('TC-563 undo derives its id map from the on-disk journal', () async {
+      await touch('A.NEF');
+      await touch('A.JPG');
+      await touch('B.JPG');
+      await applyRenames(
+        [planFor('A', 'new-A', ['.NEF', '.JPG']), planFor('B', 'new-B', ['.JPG'])],
+        tempDir,
+      );
+
+      final outcome = await undoLastRename(tempDir);
+
+      expect(outcome.idMap, {'new-A': 'A', 'new-B': 'B'});
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // AC4: planRenames must not plan a rename onto a name that differs from
+  // an existing one only in case. exFAT (the user's photo volume) and APFS
+  // are both case-insensitive, and File.rename silently REPLACES the
+  // destination -- that is unrecoverable photo loss, not a failed item.
+  // Evidence: scripts/tmp/rename_probe_fs.dart, run on /Volumes/EVO_4T.
+  // ---------------------------------------------------------------------
+  test('TC-564 planRenames treats a case-only difference from an existing '
+      'file as a collision', () {
+    final plans = planRenames(
+      items: [
+        PhotoItem(id: 'a1', files: [File('/photos/a1.JPG')]),
+      ],
+      metadata: const {},
+      fileModified: {'a1': DateTime(2026, 1, 2, 3, 4, 5)},
+      rule: const RenameRule('target'),
+      // TARGET.JPG is a DIFFERENT photo that is not being renamed.
+      existingNames: {'a1.JPG', 'TARGET.JPG'},
+    );
+
+    // Planning a1 -> target.JPG would, on a case-insensitive volume,
+    // silently overwrite TARGET.JPG.
+    expect(plans.single.newId, isNot(equalsIgnoringCase('target')));
+    expect(plans.single.newId, 'target-1');
+  });
+
+  test('TC-565 planRenames does not hand two items names differing only in '
+      'case from EACH OTHER', () {
+    // Distinct from TC-564: there the clash is with a file already in the
+    // folder (the `existingNames` seed), here it is between two members of
+    // this very batch (the `taken` accumulator). Two cameras reported with
+    // different capitalisation is all it takes, and the second rename would
+    // silently replace the first on a case-insensitive volume.
+    final plans = planRenames(
+      items: [
+        PhotoItem(id: 'a1', files: [File('/photos/a1.JPG')]),
+        PhotoItem(id: 'a2', files: [File('/photos/a2.JPG')]),
+      ],
+      metadata: {
+        'a1': const ExifMetadata(camera: 'X-T5'),
+        'a2': const ExifMetadata(camera: 'x-t5'),
+      },
+      fileModified: {
+        'a1': DateTime(2026, 1, 2, 3, 4, 5),
+        'a2': DateTime(2026, 1, 2, 3, 4, 5),
+      },
+      rule: const RenameRule('{camera}'),
+      existingNames: {'a1.JPG', 'a2.JPG'},
+    );
+
+    expect(plans, hasLength(2));
+    final targets = [for (final plan in plans) plan.newId.toLowerCase()];
+    expect(targets.toSet(), hasLength(targets.length),
+        reason: 'two plans land on the same name once case is folded: '
+            '${plans.map((plan) => plan.newId).toList()}');
   });
 }

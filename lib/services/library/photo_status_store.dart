@@ -20,6 +20,38 @@ class PhotoStatusStore {
 
   static const String _renameRuleKey = '_rename_rule';
 
+  /// Photo ids and reserved keys share one flat JSON namespace, and nothing
+  /// stops a folder containing `_last_viewed_id.JPG`. Before this escape such
+  /// a photo's mark overwrote the last-viewed pointer on every save, and the
+  /// pointer overwrote the mark right back (F7).
+  ///
+  /// Only ids that would collide are escaped, so the file stays readable and
+  /// no migration is needed. The suffix is applied to an ALREADY-escaped id
+  /// too, which is what keeps the mapping injective: a real photo named
+  /// `_last_viewed_id#photo` escapes to `_last_viewed_id#photo#photo` rather
+  /// than colliding with the escaped form of `_last_viewed_id`.
+  static const String _photoKeySuffix = '#photo';
+
+  static bool _isEscapedOrReserved(String key) {
+    var stripped = key;
+    while (stripped.endsWith(_photoKeySuffix)) {
+      stripped = stripped.substring(
+        0,
+        stripped.length - _photoKeySuffix.length,
+      );
+    }
+    return reservedKeys.contains(stripped);
+  }
+
+  /// The JSON key that holds the mark for photo [id].
+  static String photoKeyFor(String id) =>
+      _isEscapedOrReserved(id) ? '$id$_photoKeySuffix' : id;
+
+  /// Inverse of [photoKeyFor]. [key] must not be a bare reserved key.
+  static String photoIdFor(String key) => _isEscapedOrReserved(key)
+      ? key.substring(0, key.length - _photoKeySuffix.length)
+      : key;
+
   File statusFileFor(Directory dir) {
     return File(p.join(dir.path, '.halcyon_status.json'));
   }
@@ -111,11 +143,11 @@ class PhotoStatusStore {
     final jsonMap = await _readJsonMap(file);
     if (jsonMap.isEmpty) return const PhotoStatusSnapshot();
 
-    final validKeys = items.map((item) => item.id).toSet();
+    final validKeys = items.map((item) => photoKeyFor(item.id)).toSet();
     var needsCleanup = false;
 
     for (final item in items) {
-      final savedStatus = jsonMap[item.id] as String?;
+      final savedStatus = jsonMap[photoKeyFor(item.id)] as String?;
       if (savedStatus == null || savedStatus == PhotoStatus.unmarked.name) {
         continue;
       }
@@ -153,7 +185,7 @@ class PhotoStatusStore {
       }
       for (final item in items) {
         if (item.status != PhotoStatus.unmarked) {
-          statusMap[item.id] = item.status.name;
+          statusMap[photoKeyFor(item.id)] = item.status.name;
         }
       }
       await _atomicWrite(file, json.encode(statusMap));
@@ -195,7 +227,14 @@ class PhotoStatusStore {
   /// Rewrites photo keys after a rename batch. Without this, every star and
   /// the last-viewed pointer would be orphaned the moment files are renamed,
   /// because this file is keyed by [PhotoItem.id] (the basename).
-  Future<void> remapKeys(Directory dir, Map<String, String> oldToNew) {
+  /// [keepOriginal] holds the old ids whose rename only PARTLY landed: those
+  /// items now exist on disk under both names, so the old key is copied
+  /// forward instead of being moved, and neither half loses its mark.
+  Future<void> remapKeys(
+    Directory dir,
+    Map<String, String> oldToNew, {
+    Set<String> keepOriginal = const {},
+  }) {
     return _serialise(() async {
       if (oldToNew.isEmpty) return;
       final file = statusFileFor(dir);
@@ -208,7 +247,17 @@ class PhotoStatusStore {
               ? (oldToNew[entry.value] ?? entry.value)
               : entry.value;
         } else {
-          remapped[oldToNew[entry.key] ?? entry.key] = entry.value;
+          // Keys are escaped photo ids; the caller's map speaks in ids.
+          final oldId = photoIdFor(entry.key);
+          final newId = oldToNew[oldId];
+          if (newId == null) {
+            remapped[entry.key] = entry.value;
+            continue;
+          }
+          remapped[photoKeyFor(newId)] = entry.value;
+          if (keepOriginal.contains(oldId)) {
+            remapped[entry.key] = entry.value;
+          }
         }
       }
       await _atomicWrite(file, json.encode(remapped));
