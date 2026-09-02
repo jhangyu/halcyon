@@ -48,6 +48,15 @@ class GalleryColumn extends StatefulWidget {
   /// clamping arithmetic and the width state (T6).
   final void Function(double dx) onWidthDelta;
 
+  // Test-only mutation hook (TC-508c, AC6). When null (the production
+  // default) the chip width is the constant `kChipWidth` at every dragged
+  // width, byte-equivalent to before this hook existed. Tests may set this
+  // to a width-scaled function to prove the "never decreases" sweep in
+  // TC-508b actually detects the regression it claims to guard against; it
+  // must always be cleared (`addTearDown`) after use.
+  @visibleForTesting
+  static double Function(double width)? debugChipWidthForWidth;
+
   @override
   State<GalleryColumn> createState() => _GalleryColumnState();
 }
@@ -55,6 +64,9 @@ class GalleryColumn extends StatefulWidget {
 class _GalleryColumnState extends State<GalleryColumn> {
   final ScrollController _scrollController = ScrollController();
   String? _lastSelectedId;
+
+  double get _chipWidth =>
+      GalleryColumn.debugChipWidthForWidth?.call(widget.width) ?? kChipWidth;
 
   // Visible-range reporting, ported from sidebar_view.dart:76-108.
   bool _sweepScheduled = false;
@@ -72,7 +84,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
   double get _gap => widget.width <= 90 ? 6.0 : 8.0; // vs .dragged .filmstrip
   double get _rowExtent => kChipHeight + _gap; // per ROW
   int get _columns =>
-      math.max(1, (widget.width - 2 * _pad + _gap) ~/ (kChipWidth + _gap));
+      math.max(1, (widget.width - 2 * _pad + _gap) ~/ (_chipWidth + _gap));
   bool get _dragged => widget.width > 90;
 
   @override
@@ -300,7 +312,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
     final isSelected = item.id == strip.selectedId;
     return Container(
       key: ValueKey<String>('gallery-chip-${item.id}'),
-      width: kChipWidth,
+      width: _chipWidth,
       height: kChipHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(2),
@@ -316,7 +328,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
           Positioned.fill(
             child: PhotoThumbnail(
               payload: strip.payloadFor(item.id),
-              width: kChipWidth,
+              width: _chipWidth,
               height: kChipHeight,
               borderRadius: 0,
             ),

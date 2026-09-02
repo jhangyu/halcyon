@@ -146,6 +146,19 @@ void main() {
             '"* devicePixelRatio" term of the cap computation was dropped.',
       );
 
+      // Ported from the retired sidebar_view_thumbnail_decode_cap_test.dart
+      // (:188-193): the longest-edge equality above alone does not catch a
+      // decode that squashes the 2:1 fixture into a cap x cap square (its
+      // longest edge would still equal `cap`). Assert the decoded aspect
+      // ratio is preserved within 1% of the source's.
+      final sourceAspect = 400 / 200;
+      final decodedAspect = decoded.width / decoded.height;
+      expect(
+        (decodedAspect - sourceAspect).abs() / sourceAspect,
+        lessThan(0.01),
+        reason: 'decoded aspect must stay within 1% of source',
+      );
+
       decoded.dispose();
     },
   );

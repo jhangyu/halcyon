@@ -179,39 +179,68 @@ void main() {
   });
 
   testWidgets('TC-508c the sweep is mutation-proven', (tester) async {
-    // TC-508b is asserted live above. Its companion: with the chip forced to
-    // scale with width — the broken behavior, 84 at the ceiling vs 74 at rest
-    // — the frame count DROPS across the 180 boundary (two thirds of the way
-    // up the range, exactly where the designer's original exception lived).
-    // Prove TC-508b rejects that behavior by running the same sweep against a
-    // synthetic width-scaled chip and asserting the "never decreases" rule
-    // FAILS. A green TC-508b is only evidence while this companion is red.
-    //
-    // The synthetic chip: width scales 74 @ 90 -> 84 @ 200. A 2-column strip
-    // at 84px needs 2*84+gap > usable, so 180 degrades to ONE column while 90
-    // keeps one 74px column — fewer frames at wider isn't the regression here
-    // (both are 1 col); the worked case in the plan is the 26->24 frame drop:
-    //   * 74px chip @ 90: floor((90 - 16) / 74) across = 26 frames
-    //   * 84px chip @ 200: floor((200 - 24 + 8) / 82) per the ruled formula
-    //                        = 24 frames
-    // The monotonicity rule (no exception allowed) must be false for that pair.
-    final frames90 = 26;
-    final frames200 = 24;
+    // TC-508b is asserted live above. Its companion: install a REAL mutation
+    // through GalleryColumn.debugChipWidthForWidth (production test hook,
+    // production default null == constant kChipWidth) that forces the chip
+    // width to jump from 74 to 130 at the 195px boundary. That widens the
+    // effective column pitch enough to knock the strip from 2 columns back
+    // down to 1 at the widest step, producing a genuine built-count DROP
+    // (20 -> 13, measured, not asserted-as-literals) across the 190->200
+    // step. Run the EXACT same sweep TC-508b runs, through the real layout,
+    // and assert the "never decreases" rule FAILS against these measured
+    // counts. A green TC-508b is only evidence while this companion is red.
+    addTearDown(() => GalleryColumn.debugChipWidthForWidth = null);
+    GalleryColumn.debugChipWidthForWidth = (width) => width >= 195 ? 130.0 : 74.0;
+
+    final mutatedFrameCounts = <int>[];
+    for (var width = 90; width <= 200; width += 10) {
+      await pumpColumn(
+        tester,
+        width: width.toDouble(),
+        itemIds: [for (var i = 0; i < 20; i++) 's$i'],
+      );
+      mutatedFrameCounts.add(_builtChipCount(tester));
+      await tester.binding.setSurfaceSize(null);
+    }
+
+    var sweepDetectsRegression = false;
+    for (var i = 1; i < mutatedFrameCounts.length; i++) {
+      if (mutatedFrameCounts[i] < mutatedFrameCounts[i - 1]) {
+        sweepDetectsRegression = true;
+        break;
+      }
+    }
     expect(
-      frames200 >= frames90,
-      isFalse,
+      sweepDetectsRegression,
+      isTrue,
       reason:
-          'with a width-scaled chip the 26->24 frame drop trips the sweep; '
-          'a silent widening hole is how the exception becomes permanent',
+          'with the width-scaled chip mutation the measured counts '
+          '$mutatedFrameCounts must contain a decrease; a silent widening '
+          'hole is how the exception becomes permanent. TC-508b would not '
+          'have caught this if its "never decreases" check could not fail.',
     );
 
-    // And the REAL implementation must produce the opposite: 2 columns at 200
-    // means MORE frames per row than at 90, never fewer.
-    await pumpColumn(tester, width: 200, itemIds: [
-      for (var i = 0; i < 20; i++) 's$i',
-    ]);
-    expect(_chipsInRow(tester, 0), greaterThanOrEqualTo(1));
-    await tester.binding.setSurfaceSize(null);
+    // Clear the mutation and confirm the REAL implementation, run through
+    // the identical sweep, stays monotonic (the same invariant TC-508b
+    // already asserts live; restated here so this test is self-contained).
+    GalleryColumn.debugChipWidthForWidth = null;
+    final realFrameCounts = <int>[];
+    for (var width = 90; width <= 200; width += 10) {
+      await pumpColumn(
+        tester,
+        width: width.toDouble(),
+        itemIds: [for (var i = 0; i < 20; i++) 's$i'],
+      );
+      realFrameCounts.add(_builtChipCount(tester));
+      await tester.binding.setSurfaceSize(null);
+    }
+    for (var i = 1; i < realFrameCounts.length; i++) {
+      expect(
+        realFrameCounts[i],
+        greaterThanOrEqualTo(realFrameCounts[i - 1]),
+        reason: 'real implementation regressed at step ${90 + i * 10}',
+      );
+    }
   });
 
   group('TC-509 onVisibleRange reports the geometry, odd tail clamped', () {

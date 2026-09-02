@@ -196,15 +196,32 @@ Future<void> _dragColumnHandle(WidgetTester tester, Offset delta) async {
   await tester.pump();
 }
 
-/// Converges the column to [target] width by reading the actual rendered width
-/// and re-dragging until it lands within tolerance.
+/// Converges the column to [target]: with a single member in the pan
+/// gesture's arena (no competing scrollable here), the recognizer accepts
+/// immediately and delivers the FULL requested delta with no touch slop
+/// eaten (the same fact this file's TC-513-equivalent handle drag relies on)
+/// — so a fresh gesture per iteration, each moving exactly the remaining
+/// `target - current`, converges in one shot. `_dragColumnHandle`'s extra
+/// artificial "slop" offset is fine for the huge, clamp-bound deltas TC-507
+/// uses, but paying it here on top of an exact delta delivers as a real,
+/// uncompensated delta and oscillates forever without converging. Asserts
+/// convergence so a helper that stalls fails loudly instead of silently
+/// returning short.
 Future<void> _dragColumnTo(WidgetTester tester, double target) async {
   for (var i = 0; i < 10; i++) {
     final current = _currentWidth(tester);
     final dx = target - current;
-    if (dx.abs() < 0.5) return;
-    await _dragColumnHandle(tester, Offset(dx, 0));
+    if (dx.abs() < 0.5) break;
+    final gesture = await tester.startGesture(_handleStart(tester));
+    await gesture.moveBy(Offset(dx, 0));
+    await gesture.up();
+    await tester.pump();
   }
+  expect(
+    _currentWidth(tester),
+    closeTo(target, 0.5),
+    reason: 'drag helper failed to reach $target',
+  );
 }
 
 double _currentWidth(WidgetTester tester) {
