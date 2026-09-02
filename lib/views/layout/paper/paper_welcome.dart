@@ -8,11 +8,12 @@ import 'paper_palette.dart';
 /// frame 8, `docs/logs/2026-09-01/mockup/paper/c1-desktop-light.html:469-471`,
 /// NOTES.md "Frame 8 — welcome, no folder open").
 ///
-/// NOT WIRED: `lib/views/layout/common/photo_viewport.dart` currently gates
-/// the empty state on `activeLayoutTheme.id == LayoutThemeId.gallery` only.
-/// This widget is ready to be returned from that branch once a `paper` case
-/// exists on `LayoutThemeId` (task #14 territory — outside this task's file
-/// ownership, see handoff message to team-lead).
+/// WIRED: `lib/views/layout/common/photo_viewport.dart` switches the empty
+/// state on the selected layout theme and returns this widget for the `paper`
+/// case. Round 4 changed that switch from the `activeLayoutTheme` constant to
+/// `AppState.layoutThemeId`, so the welcome screen now follows the user's
+/// persisted theme. The switch is exhaustive: a new theme cannot compile
+/// until it declares a welcome screen.
 ///
 /// Structural rule carried from the mockup verbatim: NOTHING shares a row
 /// with the Open Folder button. A centred row centres the row, not the

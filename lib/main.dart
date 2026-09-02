@@ -80,11 +80,17 @@ class HalcyonApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Watches AppState (already an ancestor provider) rather than reading a
+    // constant: both the appearance mode and the layout theme are persisted
+    // user settings now, so the MaterialApp has to rebuild when either
+    // changes. `ThemeMode.system` remains the DEFAULT, not the hardcoding.
+    final state = context.watch<AppState>();
+    final layout = layoutThemeFor(state.layoutThemeId);
     return MaterialApp(
       title: 'Halcyon',
-      themeMode: ThemeMode.system, // Adapt to macOS system theme
-      theme: activeLayoutTheme.themeDataFor(Brightness.light),
-      darkTheme: activeLayoutTheme.themeDataFor(Brightness.dark),
+      themeMode: state.themeMode,
+      theme: layout.themeDataFor(Brightness.light),
+      darkTheme: layout.themeDataFor(Brightness.dark),
       home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );

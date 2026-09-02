@@ -76,7 +76,10 @@ class _MainScreenState extends State<MainScreen> {
     // Mobile layout is a PLATFORM decision, not a window-size one: only
     // Android/iOS get the mobile surface (three-round contract, round 3).
     final mobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    final theme = activeLayoutTheme;
+    // Round 4: the active layout theme is a persisted user setting, not a
+    // constant. `state` is already watched above, so changing it in Settings
+    // rebuilds this surface.
+    final theme = layoutThemeFor(state.layoutThemeId);
     final build = mobile ? theme.buildMobileSurface : theme.buildMainSurface;
     return build(
       context,

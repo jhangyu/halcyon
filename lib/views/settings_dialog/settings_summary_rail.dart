@@ -4,6 +4,7 @@ import '../../models/shortcut_bindings.dart';
 import '../../providers/app_state.dart';
 import '../../services/image_pipeline/retention_policy.dart';
 import '../../services/library/photo_export_service.dart';
+import '../layout/layout_theme.dart';
 import '../theme_tokens.dart';
 
 /// D1's `.summary-rail` (D1.html:48), visible on every tab (§1.5.4).
@@ -42,6 +43,36 @@ class SettingsSummaryRail extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12), // D1.html:49 h2 margin-bottom
+            // Appearance first (frozen spec section 6): it is the setting
+            // with the largest visible footprint, and the mode row has to sit
+            // above the layout row it qualifies.
+            _item(
+              t,
+              'Appearance',
+              Text(
+                _appearanceLabel(context, state),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: t.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _item(
+              t,
+              'Layout theme',
+              Text(
+                _layoutThemeLabel(state.layoutThemeId),
+                key: const Key('summaryRail.layoutTheme'),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: t.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
             // F1.html:176-177 orders "Concurrent decodes" before "Export
             // filetype" in the rail (this round swapped the earlier order).
             _item(
@@ -128,6 +159,26 @@ class SettingsSummaryRail extends StatelessWidget {
       ),
     );
   }
+
+  /// `Dark` / `Light` / `System · light` / `System · dark` — System alone
+  /// would not tell the reader which rendering is live (frozen spec §6).
+  static String _appearanceLabel(BuildContext context, AppState state) {
+    switch (state.themeMode) {
+      case ThemeMode.dark:
+        return 'Dark';
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.system:
+        final resolved = MediaQuery.platformBrightnessOf(context);
+        return 'System · ${resolved == Brightness.dark ? 'dark' : 'light'}';
+    }
+  }
+
+  static String _layoutThemeLabel(LayoutThemeId id) => switch (id) {
+    LayoutThemeId.gallery => 'Gallery',
+    LayoutThemeId.paper => 'Paper',
+    LayoutThemeId.darkroom => 'Darkroom',
+  };
 
   Widget _item(HalcyonTokens t, String label, Widget value) {
     return Column(

@@ -10,7 +10,6 @@ import '../../zoom_controller.dart';
 import 'app_actions_menu.dart' show openFolderShortcutLabel;
 import '../darkroom/darkroom_empty_state.dart';
 import '../gallery/gallery_palette.dart';
-import '../layout_registry.dart';
 import '../layout_theme.dart';
 import '../paper/paper_welcome.dart';
 
@@ -91,7 +90,7 @@ class _PhotoViewportState extends State<PhotoViewport>
       // removed 2026-09-02: the exhaustive switch guarantees every theme
       // resolves to a real welcome screen, and a new enum case fails to
       // compile here until it declares one.
-      switch (activeLayoutTheme.id) {
+      switch (state.layoutThemeId) {
         case LayoutThemeId.gallery:
           return const _GalleryEmptyState();
         case LayoutThemeId.paper:

@@ -24,10 +24,24 @@ import '../services/library/photo_status_store.dart';
 import '../services/image_pipeline/raw_pixels_image.dart';
 import '../models/rename_rule.dart';
 import '../models/shortcut_bindings.dart';
+// LAYERING NOTE: this is the one view-layer import in AppState. `LayoutThemeId`
+// is a plain enum with no widget dependencies, and it is declared beside the
+// `LayoutTheme` contract it selects (deleting a theme = deleting its directory
+// and its enum case, the deletion contract in layout_theme.dart). Persisting
+// the id here is what the frozen appearance spec section 8 asks for; moving
+// the enum into models/ purely to satisfy import direction would split that
+// deletion contract across two directories for no behavioural gain.
+import '../views/layout/layout_theme.dart' show LayoutThemeId;
 import 'settings_snapshot.dart';
 import '../services/library/photo_export_service.dart';
 import '../services/platform/working_set_trim.dart';
 import '../services/rename/rename_coordinator.dart';
+
+/// Appearance defaults (frozen spec section 8). Named constants rather than
+/// literals because three places must agree: the hydration fallback, the
+/// malformed-value fallback, and [AppState.resetAllSettings].
+const ThemeMode kDefaultThemeMode = ThemeMode.system;
+const LayoutThemeId kDefaultLayoutThemeId = LayoutThemeId.gallery;
 
 /// Outcome of a batch delete, returned to the view layer so feedback lives
 /// in the widgets rather than the provider. Failures are never swallowed.
@@ -226,6 +240,10 @@ class AppState extends ChangeNotifier {
   /// this flag lets it bail out instead of calling `notifyListeners()` on a
   /// disposed `ChangeNotifier`, which throws.
   bool _disposed = false;
+  /// Appearance, persisted (frozen spec section 8). Defaults: system / gallery.
+  ThemeMode _themeMode = kDefaultThemeMode;
+  LayoutThemeId _layoutThemeId = kDefaultLayoutThemeId;
+
   RetentionTier? _retentionTierOverride;
   late final RetentionTier _autoRetentionTier;
   ShortcutBindings _shortcuts = ShortcutBindings.defaults();
@@ -274,6 +292,9 @@ class AppState extends ChangeNotifier {
     // [resolveExportCapabilities]).
     unawaited(resolveExportCapabilities());
 
+    _themeMode = _themeModeFromName(_readStringPref('themeMode'));
+    _layoutThemeId = _layoutThemeIdFromName(_readStringPref('layoutThemeId'));
+
     final tierId = _readStringPref('retentionTier');
     _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
     _preloadController.setRetention(retentionPolicyForTier(retentionTier));
@@ -309,6 +330,22 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Unknown / malformed stored values fall back to the default rather than
+  /// throwing, matching every other read in [_initPrefs].
+  static ThemeMode _themeModeFromName(String? raw) {
+    for (final mode in ThemeMode.values) {
+      if (mode.name == raw) return mode;
+    }
+    return kDefaultThemeMode;
+  }
+
+  static LayoutThemeId _layoutThemeIdFromName(String? raw) {
+    for (final id in LayoutThemeId.values) {
+      if (id.name == raw) return id;
+    }
+    return kDefaultLayoutThemeId;
   }
 
   int _normaliseExportQuality(int? raw) =>
@@ -347,6 +384,14 @@ class AppState extends ChangeNotifier {
   String? get selectedItemID => _selectedItemID;
   Directory? get currentDir => _currentDir;
   bool get autoAdvance => _autoAdvance;
+
+  /// Drives `MaterialApp.themeMode` (main.dart). `system` resolves through the
+  /// platform brightness, so this is the stored intent, not the rendering.
+  ThemeMode get themeMode => _themeMode;
+
+  /// Selects which [LayoutTheme] the whole app arranges itself with, via
+  /// `layoutThemeFor`. Replaced the `kActiveLayoutThemeId` constant.
+  LayoutThemeId get layoutThemeId => _layoutThemeId;
   bool get overwriteExisting => _overwriteExisting;
 
   bool get recycleMode => _recycleMode;
@@ -738,6 +783,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    _prefs?.setString('themeMode', mode.name);
+    notifyListeners();
+  }
+
+  void setLayoutThemeId(LayoutThemeId id) {
+    _layoutThemeId = id;
+    _prefs?.setString('layoutThemeId', id.name);
+    notifyListeners();
+  }
+
   void setRetentionTier(RetentionTier tier) {
     _retentionTierOverride = tier;
     _prefs?.setString('retentionTier', tier.id);
@@ -767,6 +824,51 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Restores every persisted preference to its default and wipes the store.
+  ///
+  /// Deliberately NOT expressed as a snapshot restore: the settings dialog's
+  /// revert-on-dismiss contract captures a snapshot when it opens, so a reset
+  /// that went through the ordinary setters would still be undone by that
+  /// snapshot on dismissal. The caller is required to set the dialog's
+  /// committed flag before popping (frozen spec section 7); this method's job
+  /// is only to make the in-memory state and the store agree on the defaults.
+  ///
+  /// `clear()` removes every key this app has ever written, including keys no
+  /// longer read by this version — that is the intent of "reset ALL settings",
+  /// and it is why the fields below are reset explicitly rather than by
+  /// re-running [_initPrefs] (which would race the async store).
+  ///
+  /// Star and trash marks are NOT touched: they live in each photo folder's
+  /// own `.halcyon_status.json`, which this method never opens.
+  Future<void> resetAllSettings() async {
+    _themeMode = kDefaultThemeMode;
+    _layoutThemeId = kDefaultLayoutThemeId;
+    _autoAdvance = false;
+    _overwriteExisting = true;
+    _decodeLaneWidth = kDefaultDecodeLaneWidth;
+    _exportJpegQuality = kDefaultExportJpegQuality;
+    _exportLongEdge = kDefaultExportLongEdge;
+    _exportFiletype = kDefaultExportFiletype;
+    _exportFiletypeIntentName = null;
+    _retentionTierOverride = null;
+    _shortcuts = ShortcutBindings.defaults();
+
+    // The collaborators hold their own copies; resetting the field without
+    // pushing it through is how a "reset" leaves the pipeline on the old
+    // value while the panel claims otherwise.
+    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
+    _preloadController.setRetention(retentionPolicyForTier(retentionTier));
+    _exportService.jpegQuality = _exportJpegQuality;
+    _exportService.longEdge = _exportLongEdge;
+    _exportService.filetype = _exportFiletype;
+
+    notifyListeners();
+    // Awaited last: the in-memory reset and the notify must not wait on disk,
+    // but the future is returned so a caller (and a test) can await the store
+    // actually being empty.
+    await _prefs?.clear();
+  }
+
   void resetAllShortcutBindings() {
     _shortcuts = ShortcutBindings.defaults();
     for (final action in ShortcutAction.values) {
@@ -776,6 +878,8 @@ class AppState extends ChangeNotifier {
   }
 
   SettingsSnapshot settingsSnapshot() => SettingsSnapshot(
+        themeMode: _themeMode,
+        layoutThemeId: _layoutThemeId,
         autoAdvance: _autoAdvance,
         overwriteExisting: _overwriteExisting,
         decodeLaneWidth: _decodeLaneWidth,
@@ -791,6 +895,10 @@ class AppState extends ChangeNotifier {
   /// Each field goes back through its ordinary setter, so no path can revert
   /// in-memory state while leaving the persisted value changed.
   void restoreSettings(SettingsSnapshot snapshot) {
+    if (snapshot.themeMode != _themeMode) setThemeMode(snapshot.themeMode);
+    if (snapshot.layoutThemeId != _layoutThemeId) {
+      setLayoutThemeId(snapshot.layoutThemeId);
+    }
     if (snapshot.autoAdvance != _autoAdvance) setAutoAdvance(snapshot.autoAdvance);
     if (snapshot.overwriteExisting != _overwriteExisting) {
       setOverwriteExisting(snapshot.overwriteExisting);

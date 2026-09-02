@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/layout_registry.dart';
+import 'package:halcyon_flutter/views/layout/layout_theme.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 
 /// Pumps the real seam (`activeLayoutTheme.buildMainSurface`) at a fixed
@@ -61,7 +62,12 @@ Future<void> pumpGalleryDesktop(
         // itself invoked from within MainScreen's own build().
         body: Builder(
           builder: (context) =>
-              activeLayoutTheme.buildMainSurface(context, surface),
+              // Round 4: `activeLayoutTheme` is gone (the active theme is a
+              // persisted AppState setting now). This test is about the
+              // gallery geometry specifically, so it names the gallery theme
+              // through the same single mapping the app uses.
+              layoutThemeFor(LayoutThemeId.gallery)
+                  .buildMainSurface(context, surface),
         ),
       ),
     ),

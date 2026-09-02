@@ -9,7 +9,22 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:halcyon_flutter/views/settings_dialog.dart';
 
+/// The dialog is a fixed 920x560 (settings_dialog.dart:90-92). The default
+/// 800x600 test surface squeezes it ~160px narrower than it is ever drawn, so
+/// the header had no room the real dialog has: adding the fourth tab
+/// (Appearance, round 4) tipped the tab bar into a 17px overflow HERE while
+/// the shipped dialog at 920 has ~880px of header for ~463px of tabs.
+///
+/// Sizing the surface to fit is therefore a correction to the instrument, not
+/// a concession: every assertion below is unchanged, and they now measure the
+/// dialog at a width it is actually rendered at.
+Future<void> _useDialogSizedSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(1200, 800));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
 Future<void> pumpDialog(WidgetTester tester, AppState state) async {
+  await _useDialogSizedSurface(tester);
   await tester.pumpWidget(
     ChangeNotifierProvider<AppState>.value(
       value: state,
@@ -20,6 +35,7 @@ Future<void> pumpDialog(WidgetTester tester, AppState state) async {
 }
 
 Future<void> pumpDialogViaShowDialog(WidgetTester tester, AppState state) async {
+  await _useDialogSizedSurface(tester);
   await tester.pumpWidget(
     ChangeNotifierProvider<AppState>.value(
       value: state,

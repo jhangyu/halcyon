@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart' show ThemeMode;
+
 import '../models/shortcut_bindings.dart';
 import '../services/image_pipeline/retention_policy.dart';
 import '../services/library/photo_export_service.dart';
+import '../views/layout/layout_theme.dart' show LayoutThemeId;
 
 /// Everything the settings panel can change, captured when it opens.
 ///
@@ -9,6 +12,8 @@ import '../services/library/photo_export_service.dart';
 /// persisted prefs, since every setter writes through.
 class SettingsSnapshot {
   const SettingsSnapshot({
+    required this.themeMode,
+    required this.layoutThemeId,
     required this.autoAdvance,
     required this.overwriteExisting,
     required this.decodeLaneWidth,
@@ -18,6 +23,11 @@ class SettingsSnapshot {
     required this.retentionTierOverride,
     required this.shortcuts,
   });
+
+  /// Appearance applies live like every other setting, so Cancel has to be
+  /// able to put both of these back (frozen spec section 7).
+  final ThemeMode themeMode;
+  final LayoutThemeId layoutThemeId;
 
   final bool autoAdvance;
   final bool overwriteExisting;

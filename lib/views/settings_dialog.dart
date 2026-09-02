@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../providers/settings_snapshot.dart';
 import '../services/image_pipeline/retention_policy.dart';
+import 'settings_dialog/appearance_tab.dart';
 import 'settings_dialog/export_tab.dart';
 import 'settings_dialog/performance_memory_tab.dart';
 import 'settings_dialog/settings_primitives.dart';
@@ -80,6 +81,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
     final t = HalcyonTokens.of(context);
     final state = context.watch<AppState>();
 
+    return SettingsResetScope(
+      // Reset is the ONE path that must not be reverted on dismissal
+      // (frozen spec section 7). It sets this flag before popping; without
+      // it, dispose() would restore the pre-reset snapshot and silently undo
+      // the reset the user just confirmed.
+      markCommitted: () => _committed = true,
+      child: _dialog(t, state),
+    );
+  }
+
+  Widget _dialog(HalcyonTokens t, AppState state) {
     return Dialog(
       backgroundColor: t.dialog,
       shape: RoundedRectangleBorder(
@@ -105,7 +117,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       ),
                       child: switch (_tab) {
                         0 => const PerformanceMemoryTab(),
-                        1 => const ExportTab(),
+                        1 => const AppearanceTab(),
+                        2 => const ExportTab(),
                         _ => const ShortcutsTab(),
                       },
                     ),
@@ -170,9 +183,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
             ),
             padding: const EdgeInsets.only(bottom: 14),
             child: SettingsTabBar(
-              labels: const ['Performance & Memory', 'Export', 'Shortcuts'],
+              labels: const [
+                'Performance & Memory',
+                'Appearance',
+                'Export',
+                'Shortcuts',
+              ],
               keys: const [
                 Key('settingsTab.performanceMemory'),
+                Key('settingsTab.appearance'),
                 Key('settingsTab.export'),
                 Key('settingsTab.shortcuts'),
               ],
