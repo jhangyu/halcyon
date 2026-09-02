@@ -67,8 +67,8 @@ void main() {
   // points at the TIFF sibling instead, to prove the item getter -- not the
   // static ranking -- decides.
   test(
-    'F3: exportStarred fetches from item.bestFileToLoad (the scan-time '
-    'resolved sibling), not the static extension-only ranking',
+    'TC-657 F3: exportStarred fetches from item.bestFileToLoad (the '
+    'scan-time resolved sibling), not the static extension-only ranking',
     () async {
       final destDir = Directory(p.join(tempDir.path, 'out'));
       await destDir.create();

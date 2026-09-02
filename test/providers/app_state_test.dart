@@ -483,7 +483,7 @@ void main() {
     // the branch actually taken -- `dir != null` also gates it. Feedback
     // must reflect what actually ran, not just the intent flag.
     test(
-      'F8: recycled intent with no current folder falls back to the '
+      'TC-658 F8: recycled intent with no current folder falls back to the '
       'direct-delete branch, and the result says so',
       () async {
         final trashed = <String>[];
