@@ -6,11 +6,13 @@ import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/common/app_actions_menu.dart';
 import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
+import 'package:halcyon_flutter/views/settings_dialog.dart';
 
-/// White-box checks on the overflow menu that was extracted from
-/// SidebarView (T4). The interactive value-routing tests (TC-055, the export
-/// path) stay in sidebar_view_test.dart against the re-exported constants;
-/// this file owns the floating-panel geometry and the row roster.
+/// White-box checks on the overflow menu that was extracted from the old
+/// per-list sidebar widget (T4). The interactive value-routing tests
+/// (TC-055, the export path) live in this file too, against the
+/// re-exported constants; this file also owns the floating-panel geometry
+/// and the row roster.
 ///
 /// TC numbering: user ruled a full +7 shift of the gallery block — gallery
 /// TC-487..522 maps to TC-494..529, so this task's width-constraint case is
@@ -65,8 +67,8 @@ void main() {
     // dropdown underneath it.
     expect(button.constraints, const BoxConstraints.tightFor(width: 246));
     expect(button.position, PopupMenuPosition.over);
-    // Default offset: the extracted menu must not shift SidebarView's panel —
-    // the old sidebar menu floated over the glyph at Offset.zero.
+    // Default offset: the extracted menu must not shift the old sidebar's
+    // panel — the old sidebar menu floated over the glyph at Offset.zero.
     expect(button.offset, Offset.zero);
   });
 
@@ -80,6 +82,66 @@ void main() {
     final button = menuButton(tester);
     expect(button.offset, const Offset(98, 0));
   });
+
+  testWidgets(
+    'TC-055 onSelected with the shared rename constant opens the dialog',
+    (tester) async {
+      // Ported from sidebar_view_test.dart:206-224 (T11): the interactive
+      // value-routing behavior itself, now against AppActionsMenu directly.
+      final state = bareState();
+      await pumpMenu(tester, state);
+
+      final button = menuButton(tester);
+      button.onSelected!(kRenameMenuValue);
+      await tester.pump();
+
+      expect(find.byType(RenameDialog), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'onSelected with the shared settings constant opens the dialog',
+    (tester) async {
+      final state = bareState();
+      await pumpMenu(tester, state);
+
+      final button = menuButton(tester);
+      button.onSelected!(kSettingsMenuValue);
+      await tester.pump();
+
+      expect(find.byType(SettingsDialog), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'TC-226 (updated) the overflow menu exposes exactly the seven actions',
+    (tester) async {
+      // Ported from sidebar_view_test.dart:340-352. Row count moved from
+      // five to seven with R2's Open Folder + Rename by EXIF additions —
+      // see the "menu roster" test below for the ordered roster, and the
+      // T11 commit message for the count-change note.
+      expect(
+        {
+          kOpenFolderMenuValue,
+          kCopyMenuValue,
+          kMoveMenuValue,
+          kThumbnailStarredMenuValue,
+          kRenameMenuValue,
+          kDeleteMenuValue,
+          kSettingsMenuValue,
+        },
+        {
+          'openFolder',
+          'copy',
+          'move',
+          'thumbnailStarred',
+          'rename',
+          'delete',
+          'settings',
+        },
+      );
+    },
+  );
 
   testWidgets('the menu roster is Open Folder + the six current rows',
       (tester) async {

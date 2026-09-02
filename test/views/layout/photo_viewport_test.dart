@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
-import 'package:halcyon_flutter/views/photo_action_bar.dart';
 import 'package:halcyon_flutter/views/layout/common/photo_viewport.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:provider/provider.dart';
@@ -156,11 +155,10 @@ void main() {
     },
   );
 
-  testWidgets(
-    'PhotoViewport has no floating action bar inside the viewport',
-    (tester) async {
-      await pumpViewport(tester);
-      expect(find.byType(PhotoActionBar), findsNothing);
-    },
-  );
+  // Removed (T11): 'PhotoViewport has no floating action bar inside the
+  // viewport', which asserted a floating-action-bar widget type findsNothing.
+  // That old floating-bar class is deleted in this same task (retired in
+  // favor of the gallery gutter's marks row), so there is no longer a class
+  // this negative-space check could catch a regression of — a check against a
+  // symbol that no longer exists can never fail, which is not evidence.
 }

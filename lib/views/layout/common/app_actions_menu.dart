@@ -12,7 +12,7 @@ import '../../theme_tokens.dart';
 /// Menu-item value for "Open Folder".
 const String kOpenFolderMenuValue = 'openFolder';
 
-/// Shared menu-item value for "Thumbnail Starred...", referenced by
+/// Shared menu-item value for "Thumbnail Starred…", referenced by
 /// itemBuilder, onSelected, AND the widget test so the two ends of the
 /// PopupMenuButton can never drift apart — this codebase has already shipped
 /// a bug where a hardcoded value/onSelected string mismatch silently
@@ -126,7 +126,7 @@ class AppActionsMenu extends StatelessWidget {
             value: kCopyMenuValue,
             enabled: hasStarred,
             child: Text(
-              'Copy Starred...',
+              'Copy Starred…',
               style: TextStyle(color: iconColor),
             ),
           ),
@@ -134,7 +134,7 @@ class AppActionsMenu extends StatelessWidget {
             value: kMoveMenuValue,
             enabled: hasStarred,
             child: Text(
-              'Move Starred...',
+              'Move Starred…',
               style: TextStyle(color: iconColor),
             ),
           ),
@@ -142,7 +142,7 @@ class AppActionsMenu extends StatelessWidget {
             value: kThumbnailStarredMenuValue,
             enabled: hasStarred,
             child: Text(
-              'Thumbnail Starred...',
+              'Thumbnail Starred…',
               style: TextStyle(color: iconColor),
             ),
           ),
@@ -151,7 +151,7 @@ class AppActionsMenu extends StatelessWidget {
             value: kRenameMenuValue,
             enabled: state.items.isNotEmpty,
             child: Text(
-              'Rename by EXIF...',
+              'Rename by EXIF…',
               style: TextStyle(color: iconColor),
             ),
           ),
@@ -171,7 +171,7 @@ class AppActionsMenu extends StatelessWidget {
               children: [
                 Icon(Icons.settings, size: 18, color: leadingIconColor),
                 const SizedBox(width: 8),
-                Text('Options...', style: TextStyle(color: iconColor)),
+                Text('Options…', style: TextStyle(color: iconColor)),
               ],
             ),
           ),

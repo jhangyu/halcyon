@@ -9,8 +9,9 @@ import '../../../services/image_pipeline/image_preload_controller.dart';
 import '../../zoom_controller.dart';
 
 /// The photo itself: empty state, spinner, unreadable state or the
-/// InteractiveViewer. Extracted from `MainDetailView` (T2 of the gallery
-/// layout plan) so a layout theme can position it without redrawing it.
+/// InteractiveViewer. Extracted from the old per-detail-view photo widget
+/// (T2 of the gallery layout plan) so a layout theme can position it
+/// without redrawing it.
 class PhotoViewport extends StatefulWidget {
   /// Zoom state, owned by `MainScreen` so it outlives photo switches.
   final ZoomController zoom;

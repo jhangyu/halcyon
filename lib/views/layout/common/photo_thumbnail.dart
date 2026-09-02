@@ -8,9 +8,10 @@ import '../../../services/image_pipeline/raw_pixels_image.dart';
 /// A single gallery thumbnail chip: `width` x `height` logical pixels, the
 /// decoded longest edge capped at `size * devicePixelRatio`, `fit: cover`.
 ///
-/// Extracted from `SidebarView` (T3 of the gallery layout plan) so a layout
-/// theme can render a strip without redrawing it. The placeholder box that
-/// `SidebarView` drew before a payload landed is a `null` [payload] here.
+/// Extracted from the old per-list-row thumbnail widget (T3 of the gallery
+/// layout plan) so a layout theme can render a strip without redrawing it.
+/// The placeholder box that widget drew before a payload landed is a
+/// `null` [payload] here.
 ///
 /// The SOURCE-PAYLOAD BOUND (frozen — do not raise without T12):
 ///

@@ -8,8 +8,8 @@ import 'package:flutter/widgets.dart';
 /// layer — the keyboard entry point in `MainScreen` calls
 /// [stepZoomIn]/[stepZoomOut] directly on this object.
 ///
-/// Ownership: created and disposed by `_MainScreenState`, NOT by
-/// `MainDetailView`. `MainDetailView` is rebuilt on photo switches, so a
+/// Ownership: created and disposed by `_MainScreenState`, NOT by the photo
+/// viewport widget. The viewport is rebuilt on photo switches, so a
 /// controller owned by it would lose the zoom level every time the user
 /// pressed left/right — zoom retention across photo switches is existing
 /// behaviour that must survive (see gotcha G-010 and the related handover

@@ -23,8 +23,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final FocusNode _focusNode = FocusNode();
 
-  // Owned here, not by MainDetailView: the detail view is rebuilt on photo
-  // switches and the zoom level must survive those (handover §11).
+  // Owned here, not by the photo viewport widget: the viewport is rebuilt
+  // on photo switches and the zoom level must survive those (handover §11).
   final ZoomController _zoom = ZoomController();
 
   @override
