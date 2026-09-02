@@ -1,6 +1,7 @@
-// TC-651 / TC-652 (registered in docs/sop/unit_test.md at merge; renumbered
-// from the provisional TC-550/551 because a parallel session had already
-// burned the TC-54x/55x block. See docs/logs/2026-09-02/h3-routing-findings.md).
+// TC-718 / TC-719 (registered in docs/sop/unit_test.md; renumbered twice --
+// provisional TC-550/551 collided with a parallel layout session, and the
+// replacement TC-651/652 collided with an untracked theme session holding
+// TC-648..665. See docs/logs/2026-09-02/h3-routing-findings.md).
 //
 // Field defect (2026-09-02, confirmed from a user log): a photo whose content
 // probe measured a perfectly usable embedded preview -- verdict `cheap` -- was
@@ -66,7 +67,7 @@ void main() {
   }
 
   test(
-    'TC-651 a CHEAP item produced on the serial lane asks the LOADER for its '
+    'TC-718 a CHEAP item produced on the serial lane asks the LOADER for its '
     'embedded preview and never runs a RAW decode',
     () async {
       final path = await writeSyntheticDng(
@@ -127,7 +128,7 @@ void main() {
   );
 
   test(
-    'TC-652 an EXPENSIVE item on the serial lane still RAW-decodes exactly '
+    'TC-719 an EXPENSIVE item on the serial lane still RAW-decodes exactly '
     'once (the fix must not disable the expensive route)',
     () async {
       // 100px candidate against a 400px viewport => verdict `expensive`.

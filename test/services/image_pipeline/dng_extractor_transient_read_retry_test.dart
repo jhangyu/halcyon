@@ -6,7 +6,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extrac
 import '../../support/flaky_io.dart';
 import '../../support/synthetic_dng.dart';
 
-/// TC-650 — a TRANSIENT read failure must not be reported as "no embedded
+/// TC-717 — a TRANSIENT read failure must not be reported as "no embedded
 /// preview".
 ///
 /// Root cause (docs/logs/2026-09-02/h1-pipeline-race-findings.md, refined by
@@ -76,7 +76,7 @@ void main() {
     expect(run.opens, 1, reason: 'the happy path must stay a single open');
   });
 
-  test('TC-650a: a THROWN read error is retried, not reported as "no preview"',
+  test('TC-717a: a THROWN read error is retried, not reported as "no preview"',
       () async {
     final run = await probeWithFaults(
       await writePreviewBearingDng(),
@@ -93,7 +93,7 @@ void main() {
     expect(run.opens, greaterThan(1), reason: 'the retry must re-open the file');
   });
 
-  test('TC-650d: a SHORT read (no exception) on the preview strip is retried',
+  test('TC-717d: a SHORT read (no exception) on the preview strip is retried',
       () async {
     // The exact shape h2 measured on the user's volume: the multi-MB strip
     // comes back short, nothing throws, and the walker calls the container's
@@ -117,7 +117,7 @@ void main() {
     expect(run.opens, greaterThan(1));
   });
 
-  test('TC-650b: probeContent measurement survives a transient read failure',
+  test('TC-717b: probeContent measurement survives a transient read failure',
       () async {
     // probeContent feeds PrefetchScheduler.classify, i.e. the cheap-vs-RAW
     // verdict memoised first-writer-wins for the whole folder. A candidate
@@ -139,7 +139,7 @@ void main() {
     );
   });
 
-  test('TC-650c: a genuinely preview-less container is NOT retried', () async {
+  test('TC-717c: a genuinely preview-less container is NOT retried', () async {
     // The negative half. AD-033 is untouched: a 320px preview stays rejected
     // against the frozen 2800 floor, and that rejection is FINAL rather than
     // retried three times.
