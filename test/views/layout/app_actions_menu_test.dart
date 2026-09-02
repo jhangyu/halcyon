@@ -100,6 +100,25 @@ void main() {
     expect(button.offset, Offset.zero);
   });
 
+  testWidgets(
+      'TC-549 the built-in PopupMenuItem ink is suppressed above the button '
+      'so it cannot double-paint over the custom row well',
+      (tester) async {
+    await pumpMenu(tester, bareState());
+
+    // AppActionsMenu wraps PopupMenuButton in a Theme with splash/highlight
+    // zeroed — otherwise PopupMenuItem's own InkWell paints a ripple on top
+    // of _MenuRow's hand-drawn hover/press background.
+    final theme = tester.widget<Theme>(
+      find.ancestor(
+        of: find.byType(PopupMenuButton<String>),
+        matching: find.byType(Theme),
+      ).first,
+    );
+    expect(theme.data.splashColor, Colors.transparent);
+    expect(theme.data.highlightColor, Colors.transparent);
+  });
+
   testWidgets('a caller-supplied offset is passed through to the floating panel',
       (tester) async {
     // The gallery column (T6) supplies Offset(98 - columnWidth, 0) so the

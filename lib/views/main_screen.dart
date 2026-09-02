@@ -49,15 +49,16 @@ class _MainScreenState extends State<MainScreen> {
       },
       child: Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            _buildKeyboardShortcutHandler(
-              context: context,
-              child: _buildSurface(context),
-            ),
-            const StatusLine(),
-          ],
+        // No standalone StatusLine here: `_buildSurface` already threads one
+        // through `MainSurface.statusOverlay`, which the active layout theme
+        // (gallery_desktop.dart) positions per the mockup (`Positioned(left:
+        // 106, bottom: 20)`). A second bare `const StatusLine()` used to sit
+        // in this Stack too — both are independently-stateful widgets that
+        // listen to the same AppState toast stream, so any status message
+        // rendered twice, overlapping.
+        body: _buildKeyboardShortcutHandler(
+          context: context,
+          child: _buildSurface(context),
         ),
       ),
     );
@@ -115,7 +116,14 @@ class _MainScreenState extends State<MainScreen> {
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
         final state = context.read<AppState>();
-        final action = state.shortcutBindings.actionFor(event.logicalKey);
+        // Chord-aware: openFolder (Cmd+O / Ctrl+O, see ShortcutBindings.
+        // actionForChord) is the one action that REQUIRES a modifier: every
+        // other action must NOT fire while a modifier is held.
+        final action = state.shortcutBindings.actionForChord(
+          event.logicalKey,
+          meta: HardwareKeyboard.instance.isMetaPressed,
+          control: HardwareKeyboard.instance.isControlPressed,
+        );
         if (action == null) return KeyEventResult.ignored;
         switch (action) {
           case ShortcutAction.previousPhoto:
@@ -136,6 +144,8 @@ class _MainScreenState extends State<MainScreen> {
             _zoom.stepZoomOut();
           case ShortcutAction.toggleRecycleMode:
             state.toggleRecycleMode();
+          case ShortcutAction.openFolder:
+            state.openFolder();
         }
         return KeyEventResult.handled;
       },

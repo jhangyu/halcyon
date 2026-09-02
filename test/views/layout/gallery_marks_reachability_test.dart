@@ -204,7 +204,7 @@ void main() {
         const Offset(40, 0),
       );
       await tester.pump();
-      final column = tester.getSize(find.byKey(kGalleryColumnShadowKey));
+      final column = tester.getSize(find.byKey(kGalleryColumnSlotKey));
       expect(
         column.width,
         kGalleryColumnMinWidth + 40,
@@ -224,7 +224,7 @@ void main() {
         const Offset(30, 0),
       );
       await tester.pump();
-      final column = tester.getSize(find.byKey(kGalleryColumnShadowKey));
+      final column = tester.getSize(find.byKey(kGalleryColumnSlotKey));
       expect(
         column.width,
         kGalleryColumnMinWidth + 30,
@@ -259,7 +259,7 @@ void main() {
         await tester.pump();
 
         expect(
-          tester.getSize(find.byKey(kGalleryColumnShadowKey)).width,
+          tester.getSize(find.byKey(kGalleryColumnSlotKey)).width,
           kGalleryColumnMinWidth + 60,
           reason:
               'a 60px drag in ${step}px steps must move the gutter exactly '
@@ -283,7 +283,7 @@ void main() {
       await gesture.up();
       await tester.pump();
       expect(
-        tester.getSize(find.byKey(kGalleryColumnShadowKey)).width,
+        tester.getSize(find.byKey(kGalleryColumnSlotKey)).width,
         kGalleryColumnMinWidth + 30,
         reason: '100 x 0.3px == 30px, however small each individual delta is',
       );

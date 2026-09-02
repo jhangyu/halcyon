@@ -25,6 +25,26 @@ void main() {
     });
   });
 
+  group('PhotoItem.displayName', () {
+    test('TC-547 hides the extension for a RAW+JPG group', () {
+      final item = PhotoItem(
+        id: 'IMG_0001',
+        files: [File('/tmp/IMG_0001.arw'), File('/tmp/IMG_0001.jpg')],
+      );
+
+      expect(item.displayName, 'IMG_0001');
+    });
+
+    test('TC-548 shows the extension for a single file', () {
+      final item = PhotoItem(
+        id: 'DSC_4471',
+        files: [File('/tmp/DSC_4471.NEF')],
+      );
+
+      expect(item.displayName, 'DSC_4471.NEF');
+    });
+  });
+
   group('SupportedPhotoFormats', () {
     test('central registry includes RW2 and excludes unsupported files', () {
       expect(

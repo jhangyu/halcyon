@@ -98,31 +98,24 @@ void main() {
     }
   });
 
-  group('TC-506 float shadow toggles at the 90px threshold', () {
-    testWidgets('no shadow at exactly 90', (tester) async {
+  group('TC-506 the gutter never paints a float shadow (removed 2026-09-02)', () {
+    testWidgets('no shadow key at rest (width 90)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       await pumpDesktop(tester, surface: minimalSurface());
 
-      final shadowDecor = tester.widget<DecoratedBox>(
-        find.byKey(kGalleryColumnShadowKey),
-      );
-      expect((shadowDecor.decoration as BoxDecoration).boxShadow, isNull);
+      expect(find.byKey(kGalleryColumnShadowKey), findsNothing);
       await tester.binding.setSurfaceSize(null);
     });
 
-    testWidgets('shadow present above 90', (tester) async {
+    testWidgets('no shadow key while dragged wide (width 120)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       await pumpDesktop(tester, surface: minimalSurface());
 
       await _dragColumnTo(tester, 120);
 
-      final shadowDecor = tester.widget<DecoratedBox>(
-        find.byKey(kGalleryColumnShadowKey),
-      );
-      final shadows =
-          (shadowDecor.decoration as BoxDecoration).boxShadow!;
-      expect(shadows, isNotEmpty);
-      expect(shadows.first.offset, const Offset(12, 0));
+      expect(find.byKey(kGalleryColumnShadowKey), findsNothing);
+      // The slot itself still resizes with the drag — only the shadow is gone.
+      expect(_currentWidth(tester), closeTo(120, 0.5));
       await tester.binding.setSurfaceSize(null);
     });
   });
@@ -195,13 +188,19 @@ void main() {
   });
 }
 
-/// The column's resize handle sits at the right edge of the float-shadow
-/// wrapper (which is as wide as the column). The handle is a 5px-wide
-/// full-height hit area at that edge (GalleryColumn T7), so its centre is a
-/// couple of px in from the right edge, near the top.
+/// A key that no widget in the tree carries any more (the shadow wrapper was
+/// removed 2026-09-02, TC-506); `find.byKey` on it is the "shadow is gone"
+/// assertion. Kept test-local rather than importing a removed source symbol.
+const ValueKey<String> kGalleryColumnShadowKey =
+    ValueKey<String>('gallery.column.shadow');
+
+/// The column's resize handle sits at the right edge of the gutter slot
+/// (which is as wide as the column). The handle is a 5px-wide full-height hit
+/// area at that edge (GalleryColumn T7), so its centre is a couple of px in
+/// from the right edge, near the top.
 Offset _handleStart(WidgetTester tester) {
-  final topLeft = tester.getTopLeft(find.byKey(kGalleryColumnShadowKey));
-  final width = tester.getSize(find.byKey(kGalleryColumnShadowKey)).width;
+  final topLeft = tester.getTopLeft(find.byKey(kGalleryColumnSlotKey));
+  final width = tester.getSize(find.byKey(kGalleryColumnSlotKey)).width;
   return topLeft + Offset(width - 2.5, 50);
 }
 
@@ -252,5 +251,5 @@ Future<void> _dragColumnTo(WidgetTester tester, double target) async {
 }
 
 double _currentWidth(WidgetTester tester) {
-  return tester.getSize(find.byKey(kGalleryColumnShadowKey)).width;
+  return tester.getSize(find.byKey(kGalleryColumnSlotKey)).width;
 }

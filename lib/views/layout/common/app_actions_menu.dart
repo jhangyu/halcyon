@@ -120,79 +120,91 @@ class AppActionsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: Icon(Icons.more_horiz, size: 20, color: iconColor),
-      tooltip: 'Actions',
-      padding: EdgeInsets.zero,
-      // Float over the photo, anchored at the `⋮` glyph (mockup frame 2:
-      // `.menu {position:absolute;left:98px;bottom:14px;width:246px}`),
-      // shifted by the caller-supplied [offset] (default zero).
-      position: PopupMenuPosition.over,
-      offset: offset,
-      constraints: const BoxConstraints.tightFor(width: 246),
-      elevation: 24,
-      color: Theme.of(context).colorScheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      menuPadding: const EdgeInsets.all(6),
-      onSelected: (value) => _onSelected(context, value),
-      itemBuilder: (context) {
-        final state = context.read<AppState>();
-        final hasStarred = state.items.any(
-          (i) => i.status == PhotoStatus.starred,
-        );
-        final hasTrashed = state.items.any(
-          (i) => i.status == PhotoStatus.trashed,
-        );
+    // [PopupMenuItem] wraps every row in its own [InkWell], whose default
+    // splash/highlight paints on TOP of [_MenuRow]'s own hover/press well
+    // (`--sunk` / `--accent-wash`), producing a visible double overlay. Row
+    // state is already fully driven by [_MenuRowState] via MouseRegion /
+    // Listener, so the built-in ink is pure noise here — suppressed by
+    // zeroing splashColor/highlightColor for the menu's subtree only.
+    return Theme(
+      data: Theme.of(context).copyWith(
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+      ),
+      child: PopupMenuButton<String>(
+        icon: Icon(Icons.more_horiz, size: 20, color: iconColor),
+        tooltip: 'Actions',
+        padding: EdgeInsets.zero,
+        // Float over the photo, anchored at the `⋮` glyph (mockup frame 2:
+        // `.menu {position:absolute;left:98px;bottom:14px;width:246px}`),
+        // shifted by the caller-supplied [offset] (default zero).
+        position: PopupMenuPosition.over,
+        offset: offset,
+        constraints: const BoxConstraints.tightFor(width: 246),
+        elevation: 24,
+        color: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        menuPadding: const EdgeInsets.all(6),
+        onSelected: (value) => _onSelected(context, value),
+        itemBuilder: (context) {
+          final state = context.read<AppState>();
+          final hasStarred = state.items.any(
+            (i) => i.status == PhotoStatus.starred,
+          );
+          final hasTrashed = state.items.any(
+            (i) => i.status == PhotoStatus.trashed,
+          );
 
-        return [
-          _row(
-            value: kOpenFolderMenuValue,
-            icon: Icons.folder_open,
-            label: 'Open Folder',
-            shortcut: openFolderShortcutLabel(),
-          ),
-          _divider,
-          _row(
-            value: kCopyMenuValue,
-            icon: Icons.copy_outlined,
-            label: 'Copy Starred…',
-            enabled: hasStarred,
-          ),
-          _row(
-            value: kMoveMenuValue,
-            icon: Icons.arrow_forward,
-            label: 'Move Starred…',
-            enabled: hasStarred,
-          ),
-          _row(
-            value: kThumbnailStarredMenuValue,
-            icon: Icons.image_outlined,
-            label: 'Thumbnail Starred…',
-            enabled: hasStarred,
-          ),
-          _divider,
-          _row(
-            value: kRenameMenuValue,
-            icon: Icons.edit_outlined,
-            label: 'Rename by EXIF…',
-            enabled: state.items.isNotEmpty,
-          ),
-          _divider,
-          _row(
-            value: kDeleteMenuValue,
-            icon: Icons.delete_outline,
-            label: state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
-            enabled: hasTrashed,
-            danger: true,
-          ),
-          _divider,
-          _row(
-            value: kSettingsMenuValue,
-            icon: Icons.settings_outlined,
-            label: 'Options…',
-          ),
-        ];
-      },
+          return [
+            _row(
+              value: kOpenFolderMenuValue,
+              icon: Icons.folder_open,
+              label: 'Open Folder',
+              shortcut: openFolderShortcutLabel(),
+            ),
+            _divider,
+            _row(
+              value: kCopyMenuValue,
+              icon: Icons.copy_outlined,
+              label: 'Copy Starred…',
+              enabled: hasStarred,
+            ),
+            _row(
+              value: kMoveMenuValue,
+              icon: Icons.arrow_forward,
+              label: 'Move Starred…',
+              enabled: hasStarred,
+            ),
+            _row(
+              value: kThumbnailStarredMenuValue,
+              icon: Icons.image_outlined,
+              label: 'Thumbnail Starred…',
+              enabled: hasStarred,
+            ),
+            _divider,
+            _row(
+              value: kRenameMenuValue,
+              icon: Icons.edit_outlined,
+              label: 'Rename by EXIF…',
+              enabled: state.items.isNotEmpty,
+            ),
+            _divider,
+            _row(
+              value: kDeleteMenuValue,
+              icon: Icons.delete_outline,
+              label: state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
+              enabled: hasTrashed,
+              danger: true,
+            ),
+            _divider,
+            _row(
+              value: kSettingsMenuValue,
+              icon: Icons.settings_outlined,
+              label: 'Options…',
+            ),
+          ];
+        },
+      ),
     );
   }
 }

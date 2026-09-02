@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +24,18 @@ String _conflictSentence(LogicalKeyboardKey key, List<ShortcutAction> actions) {
   }
   return '"${keyLabelFor(key)}" is bound twice — $joined conflict. '
       'The first listed action wins.';
+}
+
+/// [ShortcutAction.openFolder] always requires a modifier
+/// ([ShortcutActionMeta.requiresModifier]) that the recording UI never lets
+/// the user change (only the base key is recordable) — the chip must show
+/// that modifier or the row would misleadingly read as a bare, unmodified
+/// key. Cmd on macOS, Ctrl elsewhere, matching the two always-live chords in
+/// [ShortcutBindings.actionForChord].
+String _chipLabel(ShortcutAction action, ShortcutBindings bindings) {
+  final key = keyLabelFor(bindings.keyFor(action));
+  if (!action.requiresModifier) return key;
+  return Platform.isMacOS ? '⌘$key' : 'Ctrl+$key';
 }
 
 /// D1's Shortcuts tab (§1.4.4): 7 remappable rows in 2 columns, a conflict
@@ -239,7 +253,7 @@ class _ShortcutsTabState extends State<ShortcutsTab> {
                           )
                         : settingsKeyChip(
                             t,
-                            keyLabelFor(bindings.keyFor(action)),
+                            _chipLabel(action, bindings),
                             conflict: conflict,
                           ),
                     settingsSmallButton(

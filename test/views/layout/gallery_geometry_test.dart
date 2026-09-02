@@ -73,11 +73,11 @@ Future<void> pumpGalleryDesktop(
 }
 
 double _currentWidth(WidgetTester tester) =>
-    tester.getSize(find.byKey(kGalleryColumnShadowKey)).width;
+    tester.getSize(find.byKey(kGalleryColumnSlotKey)).width;
 
 Offset _handleStart(WidgetTester tester) {
-  final topLeft = tester.getTopLeft(find.byKey(kGalleryColumnShadowKey));
-  final width = tester.getSize(find.byKey(kGalleryColumnShadowKey)).width;
+  final topLeft = tester.getTopLeft(find.byKey(kGalleryColumnSlotKey));
+  final width = tester.getSize(find.byKey(kGalleryColumnSlotKey)).width;
   return topLeft + Offset(width - 2.5, 50);
 }
 

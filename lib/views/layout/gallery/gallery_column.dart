@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show precisionErrorTolerance;
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
@@ -101,8 +102,89 @@ class GalleryColumn extends StatefulWidget {
   State<GalleryColumn> createState() => _GalleryColumnState();
 }
 
+/// Resolves the offset the filmstrip should sit at, given the geometry the
+/// layout pass has just measured. Returns null to leave the offset alone.
+typedef _AnchorResolver =
+    double? Function(double viewportDimension, double maxScrollExtent);
+
+/// A [ScrollPosition] that can re-anchor itself DURING layout.
+///
+/// This exists because of the resize flicker (TC-556). Dragging the gutter
+/// changes `_rowExtent`, which re-maps every row's pixel position under a
+/// fixed scroll offset; the strip therefore has to be re-anchored on the
+/// selected row on every drag frame. Doing that with a post-frame
+/// `jumpTo` is what produced the flicker: the frame that FIRST shows the new
+/// row extent is painted at the OLD offset (displacing every row by
+/// `row * dExtent` — enough, at row 15, to push the selected chip out of the
+/// viewport entirely) and only the NEXT frame pulls it back. At drag rates
+/// that alternation is the visible flash.
+///
+/// [correctPixels] is the framework's sanctioned answer, and the reason this
+/// is a position subclass rather than a controller call: it may only be used
+/// while layout is in flight, and returning `false` from
+/// [applyContentDimensions] makes the viewport re-run layout with the
+/// corrected offset before anything is painted. The correction therefore
+/// lands in the SAME frame as the geometry change, and no stale frame exists
+/// to be seen. It also gets the REAL `viewportDimension`/`maxScrollExtent`
+/// rather than the previous frame's, so no extent has to be estimated.
+class _AnchoredScrollPosition extends ScrollPositionWithSingleContext {
+  _AnchoredScrollPosition({
+    required super.physics,
+    required super.context,
+    super.oldPosition,
+  });
+
+  /// Consumed by the next layout pass, then cleared. Set on a width change.
+  _AnchorResolver? pendingAnchor;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    final resolve = pendingAnchor;
+    if (resolve != null) {
+      pendingAnchor = null;
+      final target = resolve(viewportDimension, maxScrollExtent);
+      if (target != null) {
+        final clamped = target.clamp(minScrollExtent, maxScrollExtent);
+        if ((clamped - pixels).abs() > precisionErrorTolerance) {
+          correctPixels(clamped);
+          // Not accepted: the viewport lays out again, now at the anchored
+          // offset. `pendingAnchor` is already null, so that second pass
+          // falls through to `super` and settles.
+          return false;
+        }
+      }
+    }
+    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+  }
+}
+
+/// Hands out [_AnchoredScrollPosition]s and keeps a reference to the live one
+/// so the state can arm an anchor for the next layout pass.
+class _AnchoredScrollController extends ScrollController {
+  _AnchoredScrollPosition? _position;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) {
+    return _position = _AnchoredScrollPosition(
+      physics: physics,
+      context: context,
+      oldPosition: oldPosition,
+    );
+  }
+
+  /// Arms a one-shot correction consumed by the next layout pass.
+  void anchorNextLayout(_AnchorResolver resolve) {
+    _position?.pendingAnchor = resolve;
+  }
+}
+
 class _GalleryColumnState extends State<GalleryColumn> {
-  final ScrollController _scrollController = ScrollController();
+  final _AnchoredScrollController _scrollController =
+      _AnchoredScrollController();
   String? _lastSelectedId;
 
   /// The chip fills the strip's content width, so it grows continuously with
@@ -159,6 +241,73 @@ class _GalleryColumnState extends State<GalleryColumn> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant GalleryColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Resizing the gutter changes _rowExtent (chip height scales with
+    // width), which silently re-maps every row's pixel position under a
+    // FIXED scroll offset — the "scroll drifts off the current photo while
+    // dragging" bug. Anchor on the currently-selected row instead: capture
+    // where it sat as a FRACTION of the viewport under the OLD geometry,
+    // then re-derive the offset that puts it at the same fraction under the
+    // NEW geometry. A fraction (not a fixed offset) is what "stays where you
+    // were looking" means when the viewport's own scrollable extent also
+    // changes size.
+    if (oldWidget.width != widget.width) {
+      _anchorSelectedOnWidthChange(oldWidget.width);
+    }
+  }
+
+  void _anchorSelectedOnWidthChange(double oldWidth) {
+    final strip = widget.surface.strip;
+    final selectedId = strip.selectedId;
+    final items = strip.items;
+    if (selectedId == null || items.isEmpty) return;
+    if (!_scrollController.hasClients) return;
+
+    final idx = items.indexWhere((i) => i.id == selectedId);
+    if (idx == -1) return;
+    final row = idx ~/ _columns;
+
+    final oldChipWidth =
+        GalleryColumn.debugChipWidthForWidth?.call(oldWidth) ??
+        math.max(1, oldWidth - 2 * _pad);
+    final oldChipHeight = oldChipWidth / kChipAspect;
+    final oldGap = oldWidth <= 90 ? 6.0 : 8.0;
+    final oldRowExtent = oldChipHeight + oldGap;
+
+    // Anchor on the row's CENTER, not its top edge: the row's height itself
+    // changes with the gutter (the chip scales — TC-543), so a top-anchored
+    // fraction still drifts by roughly half the row-height delta every
+    // resize, compounding over a drag.
+    final oldItemCenter = row * oldRowExtent + oldRowExtent / 2;
+    final oldOffset = _scrollController.offset;
+    final viewportHeight = _scrollController.position.viewportDimension;
+    final fraction = viewportHeight > 0
+        ? (oldItemCenter - oldOffset) / viewportHeight
+        : 0.0;
+
+    // `widget` already reflects the NEW width here (didUpdateWidget runs
+    // after the widget is swapped in but before the new build/layout), so
+    // `_rowExtent` read inside the resolver below is the new geometry.
+    //
+    // The correction is ARMED here and APPLIED inside the coming layout pass
+    // (see [_AnchoredScrollPosition]) rather than deferred to a post-frame
+    // callback. That ordering is the whole fix for the resize flicker
+    // (TC-556): a post-frame jump necessarily paints one frame at the old
+    // offset under the new row extent, and at drag rates that one-frame
+    // displacement — `row * dExtent`, large enough at row 15 to push the
+    // selected chip out of the viewport entirely — IS the flash the user
+    // sees. Correcting during layout means the frame is never painted wrong
+    // in the first place, so there is nothing to hide.
+    _scrollController.anchorNextLayout((viewportDimension, maxScrollExtent) {
+      if (!mounted) return null;
+      final newRowExtent = _rowExtent;
+      final newItemCenter = row * newRowExtent + newRowExtent / 2;
+      return newItemCenter - fraction * viewportDimension;
+    });
   }
 
   /// 200ms `easeInOut` autoscroll keeping the selected chip's row visible,
@@ -294,8 +443,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
             cursor: SystemMouseCursors.resizeColumn,
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onPanUpdate: (details) =>
-                  widget.onWidthDelta(details.delta.dx),
+              onPanUpdate: (details) => widget.onWidthDelta(details.delta.dx),
               child: _buildGrip(context),
             ),
           ),
@@ -373,10 +521,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
               itemBuilder: (context, row) {
                 _noteBuiltIndex(row);
                 final first = row * _columns;
-                final last = math.min(
-                  first + _columns - 1,
-                  items.length - 1,
-                );
+                final last = math.min(first + _columns - 1, items.length - 1);
                 return Row(
                   key: ValueKey<String>('gallery-row-$row'),
                   // One column, centred (user ruling 2026-09-02).
@@ -405,58 +550,59 @@ class _GalleryColumnState extends State<GalleryColumn> {
   ) {
     final colors = Theme.of(context).colorScheme;
     final isSelected = item.id == strip.selectedId;
-    return Container(
-      key: ValueKey<String>('gallery-chip-${item.id}'),
-      width: _chipWidth,
-      height: _chipHeight,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(2),
-        // Selected: 2px primary outline; unselected: 1px outlineVariant.
-        border: Border.all(
-          color: isSelected ? colors.primary : colors.outlineVariant,
-          width: isSelected ? 2 : 1,
+    return GestureDetector(
+      key: ValueKey<String>('gallery-chip-tap-${item.id}'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => strip.onSelect(item.id),
+      child: Container(
+        key: ValueKey<String>('gallery-chip-${item.id}'),
+        width: _chipWidth,
+        height: _chipHeight,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(2),
+          // Selected: 2px primary outline; unselected: 1px outlineVariant.
+          border: Border.all(
+            color: isSelected ? colors.primary : colors.outlineVariant,
+            width: isSelected ? 2 : 1,
+          ),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          // One constant bitmap request ([kChipDecodeWidth]) scaled to fill
-          // the chip: dragging the gutter re-lays-out but never re-decodes,
-          // and since the chip can never exceed 200 the picture is only ever
-          // scaled DOWN. `cover` keeps the 3:2 framing exact.
-          Positioned.fill(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: kChipDecodeWidth,
-                height: kChipDecodeWidth / kChipAspect,
-                child: PhotoThumbnail(
-                  payload: strip.payloadFor(item.id),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            // One constant bitmap request ([kChipDecodeWidth]) scaled to fill
+            // the chip: dragging the gutter re-lays-out but never re-decodes,
+            // and since the chip can never exceed 200 the picture is only ever
+            // scaled DOWN. `cover` keeps the 3:2 framing exact.
+            Positioned.fill(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
                   width: kChipDecodeWidth,
                   height: kChipDecodeWidth / kChipAspect,
-                  borderRadius: 0,
+                  child: PhotoThumbnail(
+                    payload: strip.payloadFor(item.id),
+                    width: kChipDecodeWidth,
+                    height: kChipDecodeWidth / kChipAspect,
+                    borderRadius: 0,
+                  ),
                 ),
               ),
             ),
-          ),
-          // Status dot 6x6 at left: 4, bottom: 4 (mockup `.dot`).
-          if (item.status != PhotoStatus.unmarked)
-            Positioned(
-              left: 4,
-              bottom: 4,
-              child: _statusDot(context, item, colors),
-            ),
-        ],
+            // Status dot 6x6 at left: 4, bottom: 4 (mockup `.dot`).
+            if (item.status != PhotoStatus.unmarked)
+              Positioned(
+                left: 4,
+                bottom: 4,
+                child: _statusDot(context, item, colors),
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _statusDot(
-    BuildContext context,
-    PhotoItem item,
-    ColorScheme colors,
-  ) {
+  Widget _statusDot(BuildContext context, PhotoItem item, ColorScheme colors) {
     final color = switch (item.status) {
       PhotoStatus.starred => GalleryPalette.of(context).star,
       PhotoStatus.trashed => colors.error.withValues(alpha: 0.8),
@@ -488,9 +634,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: colors.outlineVariant),
-        ),
+        border: Border(top: BorderSide(color: colors.outlineVariant)),
       ),
       padding: const EdgeInsets.only(top: 9, right: 8, bottom: 7, left: 8),
       child: Text(
@@ -608,9 +752,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
 
   Widget _separator(BuildContext context) {
     // 22x1 at <=90px, 1x20 above it (mockup `.marks .sep`).
-    final dimensions = _dragged
-        ? const Size(1, 20)
-        : const Size(22, 1);
+    final dimensions = _dragged ? const Size(1, 20) : const Size(22, 1);
     return Container(
       width: dimensions.width,
       height: dimensions.height,

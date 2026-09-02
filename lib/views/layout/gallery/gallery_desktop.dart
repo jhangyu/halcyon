@@ -1,13 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../common/exif_caption.dart';
 import '../common/photo_viewport.dart';
 import '../main_surface.dart';
 import 'gallery_column.dart';
-import 'gallery_palette.dart';
 
 /// Constants for the dragged column width state, ruled R5a/R8 on 2026-09-01.
 ///
@@ -17,12 +15,6 @@ import 'gallery_palette.dart';
 /// thumbnail source can supply (200 physical px on the long edge), not taste.
 const double kGalleryColumnMinWidth = 90.0;
 const double kGalleryColumnMaxWidth = 200.0;
-
-/// Test key on the float-shadow `DecoratedBox` that wraps [GalleryColumn], so
-/// TC-506 can assert the shadow toggles on `_columnWidth > 90` without reaching
-/// into the column's own internals.
-const ValueKey<String> kGalleryColumnShadowKey =
-    ValueKey<String>('gallery.column.shadow');
 
 /// Test key on the width-readout badge, so tests can assert it is absent at
 /// rest and present while a drag is in flight.
@@ -124,21 +116,8 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
   bool _dragActive = false;
   Timer? _dragStallTimer;
 
-  /// Holds primary focus so the Open Folder chord below is delivered here
-  /// (see the note at the `Focus` that consumes it).
-  final FocusNode _shortcutFocus = FocusNode(debugLabel: 'gallery.shortcuts');
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _shortcutFocus.requestFocus();
-    });
-  }
-
   @override
   void dispose() {
-    _shortcutFocus.dispose();
     _dragStallTimer?.cancel();
     super.dispose();
   }
@@ -178,50 +157,20 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
     // partition the window between them and nothing is overlapped. See the
     // class doc for the decode cost this trades away.
     final viewportLeft = _columnWidth;
-    final floating = _columnWidth > kGalleryColumnMinWidth;
     final colors = Theme.of(context).colorScheme;
 
-    // ⌘O / Ctrl+O — Open Folder.
-    //
-    // DELIBERATELY HARD-CODED HERE, not in `ShortcutBindings`. That model
-    // dispatches on the logical key ALONE (main_screen.dart's handler reads
-    // `actionFor(event.logicalKey)`) and has no representation for a
-    // modifier, so it cannot express this chord at all today. "Cmd+O opens a
-    // folder" is a platform convention rather than a user preference, so a
-    // fixed binding is defensible; if rebindability is ever wanted, the
-    // upgrade path is to add modifier support plus an `openFolder` action to
-    // ShortcutBindings and delete this wrapper, not to grow it.
-    //
-    // Both activators are registered so the affordance exists on every
-    // desktop platform (macOS uses meta, Windows/Linux control); the two
-    // labels that advertise it are platform-aware for the same reason.
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
-            surface.actions.onOpenFolder,
-        const SingleActivator(LogicalKeyboardKey.keyO, control: true):
-            surface.actions.onOpenFolder,
-      },
-      child: Focus(
-        // Explicitly focused once at mount rather than via `autofocus`:
-        // main_screen already autofocuses its own Focus ABOVE this one, and a
-        // scope honours only the first autofocus, so this node would never
-        // hold primary focus and the chord would be delivered to the ancestor
-        // instead — dead in the product while passing in isolation.
-        // Taking focus here is safe for the app's other shortcuts: key events
-        // propagate from the focused node UP through its ancestors, so
-        // main_screen's handler still sees everything this node does not bind.
-        focusNode: _shortcutFocus,
-        child: _buildStack(context, surface, viewportLeft, floating, colors),
-      ),
-    );
+    // ⌘O / Ctrl+O — Open Folder. Used to be hard-coded here via
+    // CallbackShortcuts because ShortcutBindings had no modifier
+    // representation; now it is a real, chord-aware ShortcutAction dispatched
+    // by main_screen.dart's handler (see ShortcutBindings.actionForChord),
+    // same as every other shortcut. No per-theme wiring needed any more.
+    return _buildStack(context, surface, viewportLeft, colors);
   }
 
   Widget _buildStack(
     BuildContext context,
     MainSurface surface,
     double viewportLeft,
-    bool floating,
     ColorScheme colors,
   ) {
     return Stack(
@@ -312,8 +261,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
           ),
         ),
         // The gutter column + drag handle. Its own Positioned grows over the
-        // photo while the viewport inset stays pinned (the float rule); the
-        // float shadow is painted here, on the desktop, only while floating.
+        // photo while the viewport inset stays pinned (the float rule).
         Positioned(
           // Belt and braces against the slot-shift failure described above:
           // with a key, `canUpdate` is false against any other Stack child, so
@@ -325,27 +273,10 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
           top: 0,
           bottom: 0,
           width: _columnWidth,
-          child: DecoratedBox(
-            key: kGalleryColumnShadowKey,
-            decoration: BoxDecoration(
-              boxShadow: floating
-                  ? [
-                      // mockup `.gutter.dragged`: 12px 0 34px at 16%.
-                      // The colour is the palette's shared floatShadow token;
-                      // offset/blur stay layout-owned here (R6 lead ruling).
-                      BoxShadow(
-                        color: GalleryPalette.of(context).floatShadow,
-                        offset: const Offset(12, 0),
-                        blurRadius: 34,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: GalleryColumn(
-              surface: surface,
-              width: _columnWidth,
-              onWidthDelta: _onWidthDelta,
-            ),
+          child: GalleryColumn(
+            surface: surface,
+            width: _columnWidth,
+            onWidthDelta: _onWidthDelta,
           ),
         ),
         // The outer half of the resize handle's hit region. The gutter's own

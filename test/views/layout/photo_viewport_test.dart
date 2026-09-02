@@ -221,7 +221,8 @@ void main() {
       await tester.pump();
 
       expect(state.currentItemFailed, isTrue);
-      expect(find.text('無法讀取「IMG_0001」\n檔案可能已損毀或格式不支援'), findsOneWidget);
+      // displayName now shows the extension for a single-file item (R1-4).
+      expect(find.text('無法讀取「IMG_0001.jpg」\n檔案可能已損毀或格式不支援'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );

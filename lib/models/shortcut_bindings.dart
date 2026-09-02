@@ -14,6 +14,7 @@ enum ShortcutAction {
   zoomIn,
   zoomOut,
   toggleRecycleMode,
+  openFolder,
 }
 
 extension ShortcutActionMeta on ShortcutAction {
@@ -27,6 +28,7 @@ extension ShortcutActionMeta on ShortcutAction {
         ShortcutAction.zoomIn => 'Zoom in',
         ShortcutAction.zoomOut => 'Zoom out',
         ShortcutAction.toggleRecycleMode => 'Toggle recycle mode',
+        ShortcutAction.openFolder => 'Open folder',
       };
 
   /// Exactly the chain this replaced (main_screen.dart:104-128).
@@ -38,7 +40,17 @@ extension ShortcutActionMeta on ShortcutAction {
         ShortcutAction.zoomIn => LogicalKeyboardKey.arrowUp,
         ShortcutAction.zoomOut => LogicalKeyboardKey.arrowDown,
         ShortcutAction.toggleRecycleMode => LogicalKeyboardKey.keyR,
+        ShortcutAction.openFolder => LogicalKeyboardKey.keyO,
       };
+
+  /// Whether this action only ever fires with a modifier held (Cmd on
+  /// macOS, Ctrl elsewhere — both activators are always live, matching the
+  /// two hard-coded `SingleActivator`s this replaced in gallery_desktop.dart;
+  /// see [ShortcutBindings.actionForChord]). Every other action is the
+  /// opposite: it must NOT fire while a modifier is held, so a user typing
+  /// Cmd+O for the folder picker can never also fire e.g. `starPhoto` if it
+  /// happened to share the bound key.
+  bool get requiresModifier => this == ShortcutAction.openFolder;
 
   String get prefsKey => 'shortcut.$id';
 }
@@ -119,6 +131,30 @@ class ShortcutBindings {
   ShortcutAction? actionFor(LogicalKeyboardKey key) {
     for (final action in ShortcutAction.values) {
       if (keyFor(action) == key) return action;
+    }
+    return null;
+  }
+
+  /// Modifier-aware dispatch (main_screen.dart's real handler). [meta]/
+  /// [control] report whether either modifier is currently held, from
+  /// `HardwareKeyboard.instance`.
+  ///
+  /// Actions that [ShortcutActionMeta.requiresModifier] (today: only
+  /// [ShortcutAction.openFolder]) fire on their bound key with EITHER meta OR
+  /// control held — both chords are always live on every desktop platform,
+  /// same as the wrapper this replaced. Every other action fires only when
+  /// NEITHER modifier is held, so e.g. Cmd+S can never accidentally fire
+  /// `starPhoto` just because its bound key happens to be S. Earliest
+  /// declared action still wins a tie, matching [actionFor].
+  ShortcutAction? actionForChord(
+    LogicalKeyboardKey key, {
+    required bool meta,
+    required bool control,
+  }) {
+    for (final action in ShortcutAction.values) {
+      if (keyFor(action) != key) continue;
+      final modifierHeld = meta || control;
+      if (action.requiresModifier == modifierHeld) return action;
     }
     return null;
   }

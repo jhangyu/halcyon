@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'supported_photo_formats.dart';
 
 enum PhotoStatus { unmarked, starred, trashed }
@@ -24,7 +26,12 @@ class PhotoItem {
     this.resolvedBestFile,
   });
 
-  String get displayName => id;
+  /// A RAW+JPG (or other multi-file) group has an ambiguous extension — which
+  /// sibling's would we even show? — so the group displays [id] (the shared
+  /// basename) with no extension. A single file has no such ambiguity and
+  /// shows its actual extension.
+  String get displayName =>
+      files.length == 1 ? p.basename(files.single.path) : id;
 
   /// Prefer loading a cheap-to-display sibling (JPG → HEIC → WebP → PNG, then a
   /// TIFF with an embedded rendered image) over a RAW decode when available.
