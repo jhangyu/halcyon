@@ -13,8 +13,8 @@
 // The disagreement only shows on a preview that sits between the real viewport
 // and 2800.
 //
-//   TC-660  a sub-2800 viewport routes a 2000px-preview RAW cheap end-to-end
-//   TC-661  AD-033 guard: a viewport ABOVE the preview still routes expensive
+//   TC-712  a sub-2800 viewport routes a 2000px-preview RAW cheap end-to-end
+//   TC-713  AD-033 guard: a viewport ABOVE the preview still routes expensive
 
 import 'dart:io';
 
@@ -54,7 +54,7 @@ void main() {
   // decode. The assertion is therefore about the ROUTE, not the pixels.
   const source = PhotoSource(loader: dartImageLoad);
 
-  test('TC-660 a sub-2800 viewport routes a 2000px-preview RAW cheap '
+  test('TC-712 a sub-2800 viewport routes a 2000px-preview RAW cheap '
       'end-to-end', () async {
     const viewportLongEdge = 1600;
 
@@ -90,7 +90,7 @@ void main() {
   // The negative half. AD-033 is frozen: this fix changes WHERE the number
   // comes from and must not loosen the comparison. A viewport ABOVE the
   // preview's long edge must still refuse the preview.
-  test('TC-661 a viewport above the preview still routes expensive '
+  test('TC-713 a viewport above the preview still routes expensive '
       '(AD-033 unchanged)', () async {
     const viewportLongEdge = 4000;
 

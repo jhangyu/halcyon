@@ -13,9 +13,9 @@
 // STRADDLES the bootstrap default and the real viewport (here 3000px, between
 // 2800 and 4000). The user's 7008px corpus clears both and is blind to it.
 //
-//   TC-662  scheduler: the verdict changes when the long edge changes
-//   TC-663  controller: the verdict flips after updateTargetSize
-//   TC-664  probe economy: still ONE walk per file for a stable viewport
+//   TC-714  scheduler: the verdict changes when the long edge changes
+//   TC-715  controller: the verdict flips after updateTargetSize
+//   TC-716  probe economy: still ONE walk per file for a stable viewport
 
 import 'dart:async';
 import 'dart:io';
@@ -95,7 +95,7 @@ void main() {
     }
   }
 
-  test('TC-662 the memo answers for the long edge it was measured at',
+  test('TC-714 the memo answers for the long edge it was measured at',
       () async {
     final scheduler = PrefetchScheduler();
 
@@ -135,7 +135,7 @@ void main() {
   // served and the decoder is never touched; expensive => the serial lane
   // decodes. Counting decodes makes the flip mechanical rather than a claim
   // about an enum nobody can see.
-  test('TC-663 a first-window verdict is re-evaluated after updateTargetSize',
+  test('TC-715 a first-window verdict is re-evaluated after updateTargetSize',
       () async {
     var decodes = 0;
     final controller = ImagePreloadController(
@@ -215,7 +215,7 @@ void main() {
   // viewport must still cost exactly one walk per file per folder. Re-probing
   // on a long-edge change is bounded by resize events; re-probing per
   // navigation would be the regression.
-  test('TC-664 a stable viewport still costs exactly ONE walk per file',
+  test('TC-716 a stable viewport still costs exactly ONE walk per file',
       () async {
     final scheduler = PrefetchScheduler();
 
