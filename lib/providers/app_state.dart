@@ -922,14 +922,19 @@ class AppState extends ChangeNotifier {
 
   Future<BatchDeleteResult> deleteTrashed() async {
     final dir = _currentDir;
-    final recycled = _recycleMode;
+    final intendedRecycle = _recycleMode;
+    // The branch actually taken below depends on both the intent flag AND
+    // `dir != null`; feedback (recycled field) must reflect that actual
+    // branch, not just the intent flag, or it can claim recycling happened
+    // when the fallback direct-delete branch ran instead.
+    final tookRecycleBranch = intendedRecycle && dir != null;
 
     var movedCount = 0;
     final failures = <String>[];
     String? trashDirPath;
 
     try {
-      if (recycled && dir != null) {
+      if (tookRecycleBranch) {
         trashDirPath = p.join(dir.path, '.trash');
         final outcome = await _fileActions.recycleTrashed(_items, dir);
         movedCount = outcome.movedCount;
@@ -949,7 +954,7 @@ class AppState extends ChangeNotifier {
     }
 
     return BatchDeleteResult(
-      recycled: recycled,
+      recycled: tookRecycleBranch,
       movedCount: movedCount,
       failures: failures,
       trashDirPath: trashDirPath,

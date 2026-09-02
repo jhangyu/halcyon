@@ -478,6 +478,40 @@ void main() {
       expect(trashed, hasLength(1));
       expect(await Directory(p.join(dir.path, '.trash')).exists(), isFalse);
     });
+
+    // F8 (arch-review 09-02): the recycle intent flag alone does not decide
+    // the branch actually taken -- `dir != null` also gates it. Feedback
+    // must reflect what actually ran, not just the intent flag.
+    test(
+      'F8: recycled intent with no current folder falls back to the '
+      'direct-delete branch, and the result says so',
+      () async {
+        final trashed = <String>[];
+        final state = AppState(
+          fileActions: PhotoFileActions(trashFile: (file) async {
+            trashed.add(file.path);
+            await file.delete();
+          }),
+          imageLoader: (path, {required purpose}) async {
+            return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
+          },
+        );
+
+        expect(state.currentDir, isNull);
+        state.toggleRecycleMode();
+        expect(state.recycleMode, isTrue);
+
+        final result = await state.deleteTrashed();
+
+        expect(
+          result.recycled,
+          isFalse,
+          reason: 'no folder is loaded, so the direct-delete branch ran, '
+              'not the recycle branch',
+        );
+        expect(result.trashDirPath, isNull);
+      },
+    );
   });
 
   group('AppState.processStarred selection restore', () {

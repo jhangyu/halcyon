@@ -9,7 +9,6 @@ import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
 import '../../models/photo_item.dart';
-import '../../models/supported_photo_formats.dart';
 import '../image_pipeline/dart_image_loader.dart';
 import '../image_pipeline/dng_decode_contract.dart';
 import '../image_pipeline/exif_orientation.dart';
@@ -579,7 +578,7 @@ class PhotoExportService {
         if (index >= starredItems.length) return;
         nextIndex++;
         final item = starredItems[index];
-        final source = SupportedPhotoFormats.bestFileToLoad(item.files);
+        final source = item.bestFileToLoad;
         final label = source != null ? p.basename(source.path) : item.id;
         try {
           if (source == null) {

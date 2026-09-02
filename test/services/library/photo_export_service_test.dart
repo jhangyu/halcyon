@@ -57,6 +57,53 @@ void main() {
     );
   }
 
+  // F3 (arch-review 09-02, AD-037): exportStarred must honor
+  // `PhotoItem.bestFileToLoad` (which prefers the scan-time
+  // `resolvedBestFile` set by the TIFF cheap/expensive probe), not the
+  // static `SupportedPhotoFormats.bestFileToLoad(item.files)`, which is
+  // I/O-free and can pick a different sibling. Both `.dng` and `.tif` here
+  // land in the static ranking's unsupported-fallback tier, so the static
+  // call would pick `files.first` (the DNG); `resolvedBestFile` explicitly
+  // points at the TIFF sibling instead, to prove the item getter -- not the
+  // static ranking -- decides.
+  test(
+    'F3: exportStarred fetches from item.bestFileToLoad (the scan-time '
+    'resolved sibling), not the static extension-only ranking',
+    () async {
+      final destDir = Directory(p.join(tempDir.path, 'out'));
+      await destDir.create();
+
+      final dngFile = File(p.join(tempDir.path, 'IMG_9001.dng'));
+      final tiffFile = File(p.join(tempDir.path, 'IMG_9001.tif'));
+      final item = PhotoItem(
+        id: 'IMG_9001',
+        status: PhotoStatus.starred,
+        files: [dngFile, tiffFile],
+        resolvedBestFile: tiffFile,
+      );
+
+      final requestedPaths = <String>[];
+      final service = PhotoExportService(
+        fetchBytes: (path) async {
+          requestedPaths.add(path);
+          return _fakeJpeg(p.basename(path));
+        },
+      );
+
+      final outcome = await service.exportStarred([item], destDir);
+
+      expect(outcome.failures, isEmpty);
+      expect(outcome.exportedCount, 1);
+      expect(requestedPaths, hasLength(1));
+      expect(
+        requestedPaths.single,
+        endsWith('IMG_9001.tif'),
+        reason: 'must use item.bestFileToLoad (resolvedBestFile), not the '
+            'static ranking which would pick the DNG (files.first)',
+      );
+    },
+  );
+
   test('only starred items are exported; unmarked/trashed are not', () async {
     final destDir = Directory(p.join(tempDir.path, 'out'));
     await destDir.create();
