@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 
@@ -50,7 +51,12 @@ MainSurface minimalSurface({Widget? viewport}) {
 }
 
 void main() {
-  group('TC-505 viewport geometry is exactly 1350x900 at four widths', () {
+  // USER RULING 2026-09-02 supersedes the float rule this group used to
+  // assert. The gutter must PUSH the photo, not cover it, so the viewport is
+  // 1350x900 only at the resting width; at every wider position it is
+  // narrower by exactly the extra gutter width. The invariant is now
+  // "viewport width + column width == window width", not a fixed 1350.
+  group('TC-505 the viewport gives up exactly the gutter\'s width', () {
     for (final width in [90.0, 120.0, 160.0, 200.0]) {
       testWidgets('viewport at column width ${width.round()}',
           (tester) async {
@@ -61,11 +67,32 @@ void main() {
           await _dragColumnTo(tester, width);
         }
 
-        // The float rule: for every width in the range the inset is pinned at
-        // 90, so the viewport is exactly 1350 wide regardless of the column.
         final box = tester.renderObject(find.byKey(kViewportKey))
             as RenderBox;
-        expect(box.size, const Size(1350, 900));
+        expect(box.size, Size(1440 - width, 900));
+        await tester.binding.setSurfaceSize(null);
+      });
+    }
+  });
+
+  group('TC-540 a widened gutter never overlaps the photo', () {
+    for (final width in [90.0, 120.0, 160.0, 200.0]) {
+      testWidgets('no overlap at column width ${width.round()}',
+          (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1440, 900));
+        await pumpDesktop(tester, surface: minimalSurface());
+
+        if (width > 90) {
+          await _dragColumnTo(tester, width);
+        }
+
+        final viewport = tester.getRect(find.byKey(kViewportKey));
+        final gutter = tester.getRect(find.byType(GalleryColumn));
+
+        // The photo starts exactly where the gutter ends: no gap, no overlap.
+        expect(viewport.left, closeTo(width, 0.5));
+        expect(gutter.right, closeTo(viewport.left, 0.5));
+        expect(viewport.right, closeTo(1440, 0.5));
         await tester.binding.setSurfaceSize(null);
       });
     }

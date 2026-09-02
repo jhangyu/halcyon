@@ -1,12 +1,22 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/common/app_actions_menu.dart';
+import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 import 'package:halcyon_flutter/views/settings_dialog.dart';
+
+import '../../support/temp_dirs.dart';
 
 /// White-box checks on the overflow menu that was extracted from the old
 /// per-list sidebar widget (T4). The interactive value-routing tests
@@ -23,6 +33,7 @@ void main() {
     // loading in stateForFolder would be; keep the empty-key defaults so any
     // accidental read does not explode.
     TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
   });
 
   AppState bareState() => AppState(
@@ -30,6 +41,23 @@ void main() {
           return const NativeImageFailure('not-used', 'no-op');
         },
       );
+
+  Future<AppState> stateWithTrashedItem(WidgetTester tester) async {
+    late AppState state;
+    await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('halcyon_menu_danger_');
+      addTempDirTeardown(dir);
+      await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
+      state = AppState(
+        imageLoader: (path, {required purpose}) async {
+          return const NativeImageFailure('not-used', 'no-op');
+        },
+      );
+      await state.loadFolder(dir);
+      state.markCurrent(PhotoStatus.trashed);
+    });
+    return state;
+  }
 
   Future<void> pumpMenu(WidgetTester tester, AppState state,
       {Offset? offset}) async {
@@ -167,6 +195,12 @@ void main() {
       kSettingsMenuValue,
     ]);
 
+    // `.mrule{margin:5px 8px}` — inset from both panel edges, not full-bleed.
+    for (final d in items.whereType<PopupMenuDivider>()) {
+      expect(d.indent, 8);
+      expect(d.endIndent, 8);
+    }
+
     final dividers = items.whereType<PopupMenuDivider>().length;
     expect(dividers, 4); // Open Folder | copy/move/thumb | rename | delete | options
   });
@@ -182,6 +216,119 @@ void main() {
         .firstWhere((e) => e.value == kOpenFolderMenuValue);
 
     expect(openFolder.enabled, isTrue); // PopupMenuItem defaults enabled to true
+  });
+
+  testWidgets('TC-539 every row is a fixed 32px slot with zero own padding',
+      (tester) async {
+    // Mockup `.menu .mi{height:32px}` — fixed, not minimum: the point of
+    // fixing it is that the separators land on a rhythm instead of wherever
+    // each label's own line box left them.
+    final state = bareState();
+    await pumpMenu(tester, state);
+
+    final items = menuButton(tester)
+        .itemBuilder(buttonBuildContext(tester))
+        .whereType<PopupMenuItem<String>>();
+
+    expect(items, isNotEmpty);
+    for (final item in items) {
+      // Literal 32, not the production constant: comparing the widget against
+      // the same symbol it is built from would pass at any value.
+      expect(item.height, 32);
+      // The row paints its own 10px padding and radius-4 well, so the
+      // PopupMenuItem must not add a second inset around it.
+      expect(item.padding, EdgeInsets.zero);
+    }
+  });
+
+  testWidgets('TC-539 rows carry a 14px leading glyph at half emphasis',
+      (tester) async {
+    final state = bareState();
+    await pumpMenu(tester, state);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+
+    final icons = tester.widgetList<Icon>(
+      find.descendant(
+        of: find.text('Open Folder').hitTestable(),
+        matching: find.byType(Icon),
+      ),
+    );
+    // The label's own row: find the icon that shares it.
+    final rowIcon = tester.widget<Icon>(
+      find
+          .descendant(
+            of: find.ancestor(
+              of: find.text('Open Folder'),
+              matching: find.byType(Row),
+            ),
+            matching: find.byType(Icon),
+          )
+          .first,
+    );
+    expect(icons, isEmpty); // sanity: the icon is a sibling, not a child
+    expect(rowIcon.size, 14);
+    expect(rowIcon.color?.a, closeTo(0.5, 0.01));
+
+    // And the painted row really is 32px tall, not merely declared so.
+    final row = tester.getSize(
+      find.ancestor(
+        of: find.text('Open Folder'),
+        matching: find.byType(Row),
+      ).first,
+    );
+    expect(row.height, 32);
+
+    // The shortcut hint rides the same row as its label (mockup `.mi .k`),
+    // written for the host platform: the test asserts the same helper the
+    // widget uses AND that the macOS glyph is not shown off-macOS, so the
+    // platform branch cannot silently collapse to one arm.
+    expect(find.text(openFolderShortcutLabel()), findsOneWidget);
+    if (defaultTargetPlatform != TargetPlatform.macOS) {
+      expect(find.text('⌘O'), findsNothing);
+    }
+  });
+
+  testWidgets('TC-539 disabled and danger rows carry their own ink',
+      (tester) async {
+    // Empty folder: nothing starred, nothing trashed, so every conditional
+    // row is disabled and the danger row is disabled AND red.
+    final state = bareState();
+    await pumpMenu(tester, state);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+
+    final palette = GalleryPalette.of(
+      tester.element(find.text('Copy Starred…')),
+    );
+    final disabled = tester.widget<Text>(find.text('Copy Starred…'));
+    expect(disabled.style?.color, palette.textFaint); // .mi.dim
+
+    // Precedence: a danger row with nothing to delete is DIM, not red —
+    // `.mi.dim` sets the colour and `.mi.danger` does not override it.
+    final dimDanger = tester.widget<Text>(find.text('Delete Trashed'));
+    expect(dimDanger.style?.color, palette.textFaint);
+    expect(dimDanger.style?.fontSize, 12.5);
+  });
+
+  testWidgets('TC-539 an enabled danger row keeps the error hue',
+      (tester) async {
+    // Something IS trashed, so the danger row is live and shows its own
+    // colour (`.mi.danger{color:var(--danger)}`).
+    final state = await stateWithTrashedItem(tester);
+    addTearDown(state.dispose);
+    await pumpMenu(tester, state);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+
+    final danger = tester.widget<Text>(find.text('Delete Trashed'));
+    final errorColor = Theme.of(
+      tester.element(find.text('Delete Trashed')),
+    ).colorScheme.error;
+    expect(danger.style?.color, errorColor);
   });
 }
 

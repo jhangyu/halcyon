@@ -13,10 +13,19 @@ import '../gallery/gallery_palette.dart';
 /// ([ThemeData.colorScheme].`onSurfaceVariant`, `.`outline` and
 /// [GalleryPalette].`textFaint`), so it needs no theme-specific branch.
 ///
-/// Desktop (`.exif`, `c1-desktop-light.html:314-321` and the body at `:406`):
-/// a right-aligned column — camera 9.5px uppercase letterSpacing 0.14em in
-/// `textFaint`; a 34×1 rule in `outline`; then the body line 10.5px
-/// letterSpacing 0.1em in `onSurfaceVariant`.
+/// Desktop (`.exif`, `c1-desktop-{light,dark}.html:367-384`): a right-aligned
+/// column reading NAME, rule, camera, exposure — the museum-label order. The
+/// file name (revision 2026-09-02, `.exif .file`) is 13px letterSpacing 0.03em
+/// in `onSurface`, the only full-ink item and the largest type in the block; it
+/// moved here from the 90px sidebar plate, where it truncated on almost every
+/// real name. A 44×1 rule in `outline` follows it, then camera 9.5px uppercase
+/// letterSpacing 0.14em in `textFaint`, then the body line 10.5px letterSpacing
+/// 0.1em in `onSurfaceVariant`.
+///
+/// The rule is a single separator, drawn once between the block above it and
+/// the block below: with a file name it sits under the name (mockup order
+/// `.file` / `.rule` / `.cam` / `.body`), and with no name it falls back to
+/// separating camera from body, which is where it sat before the revision.
 ///
 /// Mobile (`.label .exif`, `c3-mobile-light.html:142`, sample at `:272`): one
 /// 9.5px line, letterSpacing 0.06em, `onSurfaceVariant`, the camera included
@@ -29,10 +38,16 @@ class ExifCaption extends StatelessWidget {
   const ExifCaption({
     super.key,
     required this.exif,
+    this.fileName,
     this.compact = false,
   });
 
   final ExifMetadata? exif;
+
+  /// The photo's display name, drawn as the label's title line (desktop only).
+  /// Null (or empty) draws no title, and the caption reads exactly as it did
+  /// before the 2026-09-02 revision.
+  final String? fileName;
 
   /// Mobile: one line, no rule, no camera line. Desktop: three-part stack.
   final bool compact;
@@ -40,11 +55,15 @@ class ExifCaption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final exif = this.exif;
-    if (exif == null) return const SizedBox.shrink();
-
-    final camera = exif.camera;
-    final body = _bodyLine(exif);
-    if (body == null && camera == null) return const SizedBox.shrink();
+    final name = compact ? null : _blankToNull(fileName);
+    final camera = exif?.camera;
+    final body = exif == null ? null : _bodyLine(exif);
+    // Nothing to show at all — not even a name. A photo whose EXIF is unread
+    // or unreadable still gets its title line, which is why this can no longer
+    // return early on `exif == null` alone.
+    if (name == null && camera == null && body == null) {
+      return const SizedBox.shrink();
+    }
 
     final scheme = Theme.of(context).colorScheme;
     final faint = GalleryPalette.of(context).textFaint;
@@ -67,10 +86,28 @@ class ExifCaption extends StatelessWidget {
       );
     }
 
+    // One rule, drawn under the title when there is one, otherwise between
+    // camera and body — and never when there is nothing on both sides of it.
+    final ruleAfterName = name != null && (camera != null || body != null);
+    final ruleAfterCamera = name == null && camera != null && body != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (name != null)
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              letterSpacing: 0.03 * 13, // 0.03 em at 13px
+              height: 1,
+              color: scheme.onSurface,
+            ),
+          ),
+        if (ruleAfterName) _rule(scheme),
         if (camera != null)
           Text(
             camera,
@@ -81,16 +118,7 @@ class ExifCaption extends StatelessWidget {
               color: faint,
             ),
           ),
-        // The 34×1 rule separates the camera name from the body; with either
-        // missing there is nothing to separate, so it is omitted too.
-        if (camera != null && body != null) ...[
-          Container(
-            width: 34,
-            height: 1,
-            margin: const EdgeInsets.only(top: 2, bottom: 2),
-            color: scheme.outline,
-          ),
-        ],
+        if (ruleAfterCamera) _rule(scheme),
         if (body != null)
           Text(
             body,
@@ -104,6 +132,18 @@ class ExifCaption extends StatelessWidget {
       ],
     );
   }
+
+  /// The 44×1 hairline (`.exif .rule`, `margin:4px 0 3px`). Widened from 34 in
+  /// the 2026-09-02 mockup revision.
+  static Widget _rule(ColorScheme scheme) => Container(
+    width: 44,
+    height: 1,
+    margin: const EdgeInsets.only(top: 4, bottom: 3),
+    color: scheme.outline,
+  );
+
+  static String? _blankToNull(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
 
   /// The shooting-parameters line: focal, aperture, shutter, ISO joined with
   /// `' · '` between PRESENT fields only — no leading, trailing, or doubled

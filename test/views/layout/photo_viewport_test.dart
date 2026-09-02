@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/views/layout/common/app_actions_menu.dart'
+    show openFolderShortcutLabel;
 import 'package:halcyon_flutter/views/layout/common/photo_viewport.dart';
+import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -88,13 +91,17 @@ void main() {
   );
 
   testWidgets(
-    'PhotoViewport reports the empty state when no folder is loaded',
+    'TC-537 the gallery welcome state replaces the stock Material screen',
     (tester) async {
+      // The active layout theme is `gallery` (layout_registry.dart), so the
+      // empty branch must draw mockup frame 7 rather than the grey-icon
+      // Material screen that used to be the app's first surface.
       final state = AppState();
       addTearDown(state.dispose);
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: galleryThemeData(Brightness.light),
           home: ChangeNotifierProvider<AppState>.value(
             value: state,
             child: PhotoViewport(zoom: ZoomController()),
@@ -102,10 +109,74 @@ void main() {
         ),
       );
 
-      expect(find.text('Select a folder to begin'), findsOneWidget);
-      expect(find.byType(ElevatedButton), findsOneWidget);
+      // Every element the mockup's `.empty` block carries.
+      expect(find.byKey(const Key('galleryEmptyMount')), findsOneWidget);
+      // `.empty .kicker` is uppercased by the spec.
+      expect(find.text('HALCYON'), findsOneWidget);
+      expect(find.text('Halcyon'), findsNothing);
+      expect(find.text('No folder open'), findsOneWidget);
+      expect(
+        find.textContaining('Open a folder of RAW or JPEG files'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('galleryEmptyOpenFolder')), findsOneWidget);
+      expect(find.text('Open Folder'), findsOneWidget);
+      expect(
+        find.textContaining('drop a folder onto the window', findRichText: true),
+        findsOneWidget,
+      );
+      // The hint advertises the chord that TC-542 proves is real, in this
+      // platform's spelling.
+      expect(
+        find.textContaining(openFolderShortcutLabel(), findRichText: true),
+        findsOneWidget,
+      );
+
+      // The mount is the photo's own 3:2.
+      final mount = tester.getSize(find.byKey(const Key('galleryEmptyMount')));
+      expect(mount, const Size(432, 288));
+
+      // The stock screen is gone.
+      expect(find.text('Select a folder to begin'), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.byType(Image), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'TC-538 every welcome element sits on one centred axis',
+    (tester) async {
+      // The user-caught defect in the mockup round: the button shared a flex
+      // row with the shortcut hint, so centring the ROW pushed the button off
+      // the axis by half the hint's width. Nothing may hang off either side.
+      final state = AppState();
+      addTearDown(state.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: galleryThemeData(Brightness.light),
+          home: ChangeNotifierProvider<AppState>.value(
+            value: state,
+            child: PhotoViewport(zoom: ZoomController()),
+          ),
+        ),
+      );
+
+      double centreOf(Finder f) {
+        final rect = tester.getRect(f);
+        return rect.left + rect.width / 2;
+      }
+
+      final axis = centreOf(find.byKey(const Key('galleryEmptyMount')));
+      for (final f in <Finder>[
+        find.byKey(const Key('galleryEmptyOpenFolder')),
+        find.byKey(const Key('galleryEmptyDropHint')),
+        find.text('No folder open'),
+        find.text('HALCYON'),
+      ]) {
+        expect(centreOf(f), moreOrLessEquals(axis, epsilon: 0.5));
+      }
     },
   );
 

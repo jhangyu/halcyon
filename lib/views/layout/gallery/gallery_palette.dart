@@ -19,6 +19,7 @@ import '../../theme_tokens.dart';
 /// | secondary text (`--ink-dim`) | `#6E6A64` | `#99958F` | `colorScheme.onSurfaceVariant` |
 /// | tertiary (`--ink-faint`) | `#9C9791` | `#6B6863` | `GalleryPalette.textFaint` |
 /// | accent, slate blue (`--accent`) | `#3F5D72` | `#7FA3BC` | `colorScheme.primary` |
+/// | type on the accent (`--on-accent`) | `#FFFFFF` | `#14181B` | `GalleryPalette.onAccent` |
 /// | star, brass (`--star`) | `#B08328` | `#D7A54A` | `GalleryPalette.star` |
 /// | danger, oxide (`--danger`) | `#A6432F` | `#C86B58` | `colorScheme.error` |
 /// | float shadow (`.gutter.dragged`) | `rgba(28,27,25,.16)` | `rgba(28,27,25,.16)` | `GalleryPalette.floatShadow` |
@@ -42,6 +43,7 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
     required this.textFaint,
     required this.star,
     required this.floatShadow,
+    required this.onAccent,
   });
 
   /// Mount behind the print (`--mat`).
@@ -53,11 +55,19 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
   /// Desktop floating-column drop shadow (`.gutter.dragged`, shared light/dark).
   final Color floatShadow;
 
+  /// Type drawn ON the accent fill (`--on-accent`, added to the mockup on
+  /// 2026-09-02 for the welcome screen's primary button). This is NOT
+  /// `colorScheme.onPrimary`-by-another-name for the dark palette: the dark
+  /// accent is a light blue, so white on it lands near 2.4:1 and fails AA
+  /// while near-black is about 9:1. Light keeps white (about 7:1).
+  final Color onAccent;
+
   static const GalleryPalette dark = GalleryPalette(
     mat: Color(0xFF1B1B1C),
     textFaint: Color(0xFF6B6863),
     star: Color(0xFFD7A54A),
     floatShadow: Color(0x291C1B19),
+    onAccent: Color(0xFF14181B),
   );
 
   static const GalleryPalette light = GalleryPalette(
@@ -65,19 +75,26 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
     textFaint: Color(0xFF9C9791),
     star: Color(0xFFB08328),
     floatShadow: Color(0x291C1B19),
+    onAccent: Color(0xFFFFFFFF),
   );
 
   static GalleryPalette of(BuildContext context) =>
       Theme.of(context).extension<GalleryPalette>() ?? dark;
 
   @override
-  GalleryPalette copyWith(
-      {Color? mat, Color? textFaint, Color? star, Color? floatShadow}) {
+  GalleryPalette copyWith({
+    Color? mat,
+    Color? textFaint,
+    Color? star,
+    Color? floatShadow,
+    Color? onAccent,
+  }) {
     return GalleryPalette(
       mat: mat ?? this.mat,
       textFaint: textFaint ?? this.textFaint,
       star: star ?? this.star,
       floatShadow: floatShadow ?? this.floatShadow,
+      onAccent: onAccent ?? this.onAccent,
     );
   }
 
@@ -89,6 +106,7 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
       textFaint: Color.lerp(textFaint, other.textFaint, t)!,
       star: Color.lerp(star, other.star, t)!,
       floatShadow: Color.lerp(floatShadow, other.floatShadow, t)!,
+      onAccent: Color.lerp(onAccent, other.onAccent, t)!,
     );
   }
 }

@@ -118,7 +118,11 @@ void main() {
       ),
     );
 
-    expect(find.text('Select a folder to begin'), findsOneWidget);
+    // The gallery theme's welcome screen (mockup frame 7, approved
+    // 2026-09-02) replaced the stock Material empty state; its headline is
+    // the identifying string now. The Open Folder assertion below is
+    // unchanged — the new screen's button carries the same label.
+    expect(find.text('No folder open'), findsOneWidget);
     expect(find.text('Open Folder'), findsOneWidget);
   });
 

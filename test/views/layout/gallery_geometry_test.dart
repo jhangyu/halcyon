@@ -1,6 +1,9 @@
-// T17: the geometry gate (TC-529, plan TC-522 +7). Contract acceptance #4:
-// "At 1440x900, the widget keyed by kViewportKey is exactly 1350x900 at
-// column widths 90, 120, 160, and 200."
+// T17: the geometry gate (TC-529, plan TC-522 +7). Originally: "at 1440x900
+// the widget keyed by kViewportKey is exactly 1350x900 at column widths 90,
+// 120, 160 and 200". USER RULING 2026-09-02 replaced the float rule with a
+// reflow rule — the gutter pushes the photo instead of covering it — so the
+// gate now asserts the partition: viewport width == window width minus the
+// column width, and the viewport's left edge sits on the gutter's right edge.
 //
 // Deliberately distinct from gallery_desktop_test.dart's TC-505 (which
 // already proves this same geometry, but by pumping GalleryDesktopSurface
@@ -107,12 +110,14 @@ Future<void> _dragColumnTo(WidgetTester tester, double target) async {
 
 void main() {
   for (final width in <double>[90, 120, 160, 200]) {
-    testWidgets('TC-529 photo is 1350x900 with the column at $width', (
+    testWidgets(
+        'TC-529 photo fills the window beside the column at $width', (
       tester,
     ) async {
       await pumpGalleryDesktop(tester, columnWidth: width);
       final box = tester.renderObject<RenderBox>(find.byKey(kViewportKey));
-      expect(box.size, const Size(1350, 900));
+      expect(box.size, Size(1440 - width, 900));
+      expect(tester.getRect(find.byKey(kViewportKey)).left, closeTo(width, 0.5));
     });
   }
 }

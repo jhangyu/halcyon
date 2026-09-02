@@ -7,13 +7,36 @@ import '../common/photo_thumbnail.dart';
 import '../gallery/gallery_palette.dart';
 import '../main_surface.dart';
 
-// Chip size is CONSTANT across the whole 90-200 range. Extra width buys
-// COLUMNS, never a bigger chip: bigger is capped by what the thumbnail
-// source can supply (200 physical px on the long edge), so growing the chip
-// can only ever show FEWER frames. Width that does not complete a column is
-// deliberately left unused. Contract: c1-desktop-light.html .w90/.w140/.w200.
-const double kChipWidth = 74;
-const double kChipHeight = 49; // 3:2, matching the photos
+// USER RULING 2026-09-02, superseding the constant-chip / two-column rule:
+// the chip SCALES with the gutter across the whole 90-200 range, the strip is
+// ALWAYS one column, and the chips are centred. Extra width now buys a bigger
+// picture rather than more of them.
+//
+// What the old rule bought, recorded so the cost is visible rather than
+// rediscovered: a constant chip meant the strip could only ever show MORE
+// frames as it widened, and it kept the chip inside what the thumbnail source
+// supplies (200 physical px on the long edge). Scaling breaks the second
+// property — see [kChipDecodeWidth].
+const double kChipWidth = 74; // the resting chip, at the 90px gutter
+const double kChipAspect = 3 / 2; // 3:2, matching the photos
+const double kChipHeight = kChipWidth / kChipAspect; // 49.33 at rest
+
+/// The size the chip's BITMAP is requested at, regardless of how large the
+/// chip is drawn.
+///
+/// USER CLARIFICATION 2026-09-02: sidebar thumbnails are ALREADY produced at a
+/// 200px long edge (`ImageRequestPurpose.sidebarThumbnail`), and 200 is also
+/// the gutter's maximum width — so a chip can never be drawn larger than the
+/// bitmap it already has. This is therefore a pure layout change: the existing
+/// decode is kept and the widget scales it DOWN at narrower widths. No
+/// re-decode, and no freeze mechanism (unlike the tier-1 viewport, which needs
+/// [DecodeSizeFreeze] because its target genuinely changes).
+///
+/// Requesting at this constant rather than at the live chip width is what
+/// makes that true: a `ResizeImage` key derives from the requested size, so a
+/// chip that scaled its REQUEST would mint a new key — and a new decode — on
+/// every drag frame. One constant request, one bitmap, scaled by the layout.
+const double kChipDecodeWidth = 200;
 
 /// The height at which the gutter's fixed sections (cap + identity plate +
 /// the vertical marks stack) exactly fill the column, leaving the filmstrip at
@@ -82,8 +105,13 @@ class _GalleryColumnState extends State<GalleryColumn> {
   final ScrollController _scrollController = ScrollController();
   String? _lastSelectedId;
 
+  /// The chip fills the strip's content width, so it grows continuously with
+  /// the gutter and is centred by construction (there is exactly one column).
   double get _chipWidth =>
-      GalleryColumn.debugChipWidthForWidth?.call(widget.width) ?? kChipWidth;
+      GalleryColumn.debugChipWidthForWidth?.call(widget.width) ??
+      math.max(1, widget.width - 2 * _pad);
+
+  double get _chipHeight => _chipWidth / kChipAspect;
 
   // Visible-range reporting, ported from sidebar_view.dart:76-108.
   bool _sweepScheduled = false;
@@ -97,11 +125,26 @@ class _GalleryColumnState extends State<GalleryColumn> {
   // strip rather than a cosmetic error. The form below uses width-dependent
   // padding and a `max(1, ...)` floor, and reproduces every drawn point:
   // 90->1, 140->1, 179->1, 180->2, 200->2.
-  double get _pad => widget.width <= 90 ? 8.0 : 12.0; // .filmstrip
+  /// The filmstrip's horizontal padding — CONSTANT, deliberately.
+  ///
+  /// It used to step 8 -> 12 as soon as the gutter passed 90 (the mockup's
+  /// `.filmstrip` vs `.dragged .filmstrip`). Harmless while the chip was a
+  /// fixed 74, but under the 2026-09-02 scaling rule the chip is
+  /// `width - 2 * pad`, so that step made the FIRST pixel of every drag shrink
+  /// the picture (w=90 -> chip 74; w=91 -> chip 67, not recovering until 98).
+  /// "Drag wider, picture gets smaller" is exactly what the scaling rule
+  /// exists to prevent, so the padding is now 8 at every width: the resting
+  /// chip is unchanged at 74 and the ceiling rises to 184 at a 200px gutter.
+  ///
+  /// `_gap` keeps its step: it is vertical spacing BETWEEN rows and never
+  /// enters the chip's width.
+  static const double _pad = 8.0; // .filmstrip
   double get _gap => widget.width <= 90 ? 6.0 : 8.0; // vs .dragged .filmstrip
-  double get _rowExtent => kChipHeight + _gap; // per ROW
-  int get _columns =>
-      math.max(1, (widget.width - 2 * _pad + _gap) ~/ (_chipWidth + _gap));
+  double get _rowExtent => _chipHeight + _gap; // per ROW
+  /// Always one. The strip never becomes a grid at any width (user ruling
+  /// 2026-09-02); kept as a named constant so the range/scroll arithmetic
+  /// below still reads as "rows of columns" rather than silently assuming 1.
+  int get _columns => 1;
   bool get _dragged => widget.width > 90;
 
   @override
@@ -336,6 +379,8 @@ class _GalleryColumnState extends State<GalleryColumn> {
                 );
                 return Row(
                   key: ValueKey<String>('gallery-row-$row'),
+                  // One column, centred (user ruling 2026-09-02).
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     for (var i = first; i <= last; i++) ...[
                       if (i > first) SizedBox(width: _gap),
@@ -363,7 +408,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
     return Container(
       key: ValueKey<String>('gallery-chip-${item.id}'),
       width: _chipWidth,
-      height: kChipHeight,
+      height: _chipHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(2),
         // Selected: 2px primary outline; unselected: 1px outlineVariant.
@@ -375,12 +420,24 @@ class _GalleryColumnState extends State<GalleryColumn> {
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
+          // One constant bitmap request ([kChipDecodeWidth]) scaled to fill
+          // the chip: dragging the gutter re-lays-out but never re-decodes,
+          // and since the chip can never exceed 200 the picture is only ever
+          // scaled DOWN. `cover` keeps the 3:2 framing exact.
           Positioned.fill(
-            child: PhotoThumbnail(
-              payload: strip.payloadFor(item.id),
-              width: _chipWidth,
-              height: kChipHeight,
-              borderRadius: 0,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: kChipDecodeWidth,
+                height: kChipDecodeWidth / kChipAspect,
+                child: PhotoThumbnail(
+                  payload: strip.payloadFor(item.id),
+                  width: kChipDecodeWidth,
+                  height: kChipDecodeWidth / kChipAspect,
+                  borderRadius: 0,
+                ),
+              ),
             ),
           ),
           // Status dot 6x6 at left: 4, bottom: 4 (mockup `.dot`).
@@ -412,11 +469,18 @@ class _GalleryColumnState extends State<GalleryColumn> {
     );
   }
 
-  // --- Identity plate: 1px top border, filename + "$index / $total". ---
+  // --- Identity plate: 1px top border and "$index / $total", nothing else.
+  //
+  // REVISION 2026-09-02 (mockup `.gutter .plate`): the filename has LEFT this
+  // plate. It was 10px inside a 74px-wide well and truncated on almost every
+  // real name; it is now the title line of the wall label at the photo's
+  // bottom-right (see ExifCaption.fileName). What remains is the index
+  // counter, the one piece of state that has to survive at 40px of strip
+  // width, and it comes up from 9px/faint to 10px/mid ink now that it is
+  // alone. ---
   Widget _buildIdentityPlate(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final identity = widget.surface.identity;
-    final name = identity?.displayName ?? '';
     final index = identity?.indexInFolder ?? 0;
     final total = identity?.folderCount ?? 0;
     final showsIndex = index != 0 || total != 0;
@@ -428,30 +492,19 @@ class _GalleryColumnState extends State<GalleryColumn> {
           top: BorderSide(color: colors.outlineVariant),
         ),
       ),
-      padding: const EdgeInsets.only(top: 10, right: 8, bottom: 6, left: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: _dragged ? 12 : 10, // `.dragged .plate`
-              color: colors.onSurface,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            showsIndex ? '$index / $total' : '',
-            style: TextStyle(
-              fontSize: _dragged ? 10 : 9,
-              letterSpacing: 0.9,
-              color: GalleryPalette.of(context).textFaint,
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(top: 9, right: 8, bottom: 7, left: 8),
+      child: Text(
+        showsIndex ? '$index / $total' : '',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          // 10px / 0.12em at rest, 11px / 0.14em dragged (`.dragged .plate
+          // .count`); tabular figures so the counter does not jitter as the
+          // digits change.
+          fontSize: _dragged ? 11 : 10,
+          letterSpacing: _dragged ? 0.14 * 11 : 0.12 * 10,
+          fontFeatures: const [FontFeature.tabularFigures()],
+          color: colors.onSurfaceVariant,
+        ),
       ),
     );
   }

@@ -105,21 +105,22 @@ int _chipsInRow(WidgetTester tester, int row) {
 }
 
 /// The number of chip outlines currently built (visible + cache extent). A
-/// monotone proxy for the visible frame count: with a constant chip, rows are
-/// fixed-height, so the built count grows when a second column appears.
-int _builtChipCount(WidgetTester tester) =>
-    find.byType(PhotoThumbnail).evaluate().length;
 
 void main() {
-  group('TC-508 constant chip at five widths, no GridView', () {
-    for (final (width, expectedColumns) in [
-      (90.0, 1),
-      (140.0, 1),
-      (179.0, 1),
-      (180.0, 2),
-      (200.0, 2),
-    ]) {
-      testWidgets('width ${width.round()} => $expectedColumns column(s)',
+  // TC-508/508b/508c RETIRED 2026-09-02 by user ruling, replaced by
+  // TC-543..545 below. They asserted the superseded contract: a CONSTANT
+  // 74x49 chip, a second column from 180px, and the invariant "widening the
+  // strip never shows FEWER frames". The new rule is the opposite — the chip
+  // scales with the gutter and the strip is always one column — so widening
+  // now shows fewer, larger frames BY DESIGN. Keeping the old assertions
+  // would have meant either a red suite or, worse for 508b (whose built-chip
+  // proxy still happened to pass), a green test standing guard over an
+  // invariant the product deliberately no longer holds.
+  // The one part of TC-508 that survived the ruling is structural and is kept
+  // inside TC-543: the strip is a ListView, never a GridView.
+  group('TC-543 the chip scales with the gutter, one centred column', () {
+    for (final width in [90.0, 120.0, 160.0, 200.0]) {
+      testWidgets('chip tracks the gutter at width ${width.round()}',
           (tester) async {
         await pumpColumn(
           tester,
@@ -127,126 +128,122 @@ void main() {
           itemIds: [for (var i = 0; i < 10; i++) 'a$i'],
         );
 
-        // No GridView at any width.
+        // Structural survivor of the old TC-508: never a grid.
         expect(find.byType(GridView), findsNothing);
 
-        // Chip is exactly 74x49 at every width. The chip is the outer constant
-        // outline box (keyed gallery-chip-*), border drawn inside; the image
-        // content is 72x47 under a 2px border and is not the measured chip.
         final chipFinder = find.byKey(const ValueKey<String>('gallery-chip-a0'));
-        expect(chipFinder, findsOneWidget);
         final chipBox = tester.renderObject<RenderBox>(chipFinder);
-        expect(chipBox.size, const Size(74, 49));
 
-        // Column count as a structural fact: the top render row holds exactly
-        // `expectedColumns` chips side by side.
-        expect(_chipsInRow(tester, 0), expectedColumns);
+        // The chip fills the strip's content width: gutter minus its
+        // CONSTANT 8px padding (the old 8->12 step made the first pixel of a
+        // drag shrink the chip — see TC-544), and keeps 3:2.
+        expect(chipBox.size.width, closeTo(width - 2 * 8.0, 0.5));
+        expect(chipBox.size.height, closeTo(chipBox.size.width / (3 / 2), 0.5));
+
+        // Exactly one column at EVERY width, including the two that used to
+        // produce a second one.
+        expect(_chipsInRow(tester, 0), 1);
 
         await tester.binding.setSurfaceSize(null);
       });
     }
   });
 
-  testWidgets('TC-508b the frame count never decreases as the strip widens',
+  testWidgets('TC-544 the chip grows monotonically, sampled every pixel',
       (tester) async {
-    // Sweep 90..200 in 10px steps, no exception. The invariant, stated as the
-    // ruling loads it: extra width can only buy MORE frames, never fewer.
-    // `frame count` = the chips the strip can show in its viewport; with the
-    // chip CONSTANT, widening adds a second column (doubling visible frames)
-    // while the row extent stays fixed. Assert the built chip total (the first
-    // view + cache, a monotone proxy for the visible frame count) never
-    // DECREASES. The sweep has no carve-out — a rule with an exception is how
-    // the exception becomes permanent.
-    final frameCounts = <int>[];
-    for (var width = 90; width <= 200; width += 10) {
+    // Replacement invariant for the retired TC-508b: dragging wider must never
+    // make the picture SMALLER.
+    //
+    // STRIDE 1, and that is the whole point. The first version of this test
+    // stepped by 10 and was GREEN over a real defect: the filmstrip padding
+    // stepped 8 -> 12 the moment the gutter passed 90, so the chip dropped
+    // 74 -> 67 at w=91 and did not recover until 98 — a dip that every
+    // multiple of 10 steps straight over. A sweep whose stride is coarser
+    // than the discontinuity it hunts is not a sweep, it is a coincidence.
+    // No carve-out anywhere in the range, for the same reason as before: a
+    // rule with an exception is how the exception becomes permanent.
+    double? previous;
+    for (var width = 90; width <= 200; width += 1) {
       await pumpColumn(
         tester,
         width: width.toDouble(),
-        itemIds: [for (var i = 0; i < 20; i++) 's$i'],
+        itemIds: const ['only'],
       );
-      frameCounts.add(_builtChipCount(tester));
+      final size = tester
+          .renderObject<RenderBox>(
+            find.byKey(const ValueKey<String>('gallery-chip-only')),
+          )
+          .size;
+      if (previous != null) {
+        expect(
+          size.width,
+          greaterThanOrEqualTo(previous),
+          reason: 'chip shrank between ${width - 1}px and ${width}px '
+              '($previous -> ${size.width})',
+        );
+      }
+      previous = size.width;
       await tester.binding.setSurfaceSize(null);
     }
-    for (var i = 1; i < frameCounts.length; i++) {
-      expect(
-        frameCounts[i],
-        greaterThanOrEqualTo(frameCounts[i - 1]),
-        reason:
-            'width sweep regressed at step ${90 + i * 10}: '
-            '${frameCounts[i - 1]} -> ${frameCounts[i]} visible frames',
-      );
-    }
+    // And it really did GROW over the range, not merely "never shrink" by
+    // staying constant — which is exactly what the old contract did.
+    expect(previous, greaterThan(74));
   });
 
-  testWidgets('TC-508c the sweep is mutation-proven', (tester) async {
-    // TC-508b is asserted live above. Its companion: install a REAL mutation
-    // through GalleryColumn.debugChipWidthForWidth (production test hook,
-    // production default null == constant kChipWidth) that forces the chip
-    // width to jump from 74 to 130 at the 195px boundary. That widens the
-    // effective column pitch enough to knock the strip from 2 columns back
-    // down to 1 at the widest step, producing a genuine built-count DROP
-    // (20 -> 13, measured, not asserted-as-literals) across the 190->200
-    // step. Run the EXACT same sweep TC-508b runs, through the real layout,
-    // and assert the "never decreases" rule FAILS against these measured
-    // counts. A green TC-508b is only evidence while this companion is red.
+  testWidgets('TC-545 a chip narrower than the strip is centred, not left-aligned',
+      (tester) async {
+    // NON-VACUITY, learned from mutation: while the chip fills the strip's
+    // full content width, "centred" and "left-aligned" are the same pixels,
+    // so asserting centring on a full-width chip proves nothing (flipping the
+    // row to MainAxisAlignment.start left the test green). This case forces a
+    // deliberately NARROW chip through the production test hook, which is the
+    // only configuration where the alignment is observable at all.
     addTearDown(() => GalleryColumn.debugChipWidthForWidth = null);
-    GalleryColumn.debugChipWidthForWidth = (width) => width >= 195 ? 130.0 : 74.0;
+    GalleryColumn.debugChipWidthForWidth = (_) => 40.0;
 
-    final mutatedFrameCounts = <int>[];
-    for (var width = 90; width <= 200; width += 10) {
-      await pumpColumn(
-        tester,
-        width: width.toDouble(),
-        itemIds: [for (var i = 0; i < 20; i++) 's$i'],
-      );
-      mutatedFrameCounts.add(_builtChipCount(tester));
-      await tester.binding.setSurfaceSize(null);
-    }
+    await pumpColumn(tester, width: 160, itemIds: const ['mid']);
 
-    var sweepDetectsRegression = false;
-    for (var i = 1; i < mutatedFrameCounts.length; i++) {
-      if (mutatedFrameCounts[i] < mutatedFrameCounts[i - 1]) {
-        sweepDetectsRegression = true;
-        break;
-      }
-    }
-    expect(
-      sweepDetectsRegression,
-      isTrue,
-      reason:
-          'with the width-scaled chip mutation the measured counts '
-          '$mutatedFrameCounts must contain a decrease; a silent widening '
-          'hole is how the exception becomes permanent. TC-508b would not '
-          'have caught this if its "never decreases" check could not fail.',
+    final strip = tester.getRect(find.byType(ListView));
+    final chip = tester.getRect(
+      find.byKey(const ValueKey<String>('gallery-chip-mid')),
     );
 
-    // Clear the mutation and confirm the REAL implementation, run through
-    // the identical sweep, stays monotonic (the same invariant TC-508b
-    // already asserts live; restated here so this test is self-contained).
-    GalleryColumn.debugChipWidthForWidth = null;
-    final realFrameCounts = <int>[];
-    for (var width = 90; width <= 200; width += 10) {
-      await pumpColumn(
-        tester,
-        width: width.toDouble(),
-        itemIds: [for (var i = 0; i < 20; i++) 's$i'],
-      );
-      realFrameCounts.add(_builtChipCount(tester));
-      await tester.binding.setSurfaceSize(null);
-    }
-    for (var i = 1; i < realFrameCounts.length; i++) {
-      expect(
-        realFrameCounts[i],
-        greaterThanOrEqualTo(realFrameCounts[i - 1]),
-        reason: 'real implementation regressed at step ${90 + i * 10}',
-      );
-    }
+    expect(chip.width, closeTo(40, 0.5)); // the hook really took effect
+    expect(chip.left - strip.left, closeTo(strip.right - chip.right, 0.5));
+    expect(chip.left - strip.left, greaterThan(1)); // and it is not flush left
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('TC-546 the strip is one column even if the geometry allows more',
+      (tester) async {
+    // Companion to TC-543's column count, and the reason it is not enough on
+    // its own: with a full-width chip the OLD column formula also evaluates to
+    // 1, so restoring that formula is invisible. Forcing a narrow chip makes
+    // the old formula demand several columns; the strip must still lay out
+    // exactly one per row.
+    addTearDown(() => GalleryColumn.debugChipWidthForWidth = null);
+    GalleryColumn.debugChipWidthForWidth = (_) => 40.0;
+
+    await pumpColumn(
+      tester,
+      width: 200,
+      itemIds: [for (var i = 0; i < 6; i++) 'n$i'],
+    );
+
+    expect(_chipsInRow(tester, 0), 1);
+    await tester.binding.setSurfaceSize(null);
   });
 
   group('TC-509 onVisibleRange reports the geometry, odd tail clamped', () {
-    testWidgets('two-column odd tail at 9 items', (tester) async {
+    testWidgets('tall single-column rows report a clamped visible prefix',
+        (tester) async {
+      // Was "two-column odd tail at 9 items". Under the 2026-09-02 ruling
+      // there is no second column at any width, and a 200px gutter makes each
+      // row ~117px tall, so the 9 rows no longer all fit the ~810px viewport.
+      // What must still hold is the property the odd-tail case was really
+      // guarding: the reported range starts at 0 and never runs past the last
+      // item index.
       final rangeLog = <int>[];
-      // 9 items at 200px -> 2 columns -> 5 rows; the last row holds one chip.
       await pumpColumn(
         tester,
         width: 200,
@@ -254,13 +251,10 @@ void main() {
         rangeLog: rangeLog,
       );
 
-      // The strip viewport is ~810px tall and the 5 rows are ~285px, so all
-      // 9 chips are built on the first frame. The fallback report must clamp
-      // at 8 (the last odd chip), never 9.
       expect(rangeLog.isNotEmpty, isTrue);
       expect(rangeLog[0], 0);
-      expect(rangeLog[1], 8);
-      expect(rangeLog[1] - rangeLog[0] + 1, 9);
+      expect(rangeLog[1], lessThanOrEqualTo(8));
+      expect(rangeLog[1], greaterThanOrEqualTo(0));
       await tester.binding.setSurfaceSize(null);
     });
 
@@ -498,6 +492,38 @@ void main() {
     expect(delivered, closeTo(40, 0.001));
     await tester.binding.setSurfaceSize(null);
   });
+
+  testWidgets(
+    'TC-536 the identity plate carries the counter only, never the filename',
+    (tester) async {
+      // Revision 2026-09-02: the filename left this 74px-wide well (it
+      // truncated on almost every real name) for the wall label at the
+      // photo's bottom-right. Nothing in the sidebar may render it.
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      await pumpColumn(
+        tester,
+        width: 90,
+        itemIds: const ['a', 'b', 'c'],
+        selectedId: 'a',
+      );
+
+      expect(find.text('IMG_0001.jpg'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(GalleryColumn),
+          matching: find.textContaining('.jpg'),
+        ),
+        findsNothing,
+      );
+
+      expect(find.text('1 / 3'), findsOneWidget);
+      final counter = tester.widget<Text>(find.text('1 / 3'));
+      // Alone in the plate, the counter comes up to 10px / mid ink.
+      expect(counter.style?.fontSize, 10);
+      expect(counter.style?.letterSpacing, 0.12 * 10);
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
 }
 
 void _noop() {}

@@ -1,4 +1,5 @@
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,7 +8,7 @@ import '../../../providers/app_state.dart';
 import '../../batch_delete_feedback.dart';
 import '../../rename_dialog/rename_dialog.dart';
 import '../../settings_dialog.dart';
-import '../../theme_tokens.dart';
+import '../gallery/gallery_palette.dart';
 
 /// Menu-item value for "Open Folder".
 const String kOpenFolderMenuValue = 'openFolder';
@@ -80,6 +81,43 @@ class AppActionsMenu extends StatelessWidget {
     }
   }
 
+  /// The `.mrule` separator: 1px hairline, 5px above/below, inset 8px from
+  /// each side (`margin:5px 8px`) — it must not run full-bleed to the panel
+  /// edges, which is what a bare [PopupMenuDivider] does.
+  static const PopupMenuDivider _divider = PopupMenuDivider(
+    height: 11,
+    indent: 8,
+    endIndent: 8,
+  );
+
+  /// One `.mi` row (mockup `c1-desktop-dark.html:335-356`): fixed 32px height,
+  /// 10px horizontal padding, radius 4, a 14px leading icon and a 12.5px
+  /// label, with an optional right-aligned shortcut. The row's four states
+  /// (rest / hover / pressed / disabled, plus the danger hue) live in
+  /// [_MenuRow]; the values and the routing stay here, untouched.
+  PopupMenuItem<String> _row({
+    required String value,
+    required IconData icon,
+    required String label,
+    bool enabled = true,
+    bool danger = false,
+    String? shortcut,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      enabled: enabled,
+      height: kMenuRowHeight,
+      padding: EdgeInsets.zero,
+      child: _MenuRow(
+        icon: icon,
+        label: label,
+        enabled: enabled,
+        danger: danger,
+        shortcut: shortcut,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
@@ -106,77 +144,196 @@ class AppActionsMenu extends StatelessWidget {
           (i) => i.status == PhotoStatus.trashed,
         );
 
-        // Item metrics per the gallery mockup frame 2 (`.menu .mi`): a 15px
-        // leading icon at 75% opacity, 8h/10v padding, radius 4, 12.5px label.
-        final leadingIconColor = iconColor.withValues(alpha: 0.75);
-
         return [
-          PopupMenuItem(
+          _row(
             value: kOpenFolderMenuValue,
-            child: Row(
-              children: [
-                Icon(Icons.folder_open, size: iconSize, color: leadingIconColor),
-                const SizedBox(width: 8),
-                Text('Open Folder', style: TextStyle(color: iconColor)),
-              ],
-            ),
+            icon: Icons.folder_open,
+            label: 'Open Folder',
+            shortcut: openFolderShortcutLabel(),
           ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
+          _divider,
+          _row(
             value: kCopyMenuValue,
+            icon: Icons.copy_outlined,
+            label: 'Copy Starred…',
             enabled: hasStarred,
-            child: Text(
-              'Copy Starred…',
-              style: TextStyle(color: iconColor),
-            ),
           ),
-          PopupMenuItem(
+          _row(
             value: kMoveMenuValue,
+            icon: Icons.arrow_forward,
+            label: 'Move Starred…',
             enabled: hasStarred,
-            child: Text(
-              'Move Starred…',
-              style: TextStyle(color: iconColor),
-            ),
           ),
-          PopupMenuItem(
+          _row(
             value: kThumbnailStarredMenuValue,
+            icon: Icons.image_outlined,
+            label: 'Thumbnail Starred…',
             enabled: hasStarred,
-            child: Text(
-              'Thumbnail Starred…',
-              style: TextStyle(color: iconColor),
-            ),
           ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
+          _divider,
+          _row(
             value: kRenameMenuValue,
+            icon: Icons.edit_outlined,
+            label: 'Rename by EXIF…',
             enabled: state.items.isNotEmpty,
-            child: Text(
-              'Rename by EXIF…',
-              style: TextStyle(color: iconColor),
-            ),
           ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
+          _divider,
+          _row(
             value: kDeleteMenuValue,
+            icon: Icons.delete_outline,
+            label: state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
             enabled: hasTrashed,
-            child: Text(
-              state.recycleMode ? 'Recycle Trashed' : 'Delete Trashed',
-              style: TextStyle(color: HalcyonTokens.of(context).danger),
-            ),
+            danger: true,
           ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
+          _divider,
+          _row(
             value: kSettingsMenuValue,
-            child: Row(
-              children: [
-                Icon(Icons.settings, size: 18, color: leadingIconColor),
-                const SizedBox(width: 8),
-                Text('Options…', style: TextStyle(color: iconColor)),
-              ],
-            ),
+            icon: Icons.settings_outlined,
+            label: 'Options…',
           ),
         ];
       },
+    );
+  }
+}
+
+/// How the Open Folder chord is written for the CURRENT platform: `⌘O` on
+/// macOS, `Ctrl+O` everywhere else. The binding itself accepts both modifiers
+/// (see GalleryDesktopSurface); only the advertised label is platform-shaped,
+/// because a Windows user reading `⌘O` learns nothing.
+String openFolderShortcutLabel() =>
+    defaultTargetPlatform == TargetPlatform.macOS ? '⌘O' : 'Ctrl+O';
+
+/// Fixed `.mi` row height. The mockup's whole point in fixing it is that the
+/// separators land on a rhythm instead of wherever the label's own line box
+/// left them, so this is a constant, not a minimum.
+const double kMenuRowHeight = 32;
+
+/// Leading glyph size (`.menu .mi svg{width:14px}`).
+const double kMenuIconSize = 14;
+
+/// Icon opacity by row state (`.menu .mi svg` and its state rules). The label
+/// leads and the glyph follows: it rests at half emphasis and rises with the
+/// row.
+const double kMenuIconOpacityRest = 0.5;
+const double kMenuIconOpacityHover = 0.95;
+const double kMenuIconOpacityDisabled = 0.3;
+const double kMenuIconOpacityDanger = 0.7;
+
+/// One row of the actions menu, carrying the mockup's four states.
+///
+/// Flutter's [PopupMenuItem] draws its own ink overlay on hover/press; this
+/// row paints the mockup's own well (`--sunk` on hover, `--accent-wash` on
+/// press) underneath it, which is what makes hover read on the whole item
+/// rather than on its background alone.
+class _MenuRow extends StatefulWidget {
+  const _MenuRow({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    required this.danger,
+    this.shortcut,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final bool danger;
+  final String? shortcut;
+
+  @override
+  State<_MenuRow> createState() => _MenuRowState();
+}
+
+class _MenuRowState extends State<_MenuRow> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final palette = GalleryPalette.of(context);
+    // A disabled row is inert: no hover well, no icon lift, no pointer.
+    final hovered = _hovered && widget.enabled;
+    final pressed = _pressed && widget.enabled;
+
+    final Color labelColor;
+    final double iconOpacity;
+    if (!widget.enabled) {
+      labelColor = palette.textFaint; // --ink-faint
+      iconOpacity = kMenuIconOpacityDisabled;
+    } else if (widget.danger) {
+      // Danger keeps its hue at rest and gains no fill on hover; the colour is
+      // the warning, a red row would be a second one saying the same thing.
+      labelColor = colors.error;
+      iconOpacity = hovered ? 1 : kMenuIconOpacityDanger;
+    } else {
+      labelColor = colors.onSurface; // --ink
+      iconOpacity = hovered ? kMenuIconOpacityHover : kMenuIconOpacityRest;
+    }
+
+    final Color background;
+    if (pressed) {
+      background = colors.primary.withValues(alpha: 0.18); // --accent-wash
+    } else if (hovered) {
+      background = colors.surfaceContainer; // --sunk
+    } else {
+      background = Colors.transparent;
+    }
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic, // `.mi.dim{cursor:default}`
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      child: Listener(
+        onPointerDown: (_) => setState(() => _pressed = true),
+        onPointerUp: (_) => setState(() => _pressed = false),
+        onPointerCancel: (_) => setState(() => _pressed = false),
+        child: Container(
+          height: kMenuRowHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.icon,
+                size: kMenuIconSize,
+                color: labelColor.withValues(alpha: iconOpacity),
+              ),
+              const SizedBox(width: 11), // `.mi{gap:11px}`
+              Expanded(
+                child: Text(
+                  widget.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    letterSpacing: 0.01 * 12.5,
+                    color: labelColor,
+                  ),
+                ),
+              ),
+              if (widget.shortcut != null)
+                Text(
+                  widget.shortcut!,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    letterSpacing: 0.06 * 10.5,
+                    color: palette.textFaint,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

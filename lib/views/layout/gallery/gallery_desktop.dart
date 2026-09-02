@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../common/exif_caption.dart';
+import '../common/photo_viewport.dart';
 import '../main_surface.dart';
 import 'gallery_column.dart';
 import 'gallery_palette.dart';
@@ -62,25 +63,34 @@ const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
 /// a persistent indicator). The badge is desktop-owned because the width and the
 /// drag state both live here; it needs no column metadata (plan T6:841-843).
 ///
-/// ## The float rule (plan R5) — load-bearing, do not "simplify"
+/// ## The reflow rule (USER RULING 2026-09-02, supersedes plan R5)
 ///
-/// The viewport's left inset is `min(_columnWidth, 90.0)`, never
-/// `_columnWidth`. At 90 the column sits BESIDE the photo; above 90 the
-/// column's own `Positioned` grows over the top of the viewport while the
-/// viewport's inset stays pinned at 90. That single `min` is the whole
-/// "floats over, never pushes" mechanism, and it is why the photo measures
-/// 1350 × 900 at every drag position in the 90-200 range.
+/// The viewport's left inset is the LIVE `_columnWidth`. A widened gutter
+/// pushes the photo instead of floating over it, so the strip never covers
+/// any part of the image; the seam and the handle dead zone ride the same
+/// edge. The photo is 1350 × 900 only at the resting width of 90 — above it
+/// the photo is narrower by exactly the extra gutter width.
 ///
-/// It also buys a second property worth more than the first: because the inset
-/// is pinned, the constraints the viewport's internal `LayoutBuilder` sees
-/// never change while the user drags. So `setViewportSize` is never called
-/// with new numbers mid-drag, and the tier-1 `ImageProvider` cache key stays
-/// identical across the whole 90-200 range — the frozen AD-011 identity rule
-/// is satisfied by construction here, not by discipline. Any formulation that
-/// reflows the viewport as the column grows (`left: _columnWidth`, a `Row`, an
-/// `Expanded`) would re-decode the full-frame image on every drag frame while
-/// looking correct in a screenshot and passing every test except TC-505 — the
-/// single most expensive mistake available in this task.
+/// What this deliberately gives up, recorded so nobody "rediscovers" it as a
+/// bug: the previous `min(_columnWidth, 90)` inset kept the constraints the
+/// viewport's internal `LayoutBuilder` sees CONSTANT during a drag, so
+/// `setViewportSize` never changed mid-drag and the tier-1 `ImageProvider`
+/// cache key was stable by construction (AD-011). With a reflowing viewport
+/// the tier-1 decode target changes on every drag frame, so a drag can cost
+/// repeated tier-1 decodes. The user ruled that not overlapping the photo is
+/// worth that, and the cost is paid back by the mitigation below rather than
+/// by bringing the overlap back.
+///
+/// ## Holding the decode size still during a drag
+///
+/// The viewport is wrapped in a [DecodeSizeFreeze] carrying `_dragActive`.
+/// Layout still reflows on every frame — the photo visibly gives up width as
+/// the gutter grows — but [PhotoViewport] keeps REPORTING and decoding at the
+/// last settled target while the flag is true, so the tier-1 `ImageProvider`
+/// cache key is identical for the whole gesture and the real target lands
+/// once, when the drag stalls. AD-011's identity rule is preserved without
+/// the overlap; the image is `BoxFit.contain`, so a frame decoded at the
+/// pre-drag target simply scales for the few hundred ms the drag lasts.
 class GalleryDesktopSurface extends StatefulWidget {
   const GalleryDesktopSurface({super.key, required this.surface});
 
@@ -114,8 +124,21 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
   bool _dragActive = false;
   Timer? _dragStallTimer;
 
+  /// Holds primary focus so the Open Folder chord below is delivered here
+  /// (see the note at the `Focus` that consumes it).
+  final FocusNode _shortcutFocus = FocusNode(debugLabel: 'gallery.shortcuts');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _shortcutFocus.requestFocus();
+    });
+  }
+
   @override
   void dispose() {
+    _shortcutFocus.dispose();
     _dragStallTimer?.cancel();
     super.dispose();
   }
@@ -149,31 +172,79 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
   @override
   Widget build(BuildContext context) {
     final surface = widget.surface;
-    // The float rule. Pinned at 90 so the constraints the viewport's internal
-    // LayoutBuilder sees never change while the user drags (see class doc).
-    // `num.min` returns `num`; `toDouble()` is load-bearing for `Positioned.left`.
-    final viewportLeft =
-        math.min(_columnWidth, kGalleryColumnMinWidth).toDouble();
+    // USER RULING 2026-09-02, superseding the R5 float rule: a widened gutter
+    // must PUSH the photo, never cover it. The viewport's left inset is
+    // therefore the LIVE column width, so the strip and the photo always
+    // partition the window between them and nothing is overlapped. See the
+    // class doc for the decode cost this trades away.
+    final viewportLeft = _columnWidth;
     final floating = _columnWidth > kGalleryColumnMinWidth;
     final colors = Theme.of(context).colorScheme;
 
+    // ⌘O / Ctrl+O — Open Folder.
+    //
+    // DELIBERATELY HARD-CODED HERE, not in `ShortcutBindings`. That model
+    // dispatches on the logical key ALONE (main_screen.dart's handler reads
+    // `actionFor(event.logicalKey)`) and has no representation for a
+    // modifier, so it cannot express this chord at all today. "Cmd+O opens a
+    // folder" is a platform convention rather than a user preference, so a
+    // fixed binding is defensible; if rebindability is ever wanted, the
+    // upgrade path is to add modifier support plus an `openFolder` action to
+    // ShortcutBindings and delete this wrapper, not to grow it.
+    //
+    // Both activators are registered so the affordance exists on every
+    // desktop platform (macOS uses meta, Windows/Linux control); the two
+    // labels that advertise it are platform-aware for the same reason.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
+            surface.actions.onOpenFolder,
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+            surface.actions.onOpenFolder,
+      },
+      child: Focus(
+        // Explicitly focused once at mount rather than via `autofocus`:
+        // main_screen already autofocuses its own Focus ABOVE this one, and a
+        // scope honours only the first autofocus, so this node would never
+        // hold primary focus and the chord would be delivered to the ancestor
+        // instead — dead in the product while passing in isolation.
+        // Taking focus here is safe for the app's other shortcuts: key events
+        // propagate from the focused node UP through its ancestors, so
+        // main_screen's handler still sees everything this node does not bind.
+        focusNode: _shortcutFocus,
+        child: _buildStack(context, surface, viewportLeft, floating, colors),
+      ),
+    );
+  }
+
+  Widget _buildStack(
+    BuildContext context,
+    MainSurface surface,
+    double viewportLeft,
+    bool floating,
+    ColorScheme colors,
+  ) {
     return Stack(
       children: [
-        // The photo itself: 1350 x 900 at any width <= 90. Explicit insets
-        // only — never Padding/FractionallySizedBox, or the constraints its
-        // internal LayoutBuilder sees would change (R-D1).
+        // The photo, inset by the live column width. Explicit insets only —
+        // never Padding/FractionallySizedBox (R-D1).
         Positioned(
           left: viewportLeft,
           top: 0,
           right: 0,
           bottom: 0,
-          child: surface.viewport,
+          // Reflow the layout every frame, but hold the DECODE target steady
+          // until the drag stalls (see the class doc's trade-off note).
+          child: DecodeSizeFreeze(
+            frozen: _dragActive,
+            child: surface.viewport,
+          ),
         ),
-        // Hairline seam marking where the free gutter ends and the photo
-        // begins (mockup `.seam`). The photo's left edge never moves, so the
-        // seam is pinned at 90 regardless of the dragged column.
+        // Hairline seam marking where the gutter ends and the photo begins
+        // (mockup `.seam`). It rides the gutter's right edge, which is now
+        // also the photo's left edge.
         Positioned(
-          left: kGalleryColumnMinWidth,
+          left: viewportLeft,
           top: 0,
           bottom: 0,
           width: 1,
@@ -183,7 +254,12 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
         Positioned(
           right: 20,
           bottom: 16,
-          child: ExifCaption(exif: surface.identity?.exif),
+          // The file name is the label's title line since the 2026-09-02
+          // mockup revision; it used to live in the column's identity plate.
+          child: ExifCaption(
+            fileName: surface.identity?.displayName,
+            exif: surface.identity?.exif,
+          ),
         ),
         // Transient status toast, floats over the photo (mockup `.status`).
         Positioned(

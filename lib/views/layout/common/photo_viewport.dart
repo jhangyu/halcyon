@@ -7,6 +7,10 @@ import '../../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../../../providers/app_state.dart';
 import '../../../services/image_pipeline/image_preload_controller.dart';
 import '../../zoom_controller.dart';
+import 'app_actions_menu.dart' show openFolderShortcutLabel;
+import '../gallery/gallery_palette.dart';
+import '../layout_registry.dart';
+import '../layout_theme.dart';
 
 /// The photo itself: empty state, spinner, unreadable state or the
 /// InteractiveViewer. Extracted from the old per-detail-view photo widget
@@ -80,6 +84,11 @@ class _PhotoViewportState extends State<PhotoViewport>
     final state = context.watch<AppState>();
 
     if (state.items.isEmpty) {
+      // The gallery theme draws its own welcome screen (mockup frame 7); any
+      // other theme keeps the stock Material screen until it draws one.
+      if (activeLayoutTheme.id == LayoutThemeId.gallery) {
+        return const _GalleryEmptyState();
+      }
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -145,6 +154,11 @@ class _PhotoViewportState extends State<PhotoViewport>
   // every switch after the first pass. Detected via round-2's own report
   // shape (n=24 resolved=24 per pass, i.e. one full re-emit per pass) not
   // matching a live run's near-zero rapid-pass resolved count.
+  /// The last decode target reported while the layout was NOT mid-drag.
+  /// Reused verbatim for every frozen frame, so the tier-1 cache key is
+  /// identical across a whole drag (AD-011's identity rule).
+  (int, int)? _settledTarget;
+
   String? _perfSpinnerId;
   String? _perfLastTrackedId;
   Set<String> _perfTrackedKeys = {};
@@ -202,6 +216,8 @@ class _PhotoViewportState extends State<PhotoViewport>
     stream.addListener(listener);
   }
 
+  // Kept for the non-gallery branch above and for the unreadable state.
+  //
   // Shown instead of the otherwise-permanent spinner when the file is
   // unreadable (AppState.currentItemFailed).
   Widget _buildUnreadable(PhotoItem item) {
@@ -248,9 +264,23 @@ class _PhotoViewportState extends State<PhotoViewport>
         // requests below (same provider factory, same size params ==
         // same ImageCache key == cache hit instead of a silent second
         // decode).
+        //
+        // While a gutter drag is in flight the layout reflows on every frame
+        // (see GalleryDesktopSurface's reflow rule), so this target would
+        // change on every frame too and each change is a NEW ImageCache key,
+        // i.e. a fresh tier-1 decode per drag frame. `DecodeSizeFreeze` marks
+        // those frames: the last settled target is reused for both the report
+        // and the provider below, so the cache key survives the whole gesture
+        // and the real target lands once, when the drag stalls. The layout
+        // itself is never frozen — only the number we decode at.
         final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
-        final targetWidth = (constraints.maxWidth * devicePixelRatio).round();
-        final targetHeight = (constraints.maxHeight * devicePixelRatio).round();
+        final liveWidth = (constraints.maxWidth * devicePixelRatio).round();
+        final liveHeight = (constraints.maxHeight * devicePixelRatio).round();
+
+        final frozen = DecodeSizeFreeze.of(context) && _settledTarget != null;
+        final targetWidth = frozen ? _settledTarget!.$1 : liveWidth;
+        final targetHeight = frozen ? _settledTarget!.$2 : liveHeight;
+        if (!frozen) _settledTarget = (liveWidth, liveHeight);
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
         // `pixelProvider` (AppState.displayProvider) already resolves to the
@@ -319,6 +349,176 @@ class _PhotoViewportState extends State<PhotoViewport>
           ),
         );
       },
+    );
+  }
+}
+/// Marks the frames during which the decode target must be held steady.
+///
+/// The user's 2026-09-02 ruling made the gallery viewport reflow as the gutter
+/// is dragged, which is a layout change per frame. Layout is cheap; a changed
+/// decode target is not — it is a new `ImageProvider` cache key and therefore
+/// a fresh full decode (the frozen AD-011 identity rule exists for exactly
+/// this reason). A surface that reflows continuously wraps its viewport in
+/// this with `frozen: true` for the duration, and [PhotoViewport] keeps
+/// reporting and decoding at the last settled size until it turns false again.
+///
+/// Absent (no ancestor) means "never frozen", so every other surface and every
+/// test that does not care is unaffected.
+class DecodeSizeFreeze extends InheritedWidget {
+  const DecodeSizeFreeze({
+    super.key,
+    required this.frozen,
+    required super.child,
+  });
+
+  final bool frozen;
+
+  static bool of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<DecodeSizeFreeze>()
+          ?.frozen ??
+      false;
+
+  @override
+  bool updateShouldNotify(DecodeSizeFreeze oldWidget) =>
+      oldWidget.frozen != frozen;
+}
+
+/// The `gallery` theme's welcome screen — the state the app opens in
+/// (mockup frame 7, `c1-desktop-{light,dark}.html:401-446`, added 2026-09-02).
+///
+/// Drawn from the parts every other frame already uses and no others: the
+/// mount rectangle of the print, the wall-label typography of the EXIF
+/// caption, the 44px hairline, and the accent button. The composition is the
+/// app with nothing in it, so the layout the user is about to get is legible
+/// before they open anything.
+///
+/// ALIGNMENT (user review of frame 7): every item sits on ONE centred axis.
+/// The button is alone on its row — it must never share a [Row] with the
+/// shortcut hint, because a centred row centres THE ROW, pushing the button
+/// off-axis by half the hint's width. The shortcut lives inside the centred
+/// drop-hint line below instead.
+class _GalleryEmptyState extends StatelessWidget {
+  const _GalleryEmptyState();
+
+  /// Test handles for the single-axis assertion and element checks.
+  static const Key mountKey = Key('galleryEmptyMount');
+  static const Key buttonKey = Key('galleryEmptyOpenFolder');
+  static const Key hintKey = Key('galleryEmptyDropHint');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final palette = GalleryPalette.of(context);
+
+    return ColoredBox(
+      color: palette.mat, // --mat, the mount wall
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // An empty mount at the photo's own 3:2, so the shape is a promise.
+            Container(
+              key: mountKey,
+              width: 432,
+              height: 288,
+              decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor, // --canvas
+                border: Border.all(color: colors.outline), // --hair-strong
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(11),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: colors.outlineVariant), // --hair
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 38),
+            Text(
+              // `.empty .kicker{text-transform:uppercase}` — the mockup's own
+              // casing, applied here rather than to the literal so the word
+              // stays readable as the product name in source.
+              'Halcyon'.toUpperCase(),
+              style: TextStyle(
+                fontSize: 9,
+                letterSpacing: 0.22 * 9,
+                color: palette.textFaint,
+              ),
+            ),
+            const SizedBox(height: 11),
+            Text(
+              'No folder open',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.01 * 19,
+                color: colors.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 392),
+              child: Text(
+                'Open a folder of RAW or JPEG files to browse it, star the '
+                'keepers, mark the rejects, then copy or move what you kept.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.6,
+                  letterSpacing: 0.02 * 12,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(width: 44, height: 1, color: colors.outline),
+            const SizedBox(height: 18),
+            // Alone on its row, shrink-wrapped: the axis rule above.
+            FilledButton.icon(
+              key: buttonKey,
+              onPressed: () => context.read<AppState>().openFolder(),
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.primary,
+                foregroundColor: palette.onAccent, // --on-accent, AA on both
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              icon: const Icon(Icons.folder_open, size: 15),
+              label: const Text('Open Folder'),
+            ),
+            const SizedBox(height: 14),
+            // One centred hint line; the shortcut is separated by colour and a
+            // word space only — trailing letter-spacing on the last glyph would
+            // shift the whole line off the axis.
+            Text.rich(
+              key: hintKey,
+              TextSpan(
+                children: [
+                  TextSpan(
+                    // Same chord the menu advertises, written for this
+                    // platform (see openFolderShortcutLabel).
+                    text: openFolderShortcutLabel(),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  const TextSpan(text: ' or drop a folder onto the window'),
+                ],
+              ),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10.5,
+                letterSpacing: 0.06 * 10.5,
+                color: palette.textFaint,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

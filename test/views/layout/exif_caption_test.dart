@@ -33,8 +33,69 @@ void main() {
     await tester.pump();
   }
 
-  ExifCaption captionFor(ExifMetadata? exif, {bool compact = false}) =>
-      ExifCaption(exif: exif, compact: compact);
+  ExifCaption captionFor(ExifMetadata? exif,
+          {bool compact = false, String? fileName}) =>
+      ExifCaption(exif: exif, compact: compact, fileName: fileName);
+
+  testWidgets(
+      'TC-535 the file name is the label title line, above camera and body',
+      (tester) async {
+    // Revision 2026-09-02: the name moved out of the 90px sidebar plate and
+    // became this label's title (mockup order .file / .rule / .cam / .body).
+    await pumpCaption(
+      tester,
+      captionFor(full(), fileName: 'DSC_4471.NEF'),
+    );
+
+    final name = tester.widget<Text>(find.text('DSC_4471.NEF'));
+    expect(name.style?.fontSize, 13); // .exif .file, the largest type here
+    expect(name.style?.letterSpacing, 0.03 * 13);
+    expect(name.style?.color, const Color(0xFF1C1B19)); // light --ink
+
+    final column = tester.widget<Column>(find.byType(Column));
+    final children = column.children.toList();
+    int indexOfText(String data) =>
+        children.indexWhere((w) => w is Text && w.data == data);
+    final iName = indexOfText('DSC_4471.NEF');
+    final iCam = indexOfText('Nikon Z 8');
+    final iBody = indexOfText('85 mm · ƒ/5.6 · 1/500 · ISO 200');
+    final iRule = children.indexWhere((w) =>
+        w is Container &&
+        w.constraints == const BoxConstraints.tightFor(width: 44, height: 1));
+
+    expect(iName, 0);
+    expect(iRule, greaterThan(iName));
+    expect(iCam, greaterThan(iRule));
+    expect(iBody, greaterThan(iCam));
+    // Exactly one rule: it separates the title from the EXIF, and no second
+    // one reappears between camera and body.
+    expect(
+      children.whereType<Container>().where((w) =>
+          w.constraints == const BoxConstraints.tightFor(width: 44, height: 1)),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('TC-535 a name with no readable EXIF still renders',
+      (tester) async {
+    // The old contract returned SizedBox.shrink on `exif == null`; the title
+    // line must survive an unread or unreadable photo.
+    await pumpCaption(tester, captionFor(null, fileName: 'DSC_4471.NEF'));
+
+    expect(find.text('DSC_4471.NEF'), findsOneWidget);
+    expect(tester.getSize(find.byType(ExifCaption)).height, greaterThan(0));
+  });
+
+  testWidgets('TC-535 compact (mobile) ignores the file name slot',
+      (tester) async {
+    await pumpCaption(
+      tester,
+      captionFor(full(), compact: true, fileName: 'DSC_4471.NEF'),
+    );
+
+    expect(find.text('DSC_4471.NEF'), findsNothing);
+    expect(find.byType(Text), findsOneWidget);
+  });
 
   testWidgets('TC-514 all five fields render the exact mockup body string',
       (tester) async {
@@ -64,13 +125,15 @@ void main() {
     expect(column.crossAxisAlignment, CrossAxisAlignment.end);
     expect(column.mainAxisSize, MainAxisSize.min);
 
-    // Camera, 34×1 rule, then body — the museum-label order.
+    // Camera, 44×1 rule, then body — the museum-label order. The rule
+    // widened from 34 to 44 in the 2026-09-02 mockup revision (`.exif .rule`);
+    // with no file name it still separates camera from body.
     final children = column.children.whereType<Widget>().toList();
     int? iCamera, iRule, iBody;
     for (var i = 0; i < children.length; i++) {
       final w = children[i];
       if (w is Text && w.data == 'Nikon Z 8') iCamera = i;
-      if (w is Container && w.constraints == const BoxConstraints.tightFor(width: 34, height: 1)) {
+      if (w is Container && w.constraints == const BoxConstraints.tightFor(width: 44, height: 1)) {
         iRule = i;
       }
       if (w is Text && w.data == '85 mm · ƒ/5.6 · 1/500 · ISO 200') iBody = i;
