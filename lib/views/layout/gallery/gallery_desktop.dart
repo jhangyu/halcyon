@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../common/exif_caption.dart';
 import '../main_surface.dart';
 import 'gallery_column.dart';
+import 'gallery_palette.dart';
 
 /// Constants for the dragged column width state, ruled R5a/R8 on 2026-09-01.
 ///
@@ -57,7 +58,7 @@ const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
 /// column's own `Positioned` grows over the top of the viewport while the
 /// viewport's inset stays pinned at 90. That single `min` is the whole
 /// "floats over, never pushes" mechanism, and it is why the photo measures
-/// 1350x900 at every drag position in the 90-200 range.
+/// 1350 × 900 at every drag position in the 90-200 range.
 ///
 /// It also buys a second property worth more than the first: because the inset
 /// is pinned, the constraints the viewport's internal `LayoutBuilder` sees
@@ -202,11 +203,13 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
             key: kGalleryColumnShadowKey,
             decoration: BoxDecoration(
               boxShadow: floating
-                  ? const [
+                  ? [
                       // mockup `.gutter.dragged`: 12px 0 34px at 16%.
+                      // The colour is the palette's shared floatShadow token;
+                      // offset/blur stay layout-owned here (R6 lead ruling).
                       BoxShadow(
-                        color: Color(0x29000000),
-                        offset: Offset(12, 0),
+                        color: GalleryPalette.of(context).floatShadow,
+                        offset: const Offset(12, 0),
                         blurRadius: 34,
                       ),
                     ]
