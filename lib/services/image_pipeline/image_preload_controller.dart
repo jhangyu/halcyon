@@ -988,7 +988,35 @@ class ImagePreloadController {
       // probe could not measure gets discovered and handed to the lane below.
       final canDoExpensive = onSerialLane;
       final knownOrientation = _exifOrientations[id];
-      final outcome = canDoExpensive && knownOrientation != null
+      // FIX 2026-09-02 (field defect, docs/logs/2026-09-02/h3-routing-findings.md
+      // §0-Z): the COST test below is load-bearing and used to be absent.
+      //
+      // `loadExpensive` calls the decoder DIRECTLY and never asks the loader,
+      // so taking it for a cheap item throws away a perfectly usable embedded
+      // preview and renders the photo from sensor data instead -- visibly
+      // different colours. `knownOrientation != null` was written as a proxy
+      // for "an earlier pass already got NeedsRawDecode from the bridge and
+      // carried the orientation forward" (invariant I6), but the CONTENT PROBE
+      // is a second writer of that memo and fills it for every measured
+      // TIFF/RAW, cheap ones included -- so the proxy became true for every RAW
+      // file and this branch degenerated into "RAW-decode anything that reaches
+      // the serial lane". Cheap items reach it routinely through two cost-blind
+      // callers (the sidebar payload lane and the tier-2 catch-up load), which
+      // is why the affected set looked random and re-rolled every launch.
+      //
+      // I6 is preserved: a genuinely expensive item's rung is memoised before
+      // the lane hand-off (by the probe, or by `observe(..., by: 'bridge')`
+      // below for the deferred route), so `classify` returns `expensive` on
+      // lane re-entry and `loadExpensive` still resumes without a second round
+      // trip. A cheap item now takes `load(allowExpensive: true)`: the loader
+      // is asked, and a genuine extraction failure still decodes inline on the
+      // lane exactly as before. `cost == null` (unmeasurable) also routes to
+      // `load`, which is what the frozen A-§2 rung-2 contract requires -- the
+      // bridge decides, so the bridge must be asked.
+      final outcome =
+          canDoExpensive &&
+              cost == SourceCost.expensive &&
+              knownOrientation != null
           ? await _source.loadExpensive(
               file.path,
               longEdge: _longEdge,
