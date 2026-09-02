@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../models/photo_item.dart';
 import '../models/shortcut_bindings.dart';
-import 'sidebar_view.dart';
-import 'main_detail_view.dart';
+import 'layout/common/app_actions_menu.dart';
+import 'layout/common/photo_viewport.dart';
+import 'layout/layout_registry.dart';
+import 'layout/main_surface.dart';
 import 'status_line.dart';
 import 'zoom_controller.dart';
 
@@ -20,7 +22,6 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final FocusNode _focusNode = FocusNode();
-  double _sidebarWidth = 270.0;
 
   // Owned here, not by MainDetailView: the detail view is rebuilt on photo
   // switches and the zoom level must survive those (handover §11).
@@ -53,7 +54,7 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             _buildKeyboardShortcutHandler(
               context: context,
-              child: _buildBody(),
+              child: _buildSurface(context),
             ),
             const StatusLine(),
           ],
@@ -62,32 +63,45 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildBody() {
-    return Row(
-          children: [
-            SizedBox(width: _sidebarWidth, child: const SidebarView()),
-            MouseRegion(
-              cursor: SystemMouseCursors.resizeColumn,
-              child: GestureDetector(
-                onPanUpdate: (details) {
-                  setState(() {
-                    _sidebarWidth += details.delta.dx;
-                    // Provide some reasonable bounds and round to prevent 1px subpixel seams
-                    _sidebarWidth = _sidebarWidth.roundToDouble();
-                    if (_sidebarWidth < 180) _sidebarWidth = 180;
-                    if (_sidebarWidth > 600) _sidebarWidth = 600;
-                  });
-                },
-                child: Container(
-                  width: 5, // 5px drag handle width
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? const Color.fromARGB(255, 81, 81, 81)
-                      : const Color.fromARGB(255, 225, 225, 225),
-                ),
+  Widget _buildSurface(BuildContext context) {
+    final state = context.watch<AppState>();
+    final item = state.currentItem;
+    final index = item == null
+        ? 0
+        : state.items.indexWhere((i) => i.id == item.id) + 1;
+    return activeLayoutTheme.buildMainSurface(
+      context,
+      MainSurface(
+        viewport: PhotoViewport(key: kViewportKey, zoom: _zoom),
+        statusOverlay: const StatusLine(),
+        strip: PhotoStripModel(
+          items: state.items,
+          selectedId: state.selectedItemID,
+          recycleMode: state.recycleMode,
+          onSelect: state.selectItem,
+          payloadFor: state.thumbnailPayloadFor,
+          onVisibleRange: state.preloadThumbnails,
+        ),
+        identity: item == null
+            ? null
+            : PhotoIdentity(
+                displayName: item.displayName,
+                indexInFolder: index,
+                folderCount: state.items.length,
+                status: item.status,
+                exif: state.currentExif,
               ),
-            ),
-            Expanded(child: MainDetailView(zoom: _zoom)),
-          ],
+        actions: PhotoActions(
+          recycleMode: state.recycleMode,
+          onStar: () => state.markCurrent(PhotoStatus.starred),
+          onTrash: () => state.markCurrent(PhotoStatus.trashed),
+          onToggleRecycleMode: state.toggleRecycleMode,
+          onOpenFolder: state.openFolder,
+          menu: AppActionsMenu(
+            iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 

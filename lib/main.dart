@@ -8,8 +8,8 @@ import 'services/image_pipeline/full_decoder_dispatch.dart';
 import 'services/image_pipeline/retention_policy.dart';
 import 'services/platform/device_memory.dart';
 import 'services/platform/open_with_channel.dart';
+import 'views/layout/layout_registry.dart';
 import 'views/main_screen.dart';
-import 'views/theme_tokens.dart';
 
 // Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
@@ -83,93 +83,8 @@ class HalcyonApp extends StatelessWidget {
     return MaterialApp(
       title: 'Halcyon',
       themeMode: ThemeMode.system, // Adapt to macOS system theme
-      // Antigravity Day Theme
-      theme: ThemeData(
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color.fromARGB(
-          255,
-          243,
-          243,
-          243,
-        ), // Main preview background
-        dividerColor: Colors.transparent,
-        colorScheme: const ColorScheme.light(
-          primary: Color(0xFF0066CC), // Apple blue
-          onPrimary: Colors.white,
-          surface: Color.fromARGB(255, 225, 225, 225), // Action area bg
-          surfaceContainer: Color.fromARGB(255, 232, 232, 232), // Sidebar bg
-          surfaceContainerHighest: Color(0xFFD1D1D6),
-          onSurface: Color.fromARGB(
-            255,
-            118,
-            118,
-            118,
-          ), // Unselected text color
-        ),
-        listTileTheme: const ListTileThemeData(
-          selectedTileColor: Color.fromARGB(255, 220, 220, 220), // Fallback
-        ),
-        popupMenuTheme: const PopupMenuThemeData(
-          color: Color.fromARGB(255, 248, 248, 248),
-          elevation: 8,
-        ),
-        dividerTheme: const DividerThemeData(
-          color: Color.fromARGB(255, 220, 220, 220), // Action menu divider
-          space: 1,
-          thickness: 1,
-        ),
-        extensions: const <ThemeExtension<dynamic>>[HalcyonTokens.light],
-        useMaterial3: true,
-      ),
-      // Custom Layered Night Theme
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color.fromARGB(
-          255,
-          45,
-          45,
-          45,
-        ), // Main preview background
-        dividerColor:
-            Colors.transparent, // Remove dividers generally in dark mode
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF0A84FF), // macOS Dark Apple blue
-          onPrimary: Colors.white,
-          surface: Color.fromARGB(255, 81, 81, 81), // Action area bg
-          surfaceContainer: Color.fromARGB(255, 59, 59, 59), // Sidebar bg
-          surfaceContainerHighest: Color(0xFF323232), // Hover item bg
-          onSurface: Color(0xFFE0E0E0),
-        ),
-        listTileTheme: const ListTileThemeData(
-          selectedTileColor: Color.fromARGB(
-            255,
-            70,
-            70,
-            70,
-          ), // Explicit selected background color
-        ),
-        popupMenuTheme: const PopupMenuThemeData(
-          color: Color.fromARGB(
-            255,
-            60,
-            60,
-            60,
-          ), // Slight darker contextual menu
-          elevation: 8,
-        ),
-        dividerTheme: const DividerThemeData(
-          color: Color.fromARGB(
-            255,
-            81,
-            81,
-            81,
-          ), // Explicit color for PopupMenuDividers
-          space: 1,
-          thickness: 1,
-        ),
-        extensions: const <ThemeExtension<dynamic>>[HalcyonTokens.dark],
-        useMaterial3: true,
-      ),
+      theme: activeLayoutTheme.themeDataFor(Brightness.light),
+      darkTheme: activeLayoutTheme.themeDataFor(Brightness.dark),
       home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );
