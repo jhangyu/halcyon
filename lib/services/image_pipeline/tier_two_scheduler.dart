@@ -435,9 +435,16 @@ class TierTwoScheduler {
         // encoded, so a Phase-13 re-encoded item never appears here -- if this
         // line shows up for an ARW with a good embedded preview, the tier-2
         // path is the RAW-decode source, not routing.
-        debugPrint('halcyon.route.tier2decode|id=$id|payload=${payload
-            .runtimeType}');
+        debugPrint(
+          'halcyon.route|$id|rawdecode.start|via=tier2upgrade|tier=2'
+          '|payload=${payload.runtimeType}',
+        );
+        final tDecode = DateTime.now();
         final decoded = await decoder(file.path);
+        debugPrint(
+          'halcyon.route|$id|rawdecode.done|via=tier2upgrade|tier=2'
+          '|ms=${DateTime.now().difference(tDecode).inMilliseconds}',
+        );
         image = await decodedRgbaToImage(
           decoded,
           exifOrientation: orientation,

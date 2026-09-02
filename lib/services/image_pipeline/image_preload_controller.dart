@@ -960,7 +960,7 @@ class ImagePreloadController {
     // whether this is the parallel window pass or the serial lane. `cost=null`
     // means the probe could not measure the file and the bridge will decide.
     debugPrint(
-      'halcyon.route.ensure|id=$id|cost=${cost?.name ?? 'unmeasured'}'
+      'halcyon.route|$id|ensure|cost=${cost?.name ?? 'unmeasured'}'
       '|longEdge=$_longEdge|lane=${onSerialLane ? 'serial' : 'window'}'
       '|distance=$distance|precomputedProbe=${precomputedProbe != null}',
     );
@@ -971,6 +971,11 @@ class ImagePreloadController {
       // produce nothing, i.e. a permanent spinner. Production of this payload
       // now belongs to the lane task, which takes its own claim.
       _loadingKeys.remove(id);
+      // ROUTING DIAGNOSTIC v3: the hand-off that ends in a RAW decode, with
+      // WHY. `why=memo` means the cost memo already said expensive when this
+      // pass ran -- read the earlier `memo|...|action=write` line for that id
+      // to see WHO wrote it and the `probe.verdict` line for the numbers.
+      debugPrint('halcyon.route|$id|lane.enqueue|why=memo|distance=$distance');
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
@@ -1071,6 +1076,12 @@ class ImagePreloadController {
       // so the lane's retry uses `loadExpensive` and buys no second round trip
       // (invariant I6).
       if (outcome.deferred && !onSerialLane) {
+        // ROUTING DIAGNOSTIC v3: `why=deferred` means the PROBE did not decide
+        // this -- the loader itself answered NeedsRawDecode and the rung was
+        // adopted from the bridge (`memo|...|by=bridge`).
+        debugPrint(
+          'halcyon.route|$id|lane.enqueue|why=deferred|distance=$distance',
+        );
         _enqueueSerialLoad(
           item,
           distance: distance,

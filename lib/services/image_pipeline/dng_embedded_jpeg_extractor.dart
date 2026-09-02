@@ -531,11 +531,31 @@ class DngEmbeddedJpegExtractor {
         // whole walk in that case, so a shrunken measurement can no longer be
         // published on the strength of a read that failed.
         final scan = _gatherCandidates(reader, source, ifd0, 0);
-        if (scan == null) return null;
+        if (scan == null) {
+          stderr.writeln(
+            'halcyon.route|${path.split(Platform.pathSeparator).last}'
+            '|probe.candidates|scan=null',
+          );
+          return null;
+        }
         var best = 0;
         for (final c in scan.candidates) {
           if (c.maxDim > best) best = c.maxDim;
         }
+        // ROUTING DIAGNOSTIC v3 (2026-09-02, h3). `best` is THE number the
+        // whole folder's routing is memoised on. A walk that ended early --
+        // for any reason that set no fault flag -- publishes a SMALLER `best`
+        // that is indistinguishable downstream from a file that genuinely has
+        // only a small preview, and that is precisely how a 7008px ARW can be
+        // routed to a RAW decode. Logging every candidate, not just the max,
+        // is what separates "the walk saw less" from "the comparison was made
+        // on the right numbers and still said expensive".
+        stderr.writeln(
+          'halcyon.route|${path.split(Platform.pathSeparator).last}'
+          '|probe.candidates|n=${scan.candidates.length}'
+          '|dims=${scan.candidates.map((c) => '${c.width}x${c.height}').join(',')}'
+          '|best=$best',
+        );
         return (
           jpegBitstream: false,
           largestLongEdge: best,

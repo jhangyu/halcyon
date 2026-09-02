@@ -173,7 +173,9 @@ Future<DecodedRgba> dispatchFullDecode(
   // in particular a `[DngNativeBindings] loaded:` line does NOT imply a
   // decode: the Phase-13 payload re-encoder loads the same dylib in its own
   // isolate for every CHEAP item (`payload_normalizer.dart`).
-  debugPrint('halcyon.route.fulldecode|file=${path.split('/').last}');
+  debugPrint(
+    'halcyon.route|${path.split('/').last}|fulldecode.funnel',
+  );
   if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
   if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);

@@ -125,10 +125,17 @@ class PhotoSource {
   /// A null [payloadEncoder] is the pre-change behaviour, byte-for-byte: the
   /// bytes are wrapped and nothing is decoded. That is the binding every
   /// decode-only test uses and it must stay a true no-op.
-  Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async {
+  Future<SourcePayload> _normalizedEncoded(
+    Uint8List bytes, {
+    String debugLabel = '?',
+  }) async {
     final encoder = payloadEncoder;
     if (encoder == null) return EncodedPayload(bytes);
-    return normalizeEncodedPayload(encoded: bytes, encoder: encoder);
+    return normalizeEncodedPayload(
+      encoded: bytes,
+      encoder: encoder,
+      debugLabel: debugLabel,
+    );
   }
 
   /// Produces the payload for [path] at [longEdge], plus what that attempt
@@ -163,7 +170,7 @@ class PhotoSource {
     switch (result) {
       case NativeImageBytes(:final bytes):
         return (
-          payload: await _normalizedEncoded(bytes),
+          payload: await _normalizedEncoded(bytes, debugLabel: _leaf(path)),
           observedCost: SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
@@ -214,10 +221,16 @@ class PhotoSource {
           // from `load` (not `loadExpensive`) -- i.e. the loader itself said
           // NeedsRawDecode and this call was allowed to act on it.
           stderr.writeln(
-            'halcyon.route.rawdecode|file=${_leaf(path)}|via=load'
+            'halcyon.route|${_leaf(path)}|rawdecode.start|via=load|tier=1'
             '|declaredPreviewsUnreadable=$declaredPreviewsUnreadable',
           );
+          final tDecode = DateTime.now();
           final decoded = await decoder(path);
+          stderr.writeln(
+            'halcyon.route|${_leaf(path)}|rawdecode.done|via=load|tier=1'
+            '|ms=${DateTime.now().difference(tDecode).inMilliseconds}'
+            '|px=${decoded.width}x${decoded.height}',
+          );
           final pixels = await decodedRgbaToPixelPayload(
             decoded,
             exifOrientation: exifOrientation,
@@ -296,7 +309,7 @@ class PhotoSource {
         return (
           payload: recovered == null
               ? null
-              : await _normalizedEncoded(recovered),
+              : await _normalizedEncoded(recovered, debugLabel: _leaf(path)),
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
@@ -319,7 +332,7 @@ class PhotoSource {
     // path NEVER calls the loader, so it emits no extraction diagnostics at
     // all (fix-verification.md §4.2) -- this line is the only evidence it ran.
     stderr.writeln(
-      'halcyon.route.loadExpensive|file=${_leaf(path)}'
+      'halcyon.route|${_leaf(path)}|loadExpensive.enter|tier=1'
       '|longEdge=$longEdge|orientation=$exifOrientation'
       '|decoder=${dngDecoder == null ? 'absent' : 'present'}',
     );
@@ -340,7 +353,16 @@ class PhotoSource {
       );
     }
     try {
+      stderr.writeln(
+        'halcyon.route|${_leaf(path)}|rawdecode.start|via=loadExpensive|tier=1',
+      );
+      final tDecode = DateTime.now();
       final decoded = await decoder(path);
+      stderr.writeln(
+        'halcyon.route|${_leaf(path)}|rawdecode.done|via=loadExpensive|tier=1'
+        '|ms=${DateTime.now().difference(tDecode).inMilliseconds}'
+        '|px=${decoded.width}x${decoded.height}',
+      );
       final pixels = await decodedRgbaToPixelPayload(
         decoded,
         exifOrientation: exifOrientation,
@@ -441,14 +463,14 @@ class PhotoSource {
       // bridge answer instead -- the one route by which a file with a
       // perfectly good 7008px preview could still be called expensive.
       stderr.writeln(
-        'halcyon.route.probe|file=${_leaf(path)}|verdict=UNMEASURABLE'
+        'halcyon.route|${_leaf(path)}|probe.verdict|verdict=UNMEASURABLE'
         '|longEdgeUsed=$longEdge',
       );
       return (cost: null, exifOrientation: null);
     }
     if (content.jpegBitstream) {
       stderr.writeln(
-        'halcyon.route.probe|file=${_leaf(path)}|verdict=cheap'
+        'halcyon.route|${_leaf(path)}|probe.verdict|verdict=cheap'
         '|reason=jpegBitstream|longEdgeUsed=$longEdge',
       );
       return (cost: SourceCost.cheap, exifOrientation: null);
@@ -466,9 +488,9 @@ class PhotoSource {
     // verdict is only inferrable from downstream behaviour, and a "cheap" file
     // that still RAW-decodes is indistinguishable from an "expensive" verdict.
     stderr.writeln(
-      'halcyon.route.probe|file=${_leaf(path)}'
+      'halcyon.route|${_leaf(path)}|probe.verdict'
       '|largestLongEdge=${content.largestLongEdge}|longEdgeUsed=$longEdge'
-      '|jpegBitstream=${content.jpegBitstream}|verdict=${cost.name}',
+      '|test=${content.largestLongEdge}>=$longEdge|verdict=${cost.name}',
     );
     return (cost: cost, exifOrientation: content.orientation);
   }

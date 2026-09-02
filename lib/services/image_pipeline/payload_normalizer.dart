@@ -165,6 +165,7 @@ Future<SourcePayload> normalizeEncodedPayload({
   int quality = kReencodeJpegQuality,
   EncodedRgbaDecoder? decodeToRgba,
   NormalizeGate? gate,
+  String debugLabel = '?',
 }) async {
   // Resolved at call time, not as a default argument: Task 3 needs an
   // override seam that `PhotoSource` does not thread through its own
@@ -195,7 +196,8 @@ Future<SourcePayload> normalizeEncodedPayload({
       quality: quality,
     );
     debugPrint(
-      'halcyon.route.normalize|inBytes=${encoded.lengthInBytes}'
+      'halcyon.route|$debugLabel|normalize|tier=1'
+      '|inBytes=${encoded.lengthInBytes}'
       '|px=${decoded == null ? 'null' : '${decoded.width}x${decoded.height}'}'
       '|queuedMs=$queuedMs|decodeMs=$decodeMs'
       '|totalMs=${DateTime.now().difference(tStart).inMilliseconds}'

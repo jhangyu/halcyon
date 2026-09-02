@@ -75,13 +75,13 @@ class PrefetchScheduler {
     if (existing == null) {
       _cost[id] = cost;
       stderr.writeln(
-        'halcyon.route.memo|id=$id|cost=${cost.name}|by=$by|action=write',
+        'halcyon.route|$id|memo|cost=${cost.name}|by=$by|action=write',
       );
       return;
     }
     if (existing != cost) {
       stderr.writeln(
-        'halcyon.route.memo|id=$id|cost=${cost.name}|by=$by'
+        'halcyon.route|$id|memo|cost=${cost.name}|by=$by'
         '|action=ignored|standing=${existing.name}',
       );
     }
