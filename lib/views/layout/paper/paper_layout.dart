@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../layout_theme.dart';
 import '../main_surface.dart';
 import 'paper_desktop.dart';
+import 'paper_mobile.dart';
 import 'paper_palette.dart';
 
 /// The `paper` layout theme (round 2, task #12).
@@ -25,4 +26,10 @@ class PaperLayout extends LayoutTheme {
   @override
   Widget buildMainSurface(BuildContext context, MainSurface surface) =>
       PaperDesktopSurface(surface: surface);
+
+  /// Round 3 (task #16): the mobile arrangement (mockup frame 1 + frame 4).
+  /// See `paper_mobile.dart` for what is and is not in scope this round.
+  @override
+  Widget buildMobileSurface(BuildContext context, MainSurface surface) =>
+      PaperMobileSurface(surface: surface);
 }

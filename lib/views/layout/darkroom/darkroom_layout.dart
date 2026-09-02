@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../layout_theme.dart';
 import '../main_surface.dart';
 import 'darkroom_desktop.dart';
+import 'darkroom_mobile.dart';
 import 'darkroom_palette.dart';
 
 /// The `darkroom` layout theme (round 2, task #13).
@@ -23,4 +24,8 @@ class DarkroomLayout extends LayoutTheme {
   @override
   Widget buildMainSurface(BuildContext context, MainSurface surface) =>
       DarkroomDesktopSurface(surface: surface);
+
+  @override
+  Widget buildMobileSurface(BuildContext context, MainSurface surface) =>
+      DarkroomMobileSurface(surface: surface);
 }

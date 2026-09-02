@@ -1,4 +1,7 @@
+import 'dart:io' show Platform;
+
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -70,7 +73,12 @@ class _MainScreenState extends State<MainScreen> {
     final index = item == null
         ? 0
         : state.items.indexWhere((i) => i.id == item.id) + 1;
-    return activeLayoutTheme.buildMainSurface(
+    // Mobile layout is a PLATFORM decision, not a window-size one: only
+    // Android/iOS get the mobile surface (three-round contract, round 3).
+    final mobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final theme = activeLayoutTheme;
+    final build = mobile ? theme.buildMobileSurface : theme.buildMainSurface;
+    return build(
       context,
       MainSurface(
         viewport: PhotoViewport(key: kViewportKey, zoom: _zoom),

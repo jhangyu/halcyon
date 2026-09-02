@@ -18,4 +18,10 @@ abstract class LayoutTheme {
   /// Arrangement and paint only. Every behaviour this needs is already
   /// resolved inside [surface].
   Widget buildMainSurface(BuildContext context, MainSurface surface);
+
+  /// Mobile (Android/iOS) arrangement. Defaults to the desktop surface so a
+  /// theme without a drawn mobile layout stays usable; themes override this
+  /// as their mobile mockups land (round 3).
+  Widget buildMobileSurface(BuildContext context, MainSurface surface) =>
+      buildMainSurface(context, surface);
 }
