@@ -123,16 +123,27 @@ class TierTwoRegistry {
   /// (AC-M5-2). Returns a copy: no internal container leaves this class.
   Set<String> get keyIds => _keys.keys.toSet();
 
-  /// True when [id] already has a FULL-RESOLUTION tier-2 entry registered for
-  /// exactly this payload object. Deliberately not [isReady]: this is checked
-  /// to decide whether to spend an FFI decode, and the entry may still be a few
+  /// True when [id] already has a tier-2 entry registered for exactly this
+  /// payload object. Deliberately not [isReady]: this is checked to decide
+  /// whether to spend an FFI decode, and the entry may still be a few
   /// microseconds away from its listener firing (the ready flag is set by the
   /// stream listener; the registration in [publishFullRes] is synchronous).
   /// Asking the ready flag here would buy a second decode for an upgrade
   /// already in hand, which is exactly what AC-M5-4's "exactly ONE decoder
   /// call" forbids.
+  ///
+  /// Deliberately NOT filtered by `_keys[id] is RawFullResImage` (F6,
+  /// docs/logs/2026-09-02/arch-review-defect-family.md): every caller only
+  /// ever asks this for a payload that, once landed, is registered through
+  /// [publishFullRes] -- so an id/payload match already implies the entry is
+  /// the full-res one. The provider-type filter added nothing but a
+  /// G-024-shaped trap: a future caller passing a payload whose _sources
+  /// entry is identical but whose _keys entry is momentarily an encoded
+  /// provider (a publishEncoded/publishFullRes race, see [publishEncoded])
+  /// would get a false negative here and pay for a redundant decode instead
+  /// of recognizing the entry already in hand.
   bool hasFullResEntryFor(String id, SourcePayload payload) =>
-      _keys[id] is RawFullResImage && identical(_sources[id], payload);
+      identical(_sources[id], payload);
 
   /// True when a full-resolution upgrade already failed for THIS payload
   /// object. Compared with [identical], so the memo dies with the payload.
@@ -162,6 +173,16 @@ class TierTwoRegistry {
     }, onError: (error, stackTrace) => stream.removeListener(listener));
     stream.addListener(listener);
     provider.obtainKey(const ImageConfiguration()).then((key) {
+      // Same orphan-leak fix as [publishFullRes]'s pre-overwrite evict (F6):
+      // whatever entry is currently registered for [id] belongs to a
+      // DIFFERENT, since-replaced key (this obtainKey future is the only
+      // writer that reaches this line for this id/payload pair), so it must
+      // be evicted from the ImageCache before `_keys[id]` is overwritten --
+      // otherwise the old entry becomes unreachable and un-evictable.
+      final previousKey = _keys[id];
+      if (previousKey != null && previousKey != key) {
+        _imageCache.evict(previousKey);
+      }
       _keys[id] = key;
       _sources[id] = payload;
     });
