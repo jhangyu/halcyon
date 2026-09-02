@@ -18,7 +18,7 @@ const double kGalleryColumnMinWidth = 90.0;
 const double kGalleryColumnMaxWidth = 200.0;
 
 /// Test key on the float-shadow `DecoratedBox` that wraps [GalleryColumn], so
-/// TC-499 can assert the shadow toggles on `_columnWidth > 90` without reaching
+/// TC-506 can assert the shadow toggles on `_columnWidth > 90` without reaching
 /// into the column's own internals.
 const ValueKey<String> kGalleryColumnShadowKey =
     ValueKey<String>('gallery.column.shadow');
@@ -68,7 +68,7 @@ const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
 /// is satisfied by construction here, not by discipline. Any formulation that
 /// reflows the viewport as the column grows (`left: _columnWidth`, a `Row`, an
 /// `Expanded`) would re-decode the full-frame image on every drag frame while
-/// looking correct in a screenshot and passing every test except TC-498 — the
+/// looking correct in a screenshot and passing every test except TC-505 — the
 /// single most expensive mistake available in this task.
 class GalleryDesktopSurface extends StatefulWidget {
   const GalleryDesktopSurface({super.key, required this.surface});
