@@ -316,7 +316,7 @@ void main() {
   });
 
   test(
-    'TC-386 hasFullResEntryFor does not filter by provider type (F6, AC8)',
+    'TC-655 hasFullResEntryFor does not filter by provider type (F6, AC8)',
     () async {
       final payload = PixelPayload(rgba: Uint8List(4), width: 1, height: 1);
       final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
@@ -359,7 +359,7 @@ void main() {
   );
 
   test(
-    'TC-387 publishEncoded evicts the replaced key before overwriting (F6, AC8)',
+    'TC-656 publishEncoded evicts the replaced key before overwriting (F6, AC8)',
     () async {
       final payload = _freshEncodedPayload();
       final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
