@@ -40,6 +40,7 @@ class ExifCaption extends StatelessWidget {
     required this.exif,
     this.fileName,
     this.compact = false,
+    this.alignment = CrossAxisAlignment.end,
   });
 
   final ExifMetadata? exif;
@@ -51,6 +52,11 @@ class ExifCaption extends StatelessWidget {
 
   /// Mobile: one line, no rule, no camera line. Desktop: three-part stack.
   final bool compact;
+
+  /// Text-column alignment. Gallery keeps the default right-aligned museum
+  /// label (bottom-right corner); paper's mockup places the caption bottom-left
+  /// with left-aligned text, so themes may pass [CrossAxisAlignment.start].
+  final CrossAxisAlignment alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +98,7 @@ class ExifCaption extends StatelessWidget {
     final ruleAfterCamera = name == null && camera != null && body != null;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: alignment,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (name != null)

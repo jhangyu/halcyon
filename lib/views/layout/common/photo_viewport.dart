@@ -8,9 +8,11 @@ import '../../../providers/app_state.dart';
 import '../../../services/image_pipeline/image_preload_controller.dart';
 import '../../zoom_controller.dart';
 import 'app_actions_menu.dart' show openFolderShortcutLabel;
+import '../darkroom/darkroom_empty_state.dart';
 import '../gallery/gallery_palette.dart';
 import '../layout_registry.dart';
 import '../layout_theme.dart';
+import '../paper/paper_welcome.dart';
 
 /// The photo itself: empty state, spinner, unreadable state or the
 /// InteractiveViewer. Extracted from the old per-detail-view photo widget
@@ -84,34 +86,19 @@ class _PhotoViewportState extends State<PhotoViewport>
     final state = context.watch<AppState>();
 
     if (state.items.isEmpty) {
-      // The gallery theme draws its own welcome screen (mockup frame 7); any
-      // other theme keeps the stock Material screen until it draws one.
-      if (activeLayoutTheme.id == LayoutThemeId.gallery) {
-        return const _GalleryEmptyState();
+      // Each theme draws its own welcome screen (gallery frame 7, paper
+      // frame 8, darkroom frame 6). The old stock Material fallback was
+      // removed 2026-09-02: the exhaustive switch guarantees every theme
+      // resolves to a real welcome screen, and a new enum case fails to
+      // compile here until it declares one.
+      switch (activeLayoutTheme.id) {
+        case LayoutThemeId.gallery:
+          return const _GalleryEmptyState();
+        case LayoutThemeId.paper:
+          return const PaperEmptyState();
+        case LayoutThemeId.darkroom:
+          return const DarkroomEmptyState();
       }
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.photo_library_outlined,
-              size: 64,
-              color: Colors.grey,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              "Select a folder to begin",
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () => context.read<AppState>().openFolder(),
-              icon: const Icon(Icons.folder_open),
-              label: const Text("Open Folder"),
-            ),
-          ],
-        ),
-      );
     }
 
     final currentId = state.selectedItemID;

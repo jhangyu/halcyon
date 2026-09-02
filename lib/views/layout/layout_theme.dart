@@ -4,7 +4,7 @@ import 'main_surface.dart';
 /// One case per shipped theme. Deleting a theme = delete its directory and
 /// delete its case here; `layoutThemeFor`'s exhaustive switch turns any
 /// leftover reference into a compile error.
-enum LayoutThemeId { gallery }
+enum LayoutThemeId { gallery, paper, darkroom }
 
 abstract class LayoutTheme {
   const LayoutTheme();
