@@ -248,7 +248,7 @@ List<PhotoItem> _exifItems(Directory dir, List<String> ids) => [
 class _SilentPreload extends ImagePreloadController {
   _SilentPreload()
       : super(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
         );
 
@@ -286,7 +286,7 @@ AppState _state({
 }) {
   return AppState(
     scanner: _FixedScanner(_exifItems(dir, ids)),
-    imageLoader: (path, {required purpose}) async =>
+    imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
         NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
     preloadController: _SilentPreload(),
     exifReader: exifReader,

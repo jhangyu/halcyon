@@ -36,6 +36,12 @@ import 'image_source_types.dart';
 Future<NativeImageResult> dartImageLoad(
   String path, {
   required ImageRequestPurpose purpose,
+  // F4/AC6: the LIVE viewport long edge, or null for "use purpose.targetSize".
+  // See [NativeImageLoad]'s doc — this is the one number the preview floor and
+  // the routing verdict must share. Only the PREVIEW floor consults it; the
+  // sidebar branch keeps `purpose.targetSize` because AD-021's uneven floor
+  // (strict preview, lenient sidebar) is deliberate and stays.
+  int? targetLongEdge,
   // Injected so this file needs no format knowledge beyond the registry
   // predicate and stays free of Platform checks (contract C-3): HEIC's extent
   // and orientation live in ISO-BMFF boxes that the TIFF IFD0 walker cannot
@@ -173,12 +179,15 @@ Future<NativeImageResult> dartImageLoad(
     final strictPreview =
         purpose == ImageRequestPurpose.preview &&
         SupportedPhotoFormats.isDecodablePath(path);
+    // F4/AC6: ONE threshold. `targetLongEdge` is the same live viewport long
+    // edge `PhotoSource.probeSource` compared against when it decided this
+    // item's rung, so the floor enforced here can no longer contradict the
+    // routing verdict. Null (a caller with no viewport) keeps the old constant.
+    final previewFloor = targetLongEdge ?? purpose.targetSize;
     final embeddedProbe = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
       path,
       longEdge: null,
-      minLongEdge: strictPreview
-          ? ImageRequestPurpose.preview.targetSize
-          : null,
+      minLongEdge: strictPreview ? previewFloor : null,
     );
     final full = embeddedProbe.jpeg?.bytes;
     if (full != null) return NativeImageBytes(full);
@@ -199,7 +208,7 @@ Future<NativeImageResult> dartImageLoad(
       stderr.writeln(
         'halcyon.preview.miss|file=${path.split(Platform.pathSeparator).last}'
         '|malformed=${embeddedProbe.malformed}'
-        '|floor=${ImageRequestPurpose.preview.targetSize}'
+        '|floor=$previewFloor'
         '|len=${await File(path).length()}'
         '|-> RAW decode',
       );

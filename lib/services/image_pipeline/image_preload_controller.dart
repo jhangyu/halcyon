@@ -999,21 +999,27 @@ class ImagePreloadController {
       // lane exactly as before. `cost == null` (unmeasurable) also routes to
       // `load`, which is what the frozen A-§2 rung-2 contract requires -- the
       // bridge decides, so the bridge must be asked.
+      // F5/AC7: read ONCE, before the await, and reuse for the memo below. The
+      // memo now records WHICH long edge a verdict was measured at, so the
+      // value stored must be the one this load actually used -- a resize
+      // landing inside the await would otherwise file this answer under a
+      // viewport that never asked the question.
+      final loadLongEdge = _longEdge;
       final outcome =
           canDoExpensive &&
               cost == SourceCost.expensive &&
               knownOrientation != null
           ? await _source.loadExpensive(
               file.path,
-              longEdge: _longEdge,
+              longEdge: loadLongEdge,
               exifOrientation: knownOrientation,
             )
           : await _source.load(
               file.path,
-              longEdge: _longEdge,
+              longEdge: loadLongEdge,
               allowExpensive: canDoExpensive,
             );
-      _scheduler.observe(id, outcome.observedCost);
+      _scheduler.observe(id, outcome.observedCost, longEdge: loadLongEdge);
       // Rung-2 only: reached when the probe could not measure the file, so the
       // bridge answer is the sole orientation available (frozen contract A-§2).
       if (outcome.exifOrientation != null) {

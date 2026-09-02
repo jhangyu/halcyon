@@ -25,6 +25,7 @@ List<PhotoItem> _items(int n) => <PhotoItem>[
 Future<NativeImageResult> _rawLoader(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 DecodedRgba _tiny() =>

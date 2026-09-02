@@ -198,7 +198,7 @@ void main() {
       () async {
     expect(noPreviewDng.existsSync(), isTrue, reason: 'sample missing');
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageFailure('NULL_RESULT', 'not the subject'),
     );
     addTearDown(controller.dispose);
@@ -238,7 +238,7 @@ void main() {
     var loaderCalls = 0;
     var decodes = 0;
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         loaderCalls++;
         return const NativeImageFailure('UNEXPECTED', 'must not be asked');
       },

@@ -72,6 +72,7 @@ void main() {
   Future<NativeImageResult> needsRawDecodeLoader(
     String path, {
     required ImageRequestPurpose purpose,
+    int? targetLongEdge,
   }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
   // Real, decodable image bytes ENCODED AT THE CALLER-SUPPLIED DIMENSIONS:

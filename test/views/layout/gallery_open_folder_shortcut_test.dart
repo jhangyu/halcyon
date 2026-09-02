@@ -34,7 +34,7 @@ Future<int Function()> _pumpRealApp(WidgetTester tester) async {
     addTempDirTeardown(dir);
     await File('${dir.path}/IMG_0001.jpg').writeAsBytes(const [1, 2, 3]);
     state = AppState(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageFailure('not-used', 'no-op'),
     );
     addTearDown(state.dispose);

@@ -61,7 +61,7 @@ void main() {
       );
 
       final controller = ImagePreloadController(
-        imageLoader: (requestedPath, {required purpose}) async {
+        imageLoader: (requestedPath, {required purpose, int? targetLongEdge}) async {
           return const NativeImageFailure(
             'NULL_RESULT',
             'simulated native failure',
@@ -93,7 +93,7 @@ void main() {
       final path = '${sampleDir.path}/$noPreviewSample';
 
       final controller = ImagePreloadController(
-        imageLoader: (requestedPath, {required purpose}) async {
+        imageLoader: (requestedPath, {required purpose, int? targetLongEdge}) async {
           return const NativeImageFailure(
             'NULL_RESULT',
             'simulated native failure',
@@ -167,7 +167,7 @@ void main() {
       await fakeJpgFile.writeAsBytes(dngBytes);
 
       final controller = ImagePreloadController(
-        imageLoader: (requestedPath, {required purpose}) async {
+        imageLoader: (requestedPath, {required purpose, int? targetLongEdge}) async {
           return const NativeImageFailure(
             'NULL_RESULT',
             'simulated native failure',
@@ -205,7 +205,7 @@ void main() {
       );
 
       final controller = ImagePreloadController(
-        imageLoader: (requestedPath, {required purpose}) async {
+        imageLoader: (requestedPath, {required purpose, int? targetLongEdge}) async {
           return const NativeImageFailure(
             'NULL_RESULT',
             'simulated native failure',
@@ -277,7 +277,7 @@ void main() {
       required bool declaredPreviewsUnreadable,
     }) async {
       final source = PhotoSource(
-        loader: (path, {required purpose}) async => NativeImageNeedsRawDecode(
+        loader: (path, {required purpose, int? targetLongEdge}) async => NativeImageNeedsRawDecode(
           exifOrientation: kDefaultExifOrientation,
           declaredPreviewsUnreadable: declaredPreviewsUnreadable,
         ),
@@ -316,7 +316,7 @@ void main() {
     test('a container with unreadable previews whose decode SUCCEEDS is not '
         'reported broken at all — the point of the override', () async {
       final source = PhotoSource(
-        loader: (path, {required purpose}) async => const
+        loader: (path, {required purpose, int? targetLongEdge}) async => const
             NativeImageNeedsRawDecode(
           exifOrientation: kDefaultExifOrientation,
           declaredPreviewsUnreadable: true,
@@ -344,7 +344,7 @@ void main() {
         // What Task 2's loader branch returns for a .tif at preview:
         // declaredPreviewsUnreadable is structurally false because no preview
         // probe ever runs for a bitmap container.
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async =>
             throw StateError('TIFF_DECODE_FAILED: package:image returned null'),
@@ -366,7 +366,7 @@ void main() {
       // Negative control: without this, the test above would also pass if the
       // DNG_PARSE_FAILED arm had simply been deleted.
       final source = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(
               exifOrientation: 1,
               declaredPreviewsUnreadable: true,

@@ -28,6 +28,7 @@ class CountingDecoder {
 Future<NativeImageResult> _rawLoader(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 Future<void> _settle([int ms = 400]) =>

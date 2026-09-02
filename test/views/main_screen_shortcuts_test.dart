@@ -32,7 +32,7 @@ void main() {
       await File('${dir.path}/IMG_0002.jpg').writeAsBytes(<int>[4, 5, 6]);
 
       state = AppState(
-        imageLoader: (path, {required purpose}) =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) =>
             Completer<NativeImageResult>().future,
       );
       addTearDown(state.dispose);

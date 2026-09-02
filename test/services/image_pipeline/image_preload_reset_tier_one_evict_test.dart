@@ -30,6 +30,7 @@ List<PhotoItem> _items(int n) => <PhotoItem>[
 Future<NativeImageResult> _pngLoader(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async => NativeImageBytes(Uint8List.fromList(_png1x1));
 
 void main() {

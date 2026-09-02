@@ -12,10 +12,13 @@ import 'dart:typed_data';
 /// channel-backed service that no longer exists.
 enum ImageRequestPurpose {
   sidebarThumbnail(targetSize: 200, platformValue: 'sidebarThumbnail'),
-  // 2800px approximates a typical retina window long edge x2; if a real
-  // window-size channel becomes available (AppState-driven, out of this
-  // file's ownership), this static default can be replaced with a
-  // per-request value without changing the loader's argument shape.
+  // 2800px approximates a typical retina window long edge x2. It is now only a
+  // DEFAULT: the per-request value the comment below anticipated exists, as
+  // [NativeImageLoad]'s `targetLongEdge`, and the preload pipeline passes the
+  // live viewport long edge through it (F4/AC6, 2026-09-03). This constant is
+  // what a caller with no viewport of its own still gets --
+  // `photo_export_service.dart` and `perf_driver.dart` -- so their behaviour is
+  // unchanged.
   preview(targetSize: 2800, platformValue: 'preview'),
   // Social-media export: long edge capped at 2048px, aspect ratio preserved,
   // core EXIF (Make/Model/DateTime[Original]/Artist/ExposureTime/FNumber/
@@ -139,8 +142,26 @@ const String kNoNativeDecoderCode = 'NO_NATIVE_DECODER';
 /// It lives here, in the file that imports nothing but `dart:typed_data`,
 /// which is what resolves the import cycle `photo_source.dart` used to dodge
 /// by re-declaring the type structurally.
+///
+/// [targetLongEdge] (F4/AC6) is the LIVE viewport long edge in physical
+/// pixels, for callers that have one. It exists because the preview floor and
+/// the routing verdict must be ONE number: `PhotoSource.probeSource` decides
+/// the rung by comparing the largest embedded candidate against the viewport
+/// (AD-033, frozen), and the loader used to enforce a separate hardcoded 2800.
+/// The two disagreed in both directions -- a sub-2800 window sent
+/// probe-classified-cheap items into full RAW decodes.
+///
+/// NULL means "no viewport to speak of, use `purpose.targetSize`", which is the
+/// pre-2026-09-03 behaviour byte-for-byte. It is deliberately optional so that
+/// callers outside the preload pipeline (`photo_export_service.dart`,
+/// `perf_driver.dart`) are provably unchanged.
+///
+/// This does NOT loosen AD-033: it changes where the number comes from, never
+/// the comparison. A candidate must still be `>=` the long edge, with no
+/// tolerance.
 typedef NativeImageLoad =
     Future<NativeImageResult> Function(
       String path, {
       required ImageRequestPurpose purpose,
+      int? targetLongEdge,
     });

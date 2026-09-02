@@ -131,7 +131,7 @@ void main() {
     () async {
       // --- cheap (encoded) sub-case: whole window is populated in one pass.
       final cheap = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
       );
@@ -193,7 +193,7 @@ void main() {
       // tier-2 window [4,8] triggers the catch-up upgrade for every band id
       // that does not already carry a live tier-2 entry.
       ImagePreloadController buildPixelController() => ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => fakeDecoded(),
       );
@@ -310,7 +310,7 @@ void main() {
     'entry distinct from its window-resolution tier-1 entry',
     () async {
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => DecodedRgba(
           rgba: Uint8List.fromList(
@@ -412,7 +412,7 @@ void main() {
     () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
           decodeCalls.add(path);
@@ -451,7 +451,7 @@ void main() {
     () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
           decodeCalls.add(path);
@@ -529,7 +529,7 @@ void main() {
       final target = items[8].files.single.path;
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
           decodeCalls.add(path);
@@ -625,7 +625,7 @@ void main() {
 
   test('M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache', () async {
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async => fakeDecoded(),
     );

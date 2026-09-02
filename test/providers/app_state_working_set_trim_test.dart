@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 AppState _testState() {
   return AppState(
-    imageLoader: (path, {required purpose}) async {
+    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
       return NativeImageBytes(Uint8List.fromList(<int>[1, 2, 3]));
     },
   );

@@ -158,7 +158,15 @@ class PhotoSource {
     required int longEdge,
     bool allowExpensive = true,
   }) async {
-    final result = await loader(path, purpose: ImageRequestPurpose.preview);
+    // F4/AC6: the loader is handed the SAME [longEdge] the frozen AD-033
+    // comparison in [probeSource] used, instead of enforcing its own hardcoded
+    // 2800. Two thresholds for one predicate is what routed probe-classified-
+    // cheap items into full RAW decodes on a sub-2800 window.
+    final result = await loader(
+      path,
+      purpose: ImageRequestPurpose.preview,
+      targetLongEdge: longEdge,
+    );
     switch (result) {
       case NativeImageBytes(:final bytes):
         return (

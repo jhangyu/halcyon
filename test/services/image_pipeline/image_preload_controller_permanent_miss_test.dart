@@ -50,7 +50,7 @@ void main() {
       final failingPath = items[0].files.single.path;
 
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           producerAsks.add(path);
           if (path == failingPath) {
             // Unreadable/corrupt: an answer that cannot change.
@@ -126,7 +126,7 @@ void main() {
       final items = [failing, victim];
 
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           if (path == failing.files.single.path) {
             return const NativeImageFailure('UNREADABLE', 'corrupt file');
           }
@@ -190,7 +190,7 @@ void main() {
       final throwingPath = items[0].files.single.path;
 
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           producerAsks.add(path);
           if (path == throwingPath) {
             // Simulates a loader implementation throwing instead of returning
@@ -274,7 +274,7 @@ void main() {
         final gatedPath = items[0].files.single.path;
 
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) {
+          imageLoader: (path, {required purpose, int? targetLongEdge}) {
             if (path == gatedPath) return gate.future;
             return Future<NativeImageResult>.value(
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
@@ -351,7 +351,7 @@ void main() {
         final gatedPath = items[2].files.single.path;
 
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) {
+          imageLoader: (path, {required purpose, int? targetLongEdge}) {
             if (path == gatedPath) return gate.future;
             return Future<NativeImageResult>.value(
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
@@ -413,7 +413,7 @@ void main() {
       // deleted -- a throwing decoder with no channel to fall back to IS the
       // failure now, no mock needed to force it.
       final source = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => throw StateError('native decode failed'),
       );
@@ -444,7 +444,7 @@ void main() {
       // decoder below IS the failure, immediately.
       var notifies = 0;
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => throw StateError('native decode failed'),
       );

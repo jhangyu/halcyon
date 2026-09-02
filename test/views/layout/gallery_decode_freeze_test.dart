@@ -41,7 +41,7 @@ const List<int> _transparentPng = <int>[
 class _RecordingAppState extends AppState {
   _RecordingAppState()
       : super(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_transparentPng)),
         );
 

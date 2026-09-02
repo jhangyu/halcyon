@@ -81,7 +81,7 @@ void main() {
   test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
       'cold arrival fills the same window, one decode at a time', () async {
     final cheap = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
       dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
     );
@@ -127,7 +127,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         inFlight++;
@@ -180,7 +180,7 @@ void main() {
       );
       final targetCalls = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           targetCalls.add(path);
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
         },
@@ -220,7 +220,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         decodeCalls.add(path);
@@ -260,7 +260,7 @@ void main() {
     expect(expensive.payloadFor(raws[5].id), isNotNull);
 
     final cheap = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
     );
     addTearDown(cheap.dispose);
@@ -288,7 +288,7 @@ void main() {
     expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
     var realCheapCalls = 0;
     final realCheap = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         realCheapCalls++;
         return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
       },
@@ -317,7 +317,7 @@ void main() {
       'the PixelPayload', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         decodeCalls.add(path);
@@ -361,7 +361,7 @@ void main() {
       'the payload; JPEG bytes still survive identically', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         decodeCalls.add(path);
@@ -403,7 +403,7 @@ void main() {
 
     final cheapCalls = <String>[];
     final cheapController = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         cheapCalls.add(path);
         return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
       },
@@ -433,7 +433,7 @@ void main() {
     );
 
     final jpgController = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
     );
     addTearDown(jpgController.dispose);

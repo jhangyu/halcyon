@@ -42,7 +42,7 @@ void main() {
     var maxConcurrent = 0;
     var started = 0;
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         started++;
@@ -81,7 +81,7 @@ void main() {
       'evict identically at -4', () async {
     Future<ImagePreloadController> make(bool expensive) async {
       return ImagePreloadController(
-        imageLoader: (path, {required purpose}) async => expensive
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async => expensive
             ? const NativeImageNeedsRawDecode(exifOrientation: 1)
             : NativeImageBytes(Uint8List.fromList([137, 80, 78, 71])),
         dngDecoder: expensive ? (path) async => decoded() : null,
@@ -134,7 +134,7 @@ void main() {
     var isFirst = true;
     var firstRequested = false;
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) {
         if (isFirst) {
           isFirst = false;
           firstRequested = true;

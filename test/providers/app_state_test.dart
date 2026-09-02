@@ -158,7 +158,7 @@ void main() {
 
         final calls = <ImageRequestPurpose>[];
         final state = AppState(
-          imageLoader: (path, {required purpose}) async {
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             calls.add(purpose);
             return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
           },
@@ -288,7 +288,7 @@ void main() {
 
       final state = AppState(
         scanner: _ThrowingScanner(const FileSystemException('unreadable')),
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -316,7 +316,7 @@ void main() {
             ),
           ),
         ),
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
         exifReader: (paths, {onProgress}) async {
@@ -432,7 +432,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -464,7 +464,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );
@@ -492,7 +492,7 @@ void main() {
             trashed.add(file.path);
             await file.delete();
           }),
-          imageLoader: (path, {required purpose}) async {
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
           },
         );
@@ -567,7 +567,7 @@ void main() {
 
     AppState buildState() {
       return AppState(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
         exifReader: (paths, {onProgress}) async => [
@@ -668,7 +668,7 @@ void main() {
         () async {
       SharedPreferences.setMockInitialValues({'decodeLaneWidth': 4});
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
       );
       addTearDown(controller.dispose);
@@ -728,7 +728,7 @@ Future<void> _touch(Directory dir, String name) =>
 
 AppState _testState() {
   return AppState(
-    imageLoader: (path, {required purpose}) async {
+    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
       return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
     },
   );

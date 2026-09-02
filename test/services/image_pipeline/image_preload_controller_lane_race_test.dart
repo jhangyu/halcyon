@@ -36,7 +36,7 @@ void main() {
 
       final controller = ImagePreloadController(
         decodeLaneWidth: 2,
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           loadsByPath[path] = (loadsByPath[path] ?? 0) + 1;
           // Hold the FIRST load open so a second entrant, if the claim is
           // still taken after the probe await, has every opportunity to

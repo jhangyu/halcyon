@@ -30,7 +30,7 @@ void main() {
       // engine cannot decode ... stay browsable via embedded preview only").
       var decoderCalls = 0;
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return const NativeImageFailure(
             'RAW_NO_EMBEDDED_PREVIEW',
             'no embedded preview and no decoder for this format',
@@ -111,7 +111,7 @@ void main() {
     () async {
       var decodedPath = '';
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return const NativeImageNeedsRawDecode(exifOrientation: 1);
         },
         dngDecoder: (path) async {
@@ -155,7 +155,7 @@ void main() {
     'throws',
     () async {
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return const NativeImageNeedsRawDecode(exifOrientation: 1);
         },
         dngDecoder: null,
@@ -195,7 +195,7 @@ void main() {
     'with the no-decoder-on-this-platform state',
     () async {
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return const NativeImageNeedsRawDecode(exifOrientation: 1);
         },
         dngDecoder: (path) async => throw StateError('native decode failed'),
@@ -239,7 +239,7 @@ void main() {
     'seam)',
     () async {
       final source = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: null,
       );
@@ -262,7 +262,7 @@ void main() {
     'leak into unrelated paths',
     () async {
       final bytesSource = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList([1, 2, 3])),
       );
       final bytesOutcome = await bytesSource.load(
@@ -272,7 +272,7 @@ void main() {
       expect(bytesOutcome.failureCode, isNull);
 
       final throwingSource = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => throw StateError('decode failed'),
       );
@@ -283,7 +283,7 @@ void main() {
       expect(throwingOutcome.failureCode, isNull);
 
       final failureSource = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageFailure('UNREADABLE', 'corrupt'),
       );
       final failureOutcome = await failureSource.load(

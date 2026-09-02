@@ -62,7 +62,7 @@ void main() {
     final gate = Completer<void>();
 
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         if (purpose == ImageRequestPurpose.sidebarThumbnail) {
           await gate.future;
         }
@@ -91,7 +91,7 @@ void main() {
     'preloadImages evicts preview cache entries outside the sliding window',
     () async {
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([path.hashCode & 0xFF]));
         },
       );
@@ -127,7 +127,7 @@ void main() {
       final completers = <String, Completer<NativeImageResult>>{};
 
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) {
           requestOrder.add(path);
           final completer = Completer<NativeImageResult>();
           completers[path] = completer;
@@ -207,7 +207,7 @@ void main() {
     var secondNotify = 0;
 
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) {
         final completer = Completer<NativeImageResult>();
         completers.putIfAbsent(path, () => []).add(completer);
         return completer.future;
@@ -417,7 +417,7 @@ void main() {
     (tester) async {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         );
         addTearDown(controller.dispose);
@@ -462,7 +462,7 @@ void main() {
     (tester) async {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         );
         addTearDown(controller.dispose);
@@ -527,7 +527,7 @@ void main() {
     (tester) async {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         );
         addTearDown(controller.dispose);
@@ -620,7 +620,7 @@ void main() {
           // A fresh Uint8List every call -- an item reloaded after leaving
           // the -3..+5 bytes window gets a NEW bytes object, exactly as the
           // real native loader would produce for a re-fetch.
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         );
         addTearDown(controller.dispose);
@@ -699,7 +699,7 @@ void main() {
     (tester) async {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         );
         addTearDown(controller.dispose);
@@ -870,7 +870,7 @@ void main() {
         'tiers', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 6),
         dngDecoder: (path) async {
           decodeCalls.add(path);
@@ -940,7 +940,7 @@ void main() {
         'and is dropped only on leaving the -3..+5 RETENTION window', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
           decodeCalls.add(path);
@@ -1033,7 +1033,7 @@ void main() {
       'payload stays retained',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => fakeDecoded(),
         );
@@ -1101,7 +1101,7 @@ void main() {
         'leaks no handle', () async {
       final live = installImageBalanceCounter();
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 6),
         dngDecoder: (path) async {
           await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -1136,7 +1136,7 @@ void main() {
       'TC-081 reset() drops every payload and every ImageCache entry',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => fakeDecoded(),
         );
@@ -1173,7 +1173,7 @@ void main() {
       // the raw one (invariant I6).
       final previewRequests = <String>[];
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           if (purpose == ImageRequestPurpose.preview) {
             previewRequests.add(path);
           }
@@ -1231,7 +1231,7 @@ void main() {
       'TC-083 retained cost stays bounded by the window across a long sweep',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
           dngDecoder: (path) async => fakeDecoded(),
         );
@@ -1263,7 +1263,7 @@ void main() {
         'resurrect a retained entry', () async {
       final live = installImageBalanceCounter();
       final controller = ImagePreloadController(
-        imageLoader: (path, {required purpose}) async =>
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 6),
         // Slow enough that navigation overtakes the source.
         dngDecoder: (path) async {
@@ -1306,7 +1306,7 @@ void main() {
       () async {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
             decodeCalls.add(path);
@@ -1357,7 +1357,7 @@ void main() {
       'NO DECODER: an immediate permanent miss, not a spinner',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           // dngDecoder deliberately omitted.
         );
@@ -1385,7 +1385,7 @@ void main() {
       'THROWING DECODER: an immediate permanent miss, not a spinner',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => throw StateError('native decode failed'),
         );
@@ -1413,7 +1413,7 @@ void main() {
       'an ordinary (bytes) item is untouched by the raw-decode path',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: (path, {required purpose}) async =>
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
           dngDecoder: (path) async =>
               fail('must not decode a bytes-backed item'),
@@ -1444,14 +1444,14 @@ void main() {
 
   test('TC-350 controller lane width defaults to 1 and is settable', () {
     final c = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
     );
     addTearDown(c.dispose);
     expect(c.decodeLaneWidth, 1, reason: 'default is the historical behaviour');
 
     final wide = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       decodeLaneWidth: 3,
     );

@@ -23,6 +23,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<NativeImageResult> _alwaysFailLoader(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async {
   if (purpose == ImageRequestPurpose.preview) {
     return const NativeImageNeedsRawDecode(exifOrientation: 1);

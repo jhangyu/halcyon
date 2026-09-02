@@ -23,6 +23,7 @@ Future<T> withStubDecoder<T>(
 Future<NativeImageResult> _needsRawDecode(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 Future<DecodedRgba> _fakeDecoder(String path) async =>
@@ -79,7 +80,7 @@ void main() {
     );
     final calls = <({int width, int height, int quality})>[];
     final source = PhotoSource(
-      loader: (path, {required purpose}) async => NativeImageBytes(fileBytes),
+      loader: (path, {required purpose, int? targetLongEdge}) async => NativeImageBytes(fileBytes),
       payloadEncoder:
           (rgba, {required width, required height, required quality}) async {
         calls.add((width: width, height: height, quality: quality));
@@ -107,7 +108,7 @@ void main() {
     );
     var decodes = 0;
     final source = PhotoSource(
-      loader: (path, {required purpose}) async => NativeImageBytes(fileBytes),
+      loader: (path, {required purpose, int? targetLongEdge}) async => NativeImageBytes(fileBytes),
     );
     final outcome = await withStubDecoder(
       (bytes) async {
@@ -132,7 +133,7 @@ void main() {
     // were wired to normalise BEFORE the null check, the counter would move.
     resetNormalizeCounters();
     final source = PhotoSource(
-      loader: (path, {required purpose}) async =>
+      loader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageFailure('X', 'no bridge'),
       payloadEncoder:
           (rgba, {required width, required height, required quality}) async =>
@@ -148,7 +149,7 @@ void main() {
     resetNormalizeCounters();
     var decodes = 0;
     final source = PhotoSource(
-      loader: (path, {required purpose}) async =>
+      loader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async =>
           DecodedRgba(rgba: Uint8List(4), width: 1, height: 1),

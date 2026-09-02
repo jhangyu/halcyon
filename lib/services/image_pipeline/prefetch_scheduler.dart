@@ -44,26 +44,50 @@ const int kTierTwoAfter = 3;
 /// the same distances, behind the same retention rule. The measured cost picks
 /// the LANE and nothing else.
 class PrefetchScheduler {
-  /// id -> measured cost. Written at most once per item and cleared only by
-  /// [reset] (i.e. a folder reload), so a file is asked about once per folder
-  /// rather than once per navigation.
+  /// id -> (measured cost, the long edge it was measured AT). Written at most
+  /// once per item PER LONG EDGE and cleared only by [reset] (i.e. a folder
+  /// reload), so a file is asked about once per folder rather than once per
+  /// navigation.
   ///
   /// This is the successor to the old per-item raw-decode map's exactly-once
   /// guarantee (invariant I6), and it is strictly stronger: the old map only existed for
   /// items the native side flagged, so a permanently failing THUMBNAIL was
   /// re-asked on every sweep forever (invariant I8's defect). One memo now
   /// covers raw items, non-raw failures and thumbnails alike.
-  final Map<String, SourceCost> _cost = {};
+  ///
+  /// WHY THE LONG EDGE IS PART OF THE KEY (F5/AC7, 2026-09-03). The rung is not
+  /// a property of the file: it is the answer to "is this file's embedded
+  /// preview big enough for THIS viewport" (AD-033). Keyed by id alone, the
+  /// whole first window was answered against `kDefaultPreviewLongEdge` (2800) —
+  /// the bootstrap placeholder `ImagePreloadController._longEdge` returns until
+  /// the viewport's LayoutBuilder calls `updateTargetSize`, which happens AFTER
+  /// the first preload pass — and that placeholder verdict was never revisited,
+  /// not when the real viewport reported and not on a resize. On a display
+  /// wider than 2800 that left previews between 2800 and the real viewport
+  /// permanently `cheap` and displayed upscaled: exactly the outcome AD-033
+  /// exists to prevent.
+  ///
+  /// The economy is preserved, not traded away: for a STABLE viewport this is
+  /// still one walk per file per folder. Extra walks are bounded by the number
+  /// of distinct long edges seen, i.e. by resize events — navigation does not
+  /// change the long edge, so this is not a probe-per-navigation regression.
+  final Map<String, ({SourceCost cost, int longEdge})> _cost = {};
 
-  /// Records [cost] for [id], first writer wins.
+  /// Records [cost] for [id] as measured at [longEdge], first writer wins
+  /// WITHIN a long edge.
   ///
   /// First-writer-wins matters: the content probe and the bridge answer can
   /// both speak for the same item, and letting a later observation overwrite
   /// an earlier one would make the rung -- and therefore the number of native
-  /// calls -- depend on navigation history.
-  void observe(String id, SourceCost? cost) {
+  /// calls -- depend on navigation history. That arbitration is unchanged; it
+  /// simply no longer spans two different questions. An observation made at a
+  /// DIFFERENT long edge replaces the stored one, because it answers the
+  /// question the pipeline is asking now and the stored one does not.
+  void observe(String id, SourceCost? cost, {required int longEdge}) {
     if (cost == null) return;
-    _cost.putIfAbsent(id, () => cost);
+    final known = _cost[id];
+    if (known != null && known.longEdge == longEdge) return;
+    _cost[id] = (cost: cost, longEdge: longEdge);
   }
 
   /// Measures [path] once and memoizes its cost.
@@ -87,15 +111,21 @@ class PrefetchScheduler {
     String path, {
     required int longEdge,
   }) async {
+    // F5/AC7: the memo may only answer the question it was asked. A verdict
+    // measured against a different long edge (the 2800 bootstrap placeholder,
+    // or a pre-resize viewport) says nothing about this one, so it is
+    // re-measured instead of re-served.
     final known = _cost[id];
-    if (known != null) return (cost: known, exifOrientation: null);
+    if (known != null && known.longEdge == longEdge) {
+      return (cost: known.cost, exifOrientation: null);
+    }
     // The canonical entry point: production code must not depend on a
     // cost-only view of a walk that also produced the orientation this
     // pipeline needs (`PhotoSource.probe()` no longer exists -- removed
     // as the last of its callers were the frozen tests, re-anchored to
     // call `probeSource` directly instead).
     final probed = await PhotoSource.probeSource(path, longEdge: longEdge);
-    observe(id, probed.cost);
+    observe(id, probed.cost, longEdge: longEdge);
     return probed;
   }
 

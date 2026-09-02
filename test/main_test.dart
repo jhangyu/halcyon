@@ -63,7 +63,7 @@ void main() {
       addTempDirTeardown(dir);
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       state = AppState(
-        imageLoader: (path, {required purpose}) async {
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
         },
       );

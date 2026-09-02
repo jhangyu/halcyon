@@ -85,7 +85,7 @@ void main() {
         // No re-encode: this test is about ROUTING, and the native encoder is
         // not available under plain `flutter test`.
         payloadEncoder: null,
-        imageLoader: (p, {required purpose}) async {
+        imageLoader: (p, {required purpose, int? targetLongEdge}) async {
           loaderCalls++;
           return NativeImageBytes(Uint8List.fromList([137, 80, 78, 71]));
         },
@@ -144,7 +144,7 @@ void main() {
 
       final controller = ImagePreloadController(
         payloadEncoder: null,
-        imageLoader: (p, {required purpose}) async =>
+        imageLoader: (p, {required purpose, int? targetLongEdge}) async =>
             // The loader agrees there is nothing usable, exactly as it would
             // for a container whose only preview is below the floor.
             const NativeImageNeedsRawDecode(exifOrientation: 1),

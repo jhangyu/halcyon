@@ -281,7 +281,7 @@ void main() {
     test('TC-327: PhotoSource turns that throw into the uniform permanent '
         'miss, with failureCode null', () async {
       final source = PhotoSource(
-        loader: (path, {required purpose}) async =>
+        loader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => throw HeifUnavailableException(path),
       );

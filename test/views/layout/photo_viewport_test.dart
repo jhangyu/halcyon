@@ -39,7 +39,7 @@ void main() {
       await File('${dir.path}/IMG_0001.jpg').writeAsBytes(
         Uint8List.fromList(transparentPng),
       );
-      state = AppState(imageLoader: (path, {required purpose}) async {
+      state = AppState(imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         return NativeImageBytes(Uint8List.fromList(transparentPng));
       });
       addTearDown(state.dispose);
@@ -200,7 +200,7 @@ void main() {
           Uint8List.fromList(transparentPng),
         );
         state = AppState(
-          imageLoader: (path, {required purpose}) async {
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             return const NativeImageFailure('MOCK_FAILURE', 'simulated');
           },
         );

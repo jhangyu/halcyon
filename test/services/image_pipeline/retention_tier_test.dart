@@ -17,6 +17,7 @@ EncodedPayload _payload({required int bytes}) => EncodedPayload(
 Future<NativeImageResult> _bytesLoader(
   String path, {
   required ImageRequestPurpose purpose,
+  int? targetLongEdge,
 }) async => NativeImageBytes(Uint8List.fromList(<int>[1, 2, 3, 4]));
 
 void main() {

@@ -91,7 +91,7 @@ void main() {
   );
 
   ImagePreloadController cheapController() => ImagePreloadController(
-    imageLoader: (path, {required purpose}) async =>
+    imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
         NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
     dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
   );
@@ -268,7 +268,7 @@ void main() {
       'window, not just +/-1 (criterion 2)', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         decodeCalls.add(path);
@@ -317,7 +317,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         inFlight++;
@@ -352,7 +352,7 @@ void main() {
     var cheapInFlight = 0;
     var cheapMaxInFlight = 0;
     final cheap = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         cheapInFlight++;
         if (cheapInFlight > cheapMaxInFlight) {
           cheapMaxInFlight = cheapInFlight;
@@ -389,7 +389,7 @@ void main() {
       '-3, +4, +5 (criterion 4)', () async {
     final starts = <String>[];
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         starts.add(path);
@@ -432,7 +432,7 @@ void main() {
     final starts = <String>[];
     final gates = <Completer<void>>[];
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         starts.add(path);
@@ -531,7 +531,7 @@ void main() {
     // itself with RAW decodes outside +/-1.
     var loaderCalls = 0;
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async {
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         loaderCalls++;
         return const NativeImageNeedsRawDecode(exifOrientation: 1);
       },
@@ -593,7 +593,7 @@ void main() {
       payloadByteBudget: 402653184,
     );
     final controller = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async => fakeDecoded(),
       retention: midRung,
@@ -659,7 +659,7 @@ void main() {
     var maxInFlight = 0;
     var call = 0;
     final wide = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         inFlight++;
@@ -693,7 +693,7 @@ void main() {
       'starts are distances 0, +1, -1', () async {
     final starts = <String>[];
     final wide = ImagePreloadController(
-      imageLoader: (path, {required purpose}) async =>
+      imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
         starts.add(path);
