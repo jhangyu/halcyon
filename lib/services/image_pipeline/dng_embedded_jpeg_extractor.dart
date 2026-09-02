@@ -83,6 +83,27 @@ class DngEmbeddedJpegExtractor {
   /// open (pinned by TC-540c).
   static const int _maxTransientReadRetries = 2;
 
+  /// Diagnostic sink for read faults.
+  ///
+  /// `stderr`, not `debugPrint`: this file is pure Dart on purpose (the
+  /// headless repro harness runs it under `dart run`, where a
+  /// `package:flutter/foundation` import would not resolve), and a fault line
+  /// must survive in both worlds. Fires only on the fault path, so a healthy
+  /// folder prints nothing at all.
+  static void _logFault(
+    String path, {
+    required int attempt,
+    required String detail,
+    required bool exhausted,
+  }) {
+    final name = path.split(Platform.pathSeparator).last;
+    stderr.writeln(
+      'halcyon.read.fault|file=$name|attempt=${attempt + 1}'
+      '|of=${_maxTransientReadRetries + 1}|$detail'
+      '|${exhausted ? 'GAVE_UP' : 'retrying'}',
+    );
+  }
+
   /// Backoff before retry N (1-based), so the two attempts are ~20ms and ~40ms
   /// after the fault. Small enough to stay invisible next to a RAW decode
   /// (61-406ms measured), long enough to outlast the momentary stall this
@@ -112,6 +133,7 @@ class DngEmbeddedJpegExtractor {
     for (var attempt = 0; ; attempt++) {
       var faulted = false;
       var result = miss;
+      String detail = 'unknown';
       RandomAccessFile? raf;
       try {
         final file = File(path);
@@ -121,17 +143,19 @@ class DngEmbeddedJpegExtractor {
           final source = _FileSource(raf, length, onDiskRead);
           result = await body(raf, source);
           faulted = source.ioError;
+          if (faulted) detail = source.faultDetail ?? 'unknown';
         }
       } on PathNotFoundException {
         // An absent file is a settled fact, not a hiccup: returning
         // immediately keeps a missing-file miss as cheap as it was before.
         return miss;
-      } catch (_) {
+      } catch (e) {
         // The open, the length query or an async read inside the body threw.
         // Same class of fault as a failed page read, so it earns the same
         // retry rather than being reported as an unreadable container.
         faulted = true;
         result = miss;
+        detail = 'threw:entry,err=${e.runtimeType}';
       } finally {
         try {
           await raf?.close();
@@ -139,7 +163,18 @@ class DngEmbeddedJpegExtractor {
           // Closing a handle we already failed on is not actionable.
         }
       }
-      if (!faulted || attempt >= _maxTransientReadRetries) return result;
+      if (!faulted) return result;
+      // ONE line per fault, on the fault path only -- the hot path (no fault)
+      // never reaches here. This is the field instrument: the headless harness
+      // could not reproduce a fault at all (docs/logs/2026-09-02/
+      // repro-experiment.md §4-5, page-cache-bound), so the only place the
+      // answer can come from is a real app run over the real volume. A line
+      // here means "the transient-read hypothesis is live"; silence over a
+      // session with visible RAW fallbacks means it is dead and the cause is
+      // elsewhere.
+      final exhausted = attempt >= _maxTransientReadRetries;
+      _logFault(path, attempt: attempt, detail: detail, exhausted: exhausted);
+      if (exhausted) return result;
       await Future<void>.delayed(_retryBackoff * (attempt + 1));
     }
   }
@@ -1264,6 +1299,10 @@ abstract class _ByteSource {
   /// result type through several hundred lines of bounds-checked walk, keeps
   /// the fix to one flag plus one retry.
   bool get ioError;
+
+  /// Human-readable detail of the FIRST fault, for the diagnostic line. Null
+  /// when [ioError] is false.
+  String? get faultDetail;
 }
 
 class _MemorySource implements _ByteSource {
@@ -1276,6 +1315,9 @@ class _MemorySource implements _ByteSource {
   /// about the data, not a fault.
   @override
   bool get ioError => false;
+
+  @override
+  String? get faultDetail => null;
 
   @override
   int get length => _data.length;
@@ -1306,8 +1348,17 @@ class _FileSource implements _ByteSource {
 
   bool _ioError = false;
 
+  /// First fault only, as `offset=..,want=..,got=..,len=..` (or the thrown
+  /// error). Diagnostics carry it because the interesting question in the field
+  /// is WHERE the read stopped -- a strip read that returns a few bytes short
+  /// of an 8MB request looks nothing like one that returns zero.
+  String? _faultDetail;
+
   @override
   bool get ioError => _ioError;
+
+  @override
+  String? get faultDetail => _faultDetail;
 
   @override
   final int length;
@@ -1364,11 +1415,15 @@ class _FileSource implements _ByteSource {
         // changed under us or a failing read -- both are faults, neither means
         // "no preview here".
         _ioError = true;
+        _faultDetail ??=
+            'short:offset=$offset,want=$count,got=${bytes.length},len=$length';
         return null;
       }
       return bytes;
-    } catch (_) {
+    } catch (e) {
       _ioError = true;
+      _faultDetail ??=
+          'threw:offset=$offset,want=$count,len=$length,err=${e.runtimeType}';
       return null;
     }
   }

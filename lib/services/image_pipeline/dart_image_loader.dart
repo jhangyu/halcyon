@@ -182,6 +182,28 @@ Future<NativeImageResult> dartImageLoad(
     );
     final full = embeddedProbe.jpeg?.bytes;
     if (full != null) return NativeImageBytes(full);
+    // DIAGNOSTIC (2026-09-02). THE decision point of the reported bug: from
+    // here a decodable file routes to a full RAW decode, and the preload
+    // controller memoises that verdict for the whole folder session. The
+    // headless repro could never make this branch fire on the user's files
+    // (docs/logs/2026-09-02/repro-experiment.md §4-5, page-cache-bound), so the
+    // only remaining instrument is a real app run.
+    //
+    // One line per occurrence, off the hot path: a file with a usable preview
+    // has already returned above. Pair it with any `halcyon.read.fault` line
+    // for the same file -- fault present means the volume hiccuped (the
+    // transient-read hypothesis), fault absent with `malformed=false` means the
+    // container genuinely offered nothing and the cause is elsewhere. That
+    // pairing is the discriminator the team currently lacks.
+    if (strictPreview) {
+      stderr.writeln(
+        'halcyon.preview.miss|file=${path.split(Platform.pathSeparator).last}'
+        '|malformed=${embeddedProbe.malformed}'
+        '|floor=${ImageRequestPurpose.preview.targetSize}'
+        '|len=${await File(path).length()}'
+        '|-> RAW decode',
+      );
+    }
     // USER RULING 2026-08-26 — the malformed PRE-EMPT is gone.
     //
     // M7 Task 3 used to return a `DNG_PARSE_FAILED` failure right here when

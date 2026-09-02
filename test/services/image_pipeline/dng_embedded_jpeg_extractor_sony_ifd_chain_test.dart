@@ -6,6 +6,8 @@ import 'package:image/image.dart' as img;
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
+import '../../support/flaky_io.dart';
+
 /// Round-2 D4 (2026-08-30 pipeline-followup-contract.md, per
 /// docs/logs/2026-08-30/payload-bench-report.md §3): Sony ARW carries its
 /// full-resolution JPEG in IFD2, reachable only via the ordinary TIFF
@@ -232,6 +234,46 @@ void main() {
         expect(full, isNotNull);
         expect(full!.width, 4000);
         expect(full.height, 3000);
+      },
+    );
+
+    test(
+      'TC-540e: a short read of the IFD2 full-res strip is retried rather '
+      'than reported as an unreadable container (the ARW branch of TC-540)',
+      () async {
+        // The user's folder is Sony ARW, not DNG
+        // (docs/logs/2026-09-02/repro-experiment.md §1), so the transient-read
+        // fix has to be exercised on THIS branch -- the nextIFD chain walk plus
+        // JPEGInterchangeFormat -- not only on the Adobe SubIFD/strip layout
+        // the shared synthetic generator models. The candidate size is the one
+        // h2 measured on every file in that folder.
+        final bytes = _buildSonyChain(
+          ifd2Candidate: const _InterchangeCandidate(width: 7008, height: 4672),
+        );
+        final path = await write(bytes, 'ifd2_short_read.arw');
+
+        final run = await withInjectedReadFaults(
+          failFirstOpens: 1,
+          shape: ReadFaultShape.short,
+          body: () => DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
+            path,
+            longEdge: null,
+            // The production preview floor, passed unchanged: 7008 clears it
+            // comfortably, so this case cannot be mistaken for a threshold
+            // effect (AD-033 untouched).
+            minLongEdge: 2800,
+          ),
+        );
+
+        expect(
+          run.value.jpeg,
+          isNotNull,
+          reason: 'a short read of the interchange strip is an I/O fault, not '
+              'evidence that the ARW has no usable preview',
+        );
+        expect(run.value.jpeg!.width, 7008);
+        expect(run.value.malformed, isFalse);
+        expect(run.opens, greaterThan(1), reason: 'the retry must re-open');
       },
     );
   });

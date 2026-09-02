@@ -1032,6 +1032,15 @@ class ImagePreloadController {
         // the ONLY new stranding risk in M3 is a failure that nobody records.
         _permanentMisses.add(id);
         _onPayloadMiss(id);
+        // DIAGNOSTIC (2026-09-02). THE latch: from here nothing re-asks about
+        // this item until the folder reloads (`_earlyResolve`'s permanent-miss
+        // branch), so whatever caused this one failure is frozen for the whole
+        // session. One line per id per folder load, bounded by the set that was
+        // just written -- the same volume budget `_logThumbFailure` has.
+        debugPrint(
+          'halcyon.preview.latch|id=$id|code=${outcome.failureCode ?? 'none'}'
+          '|cost=${outcome.observedCost}|-> unreadable for this session',
+        );
         // D3 (docs/logs/2026-08-26/raw-support-contract.md): PhotoSource
         // decides "no native RAW decoder on this platform" BEFORE invoking
         // anything (a static platform property, not a caught decode
