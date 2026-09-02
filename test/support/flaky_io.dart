@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-// Fault-injecting filesystem wrappers for tests, shared by the TC-540 retry
+// Fault-injecting filesystem wrappers for tests, shared by the TC-650 retry
 // cases (transient read failure must not be reported as "no embedded preview").
 //
 // Injection is through `IOOverrides.runZoned(createFile: ...)`, the same seam

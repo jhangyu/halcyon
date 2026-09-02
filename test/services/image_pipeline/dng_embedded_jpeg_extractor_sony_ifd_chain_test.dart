@@ -238,8 +238,8 @@ void main() {
     );
 
     test(
-      'TC-540e: a short read of the IFD2 full-res strip is retried rather '
-      'than reported as an unreadable container (the ARW branch of TC-540)',
+      'TC-650e: a short read of the IFD2 full-res strip is retried rather '
+      'than reported as an unreadable container (the ARW branch of TC-650)',
       () async {
         // The user's folder is Sony ARW, not DNG
         // (docs/logs/2026-09-02/repro-experiment.md §1), so the transient-read

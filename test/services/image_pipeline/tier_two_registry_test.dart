@@ -314,4 +314,81 @@ void main() {
     expect(registry.isReady('IMG_01'), isFalse);
     expect(ic.containsKey(providerB), isFalse);
   });
+
+  test(
+    'TC-239 hasFullResEntryFor does not filter by provider type (F6, AC8)',
+    () async {
+      final payload = PixelPayload(rgba: Uint8List(4), width: 1, height: 1);
+      final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
+      addTearDown(registry.clear);
+
+      // Register a NON-RawFullResImage entry (the encoded-payload family) as
+      // the tier-2 key for this id/payload pair. The old implementation
+      // guarded with `_keys[id] is RawFullResImage`, so it would report
+      // "no entry" here even though [id] already has an entry for exactly
+      // this payload object -- the guard this test pins is that the answer
+      // is driven by payload identity alone, matching the doc comment's
+      // "the entry belongs to one payload object, not to the id".
+      final provider = fullSizeProviderFor(Uint8List.fromList(_tinyPngBytes));
+      var notified = false;
+      registry.publishEncoded(
+        'IMG_00',
+        payload,
+        provider,
+        () => notified = true,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        registry.providerFor('IMG_00'),
+        isNot(isA<RawFullResImage>()),
+        reason: 'sanity check: the registered entry is the non-RawFullResImage'
+            ' kind the old type filter would have rejected',
+      );
+      expect(
+        registry.hasFullResEntryFor('IMG_00', payload),
+        isTrue,
+        reason: 'an id/payload match is an entry, regardless of provider '
+            'runtime type -- the type filter was dropped (F6)',
+      );
+
+      // notified is unused beyond keeping the listener referenced; avoid an
+      // "unused variable" lint without asserting on decode timing here.
+      expect(notified, isFalse);
+    },
+  );
+
+  test(
+    'TC-240 publishEncoded evicts the replaced key before overwriting (F6, AC8)',
+    () async {
+      final payload = _freshEncodedPayload();
+      final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
+      addTearDown(registry.clear);
+
+      final ic = PaintingBinding.instance.imageCache;
+
+      final firstProvider = await _publishAndAwait(registry, 'IMG_00', payload);
+      expect(ic.containsKey(firstProvider), isTrue);
+
+      // A second publishEncoded call for the SAME id with a DIFFERENT
+      // provider (e.g. a re-encode landing after the first one) must not
+      // orphan the first entry: the old implementation only ever wrote
+      // `_keys[id] = key`, so `firstProvider` became unreachable bookkeeping
+      // that nothing could ever evict -- a permanent ImageCache leak.
+      final secondPayload = _freshEncodedPayload();
+      final secondProvider = await _publishAndAwait(
+        registry,
+        'IMG_00',
+        secondPayload,
+      );
+
+      expect(
+        ic.containsKey(firstProvider),
+        isFalse,
+        reason: 'the replaced key must be evicted from ImageCache, not just '
+            'overwritten in the registry\'s own bookkeeping (F6 orphan leak)',
+      );
+      expect(registry.providerFor('IMG_00'), same(secondProvider));
+    },
+  );
 }
