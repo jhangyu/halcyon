@@ -137,7 +137,7 @@ void main() {
       return json.decode(await file.readAsString()) as Map<String, dynamic>;
     }
 
-    test('TC-570 a failed rename keeps its mark under the ORIGINAL id',
+    test('TC-709 a failed rename keeps its mark under the ORIGINAL id',
         () async {
       await File(p.join(tempDir.path, 'A.JPG')).writeAsBytes(<int>[1]);
       await File(p.join(tempDir.path, 'B.JPG')).writeAsBytes(<int>[1]);
@@ -204,7 +204,7 @@ void main() {
       expect(messages.last.text, contains('B'));
     });
 
-    test('TC-571 cancelling mid-batch leaves the untouched items\' marks '
+    test('TC-710 cancelling mid-batch leaves the untouched items\' marks '
         'under their original ids', () async {
       for (final name in ['A', 'B']) {
         await File(p.join(tempDir.path, '$name.JPG')).writeAsBytes(<int>[1]);
@@ -266,7 +266,7 @@ void main() {
     // restart (fresh coordinator) undo renamed the files back but left
     // every mark keyed to the abandoned new names.
     // -----------------------------------------------------------------
-    test('TC-572 undo after a restart remaps marks from the journal',
+    test('TC-711 undo after a restart remaps marks from the journal',
         () async {
       await File(p.join(tempDir.path, 'A.JPG')).writeAsBytes(<int>[1]);
 

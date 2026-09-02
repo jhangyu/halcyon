@@ -120,7 +120,7 @@ void main() {
   // overwrite that key, and must keep its own mark.
   // ---------------------------------------------------------------------
 
-  test('TC-566 a photo id equal to a reserved key cannot clobber the '
+  test('TC-706 a photo id equal to a reserved key cannot clobber the '
       'last-viewed pointer', () async {
     await store.saveLastViewedId(tempDir, 'REAL_TARGET');
 
@@ -145,7 +145,7 @@ void main() {
     expect(items[1].status, PhotoStatus.trashed);
   });
 
-  test('TC-567 a reserved-key-named photo survives saveLastViewedId and '
+  test('TC-707 a reserved-key-named photo survives saveLastViewedId and '
       'remapKeys without losing its mark', () async {
     await store.saveStatuses(tempDir, [item('_rename_rule', PhotoStatus.starred)]);
     await store.saveRenameRule(tempDir, '{YYYY}');
@@ -166,7 +166,7 @@ void main() {
     expect(items.single.status, PhotoStatus.starred);
   });
 
-  test('TC-568 remapKeys keeps the original key for partially-applied '
+  test('TC-708 remapKeys keeps the original key for partially-applied '
       'renames', () async {
     await store.saveStatuses(tempDir, [
       item('A', PhotoStatus.starred),

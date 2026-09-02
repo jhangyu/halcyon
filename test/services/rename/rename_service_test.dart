@@ -248,7 +248,7 @@ void main() {
     // intended, so the caller can remap persisted marks off the outcome.
     // -------------------------------------------------------------------
 
-    test('TC-560 idMap contains only the plans that actually landed',
+    test('TC-700 idMap contains only the plans that actually landed',
         () async {
       await touch('B.JPG');
 
@@ -261,7 +261,7 @@ void main() {
       expect(outcome.partialIdMap, isEmpty);
     });
 
-    test('TC-561 a cancelled batch reports only the pre-cancel renames',
+    test('TC-701 a cancelled batch reports only the pre-cancel renames',
         () async {
       await touch('A.JPG');
       await touch('B.JPG');
@@ -277,7 +277,7 @@ void main() {
       expect(outcome.idMap, {'A': 'new-A'});
     });
 
-    test('TC-562 a half-applied plan is reported as partial, not as applied',
+    test('TC-702 a half-applied plan is reported as partial, not as applied',
         () async {
       // The .NEF moves; the .JPG cannot, because its destination is a
       // non-empty directory. The item therefore exists under BOTH ids.
@@ -304,7 +304,7 @@ void main() {
     // WITHOUT the caller having kept in-memory state from the batch.
     // -------------------------------------------------------------------
 
-    test('TC-563 undo derives its id map from the on-disk journal', () async {
+    test('TC-703 undo derives its id map from the on-disk journal', () async {
       await touch('A.NEF');
       await touch('A.JPG');
       await touch('B.JPG');
@@ -326,7 +326,7 @@ void main() {
   // destination -- that is unrecoverable photo loss, not a failed item.
   // Evidence: scripts/tmp/rename_probe_fs.dart, run on /Volumes/EVO_4T.
   // ---------------------------------------------------------------------
-  test('TC-564 planRenames treats a case-only difference from an existing '
+  test('TC-704 planRenames treats a case-only difference from an existing '
       'file as a collision', () {
     final plans = planRenames(
       items: [
@@ -345,9 +345,9 @@ void main() {
     expect(plans.single.newId, 'target-1');
   });
 
-  test('TC-565 planRenames does not hand two items names differing only in '
+  test('TC-705 planRenames does not hand two items names differing only in '
       'case from EACH OTHER', () {
-    // Distinct from TC-564: there the clash is with a file already in the
+    // Distinct from TC-704: there the clash is with a file already in the
     // folder (the `existingNames` seed), here it is between two members of
     // this very batch (the `taken` accumulator). Two cameras reported with
     // different capitalisation is all it takes, and the second rename would
