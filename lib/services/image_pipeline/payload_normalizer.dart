@@ -165,7 +165,6 @@ Future<SourcePayload> normalizeEncodedPayload({
   int quality = kReencodeJpegQuality,
   EncodedRgbaDecoder? decodeToRgba,
   NormalizeGate? gate,
-  String debugLabel = '?',
 }) async {
   // Resolved at call time, not as a default argument: Task 3 needs an
   // override seam that `PhotoSource` does not thread through its own
@@ -177,31 +176,13 @@ Future<SourcePayload> normalizeEncodedPayload({
   }
   final effectiveGate = gate ?? normalizeGate;
   final fallback = EncodedPayload(encoded);
-  // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). Every CHEAP item over the
-  // passthrough size pays a full-resolution decode plus a native re-encode
-  // here, and `normalizeGate` admits only two at a time -- so a cheap item can
-  // land seconds late with no RAW decode anywhere in sight. `queuedMs`
-  // separates "waiting for a gate permit" from "doing the work", which is the
-  // distinction a user-perceived "this photo was slow" cannot make on its own.
-  final tQueued = DateTime.now();
   return effectiveGate.run(() async {
-    final tStart = DateTime.now();
-    final queuedMs = tStart.difference(tQueued).inMilliseconds;
     final decoded = await decode(encoded);
-    final decodeMs = DateTime.now().difference(tStart).inMilliseconds;
     final result = await reencodePayload(
       encoder: encoder,
       fallback: fallback,
       fullRes: decoded,
       quality: quality,
-    );
-    debugPrint(
-      'halcyon.route|$debugLabel|normalize|tier=1'
-      '|inBytes=${encoded.lengthInBytes}'
-      '|px=${decoded == null ? 'null' : '${decoded.width}x${decoded.height}'}'
-      '|queuedMs=$queuedMs|decodeMs=$decodeMs'
-      '|totalMs=${DateTime.now().difference(tStart).inMilliseconds}'
-      '|outBytes=${result is EncodedPayload ? result.bytes.lengthInBytes : -1}',
     );
     if (identical(result, fallback)) {
       // reencodePayload already degraded to our own fallback and already

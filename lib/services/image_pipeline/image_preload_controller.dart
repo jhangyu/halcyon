@@ -955,15 +955,6 @@ class ImagePreloadController {
     // WHOLE load is handed to the serial lane, which runs it near-to-far with
     // one decode in flight. Everything else about it -- retention, tier-1
     // precache, tier-2 eligibility -- is identical to a cheap item's.
-    // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). One line per item per pass: the
-    // rung this pass is acting on, the long edge it was measured against, and
-    // whether this is the parallel window pass or the serial lane. `cost=null`
-    // means the probe could not measure the file and the bridge will decide.
-    debugPrint(
-      'halcyon.route|$id|ensure|cost=${cost?.name ?? 'unmeasured'}'
-      '|longEdge=$_longEdge|lane=${onSerialLane ? 'serial' : 'window'}'
-      '|distance=$distance|precomputedProbe=${precomputedProbe != null}',
-    );
     if (cost == SourceCost.expensive && !onSerialLane) {
       // Released BEFORE the hand-off: the lane body re-enters `_ensurePayload`
       // for this same id, and a stale claim would send it down the
@@ -971,11 +962,6 @@ class ImagePreloadController {
       // produce nothing, i.e. a permanent spinner. Production of this payload
       // now belongs to the lane task, which takes its own claim.
       _loadingKeys.remove(id);
-      // ROUTING DIAGNOSTIC v3: the hand-off that ends in a RAW decode, with
-      // WHY. `why=memo` means the cost memo already said expensive when this
-      // pass ran -- read the earlier `memo|...|action=write` line for that id
-      // to see WHO wrote it and the `probe.verdict` line for the numbers.
-      debugPrint('halcyon.route|$id|lane.enqueue|why=memo|distance=$distance');
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
@@ -1027,7 +1013,7 @@ class ImagePreloadController {
               longEdge: _longEdge,
               allowExpensive: canDoExpensive,
             );
-      _scheduler.observe(id, outcome.observedCost, by: 'bridge');
+      _scheduler.observe(id, outcome.observedCost);
       // Rung-2 only: reached when the probe could not measure the file, so the
       // bridge answer is the sole orientation available (frozen contract A-§2).
       if (outcome.exifOrientation != null) {
@@ -1104,12 +1090,6 @@ class ImagePreloadController {
       // so the lane's retry uses `loadExpensive` and buys no second round trip
       // (invariant I6).
       if (outcome.deferred && !onSerialLane) {
-        // ROUTING DIAGNOSTIC v3: `why=deferred` means the PROBE did not decide
-        // this -- the loader itself answered NeedsRawDecode and the rung was
-        // adopted from the bridge (`memo|...|by=bridge`).
-        debugPrint(
-          'halcyon.route|$id|lane.enqueue|why=deferred|distance=$distance',
-        );
         _enqueueSerialLoad(
           item,
           distance: distance,
