@@ -375,4 +375,156 @@ void main() {
         reason: 'two plans land on the same name once case is folded: '
             '${plans.map((plan) => plan.newId).toList()}');
   });
+
+  // ---------------------------------------------------------------------
+  // Round-1 review should-fix 1. The case fold that TC-704/TC-705 protect
+  // reads `existingNames`, which the coordinator seeds from `dir.listSync()`
+  // -- so it contains the item's OWN filename. A rule that only changes
+  // capitalisation therefore collided with the very file it was renaming and
+  // took a `-1` suffix, instead of renaming in place.
+  // ---------------------------------------------------------------------
+  test('TC-720 planRenames treats a case-only rename of an item onto its own '
+      'name as a plain rename, not a self-collision', () {
+    final plans = planRenames(
+      items: [
+        PhotoItem(id: 'IMG_001', files: [File('/photos/IMG_001.JPG')]),
+      ],
+      metadata: const {},
+      fileModified: {'IMG_001': DateTime(2026, 1, 2, 3, 4, 5)},
+      rule: const RenameRule('img_001'),
+      // The folder contains exactly this one photo, under its old casing.
+      existingNames: {'IMG_001.JPG'},
+    );
+
+    // Renaming IMG_001.JPG -> img_001.JPG is a legal in-place rename on both
+    // APFS and exFAT. Suffixing it to `img_001-1` corrupts every filename a
+    // lower-casing rule touches.
+    expect(plans.single.newId, 'img_001');
+    expect(p.basename(plans.single.moves.single.to), 'img_001.JPG');
+  });
+
+  test('TC-721 planRenames still suffixes when the case clash is with a '
+      'DIFFERENT file', () {
+    // Guards the TC-720 exemption from being over-broad: the self-fold
+    // escape must not fire when the folded name is contributed by another
+    // photo in the folder.
+    final plans = planRenames(
+      items: [
+        PhotoItem(id: 'IMG_001', files: [File('/photos/IMG_001.JPG')]),
+      ],
+      metadata: const {},
+      fileModified: {'IMG_001': DateTime(2026, 1, 2, 3, 4, 5)},
+      rule: const RenameRule('target'),
+      existingNames: {'IMG_001.JPG', 'TARGET.JPG'},
+    );
+
+    expect(plans.single.newId, 'target-1');
+  });
+
+  // ---------------------------------------------------------------------
+  // Round-1 review should-fix 3. fskit can complete a rename and still report
+  // EIO; the retry then throws ENOENT (not transient), the plan was recorded
+  // as a failure, and because it reached neither idMap nor partialIdMap the
+  // photo's stars/trash marks were orphaned and then deleted by the next
+  // scan's stale-key cleanup -- with the file itself sitting happily under
+  // its new name. F1 data loss, re-entered through the retry.
+  // ---------------------------------------------------------------------
+  group('verify-on-error', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_verify_');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    test('TC-722 a rename that lands on disk but reports a transient error is '
+        'recorded as applied, so its marks are remapped', () async {
+      final from = p.join(tempDir.path, 'A.JPG');
+      final to = p.join(tempDir.path, 'new-A.JPG');
+      await File(from).writeAsString('photo');
+
+      var attempts = 0;
+      Future<void> landsThenLies(String f, String t) async {
+        attempts++;
+        // Attempt 1: the metadata operation SUCCEEDS on the volume, then the
+        // userspace filesystem surfaces EIO anyway.
+        if (attempts == 1) {
+          await File(f).rename(t);
+          throw const FileSystemException(
+            'rename failed',
+            'A.JPG',
+            OSError('Input/output error', 5),
+          );
+        }
+        // Any retry finds the source gone -- ENOENT, not transient, so
+        // pre-fix this rethrew and the plan was booked as a failure.
+        throw const FileSystemException(
+          'rename failed',
+          'A.JPG',
+          OSError('No such file or directory', 2),
+        );
+      }
+
+      final outcome = await applyRenames(
+        [
+          RenamePlan(
+            oldId: 'A',
+            newId: 'new-A',
+            moves: [RenameMove(from: from, to: to)],
+          ),
+        ],
+        tempDir,
+        renameFile: landsThenLies,
+      );
+
+      // The file really is at its new name.
+      expect(await File(to).exists(), isTrue);
+      expect(await File(from).exists(), isFalse);
+      // ...so the batch must say so, or the marks are orphaned and deleted.
+      expect(outcome.failures, isEmpty);
+      expect(outcome.renamedCount, 1);
+      expect(outcome.idMap, {'A': 'new-A'});
+      expect(outcome.partialIdMap, isEmpty);
+      // And the move must be journalled, or undo cannot put it back.
+      final log = File(p.join(tempDir.path, kRenameLogName));
+      expect(await log.readAsLines(), hasLength(1));
+    });
+
+    test('TC-723 a rename that never lands is still reported as a failure',
+        () async {
+      // Guards TC-722 from being over-broad: source still present, so the
+      // verify must NOT claim success.
+      final from = p.join(tempDir.path, 'B.JPG');
+      final to = p.join(tempDir.path, 'new-B.JPG');
+      await File(from).writeAsString('photo');
+
+      Future<void> alwaysFails(String f, String t) async {
+        throw const FileSystemException(
+          'rename failed',
+          'B.JPG',
+          OSError('Permission denied', 13),
+        );
+      }
+
+      final outcome = await applyRenames(
+        [
+          RenamePlan(
+            oldId: 'B',
+            newId: 'new-B',
+            moves: [RenameMove(from: from, to: to)],
+          ),
+        ],
+        tempDir,
+        renameFile: alwaysFails,
+      );
+
+      expect(outcome.renamedCount, 0);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.idMap, isEmpty);
+      expect(await File(from).exists(), isTrue);
+    });
+  });
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../models/photo_item.dart';
@@ -83,7 +84,20 @@ List<RenamePlan> planRenames({
     if (candidate == item.id) {
       continue;
     }
-    if (taken.contains(candidate.toLowerCase())) {
+    // A candidate that case-folds onto the item's OWN current name is not a
+    // collision: it is a case-only rename of the file with itself, which
+    // `File.rename` performs in place on every filesystem we ship on. The
+    // fold below would otherwise report a clash, because `existingNames`
+    // (rename_coordinator.dart, `dir.listSync()`) seeds `taken` with the
+    // item's own basename -- so a rule that merely lower-cases would append
+    // `-1` to every single file in the folder.
+    //
+    // Safe under the same case-insensitivity assumption the fold itself
+    // rests on: on such a volume no OTHER file can occupy this folded name,
+    // so the only contributor to the clash is the item itself.
+    final folded = candidate.toLowerCase();
+    final ownFold = item.id.toLowerCase();
+    if (folded != ownFold && taken.contains(folded)) {
       var suffix = 1;
       while (taken.contains('$candidate-$suffix'.toLowerCase())) {
         suffix++;
@@ -195,13 +209,45 @@ const Set<int> _kTransientRenameErrno = {
 Future<void> _renameWithRetry(
   String from,
   String to, {
+  RenameFileOp renameFile = _defaultRenameFile,
   List<int> delaysMs = const <int>[20, 40, 80, 160],
 }) async {
+  // Sampled BEFORE the first attempt, because the verify-on-error check below
+  // is only sound if "a file is sitting at the destination" is news. Undo
+  // (`undoLastRename`) renames back onto the ORIGINAL names, which no
+  // collision check ever cleared, so without this sample an unrelated file
+  // that happens to occupy an original name would make a genuinely failed
+  // undo report success.
+  final destinationExistedBefore = await _pathExists(to);
   for (var attempt = 0; ; attempt++) {
     try {
-      await retryOnSharingViolation(() => File(from).rename(to));
+      await retryOnSharingViolation(() => renameFile(from, to));
       return;
     } catch (e) {
+      // Verify-on-error. The user's photos live on exFAT served by fskit,
+      // which can COMPLETE the metadata operation and still surface EIO. The
+      // retry above then finds the source gone and throws ENOENT, which is
+      // deliberately not transient, so the plan was recorded as a failure
+      // even though the file had in fact moved. Its marks then appeared in
+      // neither `idMap` nor `partialIdMap`, were orphaned, and were deleted
+      // outright by the next scan's stale-key cleanup
+      // (photo_status_store.dart) -- the F1 data-loss shape, re-entered
+      // through the retry itself.
+      //
+      // So: if the source is gone and a destination that was NOT there
+      // beforehand now is, the rename landed. Report success and let the
+      // caller journal it and remap the marks.
+      //
+      // A case-only rename on a case-insensitive volume has
+      // `destinationExistedBefore == true` (source and destination are the
+      // same file), which disables this check. That is the fail-safe
+      // direction: such a failure is reported as a failure rather than
+      // claimed as a success.
+      if (!destinationExistedBefore &&
+          !await _pathExists(from) &&
+          await _pathExists(to)) {
+        return;
+      }
       final transient =
           e is FileSystemException &&
           _kTransientRenameErrno.contains(e.osError?.errorCode);
@@ -210,6 +256,21 @@ Future<void> _renameWithRetry(
     }
   }
 }
+
+/// Performs one rename. Injectable only so tests can reproduce the
+/// "landed on disk but reported an error" fault above: no real filesystem can
+/// be asked to produce it on demand, and it is the fault that costs the user
+/// their stars and trash marks.
+typedef RenameFileOp = Future<void> Function(String from, String to);
+
+Future<void> _defaultRenameFile(String from, String to) async {
+  await File(from).rename(to);
+}
+
+/// Type-based rather than [File.exists], so a directory or a symlink at the
+/// destination still counts as "something is there".
+Future<bool> _pathExists(String path) async =>
+    await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
 
 /// Executes [plans] serially. Rename is a same-volume metadata operation, so
 /// parallelism buys nothing here and would turn the planner's collision
@@ -223,6 +284,7 @@ Future<RenameOutcome> applyRenames(
   Directory dir, {
   void Function(int done, int total)? onProgress,
   bool Function()? isCancelled,
+  @visibleForTesting RenameFileOp renameFile = _defaultRenameFile,
 }) async {
   final log = File(p.join(dir.path, kRenameLogName));
   final sink = log.openWrite(mode: FileMode.write);
@@ -244,7 +306,7 @@ Future<RenameOutcome> applyRenames(
       var landed = 0;
       try {
         for (final move in plan.moves) {
-          await _renameWithRetry(move.from, move.to);
+          await _renameWithRetry(move.from, move.to, renameFile: renameFile);
           landed++;
           sink.writeln(json.encode({'from': move.from, 'to': move.to}));
         }
