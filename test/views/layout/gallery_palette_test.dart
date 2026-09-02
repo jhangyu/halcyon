@@ -71,6 +71,9 @@ void main() {
       expect(theme.extension<GalleryPalette>()!.star, const Color(0xFFB08328));
       // --danger oxide
       expect(scheme.error, const Color(0xFFA6432F));
+      // .gutter.dragged — 12px 0 34px rgba(28,27,25,.16), shared light/dark.
+      expect(theme.extension<GalleryPalette>()!.floatShadow,
+          const Color(0x291C1B19));
     });
 
     test('dark palette values match the mockup canvas gallery block', () {
@@ -88,6 +91,9 @@ void main() {
       expect(scheme.primary, const Color(0xFF7FA3BC));
       expect(theme.extension<GalleryPalette>()!.star, const Color(0xFFD7A54A));
       expect(scheme.error, const Color(0xFFC86B58));
+      // .gutter.dragged — shared light/dark rule, ink #1C1B19 at 16% alpha.
+      expect(theme.extension<GalleryPalette>()!.floatShadow,
+          const Color(0x291C1B19));
     });
   });
 
@@ -107,6 +113,46 @@ void main() {
       expect(theme.popupMenuTheme.color, const Color(0xFF1E1E20)); // --rail
       expect(theme.dividerColor, Colors.transparent);
       expect(theme.dividerTheme.color, const Color(0xFF2E2E31)); // --hair
+    });
+  });
+
+  group('gallery float shadow token (T6 palette centralization)', () {
+    test('light and dark floatShadow both match the shared .gutter.dragged rule',
+        () {
+      // Mockup `c1-desktop-{light,dark}.html:238` — one shared CSS rule:
+      // `box-shadow:12px 0 34px rgba(28,27,25,.16)`. 16% alpha is 0x29, and the
+      // hue is the page ink #1C1B19, so the faithful value is 0x291C1B19 in
+      // both brightnesses (identical — there is no per-brightness shadow).
+      expect(GalleryPalette.light.floatShadow, const Color(0x291C1B19));
+      expect(GalleryPalette.dark.floatShadow, const Color(0x291C1B19));
+    });
+
+    test('copyWith replaces floatShadow and keeps the other fields', () {
+      final changed = GalleryPalette.light.copyWith(
+        floatShadow: const Color(0xFFFFFFFF),
+      );
+      expect(changed.floatShadow, const Color(0xFFFFFFFF));
+      expect(changed, isNot(same(GalleryPalette.light)));
+      // Untouched fields stay identical to the source palette.
+      expect(changed.mat, GalleryPalette.light.mat);
+      expect(changed.textFaint, GalleryPalette.light.textFaint);
+      expect(changed.star, GalleryPalette.light.star);
+    });
+
+    test('copyWith with no args returns an equal-value palette', () {
+      final copied = GalleryPalette.light.copyWith();
+      expect(copied.floatShadow, GalleryPalette.light.floatShadow);
+      expect(copied.mat, GalleryPalette.light.mat);
+      expect(copied.textFaint, GalleryPalette.light.textFaint);
+      expect(copied.star, GalleryPalette.light.star);
+    });
+
+    test('lerp interpolates floatShadow with other channels', () {
+      final lerped = GalleryPalette.light
+          .lerp(GalleryPalette.dark, 0.5)
+          .floatShadow;
+      expect(GalleryPalette.light.floatShadow, GalleryPalette.dark.floatShadow);
+      expect(lerped, GalleryPalette.light.floatShadow);
     });
   });
 

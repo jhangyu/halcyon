@@ -21,6 +21,14 @@ import '../../theme_tokens.dart';
 /// | accent, slate blue (`--accent`) | `#3F5D72` | `#7FA3BC` | `colorScheme.primary` |
 /// | star, brass (`--star`) | `#B08328` | `#D7A54A` | `GalleryPalette.star` |
 /// | danger, oxide (`--danger`) | `#A6432F` | `#C86B58` | `colorScheme.error` |
+/// | float shadow (`.gutter.dragged`) | `rgba(28,27,25,.16)` | `rgba(28,27,25,.16)` | `GalleryPalette.floatShadow` |
+///
+/// The float shadow is the desktop column's drop shadow when it floats over the
+/// photo (`mockup/gallery/c1-desktop-{light,dark}.html:238`). Both brightnesses
+/// share one CSS rule — `box-shadow:12px 0 34px rgba(28,27,25,.16)` — so the
+/// value is the page ink `#1C1B19` at 16% alpha in both palettes; the 16% alpha
+/// byte is `0x29`, giving `Color(0x291C1B19)` (not pure black — the hue is the
+/// ink). Offsets/blur stay layout-owned in the desktop arrangement.
 ///
 /// `HalcyonTokens.light` / `.dark` are registered on top, unchanged, so the
 /// Settings and Rename dialogs render exactly as today (T5 constraint, R1
@@ -33,6 +41,7 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
     required this.mat,
     required this.textFaint,
     required this.star,
+    required this.floatShadow,
   });
 
   /// Mount behind the print (`--mat`).
@@ -41,28 +50,34 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
   final Color textFaint;
   /// Star / brass, semantic (`--star`).
   final Color star;
+  /// Desktop floating-column drop shadow (`.gutter.dragged`, shared light/dark).
+  final Color floatShadow;
 
   static const GalleryPalette dark = GalleryPalette(
     mat: Color(0xFF1B1B1C),
     textFaint: Color(0xFF6B6863),
     star: Color(0xFFD7A54A),
+    floatShadow: Color(0x291C1B19),
   );
 
   static const GalleryPalette light = GalleryPalette(
     mat: Color(0xFFF1EFEB),
     textFaint: Color(0xFF9C9791),
     star: Color(0xFFB08328),
+    floatShadow: Color(0x291C1B19),
   );
 
   static GalleryPalette of(BuildContext context) =>
       Theme.of(context).extension<GalleryPalette>() ?? dark;
 
   @override
-  GalleryPalette copyWith({Color? mat, Color? textFaint, Color? star}) {
+  GalleryPalette copyWith(
+      {Color? mat, Color? textFaint, Color? star, Color? floatShadow}) {
     return GalleryPalette(
       mat: mat ?? this.mat,
       textFaint: textFaint ?? this.textFaint,
       star: star ?? this.star,
+      floatShadow: floatShadow ?? this.floatShadow,
     );
   }
 
@@ -73,6 +88,7 @@ class GalleryPalette extends ThemeExtension<GalleryPalette> {
       mat: Color.lerp(mat, other.mat, t)!,
       textFaint: Color.lerp(textFaint, other.textFaint, t)!,
       star: Color.lerp(star, other.star, t)!,
+      floatShadow: Color.lerp(floatShadow, other.floatShadow, t)!,
     );
   }
 }
