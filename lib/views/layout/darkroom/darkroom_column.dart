@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
+import '../common/anchored_scroll.dart';
 import '../common/photo_thumbnail.dart';
 import '../main_surface.dart';
 import 'darkroom_palette.dart';
@@ -40,6 +41,22 @@ int darkroomGridColumnsForWidth(double width) {
   return width < kDarkroomTwoColumnWidth ? 1 : 2;
 }
 
+/// The grid's outer padding (all four sides) and the spacing between cells.
+const double kDarkroomGridPadding = 6.0;
+const double kDarkroomGridSpacing = 12.0;
+
+/// The pixel height of one grid ROW at a given column width, including the
+/// spacing that follows it. Derived from exactly the numbers the
+/// `SliverGridDelegateWithFixedCrossAxisCount` below is built with, so the
+/// anchoring arithmetic cannot drift from the layout it is anchoring.
+double darkroomRowExtentForWidth(double width) {
+  final columns = darkroomGridColumnsForWidth(width);
+  final cross =
+      width - 2 * kDarkroomGridPadding - kDarkroomGridSpacing * (columns - 1);
+  final cell = math.max(1.0, cross) / columns;
+  return cell / kDarkroomChipAspect + kDarkroomGridSpacing;
+}
+
 /// Hit width of the resize handle at the column's right edge (mockup: a 5px
 /// painted grip; the hit region is widened here, mirroring gallery's
 /// AD-established 12px target, to keep the handle reliably grabbable).
@@ -72,7 +89,12 @@ class DarkroomColumn extends StatefulWidget {
 }
 
 class _DarkroomColumnState extends State<DarkroomColumn> {
-  final ScrollController _scrollController = ScrollController();
+  /// Round 4: the darkroom grid gets the same in-layout re-anchoring the
+  /// gallery strip got for TC-556. Both of its width-driven geometry changes
+  /// (the 78->84 chip step at 192, and the 1->2 column step at 180) re-map
+  /// every row's pixel position under a fixed scroll offset, which is the
+  /// stale-offset flicker.
+  final AnchoredScrollController _scrollController = AnchoredScrollController();
 
   int get _columns => darkroomGridColumnsForWidth(widget.width);
 
@@ -80,6 +102,23 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant DarkroomColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.width == widget.width) return;
+    final strip = widget.surface.strip;
+    final selectedId = strip.selectedId;
+    if (selectedId == null) return;
+    final idx = strip.items.indexWhere((i) => i.id == selectedId);
+    if (idx == -1) return;
+    _scrollController.anchorRowByPixelOffset(
+      oldRow: idx ~/ darkroomGridColumnsForWidth(oldWidget.width),
+      oldRowExtent: darkroomRowExtentForWidth(oldWidget.width),
+      newRow: () => idx ~/ _columns,
+      newRowExtent: () => darkroomRowExtentForWidth(widget.width),
+    );
   }
 
   @override
@@ -95,15 +134,15 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
           color: Theme.of(context).colorScheme.surface,
           elevation: widget.width > kDarkroomColumnMinWidth ? 8 : 0,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+            padding: const EdgeInsets.all(kDarkroomGridPadding),
             child: GridView.builder(
               key: const ValueKey<String>('darkroom-grid'),
               controller: _scrollController,
               itemCount: items.length,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: _columns,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
+                mainAxisSpacing: kDarkroomGridSpacing,
+                crossAxisSpacing: kDarkroomGridSpacing,
                 childAspectRatio: kDarkroomChipAspect,
               ),
               itemBuilder: (context, index) {

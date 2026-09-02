@@ -147,14 +147,26 @@ void main() {
       // (TC-553 documents the same class of confound) and it is not what
       // flicker means. Anchoring is a statement about the offset WITHIN the
       // scrollable, so the scrollable is the frame of reference.
-      double? fractionNow() {
+      //
+      // ROUND-4 REBASE (TC-647): the measure is the chip's PIXEL distance
+      // below the strip viewport's top edge, not its fraction of the viewport
+      // height. The two agreed while the strip viewport had a constant height,
+      // and stopped agreeing once the marks-row `Wrap` reflow was recognised
+      // as a real geometry change: the strip is 590px tall at a 91px gutter
+      // and 706px at 120px and above, so a chip that does not move by a single
+      // pixel still reports a fraction that steps at each reflow. Pixels are
+      // the thing the eye sees; the fraction was an artefact of the frame of
+      // reference. (Measured under the fraction rebase: the chip held still at
+      // 0.932 and 0.870 across the two plateaux — flat within each, stepping
+      // only where the viewport resized.)
+      double? offsetNow() {
         if (find.byKey(chipKey).evaluate().isEmpty) return null;
         final stripRect = tester.getRect(find.byType(ListView).first);
         final chipRect = tester.getRect(find.byKey(chipKey));
-        return (chipRect.center.dy - stripRect.top) / stripRect.height;
+        return chipRect.center.dy - stripRect.top;
       }
 
-      final start = fractionNow()!;
+      final start = offsetNow()!;
       // Vacuity guard: the strip must really be scrolled away from the top,
       // otherwise a stale offset has nothing to displace (`row * dExtent` is
       // zero at row 0) and the assertions below would pass for free.
@@ -164,7 +176,7 @@ void main() {
         greaterThan(50.0),
         reason: 'the filmstrip must be scrolled for this test to mean anything',
       );
-      expect(start, inExclusiveRange(0.0, 1.0));
+      expect(start, greaterThan(0.0));
 
       final topLeft = tester.getTopLeft(find.byKey(_columnKey));
       final width = tester.getSize(find.byKey(_columnKey)).width;
@@ -178,11 +190,11 @@ void main() {
       for (var i = 0; i < 10; i++) {
         await gesture.moveBy(const Offset(10, 0));
         await tester.pump();
-        samples.add(fractionNow());
+        samples.add(offsetNow());
       }
       await gesture.up();
       await tester.pumpAndSettle();
-      samples.add(fractionNow());
+      samples.add(offsetNow());
 
       expect(
         samples.contains(null),
@@ -198,7 +210,7 @@ void main() {
           .reduce((a, b) => a > b ? a : b);
       expect(
         worst,
-        lessThan(0.03),
+        lessThan(2.0),
         reason:
             'the selected chip flashed to a different position on at least '
             'one intermediate drag frame (stale-offset flicker): '

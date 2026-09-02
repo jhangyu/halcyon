@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
+import '../common/anchored_scroll.dart';
 import '../common/exif_caption.dart';
 import '../common/photo_thumbnail.dart';
 import 'paper_palette.dart';
@@ -44,6 +45,10 @@ const ValueKey<String> kPaperColumnSlotKey = ValueKey<String>(
 );
 
 const Duration kPaperWidthBadgeDelay = Duration(milliseconds: 400);
+
+/// Vertical gap between filmstrip rows, in both the in-gutter strip and the
+/// floating overlay strip (mockup `.stripbody` / `.floatstrip`).
+const double kPaperStripGap = 7.0;
 
 /// Chip width for a given gutter width (mockup NOTES.md sweep, drawn points
 /// 40/90/140/200): scales linearly from [kPaperChipFloorWidth] at
@@ -287,12 +292,34 @@ class _PaperColumn extends StatefulWidget {
 }
 
 class _PaperColumnState extends State<_PaperColumn> {
-  final ScrollController _scrollController = ScrollController();
+  /// Round 4: the paper strip now uses the same in-layout re-anchoring the
+  /// gallery strip got for TC-556. Dragging 40->90 scales the chip (and so
+  /// the row extent) continuously, which re-maps every row's pixel position
+  /// under a fixed offset — the same stale-offset flicker, previously
+  /// carried as a known limitation ("paper strip 未套 TC-556 錨定捲動").
+  final AnchoredScrollController _scrollController = AnchoredScrollController();
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PaperColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.width == widget.width) return;
+    final strip = widget.surface.strip;
+    final selectedId = strip.selectedId;
+    if (selectedId == null) return;
+    final row = strip.items.indexWhere((i) => i.id == selectedId);
+    if (row == -1) return;
+    _scrollController.anchorRowByPixelOffset(
+      oldRow: row,
+      oldRowExtent: paperChipHeightFor(oldWidget.width) + kPaperStripGap,
+      newRow: () => row,
+      newRowExtent: () => paperChipHeightFor(widget.width) + kPaperStripGap,
+    );
   }
 
   @override
@@ -368,7 +395,7 @@ class _PaperColumnState extends State<_PaperColumn> {
     double chipH,
   ) {
     final items = strip.items;
-    final gap = 7.0;
+    const gap = kPaperStripGap;
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -401,7 +428,7 @@ class _PaperColumnState extends State<_PaperColumn> {
       if (!mounted || !_scrollController.hasClients) return;
       final strip = widget.surface.strip;
       final chipH = paperChipHeightFor(widget.width);
-      final extent = chipH + 7.0;
+      final extent = chipH + kPaperStripGap;
       final offset = _scrollController.offset;
       final viewportHeight = _scrollController.position.viewportDimension;
       final first = (offset / extent).floor();
@@ -489,7 +516,12 @@ class _PaperFloatStrip extends StatefulWidget {
 }
 
 class _PaperFloatStripState extends State<_PaperFloatStrip> {
-  final ScrollController _scrollController = ScrollController();
+  /// Round 4: shares the gallery's in-layout anchoring (TC-556). The row
+  /// extent here is constant (the chip is pinned above 90px), but the COLUMN
+  /// COUNT steps 1->2 at [kPaperTwoColumnWidth], which re-maps the selected
+  /// item onto a different row and displaces the whole strip under a fixed
+  /// offset — the same class of defect, from a different geometry change.
+  final AnchoredScrollController _scrollController = AnchoredScrollController();
   bool _sweepScheduled = false;
 
   @override
@@ -499,12 +531,30 @@ class _PaperFloatStripState extends State<_PaperFloatStrip> {
   }
 
   @override
+  void didUpdateWidget(covariant _PaperFloatStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.width == widget.width) return;
+    final strip = widget.surface.strip;
+    final selectedId = strip.selectedId;
+    if (selectedId == null) return;
+    final idx = strip.items.indexWhere((i) => i.id == selectedId);
+    if (idx == -1) return;
+    const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
+    _scrollController.anchorRowByPixelOffset(
+      oldRow: idx ~/ paperColumnsFor(oldWidget.width),
+      oldRowExtent: extent,
+      newRow: () => idx ~/ paperColumnsFor(widget.width),
+      newRowExtent: () => extent,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final strip = widget.surface.strip;
     final items = strip.items;
     final columns = paperColumnsFor(widget.width);
     final rowCount = (items.length + columns - 1) ~/ columns;
-    final gap = 7.0;
+    const gap = kPaperStripGap;
 
     return Container(
       decoration: BoxDecoration(
@@ -595,7 +645,7 @@ class _PaperFloatStripState extends State<_PaperFloatStrip> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sweepScheduled = false;
       if (!mounted || !_scrollController.hasClients) return;
-      final extent = kPaperChipRestWidth / kPaperChipAspect + 7.0;
+      const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
       final offset = _scrollController.offset;
       final viewportHeight = _scrollController.position.viewportDimension;
       final firstRow = (offset / extent).floor();

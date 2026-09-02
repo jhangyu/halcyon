@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show precisionErrorTolerance;
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
+import '../common/anchored_scroll.dart';
 import '../common/photo_thumbnail.dart';
 import '../gallery/gallery_palette.dart';
 import '../main_surface.dart';
@@ -102,89 +102,9 @@ class GalleryColumn extends StatefulWidget {
   State<GalleryColumn> createState() => _GalleryColumnState();
 }
 
-/// Resolves the offset the filmstrip should sit at, given the geometry the
-/// layout pass has just measured. Returns null to leave the offset alone.
-typedef _AnchorResolver =
-    double? Function(double viewportDimension, double maxScrollExtent);
-
-/// A [ScrollPosition] that can re-anchor itself DURING layout.
-///
-/// This exists because of the resize flicker (TC-556). Dragging the gutter
-/// changes `_rowExtent`, which re-maps every row's pixel position under a
-/// fixed scroll offset; the strip therefore has to be re-anchored on the
-/// selected row on every drag frame. Doing that with a post-frame
-/// `jumpTo` is what produced the flicker: the frame that FIRST shows the new
-/// row extent is painted at the OLD offset (displacing every row by
-/// `row * dExtent` — enough, at row 15, to push the selected chip out of the
-/// viewport entirely) and only the NEXT frame pulls it back. At drag rates
-/// that alternation is the visible flash.
-///
-/// [correctPixels] is the framework's sanctioned answer, and the reason this
-/// is a position subclass rather than a controller call: it may only be used
-/// while layout is in flight, and returning `false` from
-/// [applyContentDimensions] makes the viewport re-run layout with the
-/// corrected offset before anything is painted. The correction therefore
-/// lands in the SAME frame as the geometry change, and no stale frame exists
-/// to be seen. It also gets the REAL `viewportDimension`/`maxScrollExtent`
-/// rather than the previous frame's, so no extent has to be estimated.
-class _AnchoredScrollPosition extends ScrollPositionWithSingleContext {
-  _AnchoredScrollPosition({
-    required super.physics,
-    required super.context,
-    super.oldPosition,
-  });
-
-  /// Consumed by the next layout pass, then cleared. Set on a width change.
-  _AnchorResolver? pendingAnchor;
-
-  @override
-  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
-    final resolve = pendingAnchor;
-    if (resolve != null) {
-      pendingAnchor = null;
-      final target = resolve(viewportDimension, maxScrollExtent);
-      if (target != null) {
-        final clamped = target.clamp(minScrollExtent, maxScrollExtent);
-        if ((clamped - pixels).abs() > precisionErrorTolerance) {
-          correctPixels(clamped);
-          // Not accepted: the viewport lays out again, now at the anchored
-          // offset. `pendingAnchor` is already null, so that second pass
-          // falls through to `super` and settles.
-          return false;
-        }
-      }
-    }
-    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
-  }
-}
-
-/// Hands out [_AnchoredScrollPosition]s and keeps a reference to the live one
-/// so the state can arm an anchor for the next layout pass.
-class _AnchoredScrollController extends ScrollController {
-  _AnchoredScrollPosition? _position;
-
-  @override
-  ScrollPosition createScrollPosition(
-    ScrollPhysics physics,
-    ScrollContext context,
-    ScrollPosition? oldPosition,
-  ) {
-    return _position = _AnchoredScrollPosition(
-      physics: physics,
-      context: context,
-      oldPosition: oldPosition,
-    );
-  }
-
-  /// Arms a one-shot correction consumed by the next layout pass.
-  void anchorNextLayout(_AnchorResolver resolve) {
-    _position?.pendingAnchor = resolve;
-  }
-}
-
 class _GalleryColumnState extends State<GalleryColumn> {
-  final _AnchoredScrollController _scrollController =
-      _AnchoredScrollController();
+  final AnchoredScrollController _scrollController =
+      AnchoredScrollController();
   String? _lastSelectedId;
 
   /// The chip fills the strip's content width, so it grows continuously with
@@ -280,21 +200,24 @@ class _GalleryColumnState extends State<GalleryColumn> {
 
     // Anchor on the row's CENTER, not its top edge: the row's height itself
     // changes with the gutter (the chip scales — TC-543), so a top-anchored
-    // fraction still drifts by roughly half the row-height delta every
-    // resize, compounding over a drag.
-    final oldItemCenter = row * oldRowExtent + oldRowExtent / 2;
-    final oldOffset = _scrollController.offset;
-    final viewportHeight = _scrollController.position.viewportDimension;
-    final fraction = viewportHeight > 0
-        ? (oldItemCenter - oldOffset) / viewportHeight
-        : 0.0;
-
+    // anchor still drifts by roughly half the row-height delta every resize,
+    // compounding over a drag.
+    //
+    // The distance is measured in PIXELS below the viewport top, NOT as a
+    // viewport fraction (round-4 change, TC-647). A fraction anchor also
+    // reacts to the strip viewport's own HEIGHT, which changes during a drag
+    // because the marks row below is a `Wrap` that reflows from four runs to
+    // two (measured: 590px of strip at a 91px gutter, 706px at 120px and
+    // above). That reaction is the user-reported monotone vertical shift of
+    // the filmstrip while dragging the sidebar. See
+    // `AnchoredScrollController.anchorRowByPixelOffset`.
+    //
     // `widget` already reflects the NEW width here (didUpdateWidget runs
     // after the widget is swapped in but before the new build/layout), so
     // `_rowExtent` read inside the resolver below is the new geometry.
     //
     // The correction is ARMED here and APPLIED inside the coming layout pass
-    // (see [_AnchoredScrollPosition]) rather than deferred to a post-frame
+    // (see [AnchoredScrollPosition]) rather than deferred to a post-frame
     // callback. That ordering is the whole fix for the resize flicker
     // (TC-556): a post-frame jump necessarily paints one frame at the old
     // offset under the new row extent, and at drag rates that one-frame
@@ -302,12 +225,12 @@ class _GalleryColumnState extends State<GalleryColumn> {
     // selected chip out of the viewport entirely — IS the flash the user
     // sees. Correcting during layout means the frame is never painted wrong
     // in the first place, so there is nothing to hide.
-    _scrollController.anchorNextLayout((viewportDimension, maxScrollExtent) {
-      if (!mounted) return null;
-      final newRowExtent = _rowExtent;
-      final newItemCenter = row * newRowExtent + newRowExtent / 2;
-      return newItemCenter - fraction * viewportDimension;
-    });
+    _scrollController.anchorRowByPixelOffset(
+      oldRow: row,
+      oldRowExtent: oldRowExtent,
+      newRow: () => row,
+      newRowExtent: () => _rowExtent,
+    );
   }
 
   /// 200ms `easeInOut` autoscroll keeping the selected chip's row visible,
