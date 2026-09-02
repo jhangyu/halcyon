@@ -74,6 +74,76 @@ class DngEmbeddedJpegProbe {
 class DngEmbeddedJpegExtractor {
   const DngEmbeddedJpegExtractor._();
 
+  /// How many EXTRA attempts a walk gets after one that hit an I/O fault.
+  ///
+  /// Two, not "until it works": a failing volume must not turn every read into
+  /// an unbounded stall, and a genuinely damaged file must still reach its
+  /// verdict promptly. The retry only ever fires on the fault path, so an
+  /// intact file and an honestly preview-less file both still cost exactly one
+  /// open (pinned by TC-540c).
+  static const int _maxTransientReadRetries = 2;
+
+  /// Backoff before retry N (1-based), so the two attempts are ~20ms and ~40ms
+  /// after the fault. Small enough to stay invisible next to a RAW decode
+  /// (61-406ms measured), long enough to outlast the momentary stall this
+  /// exists for.
+  static const Duration _retryBackoff = Duration(milliseconds: 20);
+
+  /// Opens [path], runs [body] over a paged source, and RETRIES the whole
+  /// attempt when that attempt hit an I/O fault.
+  ///
+  /// This is the single place the transient/absent distinction is acted on.
+  /// Every file-backed entry point below routes through it, so none of them can
+  /// report "no embedded preview" on the strength of a read that never
+  /// happened. What it deliberately does NOT do is retry a structural answer:
+  /// an intact container with no qualifying candidate, an undersized preview
+  /// rejected by the frozen AD-033 floor, or a file that is not a TIFF at all
+  /// all set no fault flag and return on the first attempt.
+  ///
+  /// [miss] is returned when the file cannot be opened or is too short, which
+  /// is each caller's own pre-existing "nothing here" value -- the retry adds
+  /// no new end state.
+  static Future<T> _readFileWithRetry<T>(
+    String path, {
+    required T miss,
+    required void Function(int byteCount)? onDiskRead,
+    required Future<T> Function(RandomAccessFile raf, _FileSource source) body,
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      var faulted = false;
+      var result = miss;
+      RandomAccessFile? raf;
+      try {
+        final file = File(path);
+        raf = await file.open();
+        final length = await raf.length();
+        if (length >= 8) {
+          final source = _FileSource(raf, length, onDiskRead);
+          result = await body(raf, source);
+          faulted = source.ioError;
+        }
+      } on PathNotFoundException {
+        // An absent file is a settled fact, not a hiccup: returning
+        // immediately keeps a missing-file miss as cheap as it was before.
+        return miss;
+      } catch (_) {
+        // The open, the length query or an async read inside the body threw.
+        // Same class of fault as a failed page read, so it earns the same
+        // retry rather than being reported as an unreadable container.
+        faulted = true;
+        result = miss;
+      } finally {
+        try {
+          await raf?.close();
+        } catch (_) {
+          // Closing a handle we already failed on is not actionable.
+        }
+      }
+      if (!faulted || attempt >= _maxTransientReadRetries) return result;
+      await Future<void>.delayed(_retryBackoff * (attempt + 1));
+    }
+  }
+
   /// Selects an embedded JPEG from [path] using bounded byte-range reads.
   ///
   /// [longEdge] == null -> full-size request: the candidate must satisfy
@@ -107,23 +177,13 @@ class DngEmbeddedJpegExtractor {
     int? minLongEdge,
     void Function(int byteCount)? onDiskRead,
   }) async {
-    RandomAccessFile? raf;
-    try {
-      final file = File(path);
-      raf = await file.open();
-      final length = await raf.length();
-      if (length < 8) return null;
-      final source = _FileSource(raf, length, onDiskRead);
-      return _walk(source, longEdge, minLongEdge: minLongEdge);
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
+    return _readFileWithRetry<DngEmbeddedJpeg?>(
+      path,
+      miss: null,
+      onDiskRead: onDiskRead,
+      body: (raf, source) async =>
+          _walk(source, longEdge, minLongEdge: minLongEdge),
+    );
   }
 
   /// Malformed-aware sibling of [extractEmbeddedJpeg]: same selection rules,
@@ -151,28 +211,17 @@ class DngEmbeddedJpegExtractor {
     void Function(int byteCount)? onDiskRead,
   }) async {
     const miss = DngEmbeddedJpegProbe(jpeg: null, malformed: false);
-    RandomAccessFile? raf;
-    try {
-      final file = File(path);
-      raf = await file.open();
-      final length = await raf.length();
-      if (length < 8) return miss;
-      final source = _FileSource(raf, length, onDiskRead);
-      return _probeWalk(
+    return _readFileWithRetry<DngEmbeddedJpegProbe>(
+      path,
+      miss: miss,
+      onDiskRead: onDiskRead,
+      body: (raf, source) async => _probeWalk(
         source,
         longEdge,
         minLongEdge: minLongEdge,
         strictBitstream: true,
-      );
-    } catch (_) {
-      return miss;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
+      ),
+    );
   }
 
   /// Reads [path] from disk and returns the largest embedded full-size JPEG
@@ -204,29 +253,22 @@ class DngEmbeddedJpegExtractor {
     String path, {
     void Function(int byteCount)? onDiskRead,
   }) async {
-    RandomAccessFile? raf;
-    try {
-      raf = await File(path).open();
-      final length = await raf.length();
-      if (length < 8) return null;
-      final reader = _readerFor(_FileSource(raf, length, onDiskRead));
-      if (reader == null) return null;
-      final ifd0 = _readIFD0(reader);
-      if (ifd0 == null) return null;
-      // Null is preserved (it means "could not determine", per this method's
-      // documented three-way contract); only a value that WAS read is clamped
-      // to the EXIF-legal range.
-      final raw = _orientationOf(reader, ifd0);
-      return raw == null ? null : _sanitizeOrientation(raw);
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
+    return _readFileWithRetry<int?>(
+      path,
+      miss: null,
+      onDiskRead: onDiskRead,
+      body: (raf, source) async {
+        final reader = _readerFor(source);
+        if (reader == null) return null;
+        final ifd0 = _readIFD0(reader);
+        if (ifd0 == null) return null;
+        // Null is preserved (it means "could not determine", per this method's
+        // documented three-way contract); only a value that WAS read is clamped
+        // to the EXIF-legal range.
+        final raw = _orientationOf(reader, ifd0);
+        return raw == null ? null : _sanitizeOrientation(raw);
+      },
+    );
   }
 
   /// IFD0 tags 0x0100 (ImageWidth) / 0x0101 (ImageLength) for [path], read
@@ -245,38 +287,31 @@ class DngEmbeddedJpegExtractor {
     String path, {
     void Function(int byteCount)? onDiskRead,
   }) async {
-    RandomAccessFile? raf;
-    try {
-      raf = await File(path).open();
-      final length = await raf.length();
-      if (length < 8) return null;
-      final reader = _readerFor(_FileSource(raf, length, onDiskRead));
-      if (reader == null) return null;
-      final ifd0 = _readIFD0(reader);
-      if (ifd0 == null) return null;
-      final widthEntry = ifd0[0x0100];
-      final heightEntry = ifd0[0x0101];
-      if (widthEntry == null || heightEntry == null) {
-        // A Panasonic container carries neither 0x0100 nor 0x0101; its extent
-        // lives in vendor tags. Without this the decoded-pixel budget guard
-        // (F-20) would measure every RW2 as "unknown" and wave it through.
-        if (reader.isPanasonic) return _panasonicExtent(reader, ifd0);
-        return null;
-      }
-      final widthVals = reader.values(widthEntry);
-      final heightVals = reader.values(heightEntry);
-      if (widthVals == null || widthVals.isEmpty) return null;
-      if (heightVals == null || heightVals.isEmpty) return null;
-      return (width: widthVals.first, height: heightVals.first);
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
+    return _readFileWithRetry<({int width, int height})?>(
+      path,
+      miss: null,
+      onDiskRead: onDiskRead,
+      body: (raf, source) async {
+        final reader = _readerFor(source);
+        if (reader == null) return null;
+        final ifd0 = _readIFD0(reader);
+        if (ifd0 == null) return null;
+        final widthEntry = ifd0[0x0100];
+        final heightEntry = ifd0[0x0101];
+        if (widthEntry == null || heightEntry == null) {
+          // A Panasonic container carries neither 0x0100 nor 0x0101; its extent
+          // lives in vendor tags. Without this the decoded-pixel budget guard
+          // (F-20) would measure every RW2 as "unknown" and wave it through.
+          if (reader.isPanasonic) return _panasonicExtent(reader, ifd0);
+          return null;
+        }
+        final widthVals = reader.values(widthEntry);
+        final heightVals = reader.values(heightEntry);
+        if (widthVals == null || widthVals.isEmpty) return null;
+        if (heightVals == null || heightVals.isEmpty) return null;
+        return (width: widthVals.first, height: heightVals.first);
+      },
+    );
   }
 
   /// Pure in-memory variant reading the IFD0 Orientation tag (0x0112) without
@@ -417,60 +452,62 @@ class DngEmbeddedJpegExtractor {
   /// assumed. Never throws.
   static Future<({bool jpegBitstream, int largestLongEdge, int? orientation})?>
   probeContent(String path, {void Function(int byteCount)? onDiskRead}) async {
-    RandomAccessFile? raf;
-    try {
-      final file = File(path);
-      raf = await file.open();
-      final length = await raf.length();
-      if (length < 8) return null;
+    return _readFileWithRetry<
+      ({bool jpegBitstream, int largestLongEdge, int? orientation})?
+    >(
+      path,
+      miss: null,
+      onDiskRead: onDiskRead,
+      body: (raf, source) async {
+        // Deliberately a raw 2-byte read rather than the paged source: a JPEG
+        // must cost two bytes and stop, and _FileSource's first page read would
+        // report 8KB for the same answer. A throw here reaches the retry
+        // wrapper's fault path, exactly like a failed page read.
+        final head = await raf.read(2);
+        onDiskRead?.call(head.length);
+        if (head.length >= 2 && head[0] == 0xFF && head[1] == 0xD8) {
+          return (jpegBitstream: true, largestLongEdge: 0, orientation: null);
+        }
 
-      // Deliberately a raw 2-byte read rather than the paged source below: a
-      // JPEG must cost two bytes and stop, and _FileSource's first page read
-      // would report 8KB for the same answer.
-      final head = await raf.read(2);
-      onDiskRead?.call(head.length);
-      if (head.length >= 2 && head[0] == 0xFF && head[1] == 0xD8) {
-        return (jpegBitstream: true, largestLongEdge: 0, orientation: null);
-      }
-
-      // Positional reads from here on (_readDirect uses setPositionSync), so
-      // the two bytes already consumed above do not shift what follows.
-      final source = _FileSource(raf, length, onDiskRead);
-      final reader = _readerFor(source);
-      if (reader == null) return null;
-      final ifd0 = _readIFD0(reader);
-      if (ifd0 == null) return null;
-      // Free at this point: IFD0 is already parsed and in memory. This is the
-      // whole reason the two questions share one walk.
-      // Same three-way contract as [readOrientation]: null survives, a value
-      // that WAS read is clamped to the EXIF-legal range (M7 ruling E).
-      final rawOrientation = _orientationOf(reader, ifd0);
-      final orientation = rawOrientation == null
-          ? null
-          : _sanitizeOrientation(rawOrientation);
-      // longEdge: 0 keeps every structurally valid candidate (the 0.90*cropMax
-      // full-size floor is a selection rule, not a validity rule), so the
-      // answer describes the FILE rather than one request's taste.
-      final scan = _gatherCandidates(reader, source, ifd0, 0);
-      if (scan == null) return null;
-      var best = 0;
-      for (final c in scan.candidates) {
-        if (c.maxDim > best) best = c.maxDim;
-      }
-      return (
-        jpegBitstream: false,
-        largestLongEdge: best,
-        orientation: orientation,
-      );
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await raf?.close();
-      } catch (_) {
-        // Closing a handle we already failed on is not actionable.
-      }
-    }
+        // Positional reads from here on (_readDirect uses setPositionSync), so
+        // the two bytes already consumed above do not shift what follows.
+        final reader = _readerFor(source);
+        if (reader == null) return null;
+        final ifd0 = _readIFD0(reader);
+        if (ifd0 == null) return null;
+        // Free at this point: IFD0 is already parsed and in memory. This is the
+        // whole reason the two questions share one walk.
+        // Same three-way contract as [readOrientation]: null survives, a value
+        // that WAS read is clamped to the EXIF-legal range (M7 ruling E).
+        final rawOrientation = _orientationOf(reader, ifd0);
+        final orientation = rawOrientation == null
+            ? null
+            : _sanitizeOrientation(rawOrientation);
+        // longEdge: 0 keeps every structurally valid candidate (the
+        // 0.90*cropMax full-size floor is a selection rule, not a validity
+        // rule), so the answer describes the FILE rather than one request's
+        // taste.
+        //
+        // NOTE (2026-09-02): this is the measurement `PrefetchScheduler`
+        // memoises first-writer-wins for the whole folder. A candidate whose
+        // strip read FAULTS is skipped by the gather, which used to shrink this
+        // number silently and flip the item onto the expensive (RAW decode)
+        // lane for the rest of the session. The retry wrapper now re-runs the
+        // whole walk in that case, so a shrunken measurement can no longer be
+        // published on the strength of a read that failed.
+        final scan = _gatherCandidates(reader, source, ifd0, 0);
+        if (scan == null) return null;
+        var best = 0;
+        for (final c in scan.candidates) {
+          if (c.maxDim > best) best = c.maxDim;
+        }
+        return (
+          jpegBitstream: false,
+          largestLongEdge: best,
+          orientation: orientation,
+        );
+      },
+    );
   }
 
   /// Walks IFD0 + SubIFDs once, selects a candidate per [longEdge] and reads
@@ -1212,12 +1249,33 @@ abstract class _ByteSource {
   /// Returns exactly [count] bytes starting at [offset], or `null` when the
   /// range is out of bounds or unreadable. Never throws.
   Uint8List? read(int offset, int count);
+
+  /// Whether any read against this source failed for an I/O reason (the read
+  /// threw, or came back short) as opposed to being refused by the bounds
+  /// check.
+  ///
+  /// THE distinction the walk could not previously express. Every `read`
+  /// returns `null` for both cases and the whole walk is built on that null,
+  /// so "this container declares no preview" and "the volume hiccuped while we
+  /// were reading its preview" reached the caller as the same answer -- and the
+  /// caller latches that answer for the session (the cost memo in
+  /// `prefetch_scheduler.dart` and `_permanentMisses` in the preload
+  /// controller). Recording the reason on the SOURCE, rather than threading a
+  /// result type through several hundred lines of bounds-checked walk, keeps
+  /// the fix to one flag plus one retry.
+  bool get ioError;
 }
 
 class _MemorySource implements _ByteSource {
   _MemorySource(this._data);
 
   final Uint8List _data;
+
+  /// Always false: a resident `Uint8List` cannot fail to be read. Only an
+  /// out-of-bounds request returns null here, and that is a structural answer
+  /// about the data, not a fault.
+  @override
+  bool get ioError => false;
 
   @override
   int get length => _data.length;
@@ -1245,6 +1303,11 @@ class _FileSource implements _ByteSource {
   final RandomAccessFile _raf;
   final void Function(int byteCount)? _onDiskRead;
   final LinkedHashMap<int, Uint8List> _pages = LinkedHashMap<int, Uint8List>();
+
+  bool _ioError = false;
+
+  @override
+  bool get ioError => _ioError;
 
   @override
   final int length;
@@ -1295,9 +1358,17 @@ class _FileSource implements _ByteSource {
       _raf.setPositionSync(offset);
       final bytes = _raf.readSync(count);
       _onDiskRead?.call(bytes.length);
-      if (bytes.length != count) return null;
+      if (bytes.length != count) {
+        // A SHORT read of an in-bounds range. The caller already proved the
+        // range fits inside `length`, so the only explanations are a file that
+        // changed under us or a failing read -- both are faults, neither means
+        // "no preview here".
+        _ioError = true;
+        return null;
+      }
       return bytes;
     } catch (_) {
+      _ioError = true;
       return null;
     }
   }
