@@ -659,10 +659,16 @@ class ImagePreloadController {
     // looking at behind eight decodes it does not need yet.
     final nearToFarOrder = _nearToFarIndices(currentIndex, startIdx, endIdx)
         .toList();
-    // Tell the cache which ids are near vs far from the selection, so
-    // budget eviction drops the farthest item rather than the oldest
-    // (user ruling 2026-08-27, review F-2 fix).
-    _navPriorityIds = [for (final i in nearToFarOrder) items[i].id];
+    // Eviction rank is NOT the load order: budget eviction drops the id
+    // farthest OUTSIDE the tier-2 full-size band (-kTierTwoBefore..
+    // +kTierTwoAfter) first — -3, then +5, then -2, then +4 — and only then
+    // walks the band itself far-to-near (user ruling 2026-09-03, replacing
+    // the symmetric farthest-from-selection rule of 2026-08-27). Behind-side
+    // ids lose ties because navigation is predominantly forward.
+    _navPriorityIds = [
+      for (final i in _evictionOrderIndices(currentIndex, nearToFarOrder))
+        items[i].id,
+    ];
     _republishEvictionPriority();
     // Round-1 review blocker 1 (2026-08-30): the classify probe used to be
     // interleaved with the lane enqueue inside a single concurrent
@@ -743,6 +749,37 @@ class ImagePreloadController {
       if (currentIndex + d <= endIdx) yield currentIndex + d;
       if (currentIndex - d >= startIdx) yield currentIndex - d;
     }
+  }
+
+  /// [nearToFarOrder] re-ranked for EVICTION: ids beyond the tier-2 band
+  /// (-[kTierTwoBefore]..+[kTierTwoAfter]) sort last (evicted first), farthest
+  /// beyond the band's nearest edge first; in-band ids keep the near-to-far
+  /// walk order. At equal beyond-band distance the behind (-) side sorts after
+  /// the ahead (+) side, so it is evicted first. Load/lane order is untouched
+  /// — this list feeds [PhotoPayloadCache.setEvictionPriority] only.
+  static List<int> _evictionOrderIndices(
+    int currentIndex,
+    List<int> nearToFarOrder,
+  ) {
+    int outsideBand(int i) {
+      final d = i - currentIndex;
+      if (d > kTierTwoAfter) return d - kTierTwoAfter;
+      if (d < -kTierTwoBefore) return -kTierTwoBefore - d;
+      return 0;
+    }
+
+    return nearToFarOrder.toList()
+      ..sort((a, b) {
+        final oa = outsideBand(a);
+        final ob = outsideBand(b);
+        if (oa != ob) return oa - ob;
+        final da = a - currentIndex;
+        final db = b - currentIndex;
+        if (oa == 0 && da.abs() != db.abs()) return da.abs() - db.abs();
+        // Beyond the band, distance-to-selection is irrelevant: at equal
+        // beyond-band distance the behind (-) side always loses the tie.
+        return (da < 0 ? 1 : 0) - (db < 0 ? 1 : 0);
+      });
   }
 
   /// Flushes the callbacks parked by callers who selected [id] while somebody

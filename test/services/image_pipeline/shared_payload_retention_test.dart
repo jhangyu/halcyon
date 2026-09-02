@@ -79,6 +79,35 @@ void main() {
     controller.dispose();
   });
 
+  // TC-818
+  test(
+    'eviction priority ranks beyond-band ids last: -3 evicted before +5, '
+    'then -2, then +4, band far-to-near after that',
+    () async {
+      final controller = ImagePreloadController(
+        imageLoader: _bytesLoader,
+        payloadEncoder: null,
+      );
+      final items = _items(60);
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: 'p10',
+        notifyLoaded: () {},
+      );
+
+      // Window is p7..p15 (-3..+5 of p10); tier-2 band is p9..p13 (-1..+3).
+      // Victim picking evicts from the END of this list, so the order below
+      // reads keep-longest first: band near-to-far, then +4, -2, +5, -3.
+      final order = controller.debugEvictionPriority;
+      expect(order, <String>[
+        'p10', 'p11', 'p9', 'p12', 'p13', // in band, near-to-far
+        'p14', 'p8', // 1 beyond band edge: +4 outlives -2
+        'p15', 'p7', // 2 beyond band edge: +5 outlives -3, -3 evicted first
+      ]);
+      controller.dispose();
+    },
+  );
+
   // TC-429
   test('sidebar-only ids never get a tier-1 or tier-2 ImageCache entry', () async {
     final controller = ImagePreloadController(
