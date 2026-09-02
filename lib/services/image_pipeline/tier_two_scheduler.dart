@@ -429,6 +429,14 @@ class TierTwoScheduler {
 
       ui.Image image;
       try {
+        // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). TIER-2, not tier-1 routing:
+        // a full RAW decode bought to upgrade an already-displayed
+        // PixelPayload. Reached only for items whose retained payload is NOT
+        // encoded, so a Phase-13 re-encoded item never appears here -- if this
+        // line shows up for an ARW with a good embedded preview, the tier-2
+        // path is the RAW-decode source, not routing.
+        debugPrint('halcyon.route.tier2decode|id=$id|payload=${payload
+            .runtimeType}');
         final decoded = await decoder(file.path);
         image = await decodedRgbaToImage(
           decoded,

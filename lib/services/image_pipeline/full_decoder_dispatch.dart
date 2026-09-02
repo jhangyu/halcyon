@@ -165,6 +165,15 @@ Future<DecodedRgba> dispatchFullDecode(
   // predicate, because all three extensions are also in
   // bitmapDecodeExtensions, and a plain isBitmapDecodePath test would send
   // them to package:image, which cannot read ISO-BMFF.
+  //
+  // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). GROUND TRUTH for "a full decode
+  // actually ran": every production `DngFullDecoder` call funnels through
+  // here (preview lane, tier-2 upgrade and export alike). A session with zero
+  // of these lines had zero full decodes, whatever else the log suggests --
+  // in particular a `[DngNativeBindings] loaded:` line does NOT imply a
+  // decode: the Phase-13 payload re-encoder loads the same dylib in its own
+  // isolate for every CHEAP item (`payload_normalizer.dart`).
+  debugPrint('halcyon.route.fulldecode|file=${path.split('/').last}');
   if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
   if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);

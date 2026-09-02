@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
@@ -61,9 +63,28 @@ class PrefetchScheduler {
   /// both speak for the same item, and letting a later observation overwrite
   /// an earlier one would make the rung -- and therefore the number of native
   /// calls -- depend on navigation history.
-  void observe(String id, SourceCost? cost) {
+  void observe(String id, SourceCost? cost, {String by = 'unspecified'}) {
     if (cost == null) return;
-    _cost.putIfAbsent(id, () => cost);
+    // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). First-writer-wins means the
+    // WRITER matters as much as the value: `by=probe` is a content
+    // measurement, `by=bridge` is the loader's answer adopted for a file the
+    // probe could not measure. Only the accepted write is logged as `write`;
+    // a losing write is logged as `ignored` with the value that stands, so a
+    // disagreement between the two speakers is visible instead of silent.
+    final existing = _cost[id];
+    if (existing == null) {
+      _cost[id] = cost;
+      stderr.writeln(
+        'halcyon.route.memo|id=$id|cost=${cost.name}|by=$by|action=write',
+      );
+      return;
+    }
+    if (existing != cost) {
+      stderr.writeln(
+        'halcyon.route.memo|id=$id|cost=${cost.name}|by=$by'
+        '|action=ignored|standing=${existing.name}',
+      );
+    }
   }
 
   /// Measures [path] once and memoizes its cost.
@@ -95,7 +116,7 @@ class PrefetchScheduler {
     // as the last of its callers were the frozen tests, re-anchored to
     // call `probeSource` directly instead).
     final probed = await PhotoSource.probeSource(path, longEdge: longEdge);
-    observe(id, probed.cost);
+    observe(id, probed.cost, by: 'probe');
     return probed;
   }
 

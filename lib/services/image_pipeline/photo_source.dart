@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'decoded_rgba_image_provider.dart';
@@ -209,6 +210,13 @@ class PhotoSource {
           );
         }
         try {
+          // ROUTING DIAGNOSTIC v2: a REAL RAW decode is about to run, reached
+          // from `load` (not `loadExpensive`) -- i.e. the loader itself said
+          // NeedsRawDecode and this call was allowed to act on it.
+          stderr.writeln(
+            'halcyon.route.rawdecode|file=${_leaf(path)}|via=load'
+            '|declaredPreviewsUnreadable=$declaredPreviewsUnreadable',
+          );
           final decoded = await decoder(path);
           final pixels = await decodedRgbaToPixelPayload(
             decoded,
@@ -307,6 +315,14 @@ class PhotoSource {
     required int longEdge,
     required int exifOrientation,
   }) async {
+    // ROUTING DIAGNOSTIC v2: entry to the serial lane's expensive half. This
+    // path NEVER calls the loader, so it emits no extraction diagnostics at
+    // all (fix-verification.md §4.2) -- this line is the only evidence it ran.
+    stderr.writeln(
+      'halcyon.route.loadExpensive|file=${_leaf(path)}'
+      '|longEdge=$longEdge|orientation=$exifOrientation'
+      '|decoder=${dngDecoder == null ? 'absent' : 'present'}',
+    );
     final decoder = dngDecoder;
     if (decoder == null) {
       // D3: decided before invoking anything, same as the [load] arm above
@@ -419,8 +435,22 @@ class PhotoSource {
       path,
       onDiskRead: onDiskRead,
     );
-    if (content == null) return (cost: null, exifOrientation: null);
+    if (content == null) {
+      // ROUTING DIAGNOSTIC v2: an unmeasurable file is NOT memoised
+      // (`prefetch_scheduler.dart`), so the rung is decided by the first
+      // bridge answer instead -- the one route by which a file with a
+      // perfectly good 7008px preview could still be called expensive.
+      stderr.writeln(
+        'halcyon.route.probe|file=${_leaf(path)}|verdict=UNMEASURABLE'
+        '|longEdgeUsed=$longEdge',
+      );
+      return (cost: null, exifOrientation: null);
+    }
     if (content.jpegBitstream) {
+      stderr.writeln(
+        'halcyon.route.probe|file=${_leaf(path)}|verdict=cheap'
+        '|reason=jpegBitstream|longEdgeUsed=$longEdge',
+      );
       return (cost: SourceCost.cheap, exifOrientation: null);
     }
     // FROZEN threshold (user ruling 2026-08-27, recorded in memory.md AD-033):
@@ -428,13 +458,24 @@ class PhotoSource {
     // full RAW decode. This must never be loosened — no tolerance factor, no
     // "close enough". A sub-viewport preview scaled up is visibly blurry;
     // waiting for the decode is better.
-    return (
-      cost: content.largestLongEdge >= longEdge
-          ? SourceCost.cheap
-          : SourceCost.expensive,
-      exifOrientation: content.orientation,
+    final cost = content.largestLongEdge >= longEdge
+        ? SourceCost.cheap
+        : SourceCost.expensive;
+    // ROUTING DIAGNOSTIC v2 (2026-09-02, h3). The ONE line that shows the
+    // actual numbers the frozen AD-033 comparison was made on. Without it the
+    // verdict is only inferrable from downstream behaviour, and a "cheap" file
+    // that still RAW-decodes is indistinguishable from an "expensive" verdict.
+    stderr.writeln(
+      'halcyon.route.probe|file=${_leaf(path)}'
+      '|largestLongEdge=${content.largestLongEdge}|longEdgeUsed=$longEdge'
+      '|jpegBitstream=${content.jpegBitstream}|verdict=${cost.name}',
     );
+    return (cost: cost, exifOrientation: content.orientation);
   }
+
+  /// Last path component, for diagnostics only. Keeps the routing lines short
+  /// and keeps the user's full folder path out of a log they may paste.
+  static String _leaf(String path) => path.split(Platform.pathSeparator).last;
 
   /// Last-resort preview recovery after the native preview channel has already
   /// failed entirely (`NativeImageFailure`), via the pure-Dart embedded-JPEG
