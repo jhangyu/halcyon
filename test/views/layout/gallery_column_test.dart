@@ -1,8 +1,8 @@
-// GalleryColumn (T7) tests. Final IDs are the +7 shift of the reserved
-// gallery block: original TC-501..506 map to TC-508..513 (user-ruled, contract
-// AC #10). TC-505 (tooltips) and TC-506 (drag delta) keep their unmoved IDs
-// here because the +7 registry block in `docs/sop/unit_test.md` is out of this
-// task's ownership; the lead owns the docs registration.
+// GalleryColumn (T7) tests. Final IDs are the user-ruled no-collision mapping
+// (contract AC #10): 501->TC-508, 501b->TC-508b, 501c->TC-508c, 502->TC-509,
+// 503->TC-510, 504->TC-511, 505 (tooltips)->TC-512, 506 (drag delta)->TC-513.
+// These labels are final and occupy no registry slot outside the assigned
+// gallery block; the lead owns the docs registration.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -147,7 +147,7 @@ void main() {
     }
   });
 
-  testWidgets('TC-509 the frame count never decreases as the strip widens',
+  testWidgets('TC-508b the frame count never decreases as the strip widens',
       (tester) async {
     // Sweep 90..200 in 10px steps, no exception. The invariant, stated as the
     // ruling loads it: extra width can only buy MORE frames, never fewer.
@@ -178,14 +178,14 @@ void main() {
     }
   });
 
-  testWidgets('TC-510 the sweep is mutation-proven', (tester) async {
-    // TC-509 is asserted live above. Its companion: with the chip forced to
+  testWidgets('TC-508c the sweep is mutation-proven', (tester) async {
+    // TC-508b is asserted live above. Its companion: with the chip forced to
     // scale with width — the broken behavior, 84 at the ceiling vs 74 at rest
     // — the frame count DROPS across the 180 boundary (two thirds of the way
     // up the range, exactly where the designer's original exception lived).
-    // Prove TC-509 rejects that behavior by running the same sweep against a
+    // Prove TC-508b rejects that behavior by running the same sweep against a
     // synthetic width-scaled chip and asserting the "never decreases" rule
-    // FAILS. A green TC-509 is only evidence while this companion is red.
+    // FAILS. A green TC-508b is only evidence while this companion is red.
     //
     // The synthetic chip: width scales 74 @ 90 -> 84 @ 200. A 2-column strip
     // at 84px needs 2*84+gap > usable, so 180 degrades to ONE column while 90
@@ -214,7 +214,7 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  group('TC-511 onVisibleRange reports the geometry, odd tail clamped', () {
+  group('TC-509 onVisibleRange reports the geometry, odd tail clamped', () {
     testWidgets('two-column odd tail at 9 items', (tester) async {
       final rangeLog = <int>[];
       // 9 items at 200px -> 2 columns -> 5 rows; the last row holds one chip.
@@ -250,7 +250,7 @@ void main() {
     });
   });
 
-  testWidgets('TC-512 reload re-reports onVisibleRange without scroll input',
+  testWidgets('TC-510 reload re-reports onVisibleRange without scroll input',
       (tester) async {
     final rangeLog = <int>[];
     await pumpColumn(tester, width: 90, itemIds: const ['a0', 'a1'],
@@ -317,7 +317,7 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  group('TC-513 marks: trash right-click toggles recycle, left-click trashes',
+  group('TC-511 marks: trash right-click toggles recycle, left-click trashes',
       () {
     testWidgets('right-click calls onToggleRecycleMode once', (tester) async {
       var toggleCalls = 0;
@@ -355,7 +355,7 @@ void main() {
     });
   });
 
-  group('TC-505 the trash tooltips are byte-identical to photo_action_bar', () {
+  group('TC-512 the trash tooltips are byte-identical to photo_action_bar', () {
     testWidgets('direct-mode tooltip matches photo_action_bar.dart:66',
         (tester) async {
       await pumpColumn(tester, width: 90, itemIds: const ['a0']);
@@ -398,7 +398,7 @@ void main() {
     });
   });
 
-  testWidgets('TC-506 a 40px horizontal drag on the handle reaches the parent',
+  testWidgets('TC-513 a 40px horizontal drag on the handle reaches the parent',
       (tester) async {
     var delivered = 0.0;
     await tester.binding.setSurfaceSize(const Size(1200, 900));
