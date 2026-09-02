@@ -210,15 +210,50 @@ Future<void> _renameWithRetry(
   String from,
   String to, {
   RenameFileOp renameFile = _defaultRenameFile,
+  CanonicalPathProbe canonicalPath = _canonicalPath,
   List<int> delaysMs = const <int>[20, 40, 80, 160],
 }) async {
-  // Sampled BEFORE the first attempt, because the verify-on-error check below
-  // is only sound if "a file is sitting at the destination" is news. Undo
-  // (`undoLastRename`) renames back onto the ORIGINAL names, which no
-  // collision check ever cleared, so without this sample an unrelated file
-  // that happens to occupy an original name would make a genuinely failed
-  // undo report success.
-  final destinationExistedBefore = await _pathExists(to);
+  // Sampled BEFORE the first attempt, and canonical rather than a bare
+  // exists() check, because it answers TWO questions at once.
+  //
+  // First, the overwrite guard below: the planner's collision fold is a
+  // string comparison, and no string comparison can be right on every volume
+  // we ship on. APFS is case-insensitive AND normalization-insensitive,
+  // exFAT is case-insensitive only, ext4 is neither. The fold case-folds, so
+  // an NFD spelling of a name already on disk in NFC compares UNEQUAL in the
+  // planner and EQUAL on the volume -- and `File.rename` replaces its
+  // destination silently. Measured on this machine, APFS:
+  // writing `café.JPG` (NFC, U+00E9) and then renaming an unrelated file
+  // onto `café.JPG` (NFD, U+0065 U+0301) leaves ONE file, holding the wrong
+  // photo. Evidence: docs/logs/2026-09-03/r2/nfd-realfs-probe.txt.
+  // `resolveSymbolicLinks` is realpath(3), so the KERNEL answers the
+  // equivalence question for whatever volume this actually is, and no
+  // Unicode table has to be shipped or kept up to date.
+  //
+  // Second, the verify-on-error check further down is only sound if "a file
+  // is sitting at the destination" is news. Undo (`undoLastRename`) renames
+  // back onto the ORIGINAL names, which no collision check ever cleared, so
+  // without this sample an unrelated file occupying an original name would
+  // make a genuinely failed undo report success.
+  final destinationBefore = await canonicalPath(to);
+  if (destinationBefore != null) {
+    final sourceBefore = await canonicalPath(from);
+    // A source that is already gone is ENOENT's business, not ours -- fall
+    // through and let the rename report it.
+    //
+    // `sourceBefore == destinationBefore` means the two paths are the SAME
+    // file: a case-only or normalization-only rename, which is legal and
+    // which `File.rename` performs in place. That must not be refused.
+    if (sourceBefore != null && sourceBefore != destinationBefore) {
+      throw FileSystemException(
+        'refusing to rename "$from" onto "$to": the destination already '
+        'exists and resolves to "$destinationBefore", which is a different '
+        'file. Renaming would destroy it.',
+        to,
+      );
+    }
+  }
+  final destinationExistedBefore = destinationBefore != null;
   for (var attempt = 0; ; attempt++) {
     try {
       await retryOnSharingViolation(() => renameFile(from, to));
@@ -244,8 +279,8 @@ Future<void> _renameWithRetry(
       // direction: such a failure is reported as a failure rather than
       // claimed as a success.
       if (!destinationExistedBefore &&
-          !await _pathExists(from) &&
-          await _pathExists(to)) {
+          await canonicalPath(from) == null &&
+          await canonicalPath(to) != null) {
         return;
       }
       final transient =
@@ -267,10 +302,22 @@ Future<void> _defaultRenameFile(String from, String to) async {
   await File(from).rename(to);
 }
 
-/// Type-based rather than [File.exists], so a directory or a symlink at the
-/// destination still counts as "something is there".
-Future<bool> _pathExists(String path) async =>
-    await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
+/// Resolves [path] to its canonical on-disk form, or null if nothing is there.
+///
+/// Canonical, because the KERNEL is the only correct authority on whether two
+/// spellings name the same file: case on APFS and exFAT, Unicode
+/// normalization on APFS. Comparing the strings ourselves would need a
+/// Unicode table baked into a planner that is deliberately pure and cannot
+/// know which volume it is planning for.
+typedef CanonicalPathProbe = Future<String?> Function(String path);
+
+Future<String?> _canonicalPath(String path) async {
+  try {
+    return await File(path).resolveSymbolicLinks();
+  } on FileSystemException {
+    return null;
+  }
+}
 
 /// Executes [plans] serially. Rename is a same-volume metadata operation, so
 /// parallelism buys nothing here and would turn the planner's collision
@@ -285,6 +332,7 @@ Future<RenameOutcome> applyRenames(
   void Function(int done, int total)? onProgress,
   bool Function()? isCancelled,
   @visibleForTesting RenameFileOp renameFile = _defaultRenameFile,
+  @visibleForTesting CanonicalPathProbe canonicalPath = _canonicalPath,
 }) async {
   final log = File(p.join(dir.path, kRenameLogName));
   final sink = log.openWrite(mode: FileMode.write);
@@ -306,7 +354,12 @@ Future<RenameOutcome> applyRenames(
       var landed = 0;
       try {
         for (final move in plan.moves) {
-          await _renameWithRetry(move.from, move.to, renameFile: renameFile);
+          await _renameWithRetry(
+            move.from,
+            move.to,
+            renameFile: renameFile,
+            canonicalPath: canonicalPath,
+          );
           landed++;
           sink.writeln(json.encode({'from': move.from, 'to': move.to}));
         }

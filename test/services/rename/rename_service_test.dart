@@ -527,4 +527,134 @@ void main() {
       expect(await File(from).exists(), isTrue);
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Round-1 review should-fix 2, resolved as the lead's Option B: the
+  // planner's fold is a string comparison and cannot be right on every
+  // volume, so the EXECUTOR refuses a move whose destination is a different
+  // file, with realpath(3) as the equivalence oracle.
+  //
+  // The hole is real and was measured on this machine (APFS): writing
+  // `café.JPG` NFC and then renaming an unrelated file onto `café.JPG` NFD
+  // leaves ONE file holding the WRONG photo, silently.
+  // Evidence: docs/logs/2026-09-03/r2/nfd-realfs-probe.txt.
+  //
+  // These tests INJECT the path probe rather than using the real filesystem.
+  // Stated plainly because it matters: a real-FS version would assert
+  // nothing on Linux CI, where ext4 is normalization-SENSITIVE, so the
+  // destination genuinely would not exist and the guard correctly would not
+  // fire. Injecting pins the guard's LOGIC on every platform; the real-FS
+  // probe above is what establishes that the injected model matches APFS.
+  // ---------------------------------------------------------------------
+  group('overwrite guard', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_guard_');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    // Byte-distinct on purpose: precomposed U+00E9 vs `e` + combining acute
+    // U+0301. If these two literals ever become identical the tests below
+    // are vacuous, so TC-726 asserts the difference explicitly.
+    const nfcName = 'café.JPG';
+    const nfdName = 'café.JPG';
+
+    test('TC-724 a rename onto a normalization-equivalent existing file is '
+        'refused, not silently applied', () async {
+      final source = p.join(tempDir.path, 'A.JPG');
+      final nfcPath = p.join(tempDir.path, nfcName);
+      final nfdPath = p.join(tempDir.path, nfdName);
+
+      // A volume that is normalization-insensitive, as APFS is: both
+      // spellings resolve to the one file that is really there (the NFC one).
+      Future<String?> apfsLike(String path) async {
+        final base = p.basename(path);
+        if (base == nfcName || base == nfdName) return nfcPath;
+        if (base == 'A.JPG') return source;
+        return null;
+      }
+
+      var renameCalls = 0;
+      Future<void> countingRename(String f, String t) async {
+        renameCalls++;
+      }
+
+      final outcome = await applyRenames(
+        [
+          RenamePlan(
+            oldId: 'A',
+            newId: p.basenameWithoutExtension(nfdName),
+            moves: [RenameMove(from: source, to: nfdPath)],
+          ),
+        ],
+        tempDir,
+        renameFile: countingRename,
+        canonicalPath: apfsLike,
+      );
+
+      // The rename must never be attempted at all -- once File.rename runs,
+      // the other photo is already gone.
+      expect(renameCalls, 0);
+      expect(outcome.renamedCount, 0);
+      expect(outcome.idMap, isEmpty);
+      expect(outcome.partialIdMap, isEmpty);
+      expect(outcome.failures, hasLength(1));
+      // The lead asked for a message the user can act on: both paths and the
+      // reason.
+      expect(outcome.failures.single, contains('A.JPG'));
+      expect(outcome.failures.single, contains('different file'));
+      expect(outcome.failures.single, contains(nfcPath));
+    });
+
+    test('TC-725 a normalization-only rename of a file onto ITSELF is still '
+        'performed', () async {
+      // The guard must not refuse the legal in-place rename: same file, two
+      // spellings. This is the same shape as the case-only rename of TC-720,
+      // one layer down.
+      final nfcPath = p.join(tempDir.path, nfcName);
+      final nfdPath = p.join(tempDir.path, nfdName);
+
+      Future<String?> apfsLike(String path) async {
+        final base = p.basename(path);
+        if (base == nfcName || base == nfdName) return nfcPath;
+        return null;
+      }
+
+      final renamed = <String>[];
+      Future<void> recordingRename(String f, String t) async {
+        renamed.add(t);
+      }
+
+      final outcome = await applyRenames(
+        [
+          RenamePlan(
+            oldId: p.basenameWithoutExtension(nfcName),
+            newId: p.basenameWithoutExtension(nfdName),
+            moves: [RenameMove(from: nfcPath, to: nfdPath)],
+          ),
+        ],
+        tempDir,
+        renameFile: recordingRename,
+        canonicalPath: apfsLike,
+      );
+
+      expect(renamed, [nfdPath]);
+      expect(outcome.failures, isEmpty);
+      expect(outcome.renamedCount, 1);
+    });
+
+    test('TC-726 the NFC and NFD literals these tests rely on are actually '
+        'different strings', () {
+      // Guards TC-724/TC-725 from becoming vacuous if an editor or a tool
+      // ever normalises this source file.
+      expect(nfcName, isNot(nfdName));
+      expect(nfcName.runes.toList(), [0x63, 0x61, 0x66, 0xe9, 0x2e, 0x4a, 0x50, 0x47]);
+      expect(nfdName.runes.toList(),
+          [0x63, 0x61, 0x66, 0x65, 0x301, 0x2e, 0x4a, 0x50, 0x47]);
+    });
+  });
 }
