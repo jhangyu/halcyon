@@ -398,25 +398,40 @@ class _GalleryColumnState extends State<GalleryColumn> {
   // five children in order: star, trash, separator, Open Folder, menu. ---
   Widget _buildMarks(BuildContext context) {
     final actions = widget.surface.actions;
+    // Current-item status, per plan T7 lines 904-911: the star and trash
+    // glyphs read the SAME `surface.identity?.status` the chip dot already
+    // reads (gallery_column.dart's `_statusDot`) — null identity (no folder
+    // loaded) idles both glyphs, matching photo_action_bar.dart's implicit
+    // "no item" behavior (it is never built without a current item, but the
+    // idle/outline glyph is the correct fallback here).
+    final status = widget.surface.identity?.status;
+    final isStarred = status == PhotoStatus.starred;
+    final isTrashed = status == PhotoStatus.trashed;
     final children = <Widget>[
       _markButton(
         context: context,
-        icon: Icons.star_border,
+        icon: isStarred ? Icons.star : Icons.star_border,
+        iconColor: isStarred ? GalleryPalette.of(context).star : null,
         tooltip: 'Star (S)',
         onPressed: actions.onStar,
       ),
       // Right-click toggles recycle mode; left keeps its "mark this photo"
-      // meaning (photo_action_bar.dart:59-69).
+      // meaning (photo_action_bar.dart:59-69). The four-icon matrix and the
+      // two tooltip strings are copied verbatim from
+      // photo_action_bar.dart:26-30, 65-67 (plan T7 lines 909-911).
       GestureDetector(
         key: const ValueKey<String>('gallery-trash'),
         onSecondaryTap: actions.onToggleRecycleMode,
         child: _markButton(
           context: context,
           icon: actions.recycleMode
-              ? Icons.restore_from_trash_outlined
-              : Icons.delete_outline,
+              ? (isTrashed
+                    ? Icons.restore_from_trash
+                    : Icons.restore_from_trash_outlined)
+              : (isTrashed ? Icons.delete : Icons.delete_outline),
+          iconColor: isTrashed ? Colors.red : null,
           // The two verbatim strings from photo_action_bar.dart:66-67 —
-          // asserted byte-identical by TC-505.
+          // asserted byte-identical by TC-512.
           tooltip: actions.recycleMode
               ? 'Recycle (X) — right-click or R: switch to direct delete'
               : 'Trash (X) — right-click or R: switch to recycle mode',
@@ -486,12 +501,16 @@ class _GalleryColumnState extends State<GalleryColumn> {
     required IconData icon,
     required String tooltip,
     required VoidCallback onPressed,
+    Color? iconColor,
   }) {
     final colors = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
       child: IconButton(
-        icon: Icon(icon, size: 17),
+        // `iconColor` (starred amber / trashed red, photo_action_bar.dart:
+        // 51-52, 62) overrides the idle/hover foregroundColor below, exactly
+        // as the old widget's explicit Icon `color:` parameter did.
+        icon: Icon(icon, size: 17, color: iconColor),
         tooltip: tooltip,
         onPressed: onPressed,
         padding: EdgeInsets.zero,
