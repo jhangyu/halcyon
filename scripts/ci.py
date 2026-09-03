@@ -14,6 +14,7 @@ Frozen CLI surface (workflows depend on these exact strings):
 
     python3 scripts/ci.py provision           --target T
     python3 scripts/ci.py verify
+    python3 scripts/ci.py selftest
     python3 scripts/ci.py build               --target T [--mode release]
     python3 scripts/ci.py assert-capabilities --target T
     python3 scripts/ci.py package             --target T --version V
@@ -68,6 +69,7 @@ def build_parser():
     sub = p.add_subparsers(dest="command")
     _add_target_command(sub, "provision", "run the target's provisioning steps")
     sub.add_parser("verify", help="flutter pub get -> analyze -> test -j 1 (all three always run)")
+    sub.add_parser("selftest", help="run scripts/ci/tests/ (argv rendering + policy lints)")
     b = _add_target_command(sub, "build", "delegate to scripts/build_apps.py")
     b.add_argument("--mode", default="release")
     _add_target_command(sub, "assert-capabilities", "run the R-7 capability assertion suite")
@@ -93,6 +95,8 @@ def dispatch(args):
         return phases.provision(REPO_ROOT, args.target)
     if args.command == "verify":
         return phases.verify(REPO_ROOT)
+    if args.command == "selftest":
+        return phases.selftest(REPO_ROOT)
     if args.command == "build":
         return phases.build(REPO_ROOT, args.target, args.mode)
     if args.command == "assert-capabilities":
@@ -113,6 +117,11 @@ def main(argv=None):
     if args.command is None:
         parser.print_help()
         return 2
+    # selftest reads only this repo's own files: it must NOT require a sibling
+    # ceyx checkout, so a developer can run it on a bare clone. The interpreter
+    # refusal is likewise irrelevant here — nothing is executed as a child.
+    if args.command == "selftest":
+        return dispatch(args)
     rc = check_python_interpreter() or check_ceyx_sibling(REPO_ROOT)
     if rc:
         return rc

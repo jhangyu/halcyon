@@ -36,9 +36,13 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # against v0.1.7 -- the first tar.gz-ONLY ceyx release, which also added the
 # libjxl Linux/Windows dists. The value before that froze round 5's 载体中立
 # state, in which no pin change was in scope.
+#
+# 2026-09-03 (ROI refactor T1): refreshed to the tag v0.1.10 pin, which added
+# the macos-arm64 / macos-x86_64 entries when the macOS CI leg migrated off its
+# committed dylibs. The digest was recomputed from the file, never transcribed.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "e8b355a8d2430af813abf9ef5e7d42b52cc1ec6f6d4bc7e0f8d505e0cc55b768"
+    "d1c95d8d27985bd90888e2e89c6ce7ccc3ca294cb2fb12840396891a4e28ab38"
 )
 
 

@@ -55,6 +55,9 @@ jobs:
           channel: 'stable'
           # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
+      - name: ci.py selftest (argv rendering + policy lints)
+        run: python3 scripts/ci.py selftest
+
       - name: ci.py verify (pub get -> analyze -> test -j 1)
         run: python3 scripts/ci.py verify
 

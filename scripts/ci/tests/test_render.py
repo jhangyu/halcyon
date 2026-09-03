@@ -85,7 +85,12 @@ def _normalize_build_argv(argv):
     its repo-root-relative form so golden files stay host-independent."""
     normalized = []
     for element in argv:
-        if element.endswith(str(Path("scripts", "build_apps.py"))) and Path(element).is_absolute():
+        if element == sys.executable:
+            # Element 0 is the RUNNING interpreter's absolute path (phases.py's
+            # _build_argv). Host-native text, exactly like build_apps.py's path
+            # below, so the golden files keep the portable spelling "python3".
+            normalized.append("python3")
+        elif element.endswith(str(Path("scripts", "build_apps.py"))) and Path(element).is_absolute():
             normalized.append("scripts/build_apps.py")
         else:
             normalized.append(element)
@@ -163,13 +168,35 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
             "windows build argv must contain --fetch-native (release.yml:96-101)",
         )
 
-    def test_macos_has_no_fetch_native(self):
+    def test_macos_has_fetch_native(self):
         plans = self._plans_for("macos")
-        self.assertNotIn(
+        self.assertIn(
             "--fetch-native",
             plans["build"],
-            "macos ships six committed dylibs and must never fetch native libs",
+            "macos migrated to the ceyx release pin (targets.py:30-42, pin key "
+            "macos-arm64): its CI leg fetches the prebuilt decoder stack just "
+            "like windows/linux, it no longer carries committed dylibs",
         )
+
+
+class ChildInterpreterTestCase(unittest.TestCase):
+    """`ci.py:51-60` refuses an MSYS-style interpreter for the PARENT process.
+    Rendering the literal ``"python3"`` let ``run.py:60``'s ``shutil.which``
+    pick a DIFFERENT interpreter for the child, so the refusal was bypassed for
+    every build. The child must be the interpreter that was already vetted."""
+
+    def test_build_argv_uses_the_running_interpreter(self):
+        for target in TARGET_NAMES:
+            with self.subTest(target=target):
+                rc, output = _capture_print_plan(target)
+                self.assertEqual(rc, 0, f"--print-plan --target {target} must exit 0")
+                argv = _parse_plan_lines(output)["build"]
+                self.assertEqual(
+                    argv[0],
+                    sys.executable,
+                    f"{target}: the child interpreter must be sys.executable, "
+                    f"not a PATH re-resolution of 'python3'",
+                )
 
 
 class WindowsPathLintTestCase(unittest.TestCase):

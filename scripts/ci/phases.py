@@ -23,10 +23,18 @@ from . import report, run, targets
 
 def _build_argv(repo_root: Path, target: str) -> list:
     """Renders the exact argv `build()` execs: `build_apps.py` is the single
-    build entry point (CLAUDE.md); this never reimplements it, only calls it."""
+    build entry point (CLAUDE.md); this never reimplements it, only calls it.
+
+    Element 0 is `sys.executable`, NOT the literal "python3": `run.py`'s
+    `shutil.which(argv[0])` would otherwise re-resolve the name against PATH and
+    could select an MSYS python on Windows — the exact interpreter `ci.py`'s
+    `check_python_interpreter()` refuses for this process. Handing the child the
+    interpreter that already passed that check is what makes the refusal cover
+    the whole run rather than only its first process.
+    """
     spec = targets.spec(target)
     build_apps = os.fspath(Path(repo_root, "scripts", "build_apps.py").resolve())
-    return ["python3", build_apps, target, *spec["build_flags"]]
+    return [sys.executable, build_apps, target, *spec["build_flags"]]
 
 
 def provision(repo_root: Path, target: str) -> int:
@@ -168,3 +176,25 @@ def print_plan(repo_root: Path, target: str) -> int:
     }
     print(f"PLAN package: {package_desc!r}")
     return 0
+
+
+def selftest(repo_root: Path) -> int:
+    """Runs scripts/ci/tests/ in-process and returns 0/1.
+
+    These 21 cases existed for months with nothing executing them, and four of
+    them were red the whole time (2026-09-03 ROI audit). A test suite no job
+    runs is a suite that reports whatever it last happened to believe.
+
+    In-process, not a subprocess: the discovery is the same one a developer runs
+    (`-s scripts/ci/tests -t scripts`), and there is no second interpreter whose
+    identity could differ from this one.
+    """
+    import unittest
+
+    scripts_dir = Path(repo_root, "scripts")
+    suite = unittest.TestLoader().discover(
+        start_dir=os.fspath(scripts_dir / "ci" / "tests"),
+        top_level_dir=os.fspath(scripts_dir),
+    )
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1

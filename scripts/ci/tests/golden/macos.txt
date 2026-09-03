@@ -1,1 +1,1 @@
-['python3', 'scripts/build_apps.py', 'macos']
+['python3', 'scripts/build_apps.py', 'macos', '--fetch-native']
