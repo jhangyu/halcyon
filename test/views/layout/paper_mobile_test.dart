@@ -22,6 +22,7 @@ MainSurface _surfaceWith({PhotoIdentity? identity}) => MainSurface(
       viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
+        revision: ValueNotifier<int>(0),
         items: const [],
         selectedId: null,
         recycleMode: false,

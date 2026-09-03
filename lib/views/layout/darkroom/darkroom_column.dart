@@ -135,20 +135,25 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
           elevation: widget.width > kDarkroomColumnMinWidth ? 8 : 0,
           child: Padding(
             padding: const EdgeInsets.all(kDarkroomGridPadding),
-            child: GridView.builder(
-              key: const ValueKey<String>('darkroom-grid'),
-              controller: _scrollController,
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: _columns,
-                mainAxisSpacing: kDarkroomGridSpacing,
-                crossAxisSpacing: kDarkroomGridSpacing,
-                childAspectRatio: kDarkroomChipAspect,
+            child: RepaintBoundary(
+              child: ListenableBuilder(
+                listenable: strip.revision,
+                builder: (context, _) => GridView.builder(
+                  key: const ValueKey<String>('darkroom-grid'),
+                  controller: _scrollController,
+                  itemCount: items.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: _columns,
+                    mainAxisSpacing: kDarkroomGridSpacing,
+                    crossAxisSpacing: kDarkroomGridSpacing,
+                    childAspectRatio: kDarkroomChipAspect,
+                  ),
+                  itemBuilder: (context, index) {
+                    _reportVisibleRange(index);
+                    return _buildChip(context, items[index], strip, palette);
+                  },
+                ),
               ),
-              itemBuilder: (context, index) {
-                _reportVisibleRange(index);
-                return _buildChip(context, items[index], strip, palette);
-              },
             ),
           ),
         ),

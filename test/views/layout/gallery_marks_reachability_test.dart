@@ -51,6 +51,7 @@ MainSurface _surface({VoidCallback? onOpenFolder}) {
     viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
     statusOverlay: const SizedBox.shrink(),
     strip: PhotoStripModel(
+      revision: ValueNotifier<int>(0),
       items: const [],
       selectedId: null,
       recycleMode: false,

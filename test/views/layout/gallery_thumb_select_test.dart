@@ -47,6 +47,7 @@ void main() {
         ),
         statusOverlay: const SizedBox.shrink(),
         strip: PhotoStripModel(
+          revision: ValueNotifier<int>(0),
           items: [for (final id in ['a0', 'a1', 'a2']) _item(id)],
           selectedId: 'a0',
           recycleMode: false,

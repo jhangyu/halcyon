@@ -84,7 +84,9 @@ class _MainScreenState extends State<MainScreen> {
     return build(
       context,
       MainSurface(
-        viewport: PhotoViewport(key: kViewportKey, zoom: _zoom),
+        viewport: RepaintBoundary(
+          child: PhotoViewport(key: kViewportKey, zoom: _zoom),
+        ),
         statusOverlay: const StatusLine(),
         strip: PhotoStripModel(
           items: state.items,
@@ -93,6 +95,7 @@ class _MainScreenState extends State<MainScreen> {
           onSelect: state.selectItem,
           payloadFor: state.thumbnailPayloadFor,
           onVisibleRange: state.preloadThumbnails,
+          revision: state.thumbnailsRevision,
         ),
         identity: item == null
             ? null

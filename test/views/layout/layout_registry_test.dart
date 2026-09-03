@@ -9,6 +9,7 @@ MainSurface _emptySurface() => MainSurface(
   viewport: const SizedBox.shrink(),
   statusOverlay: const SizedBox.shrink(),
   strip: PhotoStripModel(
+    revision: ValueNotifier<int>(0),
     items: const [],
     selectedId: null,
     recycleMode: false,

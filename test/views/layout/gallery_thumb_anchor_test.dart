@@ -95,6 +95,7 @@ void main() {
         ),
         statusOverlay: const SizedBox.shrink(),
         strip: PhotoStripModel(
+          revision: ValueNotifier<int>(0),
           items: items,
           selectedId: selectedId,
           recycleMode: false,

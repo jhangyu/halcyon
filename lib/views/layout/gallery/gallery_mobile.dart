@@ -248,11 +248,14 @@ class _GalleryMobileSurfaceState extends State<GalleryMobileSurface> {
       color: colors.surface.withValues(alpha: 0.92), // --edge-veil
       padding: const EdgeInsets.symmetric(horizontal: 14),
       alignment: Alignment.center,
-      child: ListView.builder(
-        controller: _stripController,
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        itemBuilder: (context, index) {
+      child: RepaintBoundary(
+        child: ListenableBuilder(
+          listenable: strip.revision,
+          builder: (context, _) => ListView.builder(
+            controller: _stripController,
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            itemBuilder: (context, index) {
           _noteBuiltIndex(index);
           final item = items[index];
           final selected = item.id == strip.selectedId;
@@ -303,7 +306,9 @@ class _GalleryMobileSurfaceState extends State<GalleryMobileSurface> {
               ),
             ),
           );
-        },
+            },
+          ),
+        ),
       ),
     );
   }

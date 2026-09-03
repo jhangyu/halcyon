@@ -434,29 +434,37 @@ class _GalleryColumnState extends State<GalleryColumn> {
       child: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              // Makes _rowExtent a fact rather than an approximation: both the
-              // visible-range math above and _ensureSelectedVisible compute row
-              // positions from it.
-              itemExtent: _rowExtent,
-              itemCount: rowCount,
-              itemBuilder: (context, row) {
-                _noteBuiltIndex(row);
-                final first = row * _columns;
-                final last = math.min(first + _columns - 1, items.length - 1);
-                return Row(
-                  key: ValueKey<String>('gallery-row-$row'),
-                  // One column, centred (user ruling 2026-09-02).
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    for (var i = first; i <= last; i++) ...[
-                      if (i > first) SizedBox(width: _gap),
-                      _buildChip(context, items[i], strip),
-                    ],
-                  ],
-                );
-              },
+            child: RepaintBoundary(
+              child: ListenableBuilder(
+                listenable: strip.revision,
+                builder: (context, _) => ListView.builder(
+                  controller: _scrollController,
+                  // Makes _rowExtent a fact rather than an approximation: both
+                  // the visible-range math above and _ensureSelectedVisible
+                  // compute row positions from it.
+                  itemExtent: _rowExtent,
+                  itemCount: rowCount,
+                  itemBuilder: (context, row) {
+                    _noteBuiltIndex(row);
+                    final first = row * _columns;
+                    final last = math.min(
+                      first + _columns - 1,
+                      items.length - 1,
+                    );
+                    return Row(
+                      key: ValueKey<String>('gallery-row-$row'),
+                      // One column, centred (user ruling 2026-09-02).
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (var i = first; i <= last; i++) ...[
+                          if (i > first) SizedBox(width: _gap),
+                          _buildChip(context, items[i], strip),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
             ),
           ),
           // Bottom spacer so the last row never sits directly on the plate.
