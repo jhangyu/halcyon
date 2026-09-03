@@ -86,6 +86,7 @@ void main() {
                 viewport: PhotoViewport(key: kViewportKey, zoom: ZoomController()),
                 statusOverlay: const SizedBox.shrink(),
                 strip: PhotoStripModel(
+                  revision: ValueNotifier<int>(0),
                   // Empty strip on purpose: this test's subject is the decode
                   // target, and real chips only add layout noise here.
                   items: const [],

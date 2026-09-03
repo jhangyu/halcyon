@@ -43,6 +43,7 @@ class PhotoStripModel {
     required this.onSelect,
     required this.payloadFor,
     required this.onVisibleRange,
+    required this.revision,
   });
 
   final List<PhotoItem> items;
@@ -54,6 +55,11 @@ class PhotoStripModel {
   /// AD-014 contract: the strip reports the PURE visible index range once per
   /// frame; prefetch margin is the controller's business, not the view's.
   final void Function(int firstIndex, int lastIndex) onVisibleRange;
+
+  /// Fires when a sidebar tile has landed and nothing else has changed. A
+  /// theme listens to THIS around its strip, so a thumbnail landing repaints
+  /// the strip without rebuilding the viewer.
+  final Listenable revision;
 }
 
 @immutable

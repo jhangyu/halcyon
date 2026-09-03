@@ -51,7 +51,17 @@ typedef SourceOutcome = ({
   SourceCost? observedCost,
   bool deferred,
   int? exifOrientation,
-  ({Uint8List rgba, int width, int height})? fullRes,
+  // [fullRes] is the M5 piggyback output (design §2.2): full-resolution,
+  // orientation-ALREADY-applied RGBA8 pixels from the SAME FFI decode that
+  // produced [payload], plus -- when the orientation required a GPU pass --
+  // the oriented `ui.Image` that pass produced, so the tier-2 piggyback can
+  // publish it instead of re-uploading the same pixels. NON-NULL ONLY when a
+  // real RAW decode ran in this call.
+  //
+  // OWNERSHIP: `fullRes.image`, when non-null, belongs to the CALLER from the
+  // moment this record is returned. `PhotoSource` disposes it on every path
+  // that does NOT return it; from there it is the piggyback publisher's.
+  OrientedFullRes? fullRes,
   // D3 (docs/logs/2026-08-26/raw-support-contract.md): a failure CODE, not a
   // rendered message -- whoever displays it owns the wording. NULLABLE and
   // null at every existing call site: null means "no failure reason to
@@ -61,6 +71,33 @@ typedef SourceOutcome = ({
   // `dngDecoder == null` branches below), never inferred from a caught
   // exception -- a missing native library is a static platform property, not
   // a decode failure to detect after the fact.
+  String? failureCode,
+});
+
+/// Everything ONE decode produced, BEFORE the re-encode.
+///
+/// This exists so the JPEG re-encode (~89ms median, native libjpeg-turbo) can
+/// run OUTSIDE the `DecodeLane` slot: the lane body ends at [PhotoSource
+/// .decodePhase] and the controller runs [PhotoSource.encodePhase] on its own
+/// bounded stage. Lane occupancy then approximates decode time, which is what
+/// the width setting was always implicitly assumed to mean.
+///
+/// Exactly one of [encodedPayload] and [pixels] is non-null on a success:
+/// [encodedPayload] means "already final, nothing to encode" (the cheap and
+/// fallback routes), [pixels] means "the window-resolution fallback is ready
+/// and the full-resolution encode is still owed". Both are null on every
+/// failure and on the deferred hand-off.
+///
+/// AD-040 (single-buffer rule) is untouched: nothing here reaches the payload
+/// cache. The cache is written only once the encode has produced the FINAL
+/// payload object, so payload object identity is never swapped.
+typedef SourceDecode = ({
+  SourcePayload? encodedPayload,
+  PixelPayload? pixels,
+  OrientedFullRes? fullRes,
+  SourceCost? observedCost,
+  bool deferred,
+  int? exifOrientation,
   String? failureCode,
 });
 
@@ -130,8 +167,8 @@ class PhotoSource {
     return normalizeEncodedPayload(encoded: bytes, encoder: encoder);
   }
 
-  /// Produces the payload for [path] at [longEdge], plus what that attempt
-  /// revealed about the file's cost.
+  /// Produces the decode-side half for [path] at [longEdge]: everything a RAW
+  /// decode (or its cheap/fallback substitutes) yields BEFORE the re-encode.
   ///
   /// Steps, per §3.1:
   ///   1/2. the native bridge answers with an encoded bitstream (the file
@@ -153,7 +190,12 @@ class PhotoSource {
   /// parallel window load happened to discover it, and a 9-step navigation
   /// burst would fire nine concurrent decodes -- which is what the lane, not a
   /// radius, now prevents.
-  Future<SourceOutcome> load(
+  ///
+  /// Split out of the old one-shot `load` (P3) so the JPEG re-encode can run
+  /// OUTSIDE the `DecodeLane` slot: this method's body is exactly the old
+  /// `load`'s body with the re-encode step removed -- see [SourceDecode] and
+  /// [encodePhase].
+  Future<SourceDecode> decodePhase(
     String path, {
     required int longEdge,
     bool allowExpensive = true,
@@ -170,10 +212,8 @@ class PhotoSource {
     switch (result) {
       case NativeImageBytes(:final bytes):
         return (
-          payload: await _normalizedEncoded(bytes),
-          observedCost: SourceCost.cheap,
-          deferred: false,
-          exifOrientation: null,
+          encodedPayload: await _normalizedEncoded(bytes),
+          pixels: null,
           // Deliberately NULL. `fullRes` means "pixels from the SAME FFI
           // decode that produced this payload" and feeds the tier-2
           // piggyback; the normaliser's ENGINE decode is not that, and
@@ -182,6 +222,9 @@ class PhotoSource {
           // five, and this plan may not re-derive it. Cheap items keep
           // reaching tier-2 through TierTwoScheduler's ordinary upgrade.
           fullRes: null,
+          observedCost: SourceCost.cheap,
+          deferred: false,
+          exifOrientation: null,
           failureCode: null,
         );
 
@@ -198,24 +241,27 @@ class PhotoSource {
           // exists to fall back to any more (M6 U-12): a genuine permanent
           // miss, recorded immediately rather than left as a spinner.
           return (
-            payload: null,
+            encodedPayload: null,
+            pixels: null,
+            fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
-            fullRes: null,
             failureCode: kNoNativeDecoderCode,
           );
         }
         if (!allowExpensive) {
           return (
-            payload: null,
+            encodedPayload: null,
+            pixels: null,
+            fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: true,
             exifOrientation: exifOrientation,
-            fullRes: null,
             failureCode: null,
           );
         }
+        OrientedFullRes? handedOut;
         try {
           final decoded = await decoder(path);
           final pixels = await decodedRgbaToPixelPayload(
@@ -223,37 +269,18 @@ class PhotoSource {
             exifOrientation: exifOrientation,
             longEdge: longEdge,
           );
-          final fullRes = await _fullResFrom(
+          final fullRes = await decodedRgbaToOrientedFullRes(
             decoded,
             exifOrientation: exifOrientation,
           );
-          // PHASE 13 (one buffer, user ruling 2026-08-30). The re-encode
-          // happens HERE, before the outcome exists, so the payload the
-          // controller writes to the cache is already final: publishing a
-          // PixelPayload and swapping it later would change payload object
-          // identity and orphan the tier-1 ImageCache key and the tier-2
-          // registry entry keyed on it.
-          //
-          // `pixels` is still computed on the success path because it is the
-          // FALLBACK: one GPU pass over pixels already resident, and without
-          // it there would be nothing to degrade to at the moment the encode
-          // fails. `fullRes` is still returned because those pixels are
-          // already decoded, so the piggyback upload is free and saves a
-          // JPEG decode this round.
-          final encoder = payloadEncoder;
-          final payload = encoder == null
-              ? pixels
-              : await reencodePayload(
-                  encoder: encoder,
-                  fallback: pixels,
-                  fullRes: fullRes,
-                );
+          handedOut = fullRes;
           return (
-            payload: payload,
+            encodedPayload: null,
+            pixels: pixels,
+            fullRes: fullRes,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
-            fullRes: fullRes,
             failureCode: null,
           );
         } catch (_) {
@@ -278,13 +305,19 @@ class PhotoSource {
           // A file whose previews are unreadable but whose sensor data decodes
           // never reaches this catch at all, which is the whole point of the
           // override: it renders instead of being called broken.
+          //
+          // I-DISPOSE: nothing downstream will ever see this record, so the
+          // handle has no other owner.
+          handedOut?.image?.dispose();
           return (
-            payload: null,
+            encodedPayload: null,
+            pixels: null,
+            fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: false,
             exifOrientation: null,
-            fullRes: null,
-            failureCode: declaredPreviewsUnreadable ? 'DNG_PARSE_FAILED' : null,
+            failureCode:
+                declaredPreviewsUnreadable ? 'DNG_PARSE_FAILED' : null,
           );
         }
 
@@ -294,13 +327,14 @@ class PhotoSource {
         // last resort; a null here is a genuine "unreadable".
         final recovered = await fallbackAfterNativeFailure(path);
         return (
-          payload: recovered == null
+          encodedPayload: recovered == null
               ? null
               : await _normalizedEncoded(recovered),
+          pixels: null,
+          fullRes: null,
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
           exifOrientation: null,
-          fullRes: null,
           failureCode: null,
         );
     }
@@ -310,27 +344,32 @@ class PhotoSource {
   /// `NativeImageNeedsRawDecode` and carried [exifOrientation] forward. This
   /// is the I6-preserving path: the serial lane's retry must not re-ask the
   /// native bridge for the same answer just to get the orientation back.
-  Future<SourceOutcome> loadExpensive(
+  ///
+  /// Same P3 split as [decodePhase] -- see [SourceDecode] and [encodePhase].
+  Future<SourceDecode> decodePhaseExpensive(
     String path, {
     required int longEdge,
     required int exifOrientation,
   }) async {
     final decoder = dngDecoder;
     if (decoder == null) {
-      // D3: decided before invoking anything, same as the [load] arm above
-      // -- see its comment. In practice this arm is unreachable today (a
-      // null decoder never defers in [load], so there is nothing for this
-      // resumed pass to reach), but it is kept symmetric with [load] rather
-      // than left to silently diverge if that invariant ever changes.
+      // D3: decided before invoking anything, same as [decodePhase]'s arm
+      // above -- see its comment. In practice this arm is unreachable today
+      // (a null decoder never defers in [decodePhase], so there is nothing
+      // for this resumed pass to reach), but it is kept symmetric with
+      // [decodePhase] rather than left to silently diverge if that invariant
+      // ever changes.
       return (
-        payload: null,
+        encodedPayload: null,
+        pixels: null,
+        fullRes: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
-        fullRes: null,
         failureCode: kNoNativeDecoderCode,
       );
     }
+    OrientedFullRes? handedOut;
     try {
       final decoded = await decoder(path);
       final pixels = await decodedRgbaToPixelPayload(
@@ -338,61 +377,108 @@ class PhotoSource {
         exifOrientation: exifOrientation,
         longEdge: longEdge,
       );
-      final fullRes = await _fullResFrom(
+      final fullRes = await decodedRgbaToOrientedFullRes(
         decoded,
         exifOrientation: exifOrientation,
       );
-      // PHASE 13: identical to the `load` arm above -- see its comment. The
-      // two decode paths must not diverge in whether an item re-encodes.
-      final encoder = payloadEncoder;
-      final payload = encoder == null
-          ? pixels
-          : await reencodePayload(
-              encoder: encoder,
-              fallback: pixels,
-              fullRes: fullRes,
-            );
+      handedOut = fullRes;
       return (
-        payload: payload,
+        encodedPayload: null,
+        pixels: pixels,
+        fullRes: fullRes,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
-        fullRes: fullRes,
         failureCode: null,
       );
     } catch (_) {
       // M6 U-12: a throwing decoder is a genuine permanent miss, not D3.
+      handedOut?.image?.dispose();
       return (
-        payload: null,
+        encodedPayload: null,
+        pixels: null,
+        fullRes: null,
         observedCost: SourceCost.expensive,
         deferred: false,
         exifOrientation: null,
-        fullRes: null,
         failureCode: null,
       );
     }
   }
 
-  /// The M5 piggyback's second output half (design §2.2): the SAME decoded
-  /// RAW frame, oriented but NOT downscaled, reduced to plain RGBA8 bytes.
+  /// The second half of an expensive load: turn the decode's FULL-RESOLUTION
+  /// pixels into the single bitstream the item retains.
   ///
-  /// This does not call [dngDecoder] again -- it re-runs
-  /// `decodedRgbaToPixelPayload` on the buffer already sitting in [decoded],
-  /// with `longEdge: 0` selecting the existing no-upscale/no-downscale path
-  /// (`decoded_rgba_image_provider.dart`'s `longEdge <= 0` branch). The FFI
-  /// decode count this contributes is zero; the only cost is one more
-  /// GPU raster pass over pixels already resident in memory.
-  static Future<({Uint8List rgba, int width, int height})> _fullResFrom(
-    DecodedRgba decoded, {
-    required int exifOrientation,
-  }) async {
-    final fullRes = await decodedRgbaToPixelPayload(
-      decoded,
-      exifOrientation: exifOrientation,
-      longEdge: 0,
+  /// Split out of [decodePhase] so it can run off the `DecodeLane`. It never
+  /// disposes `decode.fullRes.image` -- that handle's owner is whoever
+  /// publishes it (see [SourceOutcome.fullRes]'s ownership note).
+  Future<SourceOutcome> encodePhase(SourceDecode decode) async {
+    SourceOutcome outcomeWith(SourcePayload? payload) => (
+          payload: payload,
+          observedCost: decode.observedCost,
+          deferred: decode.deferred,
+          exifOrientation: decode.exifOrientation,
+          fullRes: decode.fullRes,
+          failureCode: decode.failureCode,
+        );
+
+    final ready = decode.encodedPayload;
+    if (ready != null) return outcomeWith(ready);
+    final pixels = decode.pixels;
+    // Covers the deferred hand-off, the no-decoder verdict, the decoder-threw
+    // miss and the unrecoverable NativeImageFailure -- all of which have
+    // nothing to encode and must keep their fields exactly as decoded.
+    if (pixels == null) return outcomeWith(null);
+    final encoder = payloadEncoder;
+    if (encoder == null) return outcomeWith(pixels);
+    final fullRes = decode.fullRes;
+    // PHASE 13 (one buffer, user ruling 2026-08-30). The re-encode happens
+    // HERE, before the outcome exists, so the payload the controller writes
+    // to the cache is already final: publishing a PixelPayload and swapping
+    // it later would change payload object identity and orphan the tier-1
+    // ImageCache key and the tier-2 registry entry keyed on it.
+    return outcomeWith(
+      await reencodePayload(
+        encoder: encoder,
+        fallback: pixels,
+        fullRes: fullRes == null
+            ? null
+            : (
+                rgba: fullRes.rgba,
+                width: fullRes.width,
+                height: fullRes.height,
+              ),
+      ),
     );
-    return (rgba: fullRes.rgba, width: fullRes.width, height: fullRes.height);
   }
+
+  /// One-shot decode-and-encode. Retained verbatim in behaviour because every
+  /// decode-only test binds it, and because non-lane callers have no reason to
+  /// split the two halves.
+  Future<SourceOutcome> load(
+    String path, {
+    required int longEdge,
+    bool allowExpensive = true,
+  }) async => encodePhase(
+        await decodePhase(
+          path,
+          longEdge: longEdge,
+          allowExpensive: allowExpensive,
+        ),
+      );
+
+  /// One-shot twin of [loadExpensive]'s original contract -- see [decodePhase].
+  Future<SourceOutcome> loadExpensive(
+    String path, {
+    required int longEdge,
+    required int exifOrientation,
+  }) async => encodePhase(
+        await decodePhaseExpensive(
+          path,
+          longEdge: longEdge,
+          exifOrientation: exifOrientation,
+        ),
+      );
 
   /// Measures [path] from its CONTENT in ONE bounded walk, reading at most a
   /// few tens of KB and never a JPEG strip.

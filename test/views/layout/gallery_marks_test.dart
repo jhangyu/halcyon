@@ -34,6 +34,7 @@ MainSurface _surfaceFor({
     ),
     statusOverlay: const SizedBox.shrink(),
     strip: PhotoStripModel(
+      revision: ValueNotifier<int>(0),
       items: const [],
       selectedId: null,
       recycleMode: recycleMode,

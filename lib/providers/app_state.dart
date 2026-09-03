@@ -97,6 +97,22 @@ class StatusEvent {
 const Duration kSelectionExifDebounce = Duration(milliseconds: 250);
 
 class AppState extends ChangeNotifier {
+  /// The SIDEBAR's landing signal, deliberately separate from
+  /// `notifyListeners`.
+  ///
+  /// A thumbnail landing used to call `notifyListeners` (this file's
+  /// `preloadThumbnails` passed it in verbatim), and the two top-level
+  /// listeners are unscoped `context.watch<AppState>()` -- `main.dart`'s
+  /// MaterialApp and `main_screen.dart`'s whole surface. So the cheapest and
+  /// most frequent event in the app was routed through the most expensive
+  /// rebuild path in the app.
+  ///
+  /// The PREVIEW path deliberately keeps `notifyListeners`: the viewer
+  /// genuinely must rebuild when the photo on screen gains its payload.
+  final ValueNotifier<int> thumbnailsRevision = ValueNotifier<int>(0);
+
+  void _bumpThumbnails() => thumbnailsRevision.value++;
+
   AppState({
     PhotoLibraryScanner? scanner,
     PhotoStatusStore? statusStore,
@@ -970,7 +986,7 @@ class AppState extends ChangeNotifier {
       items: _items,
       startIdx: startIdx,
       endIdx: endIdx,
-      notifyLoaded: notifyListeners,
+      notifyLoaded: _bumpThumbnails,
     );
   }
 
@@ -1198,6 +1214,7 @@ class AppState extends ChangeNotifier {
     _exifDebounceTimer?.cancel();
     _preloadController.dispose();
     statusEvents.dispose();
+    thumbnailsRevision.dispose();
     super.dispose();
   }
 }

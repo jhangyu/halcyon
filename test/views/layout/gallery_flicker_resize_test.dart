@@ -87,6 +87,7 @@ MainSurface _surface(List<PhotoItem> items, String selectedId) => MainSurface(
   ),
   statusOverlay: const SizedBox.shrink(),
   strip: PhotoStripModel(
+    revision: ValueNotifier<int>(0),
     items: items,
     selectedId: selectedId,
     recycleMode: false,

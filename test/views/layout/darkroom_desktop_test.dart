@@ -35,6 +35,7 @@ MainSurface minimalSurface({
         viewport ?? const ColoredBox(key: kViewportKey, color: Colors.red),
     statusOverlay: const SizedBox.shrink(),
     strip: PhotoStripModel(
+      revision: ValueNotifier<int>(0),
       items: items ?? const [],
       selectedId: selectedId,
       recycleMode: false,

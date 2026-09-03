@@ -26,8 +26,19 @@ Future<NativeImageResult> _needsRawDecode(
   int? targetLongEdge,
 }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
+/// Opaque (alpha 0xFF): the identity-transform short-circuit in
+/// decoded_rgba_image_provider.dart asserts every RAW decode is opaque, so a
+/// zero-filled buffer would trip it.
+Uint8List _opaqueRgba(int pixelCount) {
+  final bytes = Uint8List(pixelCount * 4);
+  for (var p = 0; p < pixelCount; p++) {
+    bytes[p * 4 + 3] = 0xFF;
+  }
+  return bytes;
+}
+
 Future<DecodedRgba> _fakeDecoder(String path) async =>
-    DecodedRgba(rgba: Uint8List(64 * 48 * 4), width: 64, height: 48);
+    DecodedRgba(rgba: _opaqueRgba(64 * 48), width: 64, height: 48);
 
 Future<Uint8List> _fakeEncoder(
   Uint8List rgba, {

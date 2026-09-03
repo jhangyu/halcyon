@@ -132,11 +132,14 @@ class DarkroomMobileSurface extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           Expanded(
-            child: ListView.builder(
-              key: const ValueKey<String>('darkroom-mobile-tiles'),
-              scrollDirection: Axis.horizontal,
-              itemCount: strip.items.length,
-              itemBuilder: (context, index) {
+            child: RepaintBoundary(
+              child: ListenableBuilder(
+                listenable: strip.revision,
+                builder: (context, _) => ListView.builder(
+                  key: const ValueKey<String>('darkroom-mobile-tiles'),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: strip.items.length,
+                  itemBuilder: (context, index) {
                 final item = strip.items[index];
                 final isSelected = item.id == strip.selectedId;
                 final width = isSelected ? 78.0 : 66.0;
@@ -208,7 +211,9 @@ class DarkroomMobileSurface extends StatelessWidget {
                     ),
                   ),
                 );
-              },
+                  },
+                ),
+              ),
             ),
           ),
         ],

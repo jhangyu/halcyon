@@ -144,7 +144,7 @@ void main() {
       await scheduler.publishPiggybackFullRes(
         'a0',
         payload,
-        (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1),
+        (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1, image: null),
         () {},
       );
       final piggybackProvider = registry.providerFor('a0');

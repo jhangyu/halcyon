@@ -405,25 +405,31 @@ class _PaperColumnState extends State<_PaperColumn>
   ) {
     final items = strip.items;
     const gap = kPaperStripGap;
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      itemExtent: chipH + gap,
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        // itemBuilder-driven visibility (AD-011 red line): the visible range
-        // is reported from viewport geometry, never a scroll listener.
-        noteBuiltIndex(index);
-        final item = items[index];
-        return Center(
-          child: _PaperChip(
-            item: item,
-            strip: strip,
-            width: chipW,
-            height: chipH,
-          ),
-        );
-      },
+    return RepaintBoundary(
+      child: ListenableBuilder(
+        listenable: strip.revision,
+        builder: (context, _) => ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          itemExtent: chipH + gap,
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            // itemBuilder-driven visibility (AD-011 red line): the visible
+            // range is reported from viewport geometry, never a scroll
+            // listener.
+            noteBuiltIndex(index);
+            final item = items[index];
+            return Center(
+              child: _PaperChip(
+                item: item,
+                strip: strip,
+                width: chipW,
+                height: chipH,
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -582,28 +588,36 @@ class _PaperFloatStripState extends State<_PaperFloatStrip>
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: ListView.builder(
-                controller: _scrollController,
-                itemExtent: kPaperChipRestWidth / kPaperChipAspect + gap,
-                itemCount: rowCount,
-                itemBuilder: (context, row) {
-                  noteBuiltIndex(row);
-                  final first = row * columns;
-                  final last = math.min(first + columns - 1, items.length - 1);
-                  return Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: gap,
-                    children: [
-                      for (var i = first; i <= last; i++)
-                        _PaperChip(
-                          item: items[i],
-                          strip: strip,
-                          width: kPaperChipRestWidth,
-                          height: kPaperChipRestWidth / kPaperChipAspect,
-                        ),
-                    ],
-                  );
-                },
+              child: RepaintBoundary(
+                child: ListenableBuilder(
+                  listenable: strip.revision,
+                  builder: (context, _) => ListView.builder(
+                    controller: _scrollController,
+                    itemExtent: kPaperChipRestWidth / kPaperChipAspect + gap,
+                    itemCount: rowCount,
+                    itemBuilder: (context, row) {
+                      noteBuiltIndex(row);
+                      final first = row * columns;
+                      final last = math.min(
+                        first + columns - 1,
+                        items.length - 1,
+                      );
+                      return Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: gap,
+                        children: [
+                          for (var i = first; i <= last; i++)
+                            _PaperChip(
+                              item: items[i],
+                              strip: strip,
+                              width: kPaperChipRestWidth,
+                              height: kPaperChipRestWidth / kPaperChipAspect,
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
