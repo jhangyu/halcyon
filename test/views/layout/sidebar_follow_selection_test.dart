@@ -101,7 +101,7 @@ class _SelectionHarnessState extends State<_SelectionHarness> {
 
 void main() {
   testWidgets(
-    'DarkroomColumn auto-scrolls to keep the selection visible when it '
+    'TC-909 DarkroomColumn auto-scrolls to keep the selection visible when it '
     'moves outside the visible range at a FIXED width (keyboard nav)',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
@@ -165,7 +165,7 @@ void main() {
   );
 
   testWidgets(
-    'PaperDesktopSurface auto-scrolls to keep the selection visible when it '
+    'TC-910 PaperDesktopSurface auto-scrolls to keep the selection visible when it '
     'moves outside the visible range at a FIXED width (keyboard nav)',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1400, 900));

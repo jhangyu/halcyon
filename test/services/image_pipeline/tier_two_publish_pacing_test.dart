@@ -1,5 +1,4 @@
-// TC-907 / TC-908 (provisional -- numbers to be assigned against the SOP
-// register at round end, per the contract's registration rule).
+// TC-907 / TC-908.
 //
 // Contract deliverable 2 (docs/logs/2026-09-04/pacer-followup-contract.md):
 // TierTwoRegistry.publishFullRes must no longer be reachable from
