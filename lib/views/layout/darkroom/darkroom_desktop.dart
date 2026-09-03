@@ -13,6 +13,21 @@ import 'darkroom_palette.dart';
 /// again. Mirrors `kGalleryWidthBadgeDelay` (`gallery_desktop.dart:38`).
 const Duration kDarkroomDragStallDelay = Duration(milliseconds: 400);
 
+/// Key for the starred/trashed counter `Positioned(right: 24, bottom: 20)`
+/// (finding F6 of `docs/logs/2026-09-03/plan-darkroom.md`). Declared here,
+/// ahead of the info-display plan's Task 3, only so TC-883 can reference it
+/// without a compile error; the info plan owns the actual counter widget and
+/// must reuse this constant rather than redeclare it.
+const ValueKey<String> kDarkroomCounterKey = ValueKey<String>(
+  'darkroom.counter',
+);
+
+/// `.verdict{right:24px;top:24px}` — mockup `c2-desktop-dark.html:226-230`.
+const double kDarkroomVerdictInset = 24.0;
+
+/// `.vkey` — the keyboard hint drawn beside the marks (markup line 465).
+const String kDarkroomVerdictKeyHint = 'S · X';
+
 /// The desktop arrangement of the `darkroom` theme (round 2, task #13).
 ///
 /// USER RULING R-2 (2026-09-03, `docs/logs/2026-09-03/theme-parity-contract.md`)
@@ -131,8 +146,8 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
         // Star/trash verdict cluster — floating over the photo, right-anchored,
         // so it is unaffected by the column width.
         Positioned(
-          right: 20,
-          bottom: 16 + 40,
+          right: kDarkroomVerdictInset,
+          top: kDarkroomVerdictInset,
           child: _buildActionsCluster(context, surface, palette),
         ),
       ],
@@ -144,43 +159,77 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
     MainSurface surface,
     DarkroomPalette palette,
   ) {
+    final colors = Theme.of(context).colorScheme;
     final actions = surface.actions;
     final status = surface.identity?.status;
     final isStarred = status == PhotoStatus.starred;
     final isTrashed = status == PhotoStatus.trashed;
     return DecoratedBox(
+      key: const ValueKey<String>('darkroom-verdict'),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(20),
+        // --veil
+        color: colors.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: colors.outlineVariant), // --line
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _clusterButton(
-            context,
-            icon: isStarred ? Icons.star : Icons.star_border,
-            iconColor: isStarred ? palette.star : null,
-            tooltip: 'Star (S)',
-            onPressed: actions.onStar,
-          ),
-          GestureDetector(
-            key: const ValueKey<String>('darkroom-trash'),
-            onSecondaryTap: actions.onToggleRecycleMode,
-            child: _clusterButton(
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 4,
+          children: [
+            _clusterButton(
               context,
-              icon: actions.recycleMode
-                  ? (isTrashed
-                        ? Icons.restore_from_trash
-                        : Icons.restore_from_trash_outlined)
-                  : (isTrashed ? Icons.delete : Icons.delete_outline),
-              iconColor: isTrashed ? Colors.red : null,
-              tooltip: actions.recycleMode
-                  ? 'Recycle (X) — right-click or R: switch to direct delete'
-                  : 'Trash (X) — right-click or R: switch to recycle mode',
-              onPressed: actions.onTrash,
+              icon: isStarred ? Icons.star : Icons.star_border,
+              iconColor: isStarred ? palette.star : null,
+              // `.vb.starred{background:rgba(233,184,76,.14)}`
+              background: isStarred
+                  ? palette.star.withValues(alpha: 0.14)
+                  : null,
+              tooltip: 'Star (S)',
+              onPressed: actions.onStar,
             ),
-          ),
-        ],
+            GestureDetector(
+              key: const ValueKey<String>('darkroom-trash'),
+              onSecondaryTap: actions.onToggleRecycleMode,
+              child: _clusterButton(
+                context,
+                icon: actions.recycleMode
+                    ? (isTrashed
+                          ? Icons.restore_from_trash
+                          : Icons.restore_from_trash_outlined)
+                    : (isTrashed ? Icons.delete : Icons.delete_outline),
+                iconColor: isTrashed ? Colors.red : null,
+                tooltip: actions.recycleMode
+                    ? 'Recycle (X) — right-click or R: switch to direct delete'
+                    : 'Trash (X) — right-click or R: switch to recycle mode',
+                onPressed: actions.onTrash,
+              ),
+            ),
+            // `.vsep{width:1px;height:18px;margin:0 3px}`
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: SizedBox(
+                width: 1,
+                height: 18,
+                child: ColoredBox(color: colors.outlineVariant),
+              ),
+            ),
+            // `.vkey` — 9.5px, .08em tracking, --faint, padding 0 6px 0 2px.
+            Padding(
+              padding: const EdgeInsets.only(left: 2, right: 6),
+              child: Text(
+                kDarkroomVerdictKeyHint,
+                key: const ValueKey<String>('darkroom-verdict-key-hint'),
+                style: TextStyle(
+                  fontSize: 9.5,
+                  letterSpacing: 0.08 * 9.5,
+                  color: palette.textFaint,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -191,17 +240,24 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
     required String tooltip,
     required VoidCallback onPressed,
     Color? iconColor,
+    Color? background,
   }) {
-    final palette = DarkroomPalette.of(context);
+    final colors = Theme.of(context).colorScheme;
+    // `.vb{width:34px;height:34px;border-radius:5px;color:var(--dim)}`
     return Tooltip(
       message: tooltip,
       child: IconButton(
-        icon: Icon(icon, size: 17, color: iconColor ?? palette.photoInkDim),
-        tooltip: tooltip,
+        icon: Icon(icon, size: 17, color: iconColor ?? colors.onSurfaceVariant),
         onPressed: onPressed,
         padding: EdgeInsets.zero,
         style: ButtonStyle(
-          fixedSize: const WidgetStatePropertyAll(Size(34, 34)),
+          fixedSize: const WidgetStatePropertyAll<Size>(Size(34, 34)),
+          backgroundColor: background == null
+              ? null
+              : WidgetStatePropertyAll<Color>(background),
+          shape: WidgetStatePropertyAll<OutlinedBorder>(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          ),
         ),
       ),
     );

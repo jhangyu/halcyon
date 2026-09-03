@@ -272,6 +272,98 @@ void main() {
     });
   });
 
+  group('TC-883 the verdict cluster floats top-right', () {
+    testWidgets('cluster sits in the top-right corner, 24px in', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final cluster = tester.getRect(
+        find.byKey(const ValueKey<String>('darkroom-verdict')),
+      );
+      expect(cluster.top, closeTo(24, 0.5));
+      expect(cluster.right, closeTo(1440 - 24, 0.5));
+      expect(cluster.top, lessThan(900 * 0.2));
+      expect(cluster.right, greaterThan(1440 * 0.8));
+
+      // The info plan's counter is also right-anchored (right:24, bottom:20).
+      // Mockup says top-right vs bottom-right are disjoint; assert it rather
+      // than trust it. The finder is tolerant: before the info plan lands the
+      // counter does not exist and the check is skipped.
+      final counter = find.byKey(kDarkroomCounterKey);
+      if (counter.evaluate().isNotEmpty) {
+        final counterRect = tester.getRect(counter);
+        expect(cluster.overlaps(counterRect), isFalse);
+      }
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-884 the verdict cluster carries only star, trash and the key hint',
+      () {
+    testWidgets('key hint reads "S · X"; no folder or menu in the cluster', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      final surface = minimalSurface();
+      final withMenu = MainSurface(
+        viewport: surface.viewport,
+        statusOverlay: surface.statusOverlay,
+        strip: surface.strip,
+        identity: surface.identity,
+        actions: PhotoActions(
+          recycleMode: false,
+          onStar: () {},
+          onTrash: () {},
+          onToggleRecycleMode: () {},
+          onOpenFolder: () {},
+          menu: const SizedBox(
+            key: ValueKey<String>('test-menu'),
+            width: 34,
+            height: 34,
+          ),
+        ),
+      );
+      await pumpDesktop(tester, surface: withMenu);
+
+      final verdict = find.byKey(const ValueKey<String>('darkroom-verdict'));
+      final hint = find.byKey(
+        const ValueKey<String>('darkroom-verdict-key-hint'),
+      );
+      expect(hint, findsOneWidget);
+      expect((tester.widget(hint) as Text).data, 'S · X');
+      expect(
+        find.descendant(of: verdict, matching: hint),
+        findsOneWidget,
+      );
+      // Exactly two icon buttons in the cluster: star and trash.
+      expect(
+        find.descendant(of: verdict, matching: find.byType(IconButton)),
+        findsNWidgets(2),
+      );
+      expect(
+        find.descendant(
+          of: verdict,
+          matching: find.byKey(const ValueKey<String>('test-menu')),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: verdict, matching: find.byIcon(Icons.folder_open)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: verdict,
+          matching: find.byKey(const ValueKey<String>('darkroom-trash')),
+        ),
+        findsOneWidget,
+      );
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
   group('TC-582 drag range clamps at 90 and 200', () {
     testWidgets('drag far left clamps to the 90 floor', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
