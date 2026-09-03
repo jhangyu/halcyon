@@ -13,6 +13,7 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/dng_decode_contract.dart';
+import '../services/image_pipeline/idle_publish_scheduler.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
@@ -130,23 +131,33 @@ class AppState extends ChangeNotifier {
        _fileActions = fileActions ?? PhotoFileActions(),
        _exportService =
            exportService ?? PhotoExportService(decoder: dngDecoder),
-       _preloadController =
-           preloadController ??
-           ImagePreloadController(
-             imageLoader: imageLoader ?? dartImageLoad,
-             // Null until the app's composition root injects the pkg squad's
-             // adapter. While null, a DNG with no embedded preview is a
-             // permanent miss (M6 U-12) -- there is no legacy channel path
-             // left to fall back to.
-             dngDecoder: dngDecoder,
-             // No sidebar decoder: USER RULING 2026-08-30 (contract D5) makes
-             // the sidebar a CONSUMER of the shared q70 payload. The sized
-             // 200px route it used to own is deleted -- measured NOT FASTER
-             // than a full decode (ratio 0.916, payload-bench-report.md §4)
-             // while costing a whole extra sensor decode outside the lane.
-             retention: retention,
-             decodeLaneWidth: kDefaultDecodeLaneWidth,
-           ) {
+       _publishScheduler = IdlePublishScheduler() {
+    // An INJECTED controller is used as-is: whoever injected it already chose
+    // its pacing seams, and rewiring them here would silently override a
+    // test's deterministic fake frame clock with a real idle scheduler.
+    _preloadController =
+        preloadController ??
+        ImagePreloadController(
+          imageLoader: imageLoader ?? dartImageLoad,
+          // Null until the app's composition root injects the pkg squad's
+          // adapter. While null, a DNG with no embedded preview is a
+          // permanent miss (M6 U-12) -- there is no legacy channel path
+          // left to fall back to.
+          dngDecoder: dngDecoder,
+          // No sidebar decoder: USER RULING 2026-08-30 (contract D5) makes
+          // the sidebar a CONSUMER of the shared q70 payload. The sized
+          // 200px route it used to own is deleted -- measured NOT FASTER
+          // than a full decode (ratio 0.916, payload-bench-report.md §4)
+          // while costing a whole extra sensor decode outside the lane.
+          retention: retention,
+          decodeLaneWidth: kDefaultDecodeLaneWidth,
+          // CONTRACT DELIVERABLES 1 AND 2. One scheduler, both seams: tier-1
+          // registrations are drained at Priority.idle, and EXIF-orientation
+          // compositing buys a slot from the same queue instead of running
+          // the moment a decode result arrives.
+          scheduleFrameCallback: _publishScheduler.schedule,
+          compositeGate: _publishScheduler.awaitSlot,
+        );
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
       itemsOf: () => _items,
@@ -177,12 +188,15 @@ class AppState extends ChangeNotifier {
       _statusStore = PhotoStatusStore(),
       _fileActions = PhotoFileActions(),
       _exportService = PhotoExportService(),
-      _preloadController = ImagePreloadController(
-        imageLoader: dartImageLoad,
-        dngDecoder: null,
-        retention: const RetentionPolicy.floor(),
-        decodeLaneWidth: kDefaultDecodeLaneWidth,
-      ) {
+      _publishScheduler = IdlePublishScheduler() {
+    _preloadController = ImagePreloadController(
+      imageLoader: dartImageLoad,
+      dngDecoder: null,
+      retention: const RetentionPolicy.floor(),
+      decodeLaneWidth: kDefaultDecodeLaneWidth,
+      scheduleFrameCallback: _publishScheduler.schedule,
+      compositeGate: _publishScheduler.awaitSlot,
+    );
     _autoRetentionTier = tierForPolicy(const RetentionPolicy.floor());
     _renameCoordinator = RenameCoordinator(
       statusStore: _statusStore,
@@ -200,7 +214,31 @@ class AppState extends ChangeNotifier {
   final PhotoLibraryScanner _scanner;
   final PhotoStatusStore _statusStore;
   final PhotoFileActions _fileActions;
-  final ImagePreloadController _preloadController;
+  /// `late final`, assigned in the constructor body rather than the
+  /// initialiser list: the controller is built with seams that read
+  /// [_publishScheduler], and an initialiser list cannot touch `this`.
+  late final ImagePreloadController _preloadController;
+
+  /// THE app's single publish-pacing scheduler. Idle-priority slots for
+  /// tier-1 ImageCache registration (through the pacer's frame hook) and for
+  /// EXIF orientation compositing (through the composite gate), so publish
+  /// work stops landing as bursts while the user scrolls or arrows through
+  /// photos.
+  final IdlePublishScheduler _publishScheduler;
+
+  @visibleForTesting
+  IdlePublishScheduler get debugPublishScheduler => _publishScheduler;
+
+  /// One mechanically checkable answer to "is production actually paced"
+  /// (contract AC1), so the test does not have to read private state.
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  bool get debugPublishPacingWired =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.debugPacerHasFrameHook &&
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.debugCompositeGateIsPaced;
+
   final PhotoExportService _exportService;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;
@@ -340,6 +378,12 @@ class AppState extends ChangeNotifier {
     }
     _shortcuts = bindings;
 
+    // Guards the same race documented on resolveExportCapabilities (:514):
+    // this method awaits SharedPreferences.getInstance() before reaching
+    // here, and a short-lived AppState (e.g. a test) may already be disposed
+    // by the time that resolves -- notifyListeners() on a disposed
+    // ChangeNotifier throws.
+    if (_disposed) return;
     notifyListeners();
   }
 
@@ -1225,6 +1269,10 @@ class AppState extends ChangeNotifier {
     _viewDebounceTimer?.cancel();
     _exifDebounceTimer?.cancel();
     _preloadController.dispose();
+    // AFTER the controller: its dispose clears the pacer, and this flushes
+    // whatever slot was still pending. The reverse order would flush a
+    // publish into a torn-down controller.
+    _publishScheduler.dispose();
     statusEvents.dispose();
     thumbnailsRevision.dispose();
     super.dispose();
