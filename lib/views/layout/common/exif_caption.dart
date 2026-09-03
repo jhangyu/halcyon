@@ -34,6 +34,16 @@ import '../gallery/gallery_palette.dart';
 /// An unread or unreadable photo renders nothing: `exif == null` or every
 /// present field being null produces [SizedBox.shrink] — no placeholder text,
 /// no dashes, no skeleton.
+/// Which structure the caption draws.
+///
+/// [museum] is gallery's own mockup shape — title, 44x1 rule, camera on its own
+/// uppercase line, then the exposure line. [joined] is what the darkroom
+/// (`.caption`, `docs/logs/2026-09-01/mockup/darkroom/c2-desktop-dark.html:210-217`)
+/// and paper (`.overcap`,
+/// `docs/logs/2026-09-01/mockup/paper/c1-desktop-dark.html:246-249`) mockups
+/// draw instead: two lines, no rule, the camera folded into the one EXIF line.
+enum ExifCaptionVariant { museum, joined }
+
 class ExifCaption extends StatelessWidget {
   const ExifCaption({
     super.key,
@@ -41,6 +51,10 @@ class ExifCaption extends StatelessWidget {
     this.fileName,
     this.compact = false,
     this.alignment = CrossAxisAlignment.end,
+    this.variant = ExifCaptionVariant.museum,
+    this.titleStyle,
+    this.detailStyle,
+    this.detailGap = 4,
   });
 
   final ExifMetadata? exif;
@@ -50,13 +64,30 @@ class ExifCaption extends StatelessWidget {
   /// before the 2026-09-02 revision.
   final String? fileName;
 
-  /// Mobile: one line, no rule, no camera line. Desktop: three-part stack.
+  /// Mobile: one line, no rule, no camera line. Desktop: the [variant] shape.
   final bool compact;
 
   /// Text-column alignment. Gallery keeps the default right-aligned museum
   /// label (bottom-right corner); paper's mockup places the caption bottom-left
   /// with left-aligned text, so themes may pass [CrossAxisAlignment.start].
   final CrossAxisAlignment alignment;
+
+  /// Which structure to draw. Defaults to [ExifCaptionVariant.museum] so every
+  /// pre-existing caller keeps its exact output.
+  final ExifCaptionVariant variant;
+
+  /// Merged ON TOP of the variant's own file-name style, so a theme overrides
+  /// only the fields its mockup differs on. [ExifCaptionVariant.joined] only.
+  final TextStyle? titleStyle;
+
+  /// Merged ON TOP of the variant's own EXIF-line style.
+  /// [ExifCaptionVariant.joined] only.
+  final TextStyle? detailStyle;
+
+  /// Gap between the file-name line and the EXIF line, in logical pixels
+  /// (darkroom `padding-top:4px`, paper `margin-top:5px`).
+  /// [ExifCaptionVariant.joined] only.
+  final double detailGap;
 
   @override
   Widget build(BuildContext context) {
@@ -78,10 +109,7 @@ class ExifCaption extends StatelessWidget {
       // Mobile: `Nikon Z 8 · 85 mm · ƒ/5.6 · 1/500 · ISO 200` — camera
       // included inline, no rule, one faint-dim line. On a photo there is no
       // readable surface background, so the mobile line carries its own base.
-      final text = [
-        if (camera != null) camera,
-        if (body != null) body,
-      ].join(' · ');
+      final text = _joinedLine(camera, body)!;
       return Text(
         text,
         style: TextStyle(
@@ -89,6 +117,42 @@ class ExifCaption extends StatelessWidget {
           letterSpacing: 0.06 * 9.5, // 0.06 em at 9.5px
           color: scheme.onSurfaceVariant,
         ),
+      );
+    }
+
+    if (variant == ExifCaptionVariant.joined) {
+      // Two lines, no rule, camera inline — both theme mockups' shape.
+      final line = _joinedLine(camera, body);
+      final titleBase = TextStyle(
+        fontSize: 13,
+        height: 1,
+        color: scheme.onSurface,
+      );
+      final detailBase = TextStyle(
+        fontSize: 11,
+        height: 1,
+        color: scheme.onSurfaceVariant,
+      );
+      return Column(
+        crossAxisAlignment: alignment,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (name != null)
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: titleBase.merge(titleStyle),
+            ),
+          if (name != null && line != null) SizedBox(height: detailGap),
+          if (line != null)
+            Text(
+              line,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: detailBase.merge(detailStyle),
+            ),
+        ],
       );
     }
 
@@ -150,6 +214,18 @@ class ExifCaption extends StatelessWidget {
 
   static String? _blankToNull(String? value) =>
       (value == null || value.isEmpty) ? null : value;
+
+  /// `camera · focal · aperture · shutter · ISO`, PRESENT fields only. The one
+  /// place this string is built, so the mobile line and the desktop [joined]
+  /// line can never drift apart.
+  static String? _joinedLine(String? camera, String? body) {
+    final parts = <String>[
+      if (camera != null) camera,
+      if (body != null) body,
+    ];
+    if (parts.isEmpty) return null;
+    return parts.join(' · ');
+  }
 
   /// The shooting-parameters line: focal, aperture, shutter, ISO joined with
   /// `' · '` between PRESENT fields only — no leading, trailing, or doubled
