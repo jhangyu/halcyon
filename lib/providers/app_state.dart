@@ -79,6 +79,16 @@ class StatusMessage {
   final VoidCallback? onAction;
 }
 
+/// A single [showStatus] emission, tagged with a monotonically increasing
+/// [seq] so back-to-back `==`-equal [StatusMessage]s still produce distinct
+/// [StatusEvent]s and are not coalesced by [ValueNotifier].
+@immutable
+class StatusEvent {
+  const StatusEvent(this.seq, this.message);
+  final int seq;
+  final StatusMessage message;
+}
+
 /// The idle window after which a selection's EXIF read starts. Mirrors the
 /// tier-2 navigation debounce (`tierTwoNavigationDebounce`) so holding an
 /// arrow key cannot spawn one isolate per photo; the caption for the photo the
@@ -257,6 +267,10 @@ class AppState extends ChangeNotifier {
   // view can restart its timer even when the same text repeats.
   StatusMessage? _status;
   int _statusSeq = 0;
+
+  /// Fires once per [showStatus] call (see [StatusEvent]); [StatusLine]
+  /// listens to this instead of the whole-app [notifyListeners] stream.
+  final ValueNotifier<StatusEvent?> statusEvents = ValueNotifier(null);
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
@@ -459,7 +473,7 @@ class AppState extends ChangeNotifier {
   void showStatus(StatusMessage message) {
     _status = message;
     _statusSeq++;
-    notifyListeners();
+    statusEvents.value = StatusEvent(_statusSeq, message);
   }
 
   void toggleRecycleMode() {
@@ -1183,6 +1197,7 @@ class AppState extends ChangeNotifier {
     _viewDebounceTimer?.cancel();
     _exifDebounceTimer?.cancel();
     _preloadController.dispose();
+    statusEvents.dispose();
     super.dispose();
   }
 }

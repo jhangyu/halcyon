@@ -30,15 +30,28 @@ class StatusLine extends StatefulWidget {
 }
 
 class _StatusLineState extends State<StatusLine> {
-  int _seenSeq = 0;
   StatusMessage? _message;
   bool _visible = false;
   Timer? _timer;
+  AppState? _appState;
+
+  @override
+  void initState() {
+    super.initState();
+    _appState = context.read<AppState>();
+    _appState!.statusEvents.addListener(_onStatusEvent);
+  }
 
   @override
   void dispose() {
+    _appState?.statusEvents.removeListener(_onStatusEvent);
     _timer?.cancel();
     super.dispose();
+  }
+
+  void _onStatusEvent() {
+    final event = _appState?.statusEvents.value;
+    if (event != null) setState(() => _show(event.message));
   }
 
   void _show(StatusMessage message) {
@@ -52,13 +65,6 @@ class _StatusLineState extends State<StatusLine> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    if (state.statusSeq != _seenSeq) {
-      _seenSeq = state.statusSeq;
-      final message = state.status;
-      if (message != null) _show(message);
-    }
-
     final message = _message;
     if (message == null) return const SizedBox.shrink();
 
