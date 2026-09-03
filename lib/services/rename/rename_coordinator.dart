@@ -193,9 +193,36 @@ class RenameCoordinator {
     // available after the app has been closed and reopened, and an in-memory
     // map is empty then -- the files went back to their old names while every
     // mark stayed keyed to the abandoned new ones (F2).
+    //
+    // No `partialIdMap` handling here (unlike the apply path at lines
+    // 138-142): `undoLastRename` always constructs its `RenameOutcome` with
+    // `partialIdMap` at its `const {}` default (rename_service.dart:437-442)
+    // and never populates it. Undo replays the journal one FILE MOVE per
+    // line (rename_service.dart:409-431), each independently succeeding into
+    // `idMap` or failing into `failures` -- there is no per-plan grouping of
+    // multiple moves the way `applyRenames` groups a RAW+JPG pair, so no
+    // "some moves of a group landed, one didn't" split can occur at undo
+    // scope. `idMap` alone is therefore the complete OUTCOME for undo.
     await _statusStore.remapKeys(dir, outcome.idMap);
 
     await _reloadFolder(dir);
-    _showStatus(StatusMessage('已還原 *${outcome.renamedCount}* 個檔案的原始檔名'));
+
+    var message = '已還原 *${outcome.renamedCount}* 個檔案的原始檔名';
+    if (outcome.failures.isNotEmpty) {
+      // Named, not just counted -- mirrors the apply path's failure
+      // reporting (lines 157-166) so a partially-refused undo (e.g. an
+      // original name now occupied by an unrelated file, see 26db896) is
+      // visible instead of being reported as plain success.
+      final named = outcome.failures
+          .take(3)
+          .map((failure) => failure.split(':').first)
+          .join('、');
+      message += '，*${outcome.failures.length}* 個失敗：$named';
+      if (outcome.failures.length > 3) message += ' …';
+      for (final failure in outcome.failures) {
+        debugPrint('Undo rename failure: $failure');
+      }
+    }
+    _showStatus(StatusMessage(message));
   }
 }

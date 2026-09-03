@@ -647,6 +647,76 @@ void main() {
       expect(outcome.renamedCount, 1);
     });
 
+    // ---------------------------------------------------------------------
+    // SF-1: the guard above (TC-724) was only sampled ONCE, before the retry
+    // loop. A transient error triggers up to four retries over ~300ms
+    // (delaysMs: 20/40/80/160); an external process racing to create `to`
+    // during that window was invisible to the stale pre-loop sample, so the
+    // retried rename would silently destroy it -- the exact data-loss shape
+    // TC-724 exists to prevent, just reachable through the retry path.
+    //
+    // The fake distinguishes calls by SEMANTICS (has the external file
+    // appeared yet), not by call count, because the guard now runs once
+    // before the loop and once per retry attempt -- an exact count would be
+    // both fragile and beside the point.
+    // ---------------------------------------------------------------------
+    test('TC-727 a destination created externally during a transient-error '
+        'retry delay is refused on retry, not overwritten', () async {
+      final source = p.join(tempDir.path, 'A.JPG');
+      final to = p.join(tempDir.path, 'new-A.JPG');
+      final otherFile = p.join(tempDir.path, '__external_other__');
+
+      var destinationAppearedExternally = false;
+
+      Future<String?> fakeCanonical(String path) async {
+        if (path == to) {
+          return destinationAppearedExternally ? otherFile : null;
+        }
+        if (path == source) return source;
+        return null;
+      }
+
+      var attempts = 0;
+      Future<void> transientThenExternalFile(String f, String t) async {
+        attempts++;
+        // First attempt: a transient I/O error, and -- simulating another
+        // process winning the race during the retry delay -- a different
+        // file now sits at `to`.
+        destinationAppearedExternally = true;
+        throw const FileSystemException(
+          'rename failed',
+          'A.JPG',
+          OSError('Input/output error', 5),
+        );
+      }
+
+      final outcome = await applyRenames(
+        [
+          RenamePlan(
+            oldId: 'A',
+            newId: 'new-A',
+            moves: [RenameMove(from: source, to: to)],
+          ),
+        ],
+        tempDir,
+        renameFile: transientThenExternalFile,
+        canonicalPath: fakeCanonical,
+      );
+
+      // The retry must be refused by the re-armed guard before it ever tries
+      // to call renameFile a second time -- on the pre-fix logic (guard
+      // sampled once, before the loop) this refusal never fires: the stale
+      // `destinationBefore == null` sample lets the transient-error retry
+      // proceed and overwrite `otherFile`.
+      expect(attempts, 1);
+      expect(outcome.renamedCount, 0);
+      expect(outcome.idMap, isEmpty);
+      expect(outcome.partialIdMap, isEmpty);
+      expect(outcome.failures, hasLength(1));
+      expect(outcome.failures.single, contains('different file'));
+      expect(outcome.failures.single, contains(otherFile));
+    });
+
     test('TC-726 the NFC and NFD literals these tests rely on are actually '
         'different strings', () {
       // Guards TC-724/TC-725 from becoming vacuous if an editor or a tool

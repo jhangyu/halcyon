@@ -235,24 +235,11 @@ Future<void> _renameWithRetry(
   // back onto the ORIGINAL names, which no collision check ever cleared, so
   // without this sample an unrelated file occupying an original name would
   // make a genuinely failed undo report success.
-  final destinationBefore = await canonicalPath(to);
-  if (destinationBefore != null) {
-    final sourceBefore = await canonicalPath(from);
-    // A source that is already gone is ENOENT's business, not ours -- fall
-    // through and let the rename report it.
-    //
-    // `sourceBefore == destinationBefore` means the two paths are the SAME
-    // file: a case-only or normalization-only rename, which is legal and
-    // which `File.rename` performs in place. That must not be refused.
-    if (sourceBefore != null && sourceBefore != destinationBefore) {
-      throw FileSystemException(
-        'refusing to rename "$from" onto "$to": the destination already '
-        'exists and resolves to "$destinationBefore", which is a different '
-        'file. Renaming would destroy it.',
-        to,
-      );
-    }
-  }
+  final destinationBefore = await _refuseIfOverwritingOtherFile(
+    from,
+    to,
+    canonicalPath,
+  );
   final destinationExistedBefore = destinationBefore != null;
   for (var attempt = 0; ; attempt++) {
     try {
@@ -288,8 +275,58 @@ Future<void> _renameWithRetry(
           _kTransientRenameErrno.contains(e.osError?.errorCode);
       if (!transient || attempt >= delaysMs.length) rethrow;
       await Future<void>.delayed(Duration(milliseconds: delaysMs[attempt]));
+      // Re-sample the overwrite guard before retrying. The delay above is
+      // exactly the window in which an external process (Finder, an indexer,
+      // a second app instance) can create a file at `to` between our first
+      // attempt and this retry -- up to ~300ms across the full backoff
+      // schedule. Without re-checking here, that external file would be
+      // silently destroyed by the retried rename, which is the same
+      // data-loss shape the guard above exists to prevent, just reachable
+      // through the retry path instead of the first attempt.
+      //
+      // Deliberately NOT reassigned to `destinationExistedBefore`: that value
+      // must keep meaning "was a destination there before we started trying
+      // at all", because the verify-on-error success check below relies on
+      // that original sample to decide whether a NEW destination appearing
+      // means our own rename landed. Only the refusal check is re-armed here.
+      await _refuseIfOverwritingOtherFile(from, to, canonicalPath);
     }
   }
+}
+
+/// Throws if `to` exists and resolves to a file other than `from`; returns
+/// the canonical path of `to` (or null if nothing is there) otherwise.
+///
+/// Canonical, because the KERNEL is the only correct authority on whether two
+/// spellings name the same file: case on APFS and exFAT, Unicode
+/// normalization on APFS. Comparing the strings ourselves would need a
+/// Unicode table baked into a planner that is deliberately pure and cannot
+/// know which volume it is planning for. See the full rationale on the first
+/// call site in `_renameWithRetry`.
+Future<String?> _refuseIfOverwritingOtherFile(
+  String from,
+  String to,
+  CanonicalPathProbe canonicalPath,
+) async {
+  final destinationBefore = await canonicalPath(to);
+  if (destinationBefore != null) {
+    final sourceBefore = await canonicalPath(from);
+    // A source that is already gone is ENOENT's business, not ours -- fall
+    // through and let the rename report it.
+    //
+    // `sourceBefore == destinationBefore` means the two paths are the SAME
+    // file: a case-only or normalization-only rename, which is legal and
+    // which `File.rename` performs in place. That must not be refused.
+    if (sourceBefore != null && sourceBefore != destinationBefore) {
+      throw FileSystemException(
+        'refusing to rename "$from" onto "$to": the destination already '
+        'exists and resolves to "$destinationBefore", which is a different '
+        'file. Renaming would destroy it.',
+        to,
+      );
+    }
+  }
+  return destinationBefore;
 }
 
 /// Performs one rename. Injectable only so tests can reproduce the

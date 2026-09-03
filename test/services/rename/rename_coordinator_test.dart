@@ -314,6 +314,207 @@ void main() {
           reason: 'undo restored the filename but not the mark key: $map');
       expect(map.containsKey('2026-04-07-09-03-05'), isFalse);
     });
+
+    // -----------------------------------------------------------------
+    // SF-2: a partially-refused undo (commit 26db896's refusal branch) used
+    // to be reported as plain success. Must name the failed entry the same
+    // way the apply path does.
+    // -----------------------------------------------------------------
+    test('TC-728 a refused undo entry is named in the status message, not '
+        'reported as plain success', () async {
+      for (final name in ['A', 'B']) {
+        await File(p.join(tempDir.path, '$name.JPG')).writeAsBytes(<int>[1]);
+      }
+
+      final statusStore = PhotoStatusStore();
+      var items = [
+        PhotoItem(id: 'A', files: [File(p.join(tempDir.path, 'A.JPG'))]),
+        PhotoItem(id: 'B', files: [File(p.join(tempDir.path, 'B.JPG'))]),
+      ];
+
+      // Distinct capture times so the two items don't collide onto the
+      // same rendered name and one doesn't get a '-1' suffix.
+      final firstCoordinator = RenameCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        dirOf: () => tempDir,
+        selectedIdOf: () => 'A',
+        readMetadata: (its, {onProgress}) async => {
+          for (final item in its)
+            item.id: ExifMetadata(
+              captureDate: item.id == 'A'
+                  ? DateTime(2026, 4, 7, 9, 3, 5)
+                  : DateTime(2026, 4, 7, 9, 3, 6),
+            ),
+        },
+        showStatus: (_) {},
+        reloadFolder: (d, {targetSelectionId}) async {},
+        notify: () {},
+      );
+      await firstCoordinator.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      final renamedNames = tempDir
+          .listSync()
+          .map((e) => p.basename(e.path))
+          .where((n) => !n.startsWith('.'))
+          .toSet();
+      expect(renamedNames, {
+        '2026-04-07-09-03-05.JPG',
+        '2026-04-07-09-03-06.JPG',
+      });
+
+      // Occupy A's ORIGINAL name with an unrelated file before undo -- the
+      // refusal scenario introduced by 26db896.
+      await File(p.join(tempDir.path, 'A.JPG')).writeAsBytes(<int>[9, 9, 9]);
+
+      items = [
+        PhotoItem(
+          id: '2026-04-07-09-03-05',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-05.JPG'))],
+        ),
+        PhotoItem(
+          id: '2026-04-07-09-03-06',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-06.JPG'))],
+        ),
+      ];
+      final second = buildCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        selectedIdOf: () => null,
+      );
+
+      await second.coordinator.undoRename();
+
+      // The refused entry's original file must be untouched, and B must
+      // still have been restored.
+      expect(
+        await File(p.join(tempDir.path, 'A.JPG')).readAsBytes(),
+        [9, 9, 9],
+        reason: 'the occupying file must not be overwritten by undo',
+      );
+      expect(File(p.join(tempDir.path, 'B.JPG')).existsSync(), isTrue);
+
+      final lastMessage = second.messages.last;
+      expect(lastMessage.text, contains('失敗'));
+      expect(lastMessage.text, contains('2026-04-07-09-03-05'));
+    });
+
+    // -----------------------------------------------------------------
+    // SF-3: real-filesystem exercise of the refusal logic (26db896,
+    // rename_service.dart:238-255) through `undoLastRename`, driven via the
+    // coordinator's public undoRename() so the whole seam -- journal replay,
+    // refusal, status remap and message -- is proven end to end.
+    // -----------------------------------------------------------------
+    test('TC-729 real filesystem: undo refuses to overwrite an unrelated '
+        'file occupying an original name; other entries still undo',
+        () async {
+      for (final name in ['A', 'B', 'C']) {
+        await File(p.join(tempDir.path, '$name.JPG')).writeAsBytes(<int>[1]);
+      }
+
+      final statusStore = PhotoStatusStore();
+      var items = [
+        PhotoItem(id: 'A', files: [File(p.join(tempDir.path, 'A.JPG'))]),
+        PhotoItem(id: 'B', files: [File(p.join(tempDir.path, 'B.JPG'))]),
+        PhotoItem(id: 'C', files: [File(p.join(tempDir.path, 'C.JPG'))]),
+      ];
+
+      final dates = {
+        'A': DateTime(2026, 4, 7, 9, 3, 5),
+        'B': DateTime(2026, 4, 7, 9, 3, 6),
+        'C': DateTime(2026, 4, 7, 9, 3, 7),
+      };
+      final firstCoordinator = RenameCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        dirOf: () => tempDir,
+        selectedIdOf: () => 'A',
+        readMetadata: (its, {onProgress}) async => {
+          for (final item in its) item.id: ExifMetadata(captureDate: dates[item.id]!),
+        },
+        showStatus: (_) {},
+        reloadFolder: (d, {targetSelectionId}) async {},
+        notify: () {},
+      );
+      await firstCoordinator.renameByExif(
+        const RenameRule(RenameRule.kDefaultTemplate),
+        isCustom: false,
+      );
+
+      final renamedNames = tempDir
+          .listSync()
+          .map((e) => p.basename(e.path))
+          .where((n) => !n.startsWith('.'))
+          .toSet();
+      expect(renamedNames, {
+        '2026-04-07-09-03-05.JPG',
+        '2026-04-07-09-03-06.JPG',
+        '2026-04-07-09-03-07.JPG',
+      });
+
+      // Occupy B's original name with an unrelated file's content -- this is
+      // the real-filesystem trigger for the refusal branch in
+      // `_refuseIfOverwritingOtherFile` (rename_service.dart:306-...): `to`
+      // (B.JPG) now resolves to a canonical path different from `from`
+      // (2026-04-07-09-03-06.JPG).
+      final occupyingContent = <int>[42, 42, 42, 42];
+      await File(p.join(tempDir.path, 'B.JPG')).writeAsBytes(occupyingContent);
+
+      items = [
+        PhotoItem(
+          id: '2026-04-07-09-03-05',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-05.JPG'))],
+        ),
+        PhotoItem(
+          id: '2026-04-07-09-03-06',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-06.JPG'))],
+        ),
+        PhotoItem(
+          id: '2026-04-07-09-03-07',
+          files: [File(p.join(tempDir.path, '2026-04-07-09-03-07.JPG'))],
+        ),
+      ];
+      final second = buildCoordinator(
+        statusStore: statusStore,
+        itemsOf: () => items,
+        selectedIdOf: () => null,
+      );
+
+      await second.coordinator.undoRename();
+
+      // (a) the refused entry is reported as a failure, not silently
+      // overwritten -- its message names the entry.
+      final lastMessage = second.messages.last;
+      expect(lastMessage.text, contains('失敗'));
+      expect(lastMessage.text, contains('2026-04-07-09-03-06'));
+
+      // (b) the occupying file's content is intact -- refusal, not overwrite.
+      expect(
+        await File(p.join(tempDir.path, 'B.JPG')).readAsBytes(),
+        occupyingContent,
+      );
+      // The renamed file that WOULD have been moved onto B.JPG is still
+      // there under its post-rename name, since the move never happened.
+      expect(
+        File(p.join(tempDir.path, '2026-04-07-09-03-06.JPG')).existsSync(),
+        isTrue,
+      );
+
+      // (c) the other two entries undid successfully.
+      expect(File(p.join(tempDir.path, 'A.JPG')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'C.JPG')).existsSync(), isTrue);
+      expect(
+        File(p.join(tempDir.path, '2026-04-07-09-03-05.JPG')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(p.join(tempDir.path, '2026-04-07-09-03-07.JPG')).existsSync(),
+        isFalse,
+      );
+    });
   });
 
   testWidgets('TC-228 displayProvider returns the identical object '
