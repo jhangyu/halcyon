@@ -96,6 +96,21 @@ void main() {
 
   final items = rawItems(14);
 
+  /// An OPAQUE 64x48 RGBA frame. Alpha must be 0xFF: the identity
+  /// short-circuit in decoded_rgba_image_provider.dart asserts (debug-only)
+  /// that sampled alpha is opaque, because it returns STRAIGHT RGBA where the
+  /// old readback path returned PREMULTIPLIED. A zero-filled buffer trips that
+  /// assert, which turns every item in these tests into a permanent miss for a
+  /// reason neither TC-366 nor TC-367 is about -- neither asserts anything
+  /// about alpha. Same repair as commits 253b89f / d43c2a1.
+  DecodedRgba opaqueDecoded() {
+    final rgba = Uint8List(64 * 48 * 4);
+    for (var i = 3; i < rgba.length; i += 4) {
+      rgba[i] = 0xFF;
+    }
+    return DecodedRgba(rgba: rgba, width: 64, height: 48);
+  }
+
   Future<void> navigateTo(
     ImagePreloadController controller,
     List<PhotoItem> items, {
@@ -131,7 +146,7 @@ void main() {
         imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           decodeCallsByPath.update(path, (n) => n + 1, ifAbsent: () => 1);
-          return DecodedRgba(rgba: Uint8List(64 * 48 * 4), width: 64, height: 48);
+          return opaqueDecoded();
         },
         payloadEncoder: fakeJpegEncoder,
       );
@@ -194,7 +209,7 @@ void main() {
       imageLoader: needsRawDecodeLoader,
       dngDecoder: (path) async {
         decodeCallsByPath.update(path, (n) => n + 1, ifAbsent: () => 1);
-        return DecodedRgba(rgba: Uint8List(64 * 48 * 4), width: 64, height: 48);
+        return opaqueDecoded();
       },
       payloadEncoder: null,
     );

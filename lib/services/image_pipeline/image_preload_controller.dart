@@ -19,6 +19,9 @@ import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
 import 'sidebar_thumbnail_controller.dart';
 import 'decode_lane.dart';
+import 'encode_stage.dart';
+import 'inflight_bytes_budget.dart';
+import 'publication_pacer.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
 
@@ -100,13 +103,34 @@ class ImagePreloadController {
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
+    int encodeStageWidth = 2,
+    FrameHook? scheduleFrameCallback,
+    int publicationsPerFrame = 1,
+    int? inflightByteBudget,
   }) : _retention = retention,
+       _inflight = InflightBytesBudget(
+         maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
+       ),
+       _pacer = PublicationPacer(
+         scheduleFrameCallback: scheduleFrameCallback,
+         perFrame: publicationsPerFrame,
+         // SIZED FROM THE WINDOW, not left at the unit's default of 4. One
+         // navigation pass submits a registration for EVERY retained slot
+         // (-3..+5 == 9 of them), and the pacer's overflow rule drops the
+         // highest-rank entry outright -- with a queue of 4 the far half of
+         // the window would never receive a tier-1 entry at all, which is the
+         // AC2 guarantee ("every slot of the retention window holds a tier-1
+         // entry"). Pacing is about WHEN a registration lands, never about
+         // whether it lands.
+         maxQueued: retention.before + retention.after + 1,
+       ),
        _source = PhotoSource(
          loader: imageLoader,
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
        ),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
+       _encodeStage = EncodeStage(width: encodeStageWidth),
        _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -128,6 +152,7 @@ class ImagePreloadController {
     if (policy == _retention) return;
     _retention = policy;
     _cache.setByteBudget(policy.payloadByteBudget);
+    _inflight.maxBytes = policy.payloadByteBudget ~/ 4;
   }
 
   @visibleForTesting
@@ -171,6 +196,39 @@ class ImagePreloadController {
     retentionIds: () => _retentionIds,
     republishEvictionPriority: _republishEvictionPriority,
   );
+
+  /// The JPEG re-encode's own bounded stage. Deliberately NOT the [DecodeLane]:
+  /// the encode measured 89ms median and used to hold a decode slot for all of
+  /// it, so lane throughput was decode + encode rather than decode alone. The
+  /// lane's key-dedup, priority replacement and near-to-far ordering exist to
+  /// schedule DECODES; an encode has neither a key space nor a distance.
+  final EncodeStage _encodeStage;
+
+  @visibleForTesting
+  int get debugEncodeStageRunningCount => _encodeStage.runningCount;
+
+  /// Owns every tier-1 ImageCache registration's TIMING. The pipeline had no
+  /// notion of a frame budget anywhere: [_precacheTierOneWindow] walked the
+  /// whole retention window in one synchronous loop on every navigation pass,
+  /// so codec-completion work arrived as one clump behind one navigation
+  /// event. The selected item stays exempt, so first-paint latency for the
+  /// photo the user is looking at is unchanged.
+  final PublicationPacer _pacer;
+
+  /// Bounds the TRANSIENT full-frame buffers the stage split puts in flight --
+  /// the decoded RGBA, the oriented full-res RGBA and the encoder's input.
+  ///
+  /// [RetentionPolicy.payloadByteBudget] does NOT cover these: it counts
+  /// RETAINED payloads (`photo_payload_cache.dart`), and every buffer here is
+  /// in flight and invisible to it. A per-stage TASK COUNT is not a memory
+  /// bound either, because per-item buffers vary by 5x across a mixed folder.
+  ///
+  /// The default is a quarter of the payload budget -- derived from an
+  /// existing, RAM-tiered number rather than a new magic constant.
+  final InflightBytesBudget _inflight;
+
+  @visibleForTesting
+  int get debugInflightBytes => _inflight.inFlightBytes;
 
   @visibleForTesting
   Set<String> get debugThumbPermanentMisses => _sidebar.permanentMisses;
@@ -453,6 +511,9 @@ class ImagePreloadController {
     _navPriorityIds = [];
     _evictTierOneKeys();
     _decodeLane.clearPending();
+    _encodeStage.clear();
+    _pacer.clear();
+    _inflight.clear();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
@@ -475,6 +536,9 @@ class ImagePreloadController {
   void dispose() {
     _sidebar.dispose();
     _decodeLane.clearPending();
+    _encodeStage.clear();
+    _pacer.clear();
+    _inflight.clear();
     _tierTwoScheduler.cancelDebounce();
     _evictTierOneKeys();
     _tierTwo.clear();
@@ -599,8 +663,11 @@ class ImagePreloadController {
     // tier-2 scheduling must not wait for the lane to drain, or a nine-slot
     // RAW window would push the full-size decode of the item the user is
     // looking at behind eight decodes it does not need yet.
-    final nearToFarOrder = _nearToFarIndices(currentIndex, startIdx, endIdx)
-        .toList();
+    final nearToFarOrder = _nearToFarIndices(
+      currentIndex,
+      startIdx,
+      endIdx,
+    ).toList();
     // Eviction rank is NOT the load order: budget eviction drops the id
     // farthest OUTSIDE the tier-2 full-size band (-kTierTwoBefore..
     // +kTierTwoAfter) first — -3, then +5, then -2, then +4 — and only then
@@ -621,18 +688,19 @@ class ImagePreloadController {
     // here, order-independent), then route them -- including every serial
     // lane enqueue -- synchronously in ONE burst in near-to-far order below,
     // so the lane always sees the ruled start order regardless of width.
-    final probeFutures = <
-        Future<
+    final probeFutures =
+        <
+          Future<
             ({
               PhotoItem item,
               int distance,
               VoidCallback? notifyLoaded,
               ProbeResult probe,
-            })?>>[];
+            })?
+          >
+        >[];
     for (final i in nearToFarOrder) {
-      probeFutures.add(
-        _probeWindowItem(items[i], distance: i - currentIndex),
-      );
+      probeFutures.add(_probeWindowItem(items[i], distance: i - currentIndex));
     }
     final probeResults = await Future.wait(probeFutures);
 
@@ -710,18 +778,17 @@ class ImagePreloadController {
       return 0;
     }
 
-    return nearToFarOrder.toList()
-      ..sort((a, b) {
-        final oa = outsideBand(a);
-        final ob = outsideBand(b);
-        if (oa != ob) return oa - ob;
-        final da = a - currentIndex;
-        final db = b - currentIndex;
-        if (oa == 0 && da.abs() != db.abs()) return da.abs() - db.abs();
-        // Beyond the band, distance-to-selection is irrelevant: at equal
-        // beyond-band distance the behind (-) side always loses the tie.
-        return (da < 0 ? 1 : 0) - (db < 0 ? 1 : 0);
-      });
+    return nearToFarOrder.toList()..sort((a, b) {
+      final oa = outsideBand(a);
+      final ob = outsideBand(b);
+      if (oa != ob) return oa - ob;
+      final da = a - currentIndex;
+      final db = b - currentIndex;
+      if (oa == 0 && da.abs() != db.abs()) return da.abs() - db.abs();
+      // Beyond the band, distance-to-selection is irrelevant: at equal
+      // beyond-band distance the behind (-) side always loses the tie.
+      return (da < 0 ? 1 : 0) - (db < 0 ? 1 : 0);
+    });
   }
 
   /// Flushes the callbacks parked by callers who selected [id] while somebody
@@ -800,20 +867,23 @@ class ImagePreloadController {
   /// the serial lane. Returns null when [item] was already resolved by a
   /// fast path (nothing left for phase 2).
   Future<
-      ({
-        PhotoItem item,
-        int distance,
-        VoidCallback? notifyLoaded,
-        ProbeResult probe,
-      })?> _probeWindowItem(
-    PhotoItem item, {
-    required int distance,
-  }) async {
+    ({
+      PhotoItem item,
+      int distance,
+      VoidCallback? notifyLoaded,
+      ProbeResult probe,
+    })?
+  >
+  _probeWindowItem(PhotoItem item, {required int distance}) async {
     final id = item.id;
     if (_earlyResolve(id, null)) return null;
     final file = item.bestFileToLoad;
     if (file == null) return null;
-    final probed = await _scheduler.classify(id, file.path, longEdge: _longEdge);
+    final probed = await _scheduler.classify(
+      id,
+      file.path,
+      longEdge: _longEdge,
+    );
     return (item: item, distance: distance, notifyLoaded: null, probe: probed);
   }
 
@@ -890,6 +960,9 @@ class ImagePreloadController {
     }
 
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
+    // Set when the encode is handed to [_finishOffLane]: the `_loadingKeys`
+    // claim then belongs to that continuation, not to this `finally`.
+    var handedOff = false;
     try {
       // Only the lane's own task body may run a real RAW decode. Everywhere
       // else `allowExpensive: false` is what makes the bridge answer
@@ -928,140 +1001,57 @@ class ImagePreloadController {
       // landing inside the await would otherwise file this answer under a
       // viewport that never asked the question.
       final loadLongEdge = _longEdge;
-      final outcome =
+      final decode =
           canDoExpensive &&
               cost == SourceCost.expensive &&
               knownOrientation != null
-          ? await _source.loadExpensive(
+          ? await _source.decodePhaseExpensive(
               file.path,
               longEdge: loadLongEdge,
               exifOrientation: knownOrientation,
             )
-          : await _source.load(
+          : await _source.decodePhase(
               file.path,
               longEdge: loadLongEdge,
               allowExpensive: canDoExpensive,
             );
-      _scheduler.observe(id, outcome.observedCost, longEdge: loadLongEdge);
-      // Rung-2 only: reached when the probe could not measure the file, so the
-      // bridge answer is the sole orientation available (frozen contract A-§2).
-      if (outcome.exifOrientation != null) {
-        _exifOrientations.putIfAbsent(id, () => outcome.exifOrientation!);
+
+      // THE STAGE BOUNDARY. A real decode ran and an encode is owed, and this
+      // call IS the lane's task body -- so return now and let the encode run
+      // on its own stage. The lane slot is freed here; the `_loadingKeys`
+      // claim is NOT (see [_finishOffLane]).
+      if (onSerialLane && decode.pixels != null) {
+        handedOff = true;
+        unawaited(
+          _finishOffLane(
+            item,
+            decode: decode,
+            distance: distance,
+            notifyLoaded: notifyLoaded,
+            loadLongEdge: loadLongEdge,
+          ),
+        );
+        return;
       }
-      final payload = outcome.payload;
-      // PERF-INSTRUMENTATION
+
+      final outcome = await _source.encodePhase(decode);
+      // PERF-INSTRUMENTATION. Emitted by the CALLER rather than from inside
+      // [_completeOutcome], because the round trip it reports is measured from
+      // this method's entry -- the off-lane continuation has its own start
+      // instant and reports its own interval.
       PerfLog.log(
-        'channel.preview|$id|bytes=${payload?.byteCost ?? -1}'
+        'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedIdForPerf}',
       );
-
-      if (payload != null) {
-        // The orientation memo deliberately SURVIVES a successful load. It is
-        // a property of the file, not of this attempt; dropping it here would
-        // make an item that leaves the retention window and comes back buy it
-        // again from the bridge, which is the round trip I6 forbids.
-        if (!_retentionIds.contains(id)) {
-          // Left the window while the load was in flight. Release parked
-          // callbacks (review F-3 fix, 2026-08-27) -- same pattern as the
-          // lane body's window refusal.
-          _flushPendingNotifies(id);
-          return;
-        }
-        _cache.put(id, payload);
-        // Whoever produced it, the sidebar's waiters get their tile from THIS
-        // payload -- never from a second decode of their own (D5 decision 2).
-        _sidebar.onPayloadLanded(id, payload);
-        if (onSerialLane) {
-          // A serially landed payload gets its tier-1 ImageCache entry HERE,
-          // not on "the next navigation pass": when the user has stopped
-          // navigating there is no next pass, and the item would sit retained
-          // with nothing decoded for it -- the very stall this ruling exists
-          // to remove. Cheap items keep taking the batched route in
-          // [_precacheTierOneWindow], which runs microseconds after their
-          // parallel loads land anyway.
-          _precacheTierOneFor(id, payload);
-        }
-      } else if (!outcome.deferred) {
-        // Every source failed, including the legacy fallback. Mark it so the
-        // view can say "unreadable" instead of spinning forever, and so no
-        // later pass asks again. This is the load-bearing edge of design §3.4:
-        // the ONLY new stranding risk in M3 is a failure that nobody records.
-        _permanentMisses.add(id);
-        _sidebar.onPayloadMiss(id);
-        // DIAGNOSTIC (2026-09-02). THE latch: from here nothing re-asks about
-        // this item until the folder reloads (`_earlyResolve`'s permanent-miss
-        // branch), so whatever caused this one failure is frozen for the whole
-        // session. One line per id per folder load, bounded by the set that was
-        // just written -- the same volume budget
-        // `SidebarThumbnailController.logFailure` has.
-        debugPrint(
-          'halcyon.preview.latch|id=$id|code=${outcome.failureCode ?? 'none'}'
-          '|cost=${outcome.observedCost}|-> unreadable for this session',
-        );
-        // D3 (docs/logs/2026-08-26/raw-support-contract.md): PhotoSource
-        // decides "no native RAW decoder on this platform" BEFORE invoking
-        // anything (a static platform property, not a caught decode
-        // failure) and carries it as `outcome.failureCode`, so the
-        // disambiguation from every other permanent-miss cause (a genuine
-        // decode/read failure, or a D2 browse-only RAW) is just reading the
-        // code back, not re-deriving it here.
-        if (outcome.failureCode == kNoNativeDecoderCode) {
-          _noNativeDecoderMisses.add(id);
-        }
-      }
-      // LANE HANDOFF. A deferred outcome means the probe could not measure the
-      // file and the BRIDGE was the one to answer "this needs a real RAW
-      // decode" (photo_source.dart's `allowExpensive: false` arm). Such an item
-      // must be re-enqueued on the serial lane, never left for a debounced pass
-      // to pick up: since the 2026-08-26 ruling the lane is the only producer
-      // of expensive payloads, so "wait for the next sweep" would be a spinner
-      // with no owner. The bridge's orientation was memoised a few lines above,
-      // so the lane's retry uses `loadExpensive` and buys no second round trip
-      // (invariant I6).
-      if (outcome.deferred && !onSerialLane) {
-        _enqueueSerialLoad(
-          item,
-          distance: distance,
-          notifyLoaded: notifyLoaded,
-        );
-      }
-      // A deferred item is the one case with nothing to report yet, and its
-      // parked callbacks must SURVIVE this call -- they belong to the lane task
-      // that will actually produce the payload.
-      final resolved = payload != null || _permanentMisses.contains(id);
-      if (resolved) {
-        notifyLoaded?.call();
-        _flushPendingNotifies(id);
-      }
-
-      // PIGGYBACK (design §2.2). The source hands back full-resolution oriented
-      // pixels ONLY when a real FFI decode ran in this very call, so the
-      // full-resolution tier-2 entry costs no extra decoder call -- which is
-      // what keeps the hash-frozen navigation probes' "decoder called exactly
-      // once" assertions green. Done AFTER the notify above so the window
-      // -resolution frame reaches the screen first; the upload itself is a
-      // memcpy plus a GPU upload, and it stays on this sequential queue.
-      // PIGGYBACK (design §2.2). Unchanged in purpose: the full-resolution
-      // pixels this very decode produced are uploaded once, for free. The
-      // PixelPayload type test is gone because a re-encoded RAW retains an
-      // EncodedPayload -- the registry anchors on payload object IDENTITY, not
-      // on the payload's kind (raw_full_res_image.dart:45), so this works for
-      // both kinds without touching TierTwoRegistry's containers (AD-027
-      // intact).
-      final fullRes = outcome.fullRes;
-      if (fullRes != null &&
-          payload != null &&
-          identical(_cache.peek(id), payload) &&
-          _tierTwoScheduler.isInWindow(id) &&
-          !_tierTwo.hasFullResEntryFor(id, payload)) {
-        await _tierTwoScheduler.publishPiggybackFullRes(
-          id,
-          payload,
-          fullRes,
-          notifyLoaded,
-        );
-      }
+      await _completeOutcome(
+        item,
+        outcome: outcome,
+        distance: distance,
+        notifyLoaded: notifyLoaded,
+        onSerialLane: onSerialLane,
+        loadLongEdge: loadLongEdge,
+      );
     } catch (_) {
       // A source threw (e.g. a PlatformException the native side did not
       // convert to null, or a MissingPluginException on an unimplemented
@@ -1078,7 +1068,209 @@ class ImagePreloadController {
       }
       rethrow;
     } finally {
+      // NOT released on the hand-off path: production of this payload now
+      // belongs to [_finishOffLane], and a released claim would let a second
+      // producer decode the same file while the first is still encoding.
+      if (!handedOff) _loadingKeys.remove(id);
+    }
+  }
+
+  /// The encode half of an expensive load, run OFF the [DecodeLane].
+  ///
+  /// The lane slot was released when `_ensurePayload` returned, so the ~89ms
+  /// encode no longer blocks the next decode. Two things must therefore be
+  /// true here and are:
+  ///
+  ///   * `_loadingKeys` still holds [item]'s id -- released only in this
+  ///     method's `finally`. Releasing it at lane-body return would let a
+  ///     second producer start a duplicate decode while this encode runs.
+  ///   * nothing is unawaited-and-unguarded: this future has no caller, so a
+  ///     throw here would be an unhandled async error AND a stranded spinner.
+  ///     Both are handled below, mirroring `DecodeLane._runOne`'s "one item's
+  ///     failure must not wedge the pipeline" rule.
+  Future<void> _finishOffLane(
+    PhotoItem item, {
+    required SourceDecode decode,
+    required int distance,
+    required VoidCallback? notifyLoaded,
+    required int loadLongEdge,
+  }) async {
+    final id = item.id;
+    final tCh = PerfLog.us; // PERF-INSTRUMENTATION
+    // Sized from what this decode is actually holding. Acquired AFTER the
+    // decode, never before: a pre-decode acquire would put a second admission
+    // gate in front of [DecodeLane] and the two could deadlock against each
+    // other's width.
+    final bytes =
+        decode.fullRes?.rgba.lengthInBytes ?? decode.pixels?.byteCost ?? 0;
+    await _inflight.acquire(bytes);
+    try {
+      final outcome = await _encodeStage.run(() => _source.encodePhase(decode));
+      PerfLog.log(
+        'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
+        '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
+        '|isSelected=${id == _selectedIdForPerf}',
+      );
+      await _completeOutcome(
+        item,
+        outcome: outcome,
+        distance: distance,
+        notifyLoaded: notifyLoaded,
+        onSerialLane: true,
+        loadLongEdge: loadLongEdge,
+      );
+    } catch (_) {
+      // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
+      // this item so they do not strand on a permanent spinner, and release
+      // the handle nobody will publish. No rethrow -- there is no caller.
+      decode.fullRes?.image?.dispose();
+      final pending = _pendingPreviewNotifies.remove(id);
+      for (final cb in pending ?? const <VoidCallback>[]) {
+        cb();
+      }
+    } finally {
+      // Released exactly once, after [_completeOutcome] has either retained or
+      // dropped the payload -- the buffers are only out of flight then.
+      _inflight.release(bytes);
       _loadingKeys.remove(id);
+    }
+  }
+
+  /// Everything that happens once an outcome exists: cost memo, orientation
+  /// memo, cache write, sidebar hand-off, tier-1 precache, permanent-miss
+  /// bookkeeping, lane hand-off for a deferred item, notify, piggyback.
+  ///
+  /// Extracted so BOTH the inline path and the off-lane encode continuation
+  /// run identical code. It is a MOVE, not a rewrite.
+  ///
+  /// Every staleness re-check inside it is now behind one MORE await than it
+  /// used to be (the encode), which is exactly why none of them may be
+  /// weakened or hoisted (G-023).
+  Future<void> _completeOutcome(
+    PhotoItem item, {
+    required SourceOutcome outcome,
+    required int distance,
+    required VoidCallback? notifyLoaded,
+    required bool onSerialLane,
+    required int loadLongEdge,
+  }) async {
+    final id = item.id;
+    _scheduler.observe(id, outcome.observedCost, longEdge: loadLongEdge);
+    // Rung-2 only: reached when the probe could not measure the file, so the
+    // bridge answer is the sole orientation available (frozen contract A-§2).
+    if (outcome.exifOrientation != null) {
+      _exifOrientations.putIfAbsent(id, () => outcome.exifOrientation!);
+    }
+    final payload = outcome.payload;
+
+    if (payload != null) {
+      // The orientation memo deliberately SURVIVES a successful load. It is
+      // a property of the file, not of this attempt; dropping it here would
+      // make an item that leaves the retention window and comes back buy it
+      // again from the bridge, which is the round trip I6 forbids.
+      if (!_retentionIds.contains(id)) {
+        // Left the window while the load was in flight. Release parked
+        // callbacks (review F-3 fix, 2026-08-27) -- same pattern as the
+        // lane body's window refusal. The piggyback handle has no other
+        // owner from here, so it is released too (I-DISPOSE).
+        outcome.fullRes?.image?.dispose();
+        _flushPendingNotifies(id);
+        return;
+      }
+      _cache.put(id, payload);
+      // Whoever produced it, the sidebar's waiters get their tile from THIS
+      // payload -- never from a second decode of their own (D5 decision 2).
+      _sidebar.onPayloadLanded(id, payload);
+      if (onSerialLane) {
+        // A serially landed payload gets its tier-1 ImageCache entry HERE,
+        // not on "the next navigation pass": when the user has stopped
+        // navigating there is no next pass, and the item would sit retained
+        // with nothing decoded for it -- the very stall this ruling exists
+        // to remove. Cheap items keep taking the batched route in
+        // [_precacheTierOneWindow], which runs microseconds after their
+        // parallel loads land anyway.
+        _precacheTierOneFor(id, payload, distance: distance);
+      }
+    } else if (!outcome.deferred) {
+      // Every source failed, including the legacy fallback. Mark it so the
+      // view can say "unreadable" instead of spinning forever, and so no
+      // later pass asks again. This is the load-bearing edge of design §3.4:
+      // the ONLY new stranding risk in M3 is a failure that nobody records.
+      _permanentMisses.add(id);
+      _sidebar.onPayloadMiss(id);
+      // DIAGNOSTIC (2026-09-02). THE latch: from here nothing re-asks about
+      // this item until the folder reloads (`_earlyResolve`'s permanent-miss
+      // branch), so whatever caused this one failure is frozen for the whole
+      // session. One line per id per folder load, bounded by the set that was
+      // just written -- the same volume budget
+      // `SidebarThumbnailController.logFailure` has.
+      debugPrint(
+        'halcyon.preview.latch|id=$id|code=${outcome.failureCode ?? 'none'}'
+        '|cost=${outcome.observedCost}|-> unreadable for this session',
+      );
+      // D3 (docs/logs/2026-08-26/raw-support-contract.md): PhotoSource
+      // decides "no native RAW decoder on this platform" BEFORE invoking
+      // anything (a static platform property, not a caught decode
+      // failure) and carries it as `outcome.failureCode`, so the
+      // disambiguation from every other permanent-miss cause (a genuine
+      // decode/read failure, or a D2 browse-only RAW) is just reading the
+      // code back, not re-deriving it here.
+      if (outcome.failureCode == kNoNativeDecoderCode) {
+        _noNativeDecoderMisses.add(id);
+      }
+    }
+    // LANE HANDOFF. A deferred outcome means the probe could not measure the
+    // file and the BRIDGE was the one to answer "this needs a real RAW
+    // decode" (photo_source.dart's `allowExpensive: false` arm). Such an item
+    // must be re-enqueued on the serial lane, never left for a debounced pass
+    // to pick up: since the 2026-08-26 ruling the lane is the only producer
+    // of expensive payloads, so "wait for the next sweep" would be a spinner
+    // with no owner. The bridge's orientation was memoised a few lines above,
+    // so the lane's retry uses `loadExpensive` and buys no second round trip
+    // (invariant I6).
+    if (outcome.deferred && !onSerialLane) {
+      _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
+    }
+    // A deferred item is the one case with nothing to report yet, and its
+    // parked callbacks must SURVIVE this call -- they belong to the lane task
+    // that will actually produce the payload.
+    final resolved = payload != null || _permanentMisses.contains(id);
+    if (resolved) {
+      notifyLoaded?.call();
+      _flushPendingNotifies(id);
+    }
+
+    // PIGGYBACK (design §2.2). The source hands back full-resolution oriented
+    // pixels ONLY when a real FFI decode ran in this very call, so the
+    // full-resolution tier-2 entry costs no extra decoder call -- which is
+    // what keeps the hash-frozen navigation probes' "decoder called exactly
+    // once" assertions green. Done AFTER the notify above so the window
+    // -resolution frame reaches the screen first.
+    //
+    // The PixelPayload type test is gone because a re-encoded RAW retains an
+    // EncodedPayload -- the registry anchors on payload object IDENTITY, not
+    // on the payload's kind (raw_full_res_image.dart:45), so this works for
+    // both kinds without touching TierTwoRegistry's containers (AD-027
+    // intact).
+    //
+    // The window / payload-identity / already-published checks that used to
+    // live here now live inside publishPiggybackFullRes, together with the
+    // matching `ui.Image` dispose. Duplicating them here would be a second
+    // place that must remember to release a ~50MB handle.
+    final fullRes = outcome.fullRes;
+    if (fullRes != null) {
+      if (payload != null) {
+        await _tierTwoScheduler.publishPiggybackFullRes(
+          id,
+          payload,
+          fullRes,
+          notifyLoaded,
+        );
+      } else {
+        // No payload survived, so no publisher will ever take ownership.
+        // This is the one dispose the controller owns.
+        fullRes.image?.dispose();
+      }
     }
   }
 
@@ -1132,7 +1324,11 @@ class ImagePreloadController {
 
   /// Decodes ONE item's tier-1 entry, for a payload that has just landed off
   /// the serial lane. The batched sibling is [_precacheTierOneWindow].
-  void _precacheTierOneFor(String id, SourcePayload payload) {
+  void _precacheTierOneFor(
+    String id,
+    SourcePayload payload, {
+    required int distance,
+  }) {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
     if (width == null || height == null) return;
@@ -1146,6 +1342,9 @@ class ImagePreloadController {
     _decodeIntoImageCache(
       id,
       _tierOneProviderForPayload(payload, width: width, height: height),
+      payload: payload,
+      rank: laneRankFor(distance),
+      exempt: distance == 0,
     );
   }
 
@@ -1198,10 +1397,7 @@ class ImagePreloadController {
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + retention.after).clamp(
-      0,
-      items.length - 1,
-    );
+    final tierEnd = (currentIndex + retention.after).clamp(0, items.length - 1);
     // Same window the retention-cache sweep in preloadImages used, recomputed
     // from the same constants via the shared helper (C6) so this method's idea
     // of the window and the cache's cannot drift apart. The decode loop below
@@ -1223,6 +1419,9 @@ class ImagePreloadController {
       _decodeIntoImageCache(
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),
+        payload: payload,
+        rank: laneRankFor(i - currentIndex),
+        exempt: i == currentIndex,
       );
     }
 
@@ -1264,7 +1463,39 @@ class ImagePreloadController {
     };
   }
 
-  void _decodeIntoImageCache(String id, ImageProvider provider) {
+  /// Submits ONE tier-1 registration to the pacer.
+  ///
+  /// Invariant I1: [provider] is built by the CALLER, at submit time, from the
+  /// RETAINED payload object, and captured in the closure below. Rebuilding it
+  /// at drain time from re-read bytes would produce a different provider key
+  /// and silently double-decode.
+  ///
+  /// [stillValid] re-checks at DRAIN time the same two conditions
+  /// [_precacheTierOneFor] checks inline at submit time (G-023): between submit
+  /// and drain the id may have left the navigation window or the payload object
+  /// may have been replaced.
+  void _decodeIntoImageCache(
+    String id,
+    ImageProvider provider, {
+    required SourcePayload payload,
+    required int rank,
+    required bool exempt,
+  }) {
+    _pacer.submit(
+      id: id,
+      rank: rank,
+      exempt: exempt,
+      stillValid: () =>
+          _navRetentionIds.contains(id) && identical(_cache.peek(id), payload),
+      publish: () => _publishTierOneRegistration(id, provider),
+      // Nothing is held: a skipped registration degrades to an on-demand decode
+      // at display time, which is already this path's documented fallback when
+      // [updateTargetSize] has not been called.
+      discard: null,
+    );
+  }
+
+  void _publishTierOneRegistration(String id, ImageProvider provider) {
     _registerDecode(provider, onReady: () {}, onError: () {});
     provider
         .obtainKey(const ImageConfiguration())
