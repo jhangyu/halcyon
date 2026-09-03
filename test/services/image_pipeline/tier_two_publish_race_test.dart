@@ -146,6 +146,7 @@ void main() {
         payload,
         (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1, image: null),
         () {},
+        distance: 0,
       );
       final piggybackProvider = registry.providerFor('a0');
       expect(piggybackProvider, isNotNull);

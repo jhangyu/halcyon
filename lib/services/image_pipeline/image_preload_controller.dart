@@ -362,6 +362,12 @@ class ImagePreloadController {
     exifOrientationFor: (id) => _exifOrientations[id],
     navigationDebounce: tierTwoNavigationDebounce,
     compositeGate: _compositeGate,
+    // Contract deliverable 2: tier-2 full-resolution publishes now go
+    // through the SAME pacer instance as tier-1 registrations, not a second
+    // pacing mechanism. `PublicationPacer.submit`'s signature is exactly
+    // `TierTwoScheduler`'s `PublishPacer` shape, so this is the pacer's own
+    // method, not a wrapper.
+    publishPacer: _pacer.submit,
   );
 
   // Items no source could produce anything for (corrupt/truncated/unsupported,
@@ -1324,6 +1330,7 @@ class ImagePreloadController {
           payload,
           fullRes,
           notifyLoaded,
+          distance: distance,
         );
       } else {
         // No payload survived, so no publisher will ever take ownership.
@@ -1404,7 +1411,7 @@ class ImagePreloadController {
       _tierOneProviderForPayload(payload, width: width, height: height),
       payload: payload,
       rank: laneRankFor(distance),
-      exempt: distance == 0,
+      exempt: isSelectedExempt(distance),
     );
   }
 
@@ -1481,7 +1488,7 @@ class ImagePreloadController {
         _tierOneProviderForPayload(payload, width: width, height: height),
         payload: payload,
         rank: laneRankFor(i - currentIndex),
-        exempt: i == currentIndex,
+        exempt: isSelectedExempt(i - currentIndex),
       );
     }
 

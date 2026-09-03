@@ -59,6 +59,7 @@ void main() {
       payload,
       (rgba: Uint8List(0), width: 4, height: 4, image: image),
       () {},
+      distance: 0,
     );
     expect(h.registry.keyIds, contains('a'));
     // The published entry IS the supplied handle: an upload would have
@@ -77,6 +78,7 @@ void main() {
       payload,
       (rgba: Uint8List(0), width: 4, height: 4, image: image),
       () {},
+      distance: 0,
     );
     expect(image.debugDisposed, isTrue);
     expect(h.registry.keyIds, isNot(contains('a')));
@@ -94,6 +96,7 @@ void main() {
       published,
       (rgba: Uint8List(0), width: 4, height: 4, image: image),
       () {},
+      distance: 0,
     );
     expect(image.debugDisposed, isTrue);
     expect(h.registry.keyIds, isNot(contains('a')));
@@ -109,6 +112,7 @@ void main() {
       payload,
       (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null),
       () {},
+      distance: 0,
     );
     expect(h.registry.keyIds, contains('a'));
   });

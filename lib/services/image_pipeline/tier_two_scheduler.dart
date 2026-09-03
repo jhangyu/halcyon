@@ -27,6 +27,54 @@ typedef EnsurePayload =
       bool onSerialLane,
     });
 
+/// The pacing seam that gates every tier-2 full-resolution `ui.Image`
+/// hand-off to the registry (contract deliverable 2,
+/// docs/logs/2026-09-04/pacer-followup-contract.md). Signature-identical to
+/// `PublicationPacer.submit` (`publication_pacer.dart`), so the production
+/// binding is that method's tear-off directly -- no wrapper, no second
+/// pacing mechanism. Kept as a typedef here (not an import of
+/// `PublicationPacer`) so this file does not need to know the pacer's
+/// concrete type, only its shape.
+typedef PublishPacer =
+    void Function({
+      required String id,
+      required int rank,
+      required bool exempt,
+      required bool Function() stillValid,
+      required void Function() publish,
+      void Function()? discard,
+    });
+
+/// The default binding: publish immediately when still valid, otherwise
+/// discard. Every existing construction (and every pre-existing test) gets
+/// this, so adding the [PublishPacer] parameter changes no existing call
+/// site's behaviour.
+void immediatePublishPacer({
+  required String id,
+  required int rank,
+  required bool exempt,
+  required bool Function() stillValid,
+  required void Function() publish,
+  void Function()? discard,
+}) {
+  if (stillValid()) {
+    publish();
+  } else {
+    discard?.call();
+  }
+}
+
+/// Contract deliverable 3: the ONE definition of "is this the currently
+/// selected item", shared by every `exempt:` call site instead of each
+/// computing its own copy of the same predicate
+/// (docs/logs/2026-09-03/pacer-exempt-path-audit.md Finding 2 -- two
+/// tier-1 call sites independently wrote `distance == 0` and
+/// `i == currentIndex`, which are the same fact expressed two ways). `distance`
+/// is `index - currentIndex` (or, for the piggyback/upgrade paths, the
+/// distance captured when the item's slot was enqueued): 0 means the
+/// selected item.
+bool isSelectedExempt(int distance) => distance == 0;
+
 /// Builds the tier-2 (full size, unresized) provider for a payload -- bound to
 /// `ImagePreloadController._fullSizeProviderForPayload`.
 ///
@@ -67,6 +115,7 @@ class TierTwoScheduler {
     required int? Function(String id) exifOrientationFor,
     required Duration navigationDebounce,
     CompositeGate compositeGate = immediateCompositeGate,
+    PublishPacer publishPacer = immediatePublishPacer,
   }) : _registry = registry,
        _lane = lane,
        _currentPayloadFor = currentPayloadFor,
@@ -75,7 +124,8 @@ class TierTwoScheduler {
        _dngDecoder = dngDecoder,
        _exifOrientationFor = exifOrientationFor,
        _navigationDebounce = navigationDebounce,
-       _compositeGate = compositeGate;
+       _compositeGate = compositeGate,
+       _publishPacer = publishPacer;
 
   final TierTwoRegistry _registry;
 
@@ -105,6 +155,72 @@ class TierTwoScheduler {
   /// Pacing seam for this class's `decodedRgbaToImage` compositing pass
   /// (contract deliverable 2). Defaults to no pacing.
   final CompositeGate _compositeGate;
+
+  /// Pacing seam for [publishFullRes] hand-offs (contract deliverable 2).
+  /// Defaults to unpaced (immediate) publication.
+  final PublishPacer _publishPacer;
+
+  /// id -> the payload a full-res publish has been SUBMITTED to the pacer
+  /// for, but which has not yet landed in the registry (a non-exempt
+  /// submission that is still queued, or was queued at some point before
+  /// this decode completed).
+  ///
+  /// Without this, pacing a non-selected item's publish reopened exactly the
+  /// "exactly one decoder call" hole AC-M5-4 closed: `_decodeWindow`'s
+  /// catch-up filter and `_enqueueFullResUpgrade`/`_runLoadAndChainTierTwo`'s
+  /// pre-decode guards all ask [TierTwoRegistry.hasFullResEntryFor] /
+  /// [TierTwoRegistry.isReady], and both read `_registry`'s containers, which
+  /// a QUEUED (not yet drained) pacer submission has not written to yet --
+  /// so a debounce settle landing while the first decode's publish still sits
+  /// in the pacer's queue would see "no entry" and buy a SECOND FFI decode
+  /// for the same id (caught by TC-430's decoder-call-count regression during
+  /// this round's implementation; see
+  /// docs/logs/2026-09-04/r1-pacer2-verify.txt).
+  ///
+  /// Cleared by [_publishOrDiscard] exactly once the pacer resolves the
+  /// submission, published or discarded, mirroring the registry's own
+  /// per-payload-object bookkeeping.
+  final Map<String, SourcePayload> _pendingFullResPublish = {};
+
+  /// True when [id]'s full-res publish for [payload] either already landed
+  /// in the registry, or is queued in the pacer waiting to. Every
+  /// pre-decode guard that used to ask only [TierTwoRegistry.hasFullResEntryFor]
+  /// must ask this instead, now that a publish can be paced.
+  bool _hasFullResClaimFor(String id, SourcePayload payload) =>
+      _registry.hasFullResEntryFor(id, payload) ||
+      identical(_pendingFullResPublish[id], payload);
+
+  /// Submits [image] to the pacer, tracking the claim in
+  /// [_pendingFullResPublish] for the submission's lifetime so no other
+  /// caller buys a redundant decode while it is queued.
+  void _publishOrDiscard(
+    String id,
+    SourcePayload payload,
+    int distance,
+    ui.Image image,
+    VoidCallback notifyLoaded,
+  ) {
+    _pendingFullResPublish[id] = payload;
+    _publishPacer(
+      id: id,
+      rank: laneRankFor(distance),
+      exempt: isSelectedExempt(distance),
+      stillValid: () =>
+          _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
+      publish: () {
+        if (identical(_pendingFullResPublish[id], payload)) {
+          _pendingFullResPublish.remove(id);
+        }
+        _registry.publishFullRes(id, payload, image, notifyLoaded);
+      },
+      discard: () {
+        if (identical(_pendingFullResPublish[id], payload)) {
+          _pendingFullResPublish.remove(id);
+        }
+        image.dispose();
+      },
+    );
+  }
 
   Timer? _debounceTimer;
 
@@ -254,8 +370,14 @@ class TierTwoScheduler {
       // Only skip if the ready flag was set for THIS payload -- if the item's
       // payload was replaced since the last decode (e.g. it briefly left the
       // retention window), the flag is stale and the decode must be redone
-      // against the current object (round-2 review BLOCKER 1).
-      final alreadyDecoded = _registry.isReady(item.id);
+      // against the current object (round-2 review BLOCKER 1). Also skip a
+      // payload whose full-res publish is already CLAIMED (landed or paced
+      // and queued): a paced publish for a non-selected item has not written
+      // the registry yet, and without this check this sweep would buy a
+      // second, redundant decode for it (contract deliverable 2 regression,
+      // TC-430).
+      final alreadyDecoded = _registry.isReady(item.id) ||
+          identical(_pendingFullResPublish[item.id], payload);
       if (alreadyDecoded) continue;
       switch (payload) {
         case EncodedPayload():
@@ -363,8 +485,8 @@ class TierTwoScheduler {
       // call. Anything left to do here is the catch-up case (the payload was
       // already cached, so no decode ran), and it is run INLINE because this
       // is already the serial lane's task body.
-      if (_registry.hasFullResEntryFor(item.id, landed)) return;
-      await _upgradeFullRes(item, landed, notifyLoaded);
+      if (_hasFullResClaimFor(item.id, landed)) return;
+      await _upgradeFullRes(item, landed, distance, notifyLoaded);
       return;
     }
     assert(landed is EncodedPayload);
@@ -397,8 +519,8 @@ class TierTwoScheduler {
       body: () async {
         if (!_windowIds.contains(item.id)) return;
         if (!identical(_currentPayloadFor(item.id), payload)) return;
-        if (_registry.hasFullResEntryFor(item.id, payload)) return;
-        await _upgradeFullRes(item, payload, notifyLoaded);
+        if (_hasFullResClaimFor(item.id, payload)) return;
+        await _upgradeFullRes(item, payload, distance, notifyLoaded);
       },
     );
   }
@@ -410,6 +532,7 @@ class TierTwoScheduler {
   Future<void> _upgradeFullRes(
     PhotoItem item,
     PixelPayload payload,
+    int distance,
     VoidCallback notifyLoaded,
   ) async {
     final id = item.id;
@@ -456,7 +579,18 @@ class TierTwoScheduler {
         image.dispose();
         return;
       }
-      _registry.publishFullRes(id, payload, image, notifyLoaded);
+      // Contract deliverable 2: route the hand-off through the pacer instead
+      // of calling `publishFullRes` directly. `exempt` mirrors the tier-1
+      // rule ([isSelectedExempt]) -- the item the user is looking at must not
+      // wait a frame for its own full-resolution pixels, the same rationale
+      // [kFullResPriorityBase] already applies to decode ORDER; this applies
+      // it to publish TIMING too. [_publishOrDiscard] tracks the claim in
+      // [_pendingFullResPublish] so a queued (not yet drained) publish still
+      // blocks a redundant decode, and its `stillValid` re-checks at DRAIN
+      // time (G-023 pattern): a paced entry may sit queued across a
+      // navigation or a payload replacement, and a stale `ui.Image` must be
+      // disposed, not cached.
+      _publishOrDiscard(id, payload, distance, image, notifyLoaded);
     } finally {
       _upgradesInFlight.remove(id);
     }
@@ -483,14 +617,17 @@ class TierTwoScheduler {
     String id,
     SourcePayload payload,
     OrientedFullRes fullRes,
-    VoidCallback? notifyLoaded,
-  ) async {
+    VoidCallback? notifyLoaded, {
+    required int distance,
+  }) async {
     final supplied = fullRes.image;
     // Taken SYNCHRONOUSLY, before any await (invariant I4). These are the
-    // conditions the controller used to evaluate at its call site.
+    // conditions the controller used to evaluate at its call site. Checked
+    // against [_hasFullResClaimFor], not just the registry, so a publish this
+    // same sweep already paced (queued, not yet landed) is not decoded again.
     if (!_windowIds.contains(id) ||
         !identical(_currentPayloadFor(id), payload) ||
-        _registry.hasFullResEntryFor(id, payload)) {
+        _hasFullResClaimFor(id, payload)) {
       supplied?.dispose();
       return;
     }
@@ -519,7 +656,11 @@ class TierTwoScheduler {
       }
     }
     // First-writer-wins inside publishFullRes disposes the loser itself, so
-    // this must NOT dispose after handing over.
-    _registry.publishFullRes(id, payload, image, notifyLoaded ?? () {});
+    // this must NOT dispose after handing over. Routed through
+    // [_publishOrDiscard] -- the same pacing seam as [_upgradeFullRes]
+    // (contract deliverable 2): the piggyback publish is just as capable of
+    // landing for a non-selected item as the catch-up upgrade is, and both
+    // must obey the same pacing, claim-tracking and staleness re-check rules.
+    _publishOrDiscard(id, payload, distance, image, notifyLoaded ?? () {});
   }
 }
