@@ -369,6 +369,7 @@ class _PaperColumnState extends State<_PaperColumn>
   /// under a fixed offset — the same stale-offset flicker, previously
   /// carried as a known limitation ("paper strip 未套 TC-556 錨定捲動").
   final AnchoredScrollController _scrollController = AnchoredScrollController();
+  String? _lastSelectedId;
 
   @override
   ScrollController? get rangeScrollController => _scrollController;
@@ -381,6 +382,15 @@ class _PaperColumnState extends State<_PaperColumn>
       paperChipHeightFor(widget.width) + kPaperStripGap;
 
   @override
+  void initState() {
+    super.initState();
+    _lastSelectedId = widget.surface.strip.selectedId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ensureSelectedVisible();
+    });
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
@@ -389,17 +399,31 @@ class _PaperColumnState extends State<_PaperColumn>
   @override
   void didUpdateWidget(covariant _PaperColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.width == widget.width) return;
-    anchorSelectedRowOnWidthChange(
+    if (oldWidget.width != widget.width) {
+      anchorSelectedRowOnWidthChange(
+        controller: _scrollController,
+        strip: widget.surface.strip,
+        // Both width-driven geometry changes live in THIS widget: the chip
+        // scales continuously (row extent moves) and the column count steps at
+        // kPaperTwoColumnWidth (the selected item's row index moves).
+        columnsFor: paperColumnsFor,
+        rowExtentFor: paperRowExtentFor,
+        oldWidth: oldWidget.width,
+        newWidth: widget.width,
+      );
+    }
+  }
+
+  // Keyboard navigation (or any other selection change) at a FIXED width
+  // never goes through `didUpdateWidget`'s width branch above, so it needs
+  // its own follow-scroll — this is the AC1 fix (see
+  // `common/visible_range_reporter.dart`'s `ensureSelectedRowVisible`).
+  void _ensureSelectedVisible() {
+    ensureSelectedRowVisible(
       controller: _scrollController,
       strip: widget.surface.strip,
-      // Both width-driven geometry changes live in THIS widget: the chip
-      // scales continuously (row extent moves) and the column count steps at
-      // kPaperTwoColumnWidth (the selected item's row index moves).
-      columnsFor: paperColumnsFor,
-      rowExtentFor: paperRowExtentFor,
-      oldWidth: oldWidget.width,
-      newWidth: widget.width,
+      columns: paperColumnsFor(widget.width),
+      rowExtent: paperRowExtentFor(widget.width),
     );
   }
 
@@ -407,6 +431,12 @@ class _PaperColumnState extends State<_PaperColumn>
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strip = widget.surface.strip;
+    if (strip.selectedId != _lastSelectedId) {
+      _lastSelectedId = strip.selectedId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _ensureSelectedVisible();
+      });
+    }
 
     return Container(
       color: Theme.of(context).colorScheme.surface,

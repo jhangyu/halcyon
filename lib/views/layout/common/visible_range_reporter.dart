@@ -95,6 +95,54 @@ mixin VisibleRangeReporter<T extends StatefulWidget> on State<T> {
 /// [columnsFor]/[rowExtentFor] are asked for the old and the new width
 /// separately, so a strip whose column count also changes with width (darkroom,
 /// the paper float strip) is handled by the same code as one whose does not.
+/// Keeps the currently-selected row inside the strip's visible viewport,
+/// scrolling with a 200ms `Curves.easeInOut` animation when it is not.
+///
+/// This is the keyboard-navigation follow-scroll contract: every filmstrip
+/// must call this whenever `strip.selectedId` changes (selection moved via
+/// arrow keys or any other path), not just on drag/resize. Extracted from
+/// `gallery_column.dart`'s `_ensureSelectedVisible` (the only theme that had
+/// it) so `darkroom_column.dart` and `paper_desktop.dart` share the exact
+/// same behaviour instead of leaving it unimplemented.
+///
+/// Does not fight user-initiated scrolling: it only moves the offset when the
+/// selected row's bounds fall outside `[offset, offset + viewportHeight]`, so
+/// scrolling the strip without changing the selection never triggers a jump.
+void ensureSelectedRowVisible({
+  required ScrollController controller,
+  required PhotoStripModel strip,
+  required int columns,
+  required double rowExtent,
+}) {
+  final selectedId = strip.selectedId;
+  final items = strip.items;
+  if (selectedId == null || items.isEmpty) return;
+  if (!controller.hasClients) return;
+
+  final idx = items.indexWhere((i) => i.id == selectedId);
+  if (idx == -1) return;
+
+  final row = idx ~/ columns;
+  final itemTop = row * rowExtent;
+  final itemBottom = itemTop + rowExtent;
+  final viewportOffset = controller.offset;
+  final viewportHeight = controller.position.viewportDimension;
+
+  if (itemTop < viewportOffset) {
+    controller.animateTo(
+      itemTop,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+  } else if (itemBottom > viewportOffset + viewportHeight) {
+    controller.animateTo(
+      itemBottom - viewportHeight,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+  }
+}
+
 void anchorSelectedRowOnWidthChange({
   required AnchoredScrollController controller,
   required PhotoStripModel strip,

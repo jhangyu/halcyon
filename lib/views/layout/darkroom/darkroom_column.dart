@@ -108,6 +108,7 @@ class _DarkroomColumnState extends State<DarkroomColumn>
   /// every row's pixel position under a fixed scroll offset, which is the
   /// stale-offset flicker.
   final AnchoredScrollController _scrollController = AnchoredScrollController();
+  String? _lastSelectedId;
 
   int get _columns => darkroomGridColumnsForWidth(widget.width);
 
@@ -124,6 +125,15 @@ class _DarkroomColumnState extends State<DarkroomColumn>
   double? get rangeRowExtent => darkroomRowExtentForWidth(widget.width);
 
   @override
+  void initState() {
+    super.initState();
+    _lastSelectedId = widget.surface.strip.selectedId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ensureSelectedVisible();
+    });
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
@@ -132,14 +142,28 @@ class _DarkroomColumnState extends State<DarkroomColumn>
   @override
   void didUpdateWidget(covariant DarkroomColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.width == widget.width) return;
-    anchorSelectedRowOnWidthChange(
+    if (oldWidget.width != widget.width) {
+      anchorSelectedRowOnWidthChange(
+        controller: _scrollController,
+        strip: widget.surface.strip,
+        columnsFor: darkroomGridColumnsForWidth,
+        rowExtentFor: darkroomRowExtentForWidth,
+        oldWidth: oldWidget.width,
+        newWidth: widget.width,
+      );
+    }
+  }
+
+  // Keyboard navigation (or any other selection change) at a FIXED width
+  // never goes through `didUpdateWidget`'s width branch above, so it needs
+  // its own follow-scroll — this is the AC1 fix (see
+  // `common/visible_range_reporter.dart`'s `ensureSelectedRowVisible`).
+  void _ensureSelectedVisible() {
+    ensureSelectedRowVisible(
       controller: _scrollController,
       strip: widget.surface.strip,
-      columnsFor: darkroomGridColumnsForWidth,
-      rowExtentFor: darkroomRowExtentForWidth,
-      oldWidth: oldWidget.width,
-      newWidth: widget.width,
+      columns: _columns,
+      rowExtent: darkroomRowExtentForWidth(widget.width),
     );
   }
 
@@ -148,6 +172,12 @@ class _DarkroomColumnState extends State<DarkroomColumn>
     final palette = DarkroomPalette.of(context);
     final strip = widget.surface.strip;
     final items = strip.items;
+    if (strip.selectedId != _lastSelectedId) {
+      _lastSelectedId = strip.selectedId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _ensureSelectedVisible();
+      });
+    }
 
     return Stack(
       key: const ValueKey<String>('darkroom-column'),

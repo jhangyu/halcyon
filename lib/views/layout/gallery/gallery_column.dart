@@ -244,36 +244,17 @@ class _GalleryColumnState extends State<GalleryColumn>
   /// ported from sidebar_view.dart:110-137. Row positions are computed from
   /// the uniform [_rowExtent].
   void _ensureSelectedVisible() {
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    final items = strip.items;
-    if (selectedId == null || items.isEmpty) return;
-    if (!_scrollController.hasClients) return;
-
-    final idx = items.indexWhere((i) => i.id == selectedId);
-    if (idx == -1) return;
-
-    final row = idx ~/ _columns;
-    final itemTop = row * _rowExtent;
-    final itemBottom = itemTop + _rowExtent;
-    final viewportOffset = _scrollController.offset;
-    final viewportHeight = _scrollController.position.viewportDimension;
-
-    if (itemTop < viewportOffset) {
-      // Item is above the viewport, scroll up.
-      _scrollController.animateTo(
-        itemTop,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-      );
-    } else if (itemBottom > viewportOffset + viewportHeight) {
-      // Item is below the viewport, scroll down.
-      _scrollController.animateTo(
-        itemBottom - viewportHeight,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-      );
-    }
+    // Round-4 follow-up: extracted to `ensureSelectedRowVisible` in
+    // `common/visible_range_reporter.dart` so `darkroom_column.dart` and
+    // `paper_desktop.dart` share this exact behaviour instead of leaving
+    // keyboard-navigation follow-scroll unimplemented (AC1,
+    // pacer-followup-contract.md). Logic unchanged, only lifted.
+    ensureSelectedRowVisible(
+      controller: _scrollController,
+      strip: widget.surface.strip,
+      columns: _columns,
+      rowExtent: _rowExtent,
+    );
   }
 
   @override
