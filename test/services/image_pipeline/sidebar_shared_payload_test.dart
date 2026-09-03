@@ -21,7 +21,14 @@ class CountingDecoder {
   int callsFor(String id) => paths.where((p) => p.endsWith('/$id.arw')).length;
   Future<DecodedRgba> call(String path) async {
     paths.add(path);
-    return DecodedRgba(rgba: Uint8List(8 * 8 * 4), width: 8, height: 8);
+    // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+    // debug-only identity short-circuit asserts sampled alpha is opaque.
+    // Same repair as commits 253b89f / d43c2a1.
+    final rgba = Uint8List(8 * 8 * 4);
+    for (var i = 3; i < rgba.length; i += 4) {
+      rgba[i] = 0xFF;
+    }
+    return DecodedRgba(rgba: rgba, width: 8, height: 8);
   }
 }
 

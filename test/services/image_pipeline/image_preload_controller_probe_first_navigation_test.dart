@@ -21,6 +21,14 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 import '../../support/sample_photos.dart';
 
+// Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
+// in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
+// publication_pacer.dart: the paced tier-1/tier-2 publish queue only
+// drains when its frame hook fires, and a plain test() never pumps a real
+// frame on its own. The pacer re-arms itself after each drained item, so
+// a synchronous hook fully drains the queue before submit() returns.
+void _microtaskFrame(void Function() callback) => callback();
+
 final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
@@ -39,8 +47,13 @@ void main() {
     return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
   });
 
+  // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+  // debug-only identity short-circuit asserts sampled alpha is opaque.
+  // Same repair as commits 253b89f / d43c2a1.
   DecodedRgba fakeDecoded() => DecodedRgba(
-    rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
+    rgba: Uint8List.fromList(
+      List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 0xFF : i),
+    ),
     width: 2,
     height: 2,
   );
@@ -81,6 +94,7 @@ void main() {
   test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
       'cold arrival fills the same window, one decode at a time', () async {
     final cheap = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
       dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -127,6 +141,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -180,6 +195,7 @@ void main() {
       );
       final targetCalls = <String>[];
       final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           targetCalls.add(path);
           return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
@@ -220,6 +236,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -260,6 +277,7 @@ void main() {
     expect(expensive.payloadFor(raws[5].id), isNotNull);
 
     final cheap = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
     );
@@ -288,6 +306,7 @@ void main() {
     expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
     var realCheapCalls = 0;
     final realCheap = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         realCheapCalls++;
         return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
@@ -317,6 +336,7 @@ void main() {
       'the PixelPayload', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -361,6 +381,7 @@ void main() {
       'the payload; JPEG bytes still survive identically', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -403,6 +424,7 @@ void main() {
 
     final cheapCalls = <String>[];
     final cheapController = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         cheapCalls.add(path);
         return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
@@ -433,6 +455,7 @@ void main() {
     );
 
     final jpgController = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
     );

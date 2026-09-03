@@ -43,6 +43,14 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 
+// Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
+// in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
+// publication_pacer.dart: the paced tier-1/tier-2 publish queue only
+// drains when its frame hook fires, and a plain test() never pumps a real
+// frame on its own. The pacer re-arms itself after each drained item, so
+// a synchronous hook fully drains the queue before submit() returns.
+void _microtaskFrame(void Function() callback) => callback();
+
 // A 1x1 image used only to satisfy RawFullResImage's constructor for the
 // PROBE key built in M5-DW2 -- see the comment at that test. The probe's
 // image is never actually delivered: resolving the probe hits the REAL
@@ -78,8 +86,14 @@ void main() {
     return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
   });
 
+  // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+  // debug-only identity short-circuit asserts sampled alpha is opaque,
+  // because it returns STRAIGHT RGBA where the old readback path returned
+  // PREMULTIPLIED. Same repair as commits 253b89f / d43c2a1.
   DecodedRgba fakeDecoded() => DecodedRgba(
-    rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
+    rgba: Uint8List.fromList(
+      List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 0xFF : i),
+    ),
     width: 2,
     height: 2,
   );
@@ -118,6 +132,18 @@ void main() {
     }
   }
 
+  // `_finishOffLane`'s encode continuation is deliberately unawaited by the
+  // controller (it has no caller). If a test ends -- and `addTearDown`
+  // disposes the controller -- while that continuation is still in flight,
+  // its later `_inflight.release(...)` races the disposed budget's `clear()`
+  // and trips a cross-test assertion (attributed to whatever test happens to
+  // be running when it lands). Poll `debugInflightBytes` to zero before
+  // ending a test that used an expensive/RAW controller.
+  Future<void> settle(ImagePreloadController controller) => until(
+    () => controller.debugInflightBytes == 0,
+    reason: 'controller inflight-bytes budget to drain before teardown',
+  );
+
   setUp(() {
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -131,6 +157,7 @@ void main() {
     () async {
       // --- cheap (encoded) sub-case: whole window is populated in one pass.
       final cheap = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
         dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
@@ -193,6 +220,7 @@ void main() {
       // tier-2 window [4,8] triggers the catch-up upgrade for every band id
       // that does not already carry a live tier-2 entry.
       ImagePreloadController buildPixelController() => ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => fakeDecoded(),
@@ -263,6 +291,7 @@ void main() {
           reason: 'distance $d (pixel) must NOT hold a tier-2 entry',
         );
       }
+      await settle(pixel);
 
       for (final d in [4, 5]) {
         final boundary = buildPixelController();
@@ -299,6 +328,7 @@ void main() {
           isFalse,
           reason: 'distance $d (pixel) must NOT hold a tier-2 entry',
         );
+        await settle(boundary);
       }
     },
   );
@@ -310,11 +340,15 @@ void main() {
     'entry distinct from its window-resolution tier-1 entry',
     () async {
       final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async => DecodedRgba(
           rgba: Uint8List.fromList(
-            List<int>.generate(400 * 300 * 4, (i) => i % 256),
+            List<int>.generate(
+              400 * 300 * 4,
+              (i) => i % 4 == 3 ? 0xFF : i % 256,
+            ),
           ),
           width: 400,
           height: 300,
@@ -401,6 +435,7 @@ void main() {
         reason: 'the tier-1 and tier-2 ImageCache keys must be distinct '
             '(different provider kinds -> unequal by construction)',
       );
+      await settle(controller);
     },
   );
 
@@ -412,6 +447,7 @@ void main() {
     () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -440,6 +476,7 @@ void main() {
             'single-decode dual-output (piggyback): payload production and '
             'the full-res tier-2 upload must share ONE FFI decode call',
       );
+      await settle(controller);
     },
   );
 
@@ -451,6 +488,7 @@ void main() {
     () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -515,6 +553,7 @@ void main() {
         isTrue,
         reason: 'the retained payload object is unchanged by the re-upgrade',
       );
+      await settle(controller);
     },
   );
 
@@ -529,6 +568,7 @@ void main() {
       final target = items[8].files.single.path;
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -618,6 +658,7 @@ void main() {
             '1 successful piggyback + 1 failing catch-up) after two more '
             'debounce settles for the same payload',
       );
+      await settle(controller);
     },
   );
 
@@ -625,6 +666,7 @@ void main() {
 
   test('M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache', () async {
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async => fakeDecoded(),
@@ -680,5 +722,6 @@ void main() {
           'PixelPayload.byteCost, never for the full-resolution ImageCache '
           'entry',
     );
+    await settle(controller);
   });
 }

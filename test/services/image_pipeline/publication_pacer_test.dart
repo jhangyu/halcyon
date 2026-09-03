@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/publication_pacer.dart';
 
@@ -146,6 +147,48 @@ void main() {
     frames.frame();
     expect(published, [2]);
   });
+
+  // Regression: on an idle app, nothing else is pumping the scheduler, so
+  // the default frame hook (bare addPostFrameCallback) must itself request
+  // a frame -- otherwise a submitted, non-exempt entry queues forever and
+  // never drains. `hasScheduledFrame` only reflects reality once frames are
+  // enabled, which requires a real widget tree (pumpWidget), not a bare
+  // `test()` -- AutomatedTestWidgetsFlutterBinding starts with frames
+  // disabled until something attaches a root widget.
+  testWidgets(
+    'the default (no injected hook) frame path requests a frame so an idle '
+    'app does not stall a queued publication',
+    (tester) async {
+      await tester.pumpWidget(const SizedBox());
+      expect(
+        SchedulerBinding.instance.hasScheduledFrame,
+        isFalse,
+        reason: 'test setup: no frame should be pending before submit',
+      );
+      final pacer = PublicationPacer();
+      var published = false;
+      pacer.submit(
+        id: 'idle',
+        rank: 1,
+        exempt: false,
+        stillValid: () => true,
+        publish: () => published = true,
+      );
+      expect(
+        SchedulerBinding.instance.hasScheduledFrame,
+        isTrue,
+        reason:
+            'submitting a non-exempt entry must itself request a frame; '
+            'relying solely on addPostFrameCallback leaves an idle app '
+            'stalled forever',
+      );
+      expect(published, isFalse, reason: 'nothing has drained it yet');
+      // Let the pending frame actually run so the test does not leave a
+      // dangling scheduled frame / pending callback behind.
+      await tester.pump();
+      expect(published, isTrue);
+    },
+  );
 
   test('clear discards every queued entry', () {
     final frames = FakeFrames();
