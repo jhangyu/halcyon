@@ -2,7 +2,7 @@
 // idle-priority scheduling for pacer publishes, with a safeguard so publishes
 // cannot stall indefinitely on an app that is animating.
 //
-// TC-XX1 .. TC-XX6.
+// TC-888 .. TC-893.
 //
 // No assertion here depends on wall-clock timing. Which of the two paths runs
 // a slot is forced deterministically: either `schedulingStrategy` refuses idle
@@ -43,7 +43,7 @@ void main() {
     SchedulerBinding.instance.schedulingStrategy = defaultSchedulingStrategy;
   });
 
-  // TC-XX1
+  // TC-888
   test('the callback runs exactly once and never synchronously', () async {
     final scheduler = IdlePublishScheduler();
     addTearDown(scheduler.dispose);
@@ -61,7 +61,7 @@ void main() {
     expect(runs, 1, reason: 'exactly once per schedule call');
   });
 
-  // TC-XX2 -- the safeguard is the whole reason this class is not a one-liner.
+  // TC-889 -- the safeguard is the whole reason this class is not a one-liner.
   test('an idle-refusing strategy still runs the callback, via the safeguard',
       () async {
     SchedulerBinding.instance.schedulingStrategy = _idleRefusingStrategy;
@@ -77,7 +77,7 @@ void main() {
     expect(scheduler.debugIdleRuns, 0);
   });
 
-  // TC-XX3 -- the positive control for TC-XX2: with nothing animating, the
+  // TC-890 -- the positive control for TC-889: with nothing animating, the
   // idle path is the one that runs, so idle priority is really in effect.
   test('with the default strategy the idle path runs it and the safeguard does not',
       () async {
@@ -93,7 +93,7 @@ void main() {
     expect(scheduler.debugSafeguardRuns, 0);
   });
 
-  // TC-XX4
+  // TC-891
   test('awaitSlot completes only once a slot is granted', () async {
     final scheduler = IdlePublishScheduler(safeguard: kNeverFires);
     addTearDown(scheduler.dispose);
@@ -107,7 +107,7 @@ void main() {
     expect(scheduler.debugIdleRuns, 1);
   });
 
-  // TC-XX5 -- dropping a pending slot would strand a `_loadingKeys` claim.
+  // TC-892 -- dropping a pending slot would strand a `_loadingKeys` claim.
   test('dispose flushes pending slots instead of dropping them', () async {
     SchedulerBinding.instance.schedulingStrategy = _idleRefusingStrategy;
     final scheduler = IdlePublishScheduler(safeguard: kNeverFires);
@@ -133,7 +133,7 @@ void main() {
     await scheduler.awaitSlot();
   });
 
-  // TC-XX6 -- structural conformance to both seams, checked by assignment.
+  // TC-893 -- structural conformance to both seams, checked by assignment.
   test('schedule is FrameHook-shaped and awaitSlot is CompositeGate-shaped',
       () async {
     final scheduler = IdlePublishScheduler(safeguard: Duration.zero);

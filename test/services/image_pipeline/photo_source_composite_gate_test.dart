@@ -1,6 +1,6 @@
 // Deliverable 2, plumbing half: the gate injected at the composition root
 // actually reaches every compositing call on the decode-completion path.
-// TC-XX15 / TC-XX16.
+// TC-902 / TC-903.
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -35,7 +35,7 @@ DecodedRgba _decoded() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // TC-XX15
+  // TC-902
   test('PhotoSource forwards its gate to both provider calls', () async {
     final gate = CountingGate();
     final source = PhotoSource(
@@ -60,7 +60,7 @@ void main() {
     decode.fullRes?.image?.dispose();
   });
 
-  // TC-XX16
+  // TC-903
   test('ImagePreloadController forwards its gate to PhotoSource', () async {
     final tmpDir = await Directory.systemTemp.createTemp('gate_test');
     addTearDown(() => tmpDir.delete(recursive: true));

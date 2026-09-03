@@ -183,7 +183,7 @@ void main() {
     expect(windowIds.length, greaterThan(4), reason: 'the cap is under test');
   });
 
-  // TC-XX10 -- the controller-level twin of TC-XX7: with the pacer's exempt
+  // TC-897 -- the controller-level twin of TC-894: with the pacer's exempt
   // claim enforced against the controller's selected id, a NON-selected window
   // slot cannot register a tier-1 key before a frame is granted, no matter
   // what the caller asks for.

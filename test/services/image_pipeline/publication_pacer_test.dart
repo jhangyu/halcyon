@@ -209,7 +209,7 @@ void main() {
     expect(pacer.queuedCount, 0);
   });
 
-  // TC-XX7 -- deliverable 3: the exempt claim is enforced, not trusted.
+  // TC-894 -- deliverable 3: the exempt claim is enforced, not trusted.
   test('an exempt submission for a non-selected id is downgraded to the queue',
       () {
     final frames = FakeFrames();
@@ -235,7 +235,7 @@ void main() {
     expect(published, ['other'], reason: 'pacing decides WHEN, not WHETHER');
   });
 
-  // TC-XX8 -- the selected item still never waits a frame for its own pixels.
+  // TC-895 -- the selected item still never waits a frame for its own pixels.
   test('an exempt submission for the selected id still publishes synchronously',
       () {
     final frames = FakeFrames();
@@ -259,7 +259,7 @@ void main() {
     expect(pacer.debugDowngradedExemptCount, 0);
   });
 
-  // TC-XX9 -- no predicate injected == today's behaviour, byte for byte.
+  // TC-896 -- no predicate injected == today's behaviour, byte for byte.
   test('with no isSelected predicate the exempt path is unchanged', () {
     final frames = FakeFrames();
     final published = <String>[];

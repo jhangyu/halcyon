@@ -1,6 +1,6 @@
 // Deliverable 2 (docs/logs/2026-09-03/decode-jank-remediation-contract.md):
 // EXIF-orientation compositing no longer runs immediately on decode-result
-// arrival; it waits for a pacing slot. TC-XX11 .. TC-XX14.
+// arrival; it waits for a pacing slot. TC-898 .. TC-901.
 //
 // THE OWNERSHIP ARGUMENT, asserted here: the slot is awaited BEFORE any
 // `ui.Image` exists, so a slow or never-granted slot cannot leak a handle.
@@ -57,7 +57,7 @@ Future<void> _pumpEventLoop([int rounds = 8]) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // TC-XX11 -- THE AC2 test. Delete the `await gate()` line in
+  // TC-898 -- THE AC2 test. Delete the `await gate()` line in
   // `decodedRgbaToOrientedFullRes` and this case fails.
   //
   // NOTE: this deviates from the plan's literal `doesNotComplete` matcher --
@@ -103,7 +103,7 @@ void main() {
     result.image!.dispose();
   });
 
-  // TC-XX12 -- AC7: the no-op orientation composites nothing, so it must not
+  // TC-899 -- AC7: the no-op orientation composites nothing, so it must not
   // even ask for a slot (asking would add latency for zero work).
   test('orientation 1 never asks the gate for a slot', () async {
     final gate = ManualGate();
@@ -129,7 +129,7 @@ void main() {
     expect(gate.requests, 0, reason: 'AC7: orientation 1 skips compositing entirely');
   });
 
-  // TC-XX13
+  // TC-900
   test('the gate is requested exactly once per oriented full-res decode',
       () async {
     final gate = ManualGate();
@@ -145,7 +145,7 @@ void main() {
     expect(gate.requests, 1, reason: 'one compositing pass buys one slot');
   });
 
-  // TC-XX14 -- the pixel-payload path also uploads and composites, so its GPU
+  // TC-901 -- the pixel-payload path also uploads and composites, so its GPU
   // pass is paced too (a 200px downscale of a 50MB frame is not free).
   test('a pixel-payload downscale waits for the gate', () async {
     final gate = ManualGate();
