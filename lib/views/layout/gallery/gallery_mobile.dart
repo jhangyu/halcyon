@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/app_state.dart';
 import '../common/exif_caption.dart';
 import '../common/photo_thumbnail.dart';
+import '../common/visible_range_reporter.dart';
 import '../gallery/gallery_palette.dart';
 import '../main_surface.dart';
 
@@ -64,37 +65,28 @@ const ValueKey<String> kGalleryMobileLabelKey =
 const ValueKey<String> kGalleryMobileTapZoneKey =
     ValueKey<String>('gallery.mobile.tapzone');
 
-class _GalleryMobileSurfaceState extends State<GalleryMobileSurface> {
+class _GalleryMobileSurfaceState extends State<GalleryMobileSurface>
+    with VisibleRangeReporter<GalleryMobileSurface> {
   bool _chromeOn = false;
 
   // Visible-range reporting, itemBuilder-driven (AD-014 / G-001 red line —
-  // no ScrollController listener). Ported in shape from GalleryColumn's
-  // _noteBuiltIndex, one dimension instead of two.
-  bool _sweepScheduled = false;
-  int _fallbackFirst = -1;
-  int _fallbackLast = -1;
+  // no ScrollController listener), via the shared VisibleRangeReporter.
   final ScrollController _stripController = ScrollController();
+
+  @override
+  ScrollController? get rangeScrollController => _stripController;
+
+  @override
+  PhotoStripModel get rangeStrip => widget.surface.strip;
+
+  // rangeColumns stays 1 and rangeRowExtent stays null: the mobile strip is a
+  // horizontal single row with no uniform vertical pitch to divide by, so the
+  // built-index path is the whole of its reporting.
 
   @override
   void dispose() {
     _stripController.dispose();
     super.dispose();
-  }
-
-  void _noteBuiltIndex(int index) {
-    if (_fallbackFirst == -1 || index < _fallbackFirst) _fallbackFirst = index;
-    if (index > _fallbackLast) _fallbackLast = index;
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      final first = _fallbackFirst;
-      final last = _fallbackLast;
-      _fallbackFirst = -1;
-      _fallbackLast = -1;
-      if (!mounted) return;
-      widget.surface.strip.onVisibleRange(first == -1 ? 0 : first, last);
-    });
   }
 
   @override
@@ -253,7 +245,7 @@ class _GalleryMobileSurfaceState extends State<GalleryMobileSurface> {
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
         itemBuilder: (context, index) {
-          _noteBuiltIndex(index);
+          noteBuiltIndex(index);
           final item = items[index];
           final selected = item.id == strip.selectedId;
           final width = selected

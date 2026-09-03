@@ -7,6 +7,7 @@ import '../../../models/photo_item.dart';
 import '../common/anchored_scroll.dart';
 import '../common/exif_caption.dart';
 import '../common/photo_thumbnail.dart';
+import '../common/visible_range_reporter.dart';
 import 'paper_palette.dart';
 import '../main_surface.dart';
 
@@ -291,13 +292,24 @@ class _PaperColumn extends StatefulWidget {
   State<_PaperColumn> createState() => _PaperColumnState();
 }
 
-class _PaperColumnState extends State<_PaperColumn> {
+class _PaperColumnState extends State<_PaperColumn>
+    with VisibleRangeReporter<_PaperColumn> {
   /// Round 4: the paper strip now uses the same in-layout re-anchoring the
   /// gallery strip got for TC-556. Dragging 40->90 scales the chip (and so
   /// the row extent) continuously, which re-maps every row's pixel position
   /// under a fixed offset — the same stale-offset flicker, previously
   /// carried as a known limitation ("paper strip 未套 TC-556 錨定捲動").
   final AnchoredScrollController _scrollController = AnchoredScrollController();
+
+  @override
+  ScrollController? get rangeScrollController => _scrollController;
+
+  @override
+  PhotoStripModel get rangeStrip => widget.surface.strip;
+
+  @override
+  double? get rangeRowExtent =>
+      paperChipHeightFor(widget.width) + kPaperStripGap;
 
   @override
   void dispose() {
@@ -309,16 +321,13 @@ class _PaperColumnState extends State<_PaperColumn> {
   void didUpdateWidget(covariant _PaperColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.width == widget.width) return;
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    if (selectedId == null) return;
-    final row = strip.items.indexWhere((i) => i.id == selectedId);
-    if (row == -1) return;
-    _scrollController.anchorRowByPixelOffset(
-      oldRow: row,
-      oldRowExtent: paperChipHeightFor(oldWidget.width) + kPaperStripGap,
-      newRow: () => row,
-      newRowExtent: () => paperChipHeightFor(widget.width) + kPaperStripGap,
+    anchorSelectedRowOnWidthChange(
+      controller: _scrollController,
+      strip: widget.surface.strip,
+      columnsFor: (_) => 1,
+      rowExtentFor: (w) => paperChipHeightFor(w) + kPaperStripGap,
+      oldWidth: oldWidget.width,
+      newWidth: widget.width,
     );
   }
 
@@ -404,7 +413,7 @@ class _PaperColumnState extends State<_PaperColumn> {
       itemBuilder: (context, index) {
         // itemBuilder-driven visibility (AD-011 red line): the visible range
         // is reported from viewport geometry, never a scroll listener.
-        _reportVisibleRange();
+        noteBuiltIndex(index);
         final item = items[index];
         return Center(
           child: _PaperChip(
@@ -416,28 +425,6 @@ class _PaperColumnState extends State<_PaperColumn> {
         );
       },
     );
-  }
-
-  bool _sweepScheduled = false;
-
-  void _reportVisibleRange() {
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      final strip = widget.surface.strip;
-      final chipH = paperChipHeightFor(widget.width);
-      final extent = chipH + kPaperStripGap;
-      final offset = _scrollController.offset;
-      final viewportHeight = _scrollController.position.viewportDimension;
-      final first = (offset / extent).floor();
-      final last = ((offset + viewportHeight) / extent).ceil();
-      strip.onVisibleRange(
-        math.max(0, first),
-        math.min(last, strip.items.length - 1),
-      );
-    });
   }
 
   Widget _buildTools(BuildContext context, ColorScheme colors) {
@@ -515,14 +502,27 @@ class _PaperFloatStrip extends StatefulWidget {
   State<_PaperFloatStrip> createState() => _PaperFloatStripState();
 }
 
-class _PaperFloatStripState extends State<_PaperFloatStrip> {
+class _PaperFloatStripState extends State<_PaperFloatStrip>
+    with VisibleRangeReporter<_PaperFloatStrip> {
   /// Round 4: shares the gallery's in-layout anchoring (TC-556). The row
   /// extent here is constant (the chip is pinned above 90px), but the COLUMN
   /// COUNT steps 1->2 at [kPaperTwoColumnWidth], which re-maps the selected
   /// item onto a different row and displaces the whole strip under a fixed
   /// offset — the same class of defect, from a different geometry change.
   final AnchoredScrollController _scrollController = AnchoredScrollController();
-  bool _sweepScheduled = false;
+
+  @override
+  ScrollController? get rangeScrollController => _scrollController;
+
+  @override
+  PhotoStripModel get rangeStrip => widget.surface.strip;
+
+  @override
+  int get rangeColumns => paperColumnsFor(widget.width);
+
+  @override
+  double? get rangeRowExtent =>
+      kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
 
   @override
   void dispose() {
@@ -534,17 +534,14 @@ class _PaperFloatStripState extends State<_PaperFloatStrip> {
   void didUpdateWidget(covariant _PaperFloatStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.width == widget.width) return;
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    if (selectedId == null) return;
-    final idx = strip.items.indexWhere((i) => i.id == selectedId);
-    if (idx == -1) return;
-    const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
-    _scrollController.anchorRowByPixelOffset(
-      oldRow: idx ~/ paperColumnsFor(oldWidget.width),
-      oldRowExtent: extent,
-      newRow: () => idx ~/ paperColumnsFor(widget.width),
-      newRowExtent: () => extent,
+    anchorSelectedRowOnWidthChange(
+      controller: _scrollController,
+      strip: widget.surface.strip,
+      columnsFor: paperColumnsFor,
+      rowExtentFor: (_) =>
+          kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap,
+      oldWidth: oldWidget.width,
+      newWidth: widget.width,
     );
   }
 
@@ -590,7 +587,7 @@ class _PaperFloatStripState extends State<_PaperFloatStrip> {
                 itemExtent: kPaperChipRestWidth / kPaperChipAspect + gap,
                 itemCount: rowCount,
                 itemBuilder: (context, row) {
-                  _reportVisibleRange(strip, columns);
+                  noteBuiltIndex(row);
                   final first = row * columns;
                   final last = math.min(first + columns - 1, items.length - 1);
                   return Wrap(
@@ -639,23 +636,6 @@ class _PaperFloatStripState extends State<_PaperFloatStrip> {
     );
   }
 
-  void _reportVisibleRange(PhotoStripModel strip, int columns) {
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
-      final offset = _scrollController.offset;
-      final viewportHeight = _scrollController.position.viewportDimension;
-      final firstRow = (offset / extent).floor();
-      final lastRow = ((offset + viewportHeight) / extent).ceil();
-      strip.onVisibleRange(
-        math.max(0, firstRow * columns),
-        math.min(lastRow * columns + (columns - 1), strip.items.length - 1),
-      );
-    });
-  }
 }
 
 class _PaperChip extends StatelessWidget {

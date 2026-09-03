@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../models/photo_item.dart';
 import '../common/anchored_scroll.dart';
 import '../common/photo_thumbnail.dart';
+import '../common/visible_range_reporter.dart';
 import '../main_surface.dart';
 import 'darkroom_palette.dart';
 
@@ -88,7 +89,8 @@ class DarkroomColumn extends StatefulWidget {
   State<DarkroomColumn> createState() => _DarkroomColumnState();
 }
 
-class _DarkroomColumnState extends State<DarkroomColumn> {
+class _DarkroomColumnState extends State<DarkroomColumn>
+    with VisibleRangeReporter<DarkroomColumn> {
   /// Round 4: the darkroom grid gets the same in-layout re-anchoring the
   /// gallery strip got for TC-556. Both of its width-driven geometry changes
   /// (the 78->84 chip step at 192, and the 1->2 column step at 180) re-map
@@ -97,6 +99,18 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
   final AnchoredScrollController _scrollController = AnchoredScrollController();
 
   int get _columns => darkroomGridColumnsForWidth(widget.width);
+
+  @override
+  ScrollController? get rangeScrollController => _scrollController;
+
+  @override
+  PhotoStripModel get rangeStrip => widget.surface.strip;
+
+  @override
+  int get rangeColumns => _columns;
+
+  @override
+  double? get rangeRowExtent => darkroomRowExtentForWidth(widget.width);
 
   @override
   void dispose() {
@@ -108,16 +122,13 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
   void didUpdateWidget(covariant DarkroomColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.width == widget.width) return;
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    if (selectedId == null) return;
-    final idx = strip.items.indexWhere((i) => i.id == selectedId);
-    if (idx == -1) return;
-    _scrollController.anchorRowByPixelOffset(
-      oldRow: idx ~/ darkroomGridColumnsForWidth(oldWidget.width),
-      oldRowExtent: darkroomRowExtentForWidth(oldWidget.width),
-      newRow: () => idx ~/ _columns,
-      newRowExtent: () => darkroomRowExtentForWidth(widget.width),
+    anchorSelectedRowOnWidthChange(
+      controller: _scrollController,
+      strip: widget.surface.strip,
+      columnsFor: darkroomGridColumnsForWidth,
+      rowExtentFor: darkroomRowExtentForWidth,
+      oldWidth: oldWidget.width,
+      newWidth: widget.width,
     );
   }
 
@@ -146,7 +157,7 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
                 childAspectRatio: kDarkroomChipAspect,
               ),
               itemBuilder: (context, index) {
-                _reportVisibleRange(index);
+                noteBuiltIndex(index);
                 return _buildChip(context, items[index], strip, palette);
               },
             ),
@@ -180,28 +191,6 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
         ),
       ],
     );
-  }
-
-  // Reports the visible range from the built indices, deferred to end of
-  // frame (AD-014 contract — the strip owns a pure "what did I build" report,
-  // never a prefetch margin).
-  int _first = -1;
-  int _last = -1;
-  bool _scheduled = false;
-  void _reportVisibleRange(int index) {
-    if (_first == -1 || index < _first) _first = index;
-    if (index > _last) _last = index;
-    if (_scheduled) return;
-    _scheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scheduled = false;
-      final first = _first;
-      final last = _last;
-      _first = -1;
-      _last = -1;
-      if (!mounted || first == -1) return;
-      widget.surface.strip.onVisibleRange(first, last);
-    });
   }
 
   Widget _buildChip(

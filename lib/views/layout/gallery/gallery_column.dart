@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../models/photo_item.dart';
 import '../common/anchored_scroll.dart';
 import '../common/photo_thumbnail.dart';
+import '../common/visible_range_reporter.dart';
 import '../gallery/gallery_palette.dart';
 import '../main_surface.dart';
 
@@ -102,10 +103,23 @@ class GalleryColumn extends StatefulWidget {
   State<GalleryColumn> createState() => _GalleryColumnState();
 }
 
-class _GalleryColumnState extends State<GalleryColumn> {
+class _GalleryColumnState extends State<GalleryColumn>
+    with VisibleRangeReporter<GalleryColumn> {
   final AnchoredScrollController _scrollController =
       AnchoredScrollController();
   String? _lastSelectedId;
+
+  @override
+  ScrollController? get rangeScrollController => _scrollController;
+
+  @override
+  PhotoStripModel get rangeStrip => widget.surface.strip;
+
+  @override
+  int get rangeColumns => _columns;
+
+  @override
+  double? get rangeRowExtent => _rowExtent;
 
   /// The chip fills the strip's content width, so it grows continuously with
   /// the gutter and is centred by construction (there is exactly one column).
@@ -114,11 +128,6 @@ class _GalleryColumnState extends State<GalleryColumn> {
       math.max(1, widget.width - 2 * _pad);
 
   double get _chipHeight => _chipWidth / kChipAspect;
-
-  // Visible-range reporting, ported from sidebar_view.dart:76-108.
-  bool _sweepScheduled = false;
-  int _fallbackFirstIndex = -1;
-  int _fallbackLastIndex = -1;
 
   // Width-derived geometry. Ruled at the source (plan §T7): the ruling's
   // `floor((strip - 24 + 8) / 82)` form assumes the dragged 12px padding at
@@ -181,22 +190,16 @@ class _GalleryColumnState extends State<GalleryColumn> {
   }
 
   void _anchorSelectedOnWidthChange(double oldWidth) {
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    final items = strip.items;
-    if (selectedId == null || items.isEmpty) return;
-    if (!_scrollController.hasClients) return;
-
-    final idx = items.indexWhere((i) => i.id == selectedId);
-    if (idx == -1) return;
-    final row = idx ~/ _columns;
-
-    final oldChipWidth =
-        GalleryColumn.debugChipWidthForWidth?.call(oldWidth) ??
-        math.max(1, oldWidth - 2 * _pad);
-    final oldChipHeight = oldChipWidth / kChipAspect;
-    final oldGap = oldWidth <= 90 ? 6.0 : 8.0;
-    final oldRowExtent = oldChipHeight + oldGap;
+    // Gallery's own old-extent arithmetic, kept here rather than pushed into
+    // the shared helper: the `debugChipWidthForWidth` test hook and the 90px
+    // gap step are gallery's alone.
+    double extentFor(double width) {
+      if (width == widget.width) return _rowExtent;
+      final chipWidth =
+          GalleryColumn.debugChipWidthForWidth?.call(width) ??
+          math.max(1, width - 2 * _pad);
+      return chipWidth / kChipAspect + (width <= 90 ? 6.0 : 8.0);
+    }
 
     // Anchor on the row's CENTER, not its top edge: the row's height itself
     // changes with the gutter (the chip scales — TC-543), so a top-anchored
@@ -225,11 +228,15 @@ class _GalleryColumnState extends State<GalleryColumn> {
     // selected chip out of the viewport entirely — IS the flash the user
     // sees. Correcting during layout means the frame is never painted wrong
     // in the first place, so there is nothing to hide.
-    _scrollController.anchorRowByPixelOffset(
-      oldRow: row,
-      oldRowExtent: oldRowExtent,
-      newRow: () => row,
-      newRowExtent: () => _rowExtent,
+    anchorSelectedRowOnWidthChange(
+      controller: _scrollController,
+      strip: widget.surface.strip,
+      // Gallery anchors the SAME row index under both geometries: its column
+      // count does not change with the gutter width.
+      columnsFor: (_) => _columns,
+      rowExtentFor: extentFor,
+      oldWidth: oldWidth,
+      newWidth: widget.width,
     );
   }
 
@@ -267,43 +274,6 @@ class _GalleryColumnState extends State<GalleryColumn> {
         curve: Curves.easeInOut,
       );
     }
-  }
-
-  void _noteBuiltIndex(int index) {
-    // Only used before the list has a scroll position (first frame).
-    if (_fallbackFirstIndex == -1 || index < _fallbackFirstIndex) {
-      _fallbackFirstIndex = index;
-    }
-    if (index > _fallbackLastIndex) _fallbackLastIndex = index;
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
-    // Requesting during build would notifyListeners mid-build; defer to the
-    // end of the frame, where layout is also settled.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      final first = _fallbackFirstIndex;
-      final last = _fallbackLastIndex;
-      _fallbackFirstIndex = -1;
-      _fallbackLastIndex = -1;
-      if (!mounted) return;
-      final strip = widget.surface.strip;
-      final onVisibleRange = strip.onVisibleRange;
-      if (!_scrollController.hasClients) {
-        if (first != -1) onVisibleRange(first, last);
-        return;
-      }
-      // Range report, from viewport geometry exactly as sidebar_view.dart:100-106.
-      final offset = _scrollController.offset;
-      final viewportHeight = _scrollController.position.viewportDimension;
-      final columns = _columns;
-      final extent = _rowExtent;
-      final firstRow = (offset / extent).floor();
-      final lastRow = ((offset + viewportHeight) / extent).ceil();
-      onVisibleRange(
-        firstRow * columns,
-        math.min(lastRow * columns + (columns - 1), strip.items.length - 1),
-      );
-    });
   }
 
   @override
@@ -442,7 +412,7 @@ class _GalleryColumnState extends State<GalleryColumn> {
               itemExtent: _rowExtent,
               itemCount: rowCount,
               itemBuilder: (context, row) {
-                _noteBuiltIndex(row);
+                noteBuiltIndex(row);
                 final first = row * _columns;
                 final last = math.min(first + _columns - 1, items.length - 1);
                 return Row(
