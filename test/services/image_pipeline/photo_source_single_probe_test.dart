@@ -244,7 +244,14 @@ void main() {
       },
       dngDecoder: (path) async {
         decodes++;
-        return DecodedRgba(rgba: Uint8List(2 * 2 * 4), width: 2, height: 2);
+        // Opaque fixture (alpha 0xFF): the identity-transform short-circuit
+        // in decoded_rgba_image_provider.dart asserts every RAW decode is
+        // opaque; a zero-filled buffer would trip it.
+        final rgba = Uint8List(2 * 2 * 4);
+        for (var p = 0; p < 4; p++) {
+          rgba[p * 4 + 3] = 0xFF;
+        }
+        return DecodedRgba(rgba: rgba, width: 2, height: 2);
       },
     );
     addTearDown(controller.dispose);
