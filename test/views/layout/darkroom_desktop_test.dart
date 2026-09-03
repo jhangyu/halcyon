@@ -163,6 +163,10 @@ void main() {
       await tester.pump();
 
       expect(overlaps, isEmpty, reason: overlaps.join('; '));
+      // Guard against a vacuous pass: if the drag never actually reached the
+      // ceiling (e.g. clamped early), every iteration above would trivially
+      // report no overlap without the probe having covered the full range.
+      expect(_currentWidth(tester), kDarkroomColumnMaxWidth);
       await tester.binding.setSurfaceSize(null);
     });
   });

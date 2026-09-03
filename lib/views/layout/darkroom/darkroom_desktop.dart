@@ -103,8 +103,8 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
         ),
         // R4 EXIF caption, floating over the photo — desktop: bottom-left.
         Positioned(
-          left: viewportLeft + 20,
-          bottom: 16,
+          left: viewportLeft + 22,
+          bottom: 20,
           child: DefaultTextStyle(
             style: TextStyle(color: palette.photoInk),
             child: ExifCaption(
