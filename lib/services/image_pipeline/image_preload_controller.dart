@@ -1158,14 +1158,18 @@ class ImagePreloadController {
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedIdForPerf}',
       );
-      await _completeOutcome(
+      // A deferred outcome hands both the work and the `_loadingKeys` claim to
+      // the lane; the `finally` below must not take the claim back off it.
+      if (await _completeOutcome(
         item,
         outcome: outcome,
         distance: distance,
         notifyLoaded: notifyLoaded,
         onSerialLane: onSerialLane,
         loadLongEdge: loadLongEdge,
-      );
+      )) {
+        handedOff = true;
+      }
     } catch (_) {
       // A source threw (e.g. a PlatformException the native side did not
       // convert to null, or a MissingPluginException on an unimplemented
@@ -1217,7 +1221,12 @@ class ImagePreloadController {
     // other's width.
     final bytes =
         decode.fullRes?.rgba.lengthInBytes ?? decode.pixels?.byteCost ?? 0;
-    await _inflight.acquire(bytes);
+    // The epoch this admission belongs to. This continuation is unawaited by
+    // design, so `dispose()`/`reset()` -> `InflightBytesBudget.clear()` can run
+    // between the acquire and the release below; releasing against a stale
+    // epoch is then a no-op instead of an over-release (BUG 2026-09-03,
+    // TC-886).
+    final budgetEpoch = await _inflight.acquire(bytes);
     try {
       final outcome = await _encodeStage.run(() => _source.encodePhase(decode));
       PerfLog.log(
@@ -1225,6 +1234,8 @@ class ImagePreloadController {
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedIdForPerf}',
       );
+      // `onSerialLane: true` makes the deferred hand-off unreachable, so the
+      // claim is always still this method's to release below.
       await _completeOutcome(
         item,
         outcome: outcome,
@@ -1245,7 +1256,7 @@ class ImagePreloadController {
     } finally {
       // Released exactly once, after [_completeOutcome] has either retained or
       // dropped the payload -- the buffers are only out of flight then.
-      _inflight.release(bytes);
+      _inflight.release(bytes, epoch: budgetEpoch);
       _loadingKeys.remove(id);
     }
   }
@@ -1260,7 +1271,10 @@ class ImagePreloadController {
   /// Every staleness re-check inside it is now behind one MORE await than it
   /// used to be (the encode), which is exactly why none of them may be
   /// weakened or hoisted (G-023).
-  Future<void> _completeOutcome(
+  /// Returns true when this call handed [item] to the [DecodeLane] AND handed
+  /// the `_loadingKeys` claim over with it (the deferred route below). The
+  /// caller must then NOT release that claim in its own `finally`.
+  Future<bool> _completeOutcome(
     PhotoItem item, {
     required SourceOutcome outcome,
     required int distance,
@@ -1289,7 +1303,7 @@ class ImagePreloadController {
         // owner from here, so it is released too (I-DISPOSE).
         outcome.fullRes?.image?.dispose();
         _flushPendingNotifies(id);
-        return;
+        return false;
       }
       _cache.put(id, payload);
       // Whoever produced it, the sidebar's waiters get their tile from THIS
@@ -1341,7 +1355,22 @@ class ImagePreloadController {
     // with no owner. The bridge's orientation was memoised a few lines above,
     // so the lane's retry uses `loadExpensive` and buys no second round trip
     // (invariant I6).
+    var handedToLane = false;
     if (outcome.deferred && !onSerialLane) {
+      // THE CLAIM GOES FIRST, exactly as the measured-expensive route in
+      // [_ensurePayload] does it (BUG 2026-09-03, TC-357). The lane body
+      // re-enters `_ensurePayload` for this same id, and `enqueue` schedules
+      // its pump on a MICROTASK -- so the body can, and under width > 1
+      // routinely does, run before this call's caller reaches its `finally`.
+      // A claim still held at that moment sends the body down
+      // `_earlyResolve`'s in-flight branch: it parks nothing, decodes nothing
+      // and returns, so the item silently forfeits its ranked turn while a
+      // farther one takes the freed slot -- the observed [0, +2, -2] start
+      // order. Ownership of the claim moves to the lane task with the work;
+      // the caller learns that from this method's return value and leaves it
+      // alone.
+      _loadingKeys.remove(id);
+      handedToLane = true;
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
     }
     // A deferred item is the one case with nothing to report yet, and its
@@ -1385,6 +1414,7 @@ class ImagePreloadController {
         fullRes.image?.dispose();
       }
     }
+    return handedToLane;
   }
 
   /// Hands [item]'s whole load to the serial lane at its near-to-far rank.

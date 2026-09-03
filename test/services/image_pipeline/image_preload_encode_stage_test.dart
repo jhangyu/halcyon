@@ -228,4 +228,46 @@ void main() {
 
     expect(controller.payloadFor('a'), isA<PixelPayload>());
   });
+
+  // TC-886 -- dispose() while an off-lane encode is in flight must not make the
+  // continuation's byte release over-release the budget.
+  //
+  // The interleaving is FORCED, not raced: the encoder parks on a Completer the
+  // test controls, so `dispose()` -> `InflightBytesBudget.clear()` provably
+  // happens between the continuation's `acquire` and its `release`. Before the
+  // epoch fix that release fired the `'_inFlight >= gave'` assertion, and
+  // because it is an unawaited continuation the failure was attributed to
+  // whichever test ran next.
+  test(
+    'dispose during an in-flight off-lane encode does not over-release the '
+    'byte budget',
+    () async {
+      final encodeGate = Completer<void>();
+      final controller = buildController(
+        decoder: (path) async => decodedFixture(),
+        encoder:
+            (rgba, {required width, required height, required quality}) async {
+              await encodeGate.future;
+              return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+            },
+        decodeLaneWidth: 1,
+      );
+      controller.updateTargetSize(32, 32);
+
+      unawaited(
+        controller.preloadImages(
+          items: twoRawItems(),
+          selectedItemId: 'a',
+          notifyLoaded: () {},
+        ),
+      );
+      // The encode is now parked: bytes are acquired and not yet released.
+      await pumpMicrotasks();
+
+      controller.dispose();
+      encodeGate.complete();
+      // The continuation resumes here and runs its `finally` release.
+      await pumpMicrotasks();
+    },
+  );
 }
