@@ -17,7 +17,7 @@ import 'prefetch_scheduler.dart';
 import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
-import 'thumbnail_derivation.dart';
+import 'sidebar_thumbnail_controller.dart';
 import 'decode_lane.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
@@ -151,37 +151,32 @@ class ImagePreloadController {
   /// Live setting change from the settings page. Values below 1 clamp to 1.
   void setDecodeLaneWidth(int width) => _decodeLane.width = width;
 
-  // A SUM TYPE, not bytes: the JPG / embedded-preview path stores the encoded
-  // bitstream it already had, and the RAW-decode path stores oriented,
-  // 200px-capped RGBA. The RAW path used to JPEG-re-encode purely to satisfy
-  // this map's old `Uint8List` value type -- a sidebar-exclusive step that had
-  // no counterpart on the preview path and was the primary suspect for the
-  // Windows blank-tile bug (root-cause R2.3.1 step 6).
-  final Map<String, SourcePayload> _thumbCache = {};
-
-  // Rows the sidebar wants a tile for and whose payload has not landed yet.
-  //
-  // The sidebar is a CONSUMER now (USER RULING 2026-08-30, contract D5): it
-  // registers interest instead of producing pixels of its own, and
-  // [_onPayloadLanded] converts a landed payload into a tile. Pruned in the
-  // same statement that prunes `_thumbCache`, so a waiter cannot outlive its
-  // viewport.
-  final Set<String> _thumbWaiters = {};
-
-  // The sidebar's repaint callback, parked by the sweep so an asynchronous
-  // payload-landed derivation can report a tile that no sweep is awaiting.
-  VoidCallback? _thumbNotify;
-
-  // Ids the SIDEBAR put on the lane, for assertions. Cleared by [reset].
-  final Set<String> _sidebarEnqueuedIds = {};
+  /// Everything the sidebar thumbnail strip owns, extracted 2026-09-03. Built
+  /// AD-028-style from supplier CLOSURES, never from the cache/source objects
+  /// themselves, so retention policy keeps exactly one owner (this class) and
+  /// the sidebar can never grow a second opinion about what is retained.
+  ///
+  /// `late final` because every closure below captures `this`.
+  late final SidebarThumbnailController _sidebar = SidebarThumbnailController(
+    peekPayload: _cache.peek,
+    hasPayload: _cache.contains,
+    isPreviewPermanentMiss: _permanentMisses.contains,
+    decodeLane: _decodeLane,
+    ensurePayload: (item) => _ensurePayload(
+      item,
+      distance: 0,
+      notifyLoaded: null,
+      onSerialLane: true,
+    ),
+    retentionIds: () => _retentionIds,
+    republishEvictionPriority: _republishEvictionPriority,
+  );
 
   @visibleForTesting
-  Set<String> get debugThumbPermanentMisses =>
-      Set<String>.unmodifiable(_thumbPermanentMisses);
+  Set<String> get debugThumbPermanentMisses => _sidebar.permanentMisses;
 
   @visibleForTesting
-  Set<String> get debugSidebarEnqueuedIds =>
-      Set<String>.unmodifiable(_sidebarEnqueuedIds);
+  Set<String> get debugSidebarEnqueuedIds => _sidebar.enqueuedIds;
 
   /// The lane priority [id]'s payload task is currently queued at, or null.
   /// Exposed so G-027's demotion hazard is asserted directly (TC-436).
@@ -192,13 +187,6 @@ class ImagePreloadController {
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
 
-  /// Sidebar-thumbnail loads in flight, keyed by BARE photo id.
-  ///
-  /// A separate set, not a `'thumb_$id'` prefix in [_loadingKeys]: one set
-  /// holding two key shapes is exactly the collision class this file warns
-  /// about at the top, and a prefixed key silently answers `contains(id)`
-  /// with false while a bare id silently answers a thumbnail query with true.
-  final Set<String> _thumbLoadingKeys = {};
   // Callbacks from callers who selected an item while its load was already in
   // flight (started by a previous preload pass). Flushed once the in-flight
   // load completes so the UI never strands on a permanent spinner.
@@ -209,18 +197,19 @@ class ImagePreloadController {
   // item the user has already navigated away from.
   Set<String> _navRetentionIds = {};
 
-  // The SIDEBAR's demand: the visible range +/- thumbnailPrefetchMargin.
+  // The union of the navigation demand and the SIDEBAR's demand
+  // ([SidebarThumbnailController.wantedIds] -- the visible range +/-
+  // thumbnailPrefetchMargin).
   //
   // USER RULING 2026-08-30 (contract D5, "捲動亦填充 payload"): scrolling fills
-  // the payload cache too, so the sidebar is now a second contributor to WHAT
-  // IS RETAINED. It is deliberately NOT a second budget or a second eviction
+  // the payload cache too, so the sidebar is a second contributor to WHAT IS
+  // RETAINED. It is deliberately NOT a second budget or a second eviction
   // rule -- D4's "one retention rule for every file type" is untouched; only
   // the membership question gained a contributor.
-  Set<String> _thumbWantedIds = {};
-
-  // The union. A getter, not a third stored set, so the two contributors can
-  // never disagree with what the cache is actually asked to retain.
-  Set<String> get _retentionIds => _navRetentionIds.union(_thumbWantedIds);
+  //
+  // A getter, not a third stored set, so the two contributors can never
+  // disagree with what the cache is actually asked to retain.
+  Set<String> get _retentionIds => _navRetentionIds.union(_sidebar.wantedIds);
 
   @visibleForTesting
   Set<String> get debugRetentionIds => _retentionIds;
@@ -228,7 +217,6 @@ class ImagePreloadController {
   // Near-to-far eviction order, kept split by contributor for the same reason
   // the sets are: republished whenever either changes.
   List<String> _navPriorityIds = [];
-  List<String> _thumbPriorityIds = [];
 
   @visibleForTesting
   List<String> get debugEvictionPriority => _evictionPriorityOrder();
@@ -246,7 +234,7 @@ class ImagePreloadController {
     for (final id in _navPriorityIds) {
       if (seen.add(id)) order.add(id);
     }
-    for (final id in _thumbPriorityIds) {
+    for (final id in _sidebar.priorityIds) {
       if (seen.add(id)) order.add(id);
     }
     return order;
@@ -304,26 +292,6 @@ class ImagePreloadController {
   // [isNoNativeDecoder].
   final Set<String> _noNativeDecoderMisses = {};
 
-  // The SIDEBAR's permanent misses (design authority §2.2: the sidebar had no
-  // negative cache at all, so a thumbnail that can never be produced was
-  // re-requested on every sweep, forever -- invariant I8).
-  //
-  // Deliberately a SECOND CONTAINER rather than a second key shape inside
-  // [_permanentMisses]. What I8 shares is the POLICY -- asked once, remembered
-  // until the folder reloads -- not the container. Keying the sidebar's
-  // entries as `thumb_<id>` inside the preview set is unsound: [PhotoItem.id]
-  // is `basenameWithoutExtension` (supported_photo_formats.dart:44, used as
-  // the grouping key at photo_library_scanner.dart:23), so ids are
-  // user-controlled filenames, and a folder holding both `IMG_01.jpg` and
-  // `thumb_IMG_01.jpg` makes one string mean two things -- the sidebar's
-  // failure for the first is read back as a PREVIEW miss for the second,
-  // which the view then calls unreadable although it never failed at
-  // anything. No prefix or escape rescues that, because the id space is
-  // unrestricted; two questions need two containers.
-  //
-  // Both sets are cleared by [reset]: THAT part is the shared policy.
-  final Set<String> _thumbPermanentMisses = {};
-
   // id -> EXIF orientation, written by the content probe (and, only for files
   // the probe could not measure, by the bridge's rung-2 answer).
   //
@@ -335,19 +303,9 @@ class ImagePreloadController {
   // is cleared only by [reset].
   final Map<String, int> _exifOrientations = {};
 
-  int _lastPreloadStart = -1;
-  int _lastPreloadEnd = -1;
-  Timer? _thumbnailDebounceTimer;
-  // Bumped by every new thumbnail request and by [reset]. The running batch
-  // carries the generation it started with and stops as soon as it no longer
-  // matches, so a batch whose range is already stale (fast scroll, or a folder
-  // reload that cleared _thumbCache underneath it) cannot keep spending
-  // channel round-trips or write thumbnails for a list that is gone.
-  int _thumbBatchGeneration = 0;
-
   // The PREVIEW path's own generation, bumped by every [preloadImages] call
-  // and by [reset]. It is deliberately separate from _thumbBatchGeneration,
-  // which counts sidebar batches: a running preview pass awaits its priority
+  // and by [reset]. It is deliberately separate from the sidebar's own batch
+  // generation, which counts sidebar batches: a running preview pass awaits its priority
   // load and then its whole window, and by the time it resumes the user may
   // have navigated on or reloaded the folder -- at which point everything it
   // was about to do (the tier-1 precache, and above all rescheduling the
@@ -436,16 +394,16 @@ class ImagePreloadController {
   @visibleForTesting
   Set<String> get debugTierOneKeyIds => _tierOneKeys.keys.toSet();
 
-  SourcePayload? thumbnailPayloadFor(String id) => _thumbCache[id];
+  SourcePayload? thumbnailPayloadFor(String id) =>
+      _sidebar.thumbnailPayloadFor(id);
 
   @visibleForTesting
-  int get debugThumbnailCacheLength => _thumbCache.length;
+  int get debugThumbnailCacheLength => _sidebar.cacheLength;
 
   /// Sum of `byteCost` over the sidebar cache. Exists so INV-MEM is an
   /// asserted acceptance condition (TC-374) rather than an estimate in prose.
   @visibleForTesting
-  int get debugThumbnailCacheByteCost =>
-      _thumbCache.values.fold(0, (sum, p) => sum + p.byteCost);
+  int get debugThumbnailCacheByteCost => _sidebar.cacheByteCost;
 
   /// Total retained payload cost. The successor to the old "is that ~50MB
   /// handle disposed?" question: what bounds memory now is the sum over the
@@ -488,17 +446,11 @@ class ImagePreloadController {
 
   void reset() {
     _cache.clear();
-    _thumbCache.clear();
-    _thumbWaiters.clear();
-    _thumbNotify = null;
-    _sidebarEnqueuedIds.clear();
+    _sidebar.reset();
     _loadingKeys.clear();
-    _thumbLoadingKeys.clear();
     _pendingPreviewNotifies.clear();
     _navRetentionIds = {};
-    _thumbWantedIds = {};
     _navPriorityIds = [];
-    _thumbPriorityIds = [];
     _evictTierOneKeys();
     _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
@@ -506,12 +458,7 @@ class ImagePreloadController {
     _scheduler.reset();
     _permanentMisses.clear();
     _noNativeDecoderMisses.clear();
-    _thumbPermanentMisses.clear();
     _exifOrientations.clear();
-    _lastPreloadStart = -1;
-    _lastPreloadEnd = -1;
-    _thumbnailDebounceTimer?.cancel();
-    _thumbBatchGeneration++;
     _previewGeneration++;
   }
 
@@ -526,18 +473,13 @@ class ImagePreloadController {
   }
 
   void dispose() {
-    _thumbnailDebounceTimer?.cancel();
+    _sidebar.dispose();
     _decodeLane.clearPending();
     _tierTwoScheduler.cancelDebounce();
     _evictTierOneKeys();
     _tierTwo.clear();
     _navRetentionIds = {};
-    _thumbWantedIds = {};
     _navPriorityIds = [];
-    _thumbPriorityIds = [];
-    _thumbWaiters.clear();
-    _thumbNotify = null;
-    _sidebarEnqueuedIds.clear();
     _cache.clear();
     // Nothing else to do: no image is owned here. A source still in flight at
     // teardown resolves into a payload nobody reads and is collected -- it
@@ -797,62 +739,6 @@ class ImagePreloadController {
     }
   }
 
-  /// THE point where "one decode serves both" becomes true.
-  ///
-  /// Called immediately after every `_cache.put`, whoever produced the
-  /// payload. Derivation is cheap (a sized re-decode of bytes already
-  /// resident) but it is still async, so both staleness guards apply: the
-  /// batch generation is captured BEFORE the first await, and the id must
-  /// still be wanted when the result comes back. Dropping either one
-  /// reintroduces the stale-viewport write this file has been patched for
-  /// twice.
-  void _onPayloadLanded(String id, SourcePayload payload) {
-    if (!_thumbWaiters.remove(id)) return;
-    if (_thumbCache.containsKey(id)) return;
-    final generation = _thumbBatchGeneration;
-    unawaited(
-      deriveThumbnailPayload(payload).then((derived) {
-        // A null derivation is NOT a permanent miss: the payload may be
-        // replaced by a better one later, and a permanent miss is
-        // unrecoverable until the folder reloads. Amendment E-H1(a): put the
-        // id BACK on the waiter list so a later landing retries it, rather
-        // than silently dropping the row until the next sweep.
-        if (derived == null) {
-          if (_thumbWantedIds.contains(id)) _thumbWaiters.add(id);
-          return;
-        }
-        if (generation != _thumbBatchGeneration) return;
-        if (!_thumbWantedIds.contains(id)) return;
-        if (!identical(_cache.peek(id), payload)) return;
-        _thumbCache[id] = derived;
-        _thumbNotify?.call();
-      }),
-    );
-  }
-
-  /// A payload that can NEVER be produced is also a tile that can never be
-  /// produced. Without this the sidebar would wait forever on a file the
-  /// preview path has already given up on -- the sidebar's own negative cache
-  /// exists precisely so a hopeless row is asked about once (invariant I8).
-  void _onPayloadMiss(String id) {
-    _thumbWaiters.remove(id);
-    _thumbPermanentMisses.add(id);
-  }
-
-  /// One line per swallowed sidebar failure. Console output, NOT user-facing
-  /// UI -- the 2026-08-26 "no failure UI" ruling stands, and this is inside
-  /// it. Permanent, not a temporary debug aid: its absence is what turned the
-  /// Windows blank-tile bug into a two-round static-tracing investigation.
-  /// Volume is one line per id per folder load, bounded by
-  /// [_thumbPermanentMisses].
-  void _logThumbFailure(String id, String stage, Object error) {
-    final message = error.toString();
-    debugPrint(
-      'sidebar.thumb|id=$id|stage=$stage|err=${error.runtimeType}|'
-      'msg=${message.substring(0, message.length.clamp(0, 200))}',
-    );
-  }
-
   /// Produces and retains [item]'s payload if it is not retained already.
   ///
   /// [distance] is the SIGNED offset from the selection (negative = before it).
@@ -1085,7 +971,7 @@ class ImagePreloadController {
         _cache.put(id, payload);
         // Whoever produced it, the sidebar's waiters get their tile from THIS
         // payload -- never from a second decode of their own (D5 decision 2).
-        _onPayloadLanded(id, payload);
+        _sidebar.onPayloadLanded(id, payload);
         if (onSerialLane) {
           // A serially landed payload gets its tier-1 ImageCache entry HERE,
           // not on "the next navigation pass": when the user has stopped
@@ -1102,12 +988,13 @@ class ImagePreloadController {
         // later pass asks again. This is the load-bearing edge of design §3.4:
         // the ONLY new stranding risk in M3 is a failure that nobody records.
         _permanentMisses.add(id);
-        _onPayloadMiss(id);
+        _sidebar.onPayloadMiss(id);
         // DIAGNOSTIC (2026-09-02). THE latch: from here nothing re-asks about
         // this item until the folder reloads (`_earlyResolve`'s permanent-miss
         // branch), so whatever caused this one failure is frozen for the whole
         // session. One line per id per folder load, bounded by the set that was
-        // just written -- the same volume budget `_logThumbFailure` has.
+        // just written -- the same volume budget
+        // `SidebarThumbnailController.logFailure` has.
         debugPrint(
           'halcyon.preview.latch|id=$id|code=${outcome.failureCode ?? 'none'}'
           '|cost=${outcome.observedCost}|-> unreadable for this session',
@@ -1239,53 +1126,6 @@ class ImagePreloadController {
           notifyLoaded: null,
           onSerialLane: true,
         );
-      },
-    );
-  }
-
-  /// Asks the lane to produce [item]'s payload on the SIDEBAR's behalf.
-  ///
-  /// [rowDistance] is the row's distance from the first visible row, so nearer
-  /// rows are produced first within the sidebar's own priority class.
-  ///
-  /// The body re-checks the retention union when its TURN comes, not when it
-  /// is queued (invariant I4): a row scrolled past before its turn does no
-  /// work at all. Nothing is cancellable mid-body -- no FFI decode is -- so
-  /// "cancellation" here is exactly pending-entry replacement plus this
-  /// re-check, the same shape [_enqueueSerialLoad] already uses.
-  void _enqueueSidebarPayload(PhotoItem item, {required int rowDistance}) {
-    final id = item.id;
-    _sidebarEnqueuedIds.add(id);
-    _decodeLane.enqueue(
-      (LaneTaskKind.payload, id),
-      priority: kSidebarPayloadPriorityBase + rowDistance,
-      body: () async {
-        if (!_retentionIds.contains(id)) return;
-        if (_cache.contains(id)) return;
-        try {
-          await _ensurePayload(
-            item,
-            distance: 0,
-            notifyLoaded: null,
-            onSerialLane: true,
-          );
-        } catch (e) {
-          // A producer that THROWS (an unconverted PlatformException, a
-          // MissingPluginException, a decoder that blew up) is NOT recorded as
-          // a permanent miss by [_ensurePayload]: it rethrows, preserving the
-          // preview path's error propagation, and the lane then swallows the
-          // exception to stay runnable. Without this arm the row would end the
-          // body with no payload AND no miss, so every later sweep would
-          // re-enqueue it and re-ask a question whose answer cannot change --
-          // invariant I8's forever-loop, which the deleted sweep's own
-          // try/catch used to prevent (M6-PL1).
-          //
-          // Only the SIDEBAR's negative cache is written. The preview path's
-          // policy for a throwing source is deliberately left exactly as it
-          // was; widening it is a separate decision with its own blast radius.
-          _logThumbFailure(id, 'produce', e);
-          _onPayloadMiss(id);
-        }
       },
     );
   }
@@ -1434,136 +1274,18 @@ class ImagePreloadController {
   /// Loads sidebar thumbnails for the VISIBLE range [startIdx]..[endIdx],
   /// plus [thumbnailPrefetchMargin] rows of prefetch on each side.
   ///
-  /// The caller passes what it can actually see (the sidebar reports the index
-  /// range its `itemBuilder` built this frame); the margin is this class's
-  /// business, so the fetch ORDER can put every visible row ahead of every
-  /// prefetched one. That ordering is the point: the range is up to 41 rows and
-  /// the loop is sequential, so a start-to-end sweep would spend 20 round-trips
-  /// on off-screen rows above the viewport before touching a single row the
-  /// user is looking at.
-  ///
-  /// **The returned Future completes when the synchronous sweep has been
-  /// ISSUED, not when every thumbnail has landed.** Rows fetched behind the
-  /// debounce complete afterwards and report through [notifyLoaded]. Callers
-  /// that `await` this get "the sweep is scheduled", never "the sidebar is
-  /// fully painted"; awaiting it in a test and then asserting on bytes is a
-  /// race, not a check.
+  /// Forwards to [SidebarThumbnailController.preloadThumbnails], which owns
+  /// the whole sweep -- see there for the ordering rationale and for what the
+  /// returned Future does and does not promise.
   Future<void> preloadThumbnails({
     required List<PhotoItem> items,
     required int startIdx,
     required int endIdx,
     required VoidCallback notifyLoaded,
-  }) async {
-    if (items.isEmpty) return;
-
-    final safeStart = startIdx.clamp(0, items.length - 1);
-    final safeEnd = endIdx.clamp(0, items.length - 1);
-
-    if (_lastPreloadStart == safeStart && _lastPreloadEnd == safeEnd) return;
-    _lastPreloadStart = safeStart;
-    _lastPreloadEnd = safeEnd;
-
-    // Supersede any batch still running for the previous range.
-    final generation = ++_thumbBatchGeneration;
-
-    _thumbnailDebounceTimer?.cancel();
-    _thumbnailDebounceTimer = Timer(
-      const Duration(milliseconds: 100),
-      () async {
-        // Visible first, top to bottom; then outward from the viewport edges,
-        // one row below then one row above, so the direction the user is more
-        // likely to scroll is never starved by the other side.
-        final order = <int>[];
-        for (var i = safeStart; i <= safeEnd; i++) {
-          order.add(i);
-        }
-        for (var d = 1; d <= thumbnailPrefetchMargin; d++) {
-          if (safeEnd + d < items.length) order.add(safeEnd + d);
-          if (safeStart - d >= 0) order.add(safeStart - d);
-        }
-
-        _thumbWantedIds = {for (final i in order) items[i].id};
-        _thumbPriorityIds = [for (final i in order) items[i].id];
-        _republishEvictionPriority();
-        _thumbCache.removeWhere((key, _) => !_thumbWantedIds.contains(key));
-        // A waiter cannot outlive its viewport: pruned in the same statement
-        // that prunes the tile cache, so `_onPayloadLanded` can never write a
-        // tile for a row that scrolled away.
-        _thumbWaiters.removeWhere((key) => !_thumbWantedIds.contains(key));
-        // Parked once per sweep: a payload landing AFTER this sweep returns
-        // still has to repaint the sidebar, and no sweep is awaiting it.
-        _thumbNotify = notifyLoaded;
-
-        for (final index in order) {
-          // A newer range (or a folder reload) arrived while we were awaiting;
-          // everything from here on is for a viewport that no longer exists.
-          if (generation != _thumbBatchGeneration) return;
-
-          final item = items[index];
-          final id = item.id;
-          // An in-memory Set lookup and nothing more -- the sidebar's negative
-          // cache costs the hot path one hash probe per row. Keyed by the bare
-          // id, in the sidebar's OWN set: see [_thumbPermanentMisses] for why
-          // it cannot live in the preview set under a prefix.
-          if (_thumbCache.containsKey(id) ||
-              _thumbLoadingKeys.contains(id) ||
-              _thumbPermanentMisses.contains(id)) {
-            continue;
-          }
-          // An answer that cannot change: the preview path already proved this
-          // file produces nothing.
-          if (_permanentMisses.contains(id)) {
-            _thumbPermanentMisses.add(id);
-            continue;
-          }
-          if (item.bestFileToLoad == null) continue;
-
-          final payload = _cache.peek(id);
-          if (payload != null) {
-            // RULE 1 -- the payload is already here. Derive and go: zero
-            // decodes, zero file opens, zero loader round trips. This is the
-            // whole of D5 decision 2 on the synchronous path.
-            _thumbLoadingKeys.add(id);
-            try {
-              final derived = await deriveThumbnailPayload(payload);
-              if (generation != _thumbBatchGeneration) return;
-              if (derived == null) {
-                // Transient, never a permanent miss (amendment E-H1(a)):
-                // re-register as a waiter so a later landing retries.
-                if (_thumbWantedIds.contains(id)) _thumbWaiters.add(id);
-                continue;
-              }
-              if (!_thumbWantedIds.contains(id)) continue;
-              _thumbCache[id] = derived;
-              notifyLoaded();
-            } catch (e) {
-              // Derivation is not a loader failure and must not be labelled
-              // one; it is also not permanent -- a later payload may derive.
-              _logThumbFailure(id, 'derive', e);
-            } finally {
-              _thumbLoadingKeys.remove(id);
-            }
-            continue;
-          }
-
-          // RULE 2 -- no payload yet. Register interest either way; the
-          // payload-landed hook turns whichever producer wins into a tile.
-          _thumbWaiters.add(id);
-          if (!_decodeLane.isPending((LaneTaskKind.payload, id))) {
-            // RULE 3 -- nobody already owns this key, so nobody else will
-            // produce it. Ask the lane, at the sidebar's own low priority.
-            //
-            // The pending test is load-bearing, NOT an optimisation (G-027):
-            // re-enqueueing a key that is ALREADY pending REPLACES its
-            // priority, so enqueueing an id the navigation pass is waiting on
-            // would DEMOTE the decode of the item the user is looking at from
-            // rank 0 to rank 2000+. Testing the lane itself rather than the
-            // navigation window is self-healing: once the nav window moves
-            // away and its entry drains, the sidebar may take the key over.
-            _enqueueSidebarPayload(item, rowDistance: (index - safeStart).abs());
-          }
-        }
-      },
-    );
-  }
+  }) => _sidebar.preloadThumbnails(
+    items: items,
+    startIdx: startIdx,
+    endIdx: endIdx,
+    notifyLoaded: notifyLoaded,
+  );
 }
