@@ -17,8 +17,12 @@ const double kPaperColumnMinWidth = 40.0;
 const double kPaperColumnRestWidth = 90.0;
 const double kPaperColumnMaxWidth = 200.0;
 
-/// The pinned resting chip size (mockup: "From 90 upward the chip is pinned
-/// at 74x49").
+/// The chip size at the 90px RESTING width. USER RULING R-1
+/// (`docs/logs/2026-09-03/theme-parity-contract.md`) OVERRIDES the paper
+/// mockup's "From 90 upward the chip is pinned at 74x49. It never grows with
+/// the strip." (`docs/logs/2026-09-01/mockup/paper/NOTES.md:183-184`): 74 is
+/// the chip size AT 90, not a ceiling. Above 90 the chip grows with the
+/// column, the way `darkroom` already does. Do not "restore" the pin.
 const double kPaperChipRestWidth = 74.0;
 const double kPaperChipAspect = 74 / 49;
 
@@ -50,37 +54,86 @@ const Duration kPaperWidthBadgeDelay = Duration(milliseconds: 400);
 /// floating overlay strip (mockup `.stripbody` / `.floatstrip`).
 const double kPaperStripGap = 7.0;
 
-/// Chip width for a given gutter width (mockup NOTES.md sweep, drawn points
-/// 40/90/140/200): scales linearly from [kPaperChipFloorWidth] at
-/// [kPaperColumnMinWidth] up to [kPaperChipRestWidth] at
-/// [kPaperColumnRestWidth], then stays pinned through [kPaperColumnMaxWidth].
+/// Outer padding of the chip grid on all four sides at and above the resting
+/// width. Chosen so the derived ONE-column cell width is exactly
+/// [kPaperChipRestWidth] at [kPaperColumnRestWidth] (90 - 2*8 = 74) and
+/// exactly [kPaperChipRestWidth] again on entering the two-column band
+/// ((171 - 2*8 - 7) / 2 = 74): the scaling curve is therefore continuous at 90
+/// and never shrinks a chip below its resting size when the second column
+/// appears.
+const double kPaperGridPadding = 8.0;
+
+/// Rendered chip width at a given gutter width — a CONTINUOUS function of the
+/// live drag width across the whole 40-200 range (R-1).
+///
+/// Three regimes, continuous at the 90 seam:
+///  * two columns (>= [kPaperTwoColumnWidth]): the grid cell width,
+///    `(w - 2*pad - gap) / 2`;
+///  * one column at/above rest: the grid cell width, `w - 2*pad`;
+///  * below rest: linear from [kPaperChipFloorWidth] at
+///    [kPaperColumnMinWidth] to [kPaperChipRestWidth] at
+///    [kPaperColumnRestWidth] (the two drawn mockup frames).
+///
+/// The single step down, at [kPaperTwoColumnWidth], is where the second column
+/// appears — the same shape `darkroom` has at its own
+/// `kDarkroomTwoColumnWidth` (see
+/// `lib/views/layout/darkroom/darkroom_column.dart:52-58`, which derives the
+/// same arithmetic for its grid; that file is deliberately NOT refactored into
+/// a shared helper here, see docs/logs/2026-09-03/plan-paper.md Task 1).
 double paperChipWidthFor(double width) {
-  if (width >= kPaperColumnRestWidth) return kPaperChipRestWidth;
+  if (width >= kPaperTwoColumnWidth) {
+    return (width - 2 * kPaperGridPadding - kPaperStripGap) / 2;
+  }
+  if (width >= kPaperColumnRestWidth) {
+    return width - 2 * kPaperGridPadding;
+  }
   final t = ((width - kPaperColumnMinWidth) /
           (kPaperColumnRestWidth - kPaperColumnMinWidth))
       .clamp(0.0, 1.0);
   return kPaperChipFloorWidth + t * (kPaperChipRestWidth - kPaperChipFloorWidth);
 }
 
+/// Rendered chip height. At and above rest it is derived from the width at the
+/// resting aspect; below rest it interpolates to the drawn 21px floor, which
+/// makes the aspect drift slightly (31/21 vs 74/49) — hence
+/// [paperChipAspectFor] rather than one constant fed to the grid delegate.
 double paperChipHeightFor(double width) {
   if (width >= kPaperColumnRestWidth) {
-    return kPaperChipRestWidth / kPaperChipAspect;
+    return paperChipWidthFor(width) / kPaperChipAspect;
   }
   final t = ((width - kPaperColumnMinWidth) /
           (kPaperColumnRestWidth - kPaperColumnMinWidth))
       .clamp(0.0, 1.0);
-  final restHeight = kPaperChipRestWidth / kPaperChipAspect;
+  const restHeight = kPaperChipRestWidth / kPaperChipAspect;
   return kPaperChipFloorHeight + t * (restHeight - kPaperChipFloorHeight);
 }
+
+/// The `childAspectRatio` for the chip grid at a given gutter width.
+double paperChipAspectFor(double width) =>
+    paperChipWidthFor(width) / paperChipHeightFor(width);
+
+/// The grid's `EdgeInsets.all` value, derived FROM the chip width so the
+/// delegate's computed cell width is exactly [paperChipWidthFor]. Returns
+/// exactly 8.0 for every width at or above [kPaperColumnRestWidth]; below it,
+/// it narrows (4.5 at the 40px floor) so the interpolated floor chip still
+/// fits its column.
+double paperGridPaddingFor(double width) {
+  final columns = paperColumnsFor(width);
+  final content =
+      columns * paperChipWidthFor(width) + kPaperStripGap * (columns - 1);
+  return math.max(0.0, (width - content) / 2);
+}
+
+/// One grid ROW's pixel height including the spacing that follows it. Derived
+/// from exactly the numbers the grid delegate is built with, so the anchoring
+/// arithmetic in [_PaperColumnState.didUpdateWidget] cannot drift from the
+/// layout it anchors.
+double paperRowExtentFor(double width) =>
+    paperChipHeightFor(width) + kPaperStripGap;
 
 /// One column at or below [kPaperTwoColumnWidth], two above it — the strip
 /// never grows past two (mockup NOTES.md sweep).
 int paperColumnsFor(double width) => width >= kPaperTwoColumnWidth ? 2 : 1;
-
-/// At or below the 90px default the strip sits BESIDE the photo inside the
-/// gutter; above it, it floats over the photo as an overlay (R5a/R9: "Layout
-/// changes at w=91").
-bool paperStripBeside(double width) => width <= kPaperColumnRestWidth;
 
 /// The desktop arrangement of the `paper` theme (round 2).
 ///
@@ -131,13 +184,14 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
   Widget build(BuildContext context) {
     final surface = widget.surface;
     final colors = Theme.of(context).colorScheme;
-    final palette = PaperPalette.of(context);
-    // The photo never moves: the gutter always reserves 90px of layout
-    // (mockup: "the gutter always reserves 90px of LAYOUT so the photo
-    // starts at x=90 and stays 1350x900 at every drag width"). Widths above
-    // 90 float the strip as an overlay instead of pushing this inset.
-    const double viewportLeft = kPaperColumnRestWidth;
-    final beside = paperStripBeside(_width);
+    // USER RULING R-2 (docs/logs/2026-09-03/theme-parity-contract.md): the
+    // gutter and the preview each own their own width. Widening the gutter
+    // SHRINKS the preview, so the photo starts where the gutter ends and they
+    // never overlap. This overrides the mockup's R5a ("above 90 it floats over
+    // it and never pushes it") for the Flutter port. Every `viewportLeft + N`
+    // offset below — the viewport, the EXIF caption, the status toast —
+    // re-bases on the live drag width with no edit of its own.
+    final double viewportLeft = _width;
 
     return Stack(
       children: [
@@ -174,7 +228,7 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
         // Width readout while dragging (mockup `.widthbadge`).
         Positioned(
           top: 16,
-          left: math.max(viewportLeft, _width) + 16,
+          left: viewportLeft + 16,
           child: IgnorePointer(
             child: !_dragActive
                 ? const SizedBox.shrink()
@@ -202,47 +256,26 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
                   ),
           ),
         ),
-        // The gutter: BESIDE the photo at rest, floating over it above 90.
+        // The gutter: always IN LAYOUT, never an overlay (R-2). Its width is
+        // the live drag width, and the viewport above starts at exactly that
+        // x, so the two regions are disjoint by construction at every width.
         Positioned(
           key: kPaperColumnSlotKey,
           left: 0,
           top: 0,
           bottom: 0,
-          width: beside ? _width : kPaperColumnRestWidth,
-          child: beside
-              ? _PaperColumn(
-                  surface: surface,
-                  width: _width,
-                  narrow: _width < 60,
-                  onWidthDelta: _onWidthDelta,
-                )
-              : _PaperColumn(
-                  surface: surface,
-                  width: kPaperColumnRestWidth,
-                  narrow: false,
-                  onWidthDelta: _onWidthDelta,
-                ),
-        ),
-        // The floating strip (widths 91-200): a translucent glass panel over
-        // the photo's left edge (mockup `.floatstrip`), never moving the
-        // photo. Column count 1 below 171, 2 at/above it.
-        if (!beside)
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
+          width: _width,
+          child: _PaperColumn(
+            surface: surface,
             width: _width,
-            child: _PaperFloatStrip(
-              surface: surface,
-              width: _width,
-              palette: palette,
-              onWidthDelta: _onWidthDelta,
-            ),
+            narrow: _width < 60,
+            onWidthDelta: _onWidthDelta,
           ),
+        ),
         // Outer half of the resize handle's hit region, so a pointer just
         // past the grip still grabs the drag instead of panning the photo.
         Positioned(
-          left: beside ? _width : _width,
+          left: _width,
           top: 0,
           bottom: 0,
           width: 6,
@@ -312,13 +345,16 @@ class _PaperColumnState extends State<_PaperColumn> {
     final strip = widget.surface.strip;
     final selectedId = strip.selectedId;
     if (selectedId == null) return;
-    final row = strip.items.indexWhere((i) => i.id == selectedId);
-    if (row == -1) return;
+    final idx = strip.items.indexWhere((i) => i.id == selectedId);
+    if (idx == -1) return;
+    // Both width-driven geometry changes now live in THIS widget: the chip
+    // scales continuously (row extent moves) and the column count steps at
+    // kPaperTwoColumnWidth (the selected item's row index moves).
     _scrollController.anchorRowByPixelOffset(
-      oldRow: row,
-      oldRowExtent: paperChipHeightFor(oldWidget.width) + kPaperStripGap,
-      newRow: () => row,
-      newRowExtent: () => paperChipHeightFor(widget.width) + kPaperStripGap,
+      oldRow: idx ~/ paperColumnsFor(oldWidget.width),
+      oldRowExtent: paperRowExtentFor(oldWidget.width),
+      newRow: () => idx ~/ paperColumnsFor(widget.width),
+      newRowExtent: () => paperRowExtentFor(widget.width),
     );
   }
 
@@ -326,8 +362,6 @@ class _PaperColumnState extends State<_PaperColumn> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strip = widget.surface.strip;
-    final chipW = paperChipWidthFor(widget.width);
-    final chipH = paperChipHeightFor(widget.width);
 
     return Container(
       color: Theme.of(context).colorScheme.surface,
@@ -337,7 +371,7 @@ class _PaperColumnState extends State<_PaperColumn> {
             children: [
               _buildHead(context),
               Expanded(
-                child: _buildFilmstrip(context, strip, chipW, chipH),
+                child: _buildFilmstrip(context, strip),
               ),
               _buildTools(context, colors),
             ],
@@ -388,61 +422,55 @@ class _PaperColumnState extends State<_PaperColumn> {
     );
   }
 
-  Widget _buildFilmstrip(
-    BuildContext context,
-    PhotoStripModel strip,
-    double chipW,
-    double chipH,
-  ) {
+  Widget _buildFilmstrip(BuildContext context, PhotoStripModel strip) {
     final items = strip.items;
-    const gap = kPaperStripGap;
     return RepaintBoundary(
       child: ListenableBuilder(
         listenable: strip.revision,
-        builder: (context, _) => ListView.builder(
+        builder: (context, _) => GridView.builder(
+          key: const ValueKey<String>('paper-grid'),
           controller: _scrollController,
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          itemExtent: chipH + gap,
+          padding: EdgeInsets.all(paperGridPaddingFor(widget.width)),
           itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: paperColumnsFor(widget.width),
+            mainAxisSpacing: kPaperStripGap,
+            crossAxisSpacing: kPaperStripGap,
+            childAspectRatio: paperChipAspectFor(widget.width),
+          ),
           itemBuilder: (context, index) {
-            // itemBuilder-driven visibility (AD-011 red line): the visible
-            // range is reported from viewport geometry, never a scroll
-            // listener.
-            _reportVisibleRange();
-            final item = items[index];
-            return Center(
-              child: _PaperChip(
-                item: item,
-                strip: strip,
-                width: chipW,
-                height: chipH,
-              ),
-            );
+            // itemBuilder-driven visibility (AD-011/AD-014 red line): the
+            // visible range is reported from what was actually built, never
+            // from a scroll listener or offset arithmetic.
+            _reportVisibleRange(index);
+            return _PaperChip(item: items[index], strip: strip);
           },
         ),
       ),
     );
   }
 
-  bool _sweepScheduled = false;
+  // Same form as darkroom_column.dart:196-210: accumulate the min/max index
+  // built this frame, report once in a post-frame callback. The previous
+  // offset-arithmetic version assumed one column and a constant row extent —
+  // both false now.
+  int _first = -1;
+  int _last = -1;
+  bool _scheduled = false;
 
-  void _reportVisibleRange() {
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
+  void _reportVisibleRange(int index) {
+    if (_first == -1 || index < _first) _first = index;
+    if (index > _last) _last = index;
+    if (_scheduled) return;
+    _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      final strip = widget.surface.strip;
-      final chipH = paperChipHeightFor(widget.width);
-      final extent = chipH + kPaperStripGap;
-      final offset = _scrollController.offset;
-      final viewportHeight = _scrollController.position.viewportDimension;
-      final first = (offset / extent).floor();
-      final last = ((offset + viewportHeight) / extent).ceil();
-      strip.onVisibleRange(
-        math.max(0, first),
-        math.min(last, strip.items.length - 1),
-      );
+      _scheduled = false;
+      final first = _first;
+      final last = _last;
+      _first = -1;
+      _last = -1;
+      if (!mounted || first == -1) return;
+      widget.surface.strip.onVisibleRange(first, last);
     });
   }
 
@@ -502,188 +530,11 @@ class _PaperColumnState extends State<_PaperColumn> {
   }
 }
 
-/// The overlay strip drawn above 90px (mockup `.floatstrip`): translucent
-/// glass, one or two columns, chip pinned at [kPaperChipRestWidth].
-class _PaperFloatStrip extends StatefulWidget {
-  const _PaperFloatStrip({
-    required this.surface,
-    required this.width,
-    required this.palette,
-    required this.onWidthDelta,
-  });
-
-  final MainSurface surface;
-  final double width;
-  final PaperPalette palette;
-  final void Function(double dx) onWidthDelta;
-
-  @override
-  State<_PaperFloatStrip> createState() => _PaperFloatStripState();
-}
-
-class _PaperFloatStripState extends State<_PaperFloatStrip> {
-  /// Round 4: shares the gallery's in-layout anchoring (TC-556). The row
-  /// extent here is constant (the chip is pinned above 90px), but the COLUMN
-  /// COUNT steps 1->2 at [kPaperTwoColumnWidth], which re-maps the selected
-  /// item onto a different row and displaces the whole strip under a fixed
-  /// offset — the same class of defect, from a different geometry change.
-  final AnchoredScrollController _scrollController = AnchoredScrollController();
-  bool _sweepScheduled = false;
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _PaperFloatStrip oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.width == widget.width) return;
-    final strip = widget.surface.strip;
-    final selectedId = strip.selectedId;
-    if (selectedId == null) return;
-    final idx = strip.items.indexWhere((i) => i.id == selectedId);
-    if (idx == -1) return;
-    const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
-    _scrollController.anchorRowByPixelOffset(
-      oldRow: idx ~/ paperColumnsFor(oldWidget.width),
-      oldRowExtent: extent,
-      newRow: () => idx ~/ paperColumnsFor(widget.width),
-      newRowExtent: () => extent,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strip = widget.surface.strip;
-    final items = strip.items;
-    final columns = paperColumnsFor(widget.width);
-    final rowCount = (items.length + columns - 1) ~/ columns;
-    const gap = kPaperStripGap;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: widget.palette.glassFloat,
-        boxShadow: const [
-          BoxShadow(color: Color(0x4D000000), blurRadius: 44, offset: Offset(14, 0)),
-        ],
-      ),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 44,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.folder_open, size: 18),
-                  tooltip: 'Open Folder',
-                  onPressed: widget.surface.actions.onOpenFolder,
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: widget.surface.actions.menu,
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: RepaintBoundary(
-                child: ListenableBuilder(
-                  listenable: strip.revision,
-                  builder: (context, _) => ListView.builder(
-                    controller: _scrollController,
-                    itemExtent: kPaperChipRestWidth / kPaperChipAspect + gap,
-                    itemCount: rowCount,
-                    itemBuilder: (context, row) {
-                      _reportVisibleRange(strip, columns);
-                      final first = row * columns;
-                      final last = math.min(
-                        first + columns - 1,
-                        items.length - 1,
-                      );
-                      return Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: gap,
-                        children: [
-                          for (var i = first; i <= last; i++)
-                            _PaperChip(
-                              item: items[i],
-                              strip: strip,
-                              width: kPaperChipRestWidth,
-                              height: kPaperChipRestWidth / kPaperChipAspect,
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: 60,
-            child: Row(
-              children: [
-                Expanded(
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.star_border,
-                      color: widget.palette.star,
-                    ),
-                    onPressed: widget.surface.actions.onStar,
-                    tooltip: 'Star (S)',
-                  ),
-                ),
-                Expanded(
-                  child: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: widget.surface.actions.onTrash,
-                    tooltip: 'Trash (X)',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _reportVisibleRange(PhotoStripModel strip, int columns) {
-    if (_sweepScheduled) return;
-    _sweepScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sweepScheduled = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      const extent = kPaperChipRestWidth / kPaperChipAspect + kPaperStripGap;
-      final offset = _scrollController.offset;
-      final viewportHeight = _scrollController.position.viewportDimension;
-      final firstRow = (offset / extent).floor();
-      final lastRow = ((offset + viewportHeight) / extent).ceil();
-      strip.onVisibleRange(
-        math.max(0, firstRow * columns),
-        math.min(lastRow * columns + (columns - 1), strip.items.length - 1),
-      );
-    });
-  }
-}
-
 class _PaperChip extends StatelessWidget {
-  const _PaperChip({
-    required this.item,
-    required this.strip,
-    required this.width,
-    required this.height,
-  });
+  const _PaperChip({required this.item, required this.strip});
 
   final PhotoItem item;
   final PhotoStripModel strip;
-  final double width;
-  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -696,8 +547,6 @@ class _PaperChip extends StatelessWidget {
       onTap: () => strip.onSelect(item.id),
       child: Container(
         key: ValueKey<String>('paper-chip-${item.id}'),
-        width: width,
-        height: height,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(3),
           border: isSelected
