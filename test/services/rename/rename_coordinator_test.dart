@@ -536,11 +536,20 @@ void main() {
       final state = AppState(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
-        dngDecoder: (path) async => DecodedRgba(
-          rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
-          width: 2,
-          height: 2,
-        ),
+        // OPAQUE pixels. The identity short-circuit in
+        // decoded_rgba_image_provider.dart asserts (debug-only) that sampled
+        // alpha is 0xFF, because it hands back the decoder's STRAIGHT RGBA
+        // where the old readback path returned PREMULTIPLIED. A ramp-filled
+        // buffer (alpha bytes 3/7/11/15) trips that assert, the decode is
+        // caught as a failure, and the item latches as a permanent miss --
+        // so tier-2 never lands and this test times out for a reason it
+        // asserts nothing about. Same repair as 253b89f / d43c2a1 / 5629e25.
+        dngDecoder: (path) async {
+          final rgba = Uint8List.fromList(
+            List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 0xFF : i),
+          );
+          return DecodedRgba(rgba: rgba, width: 2, height: 2);
+        },
       );
       addTearDown(state.dispose);
 
