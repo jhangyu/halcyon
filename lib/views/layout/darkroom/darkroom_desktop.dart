@@ -102,13 +102,6 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
           ),
         ),
         // R4 EXIF caption, floating over the photo — desktop: bottom-left.
-        // TWO-OWNER REGION (finding F6): the CHILD of this Positioned is
-        // "the caption call as written by plan-info-display Task 3"
-        // (ExifCaption with variant: ExifCaptionVariant.joined, titleStyle,
-        // detailStyle, detailGap). This task changes ONLY the `left:` inset so
-        // the caption tracks _columnWidth. If the info plan has already landed,
-        // paste its child verbatim here; the block below is today's on-disk
-        // child, shown only so this step is runnable before that merge.
         Positioned(
           left: viewportLeft + 20,
           bottom: 16,
@@ -118,11 +111,29 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
               fileName: surface.identity?.displayName,
               exif: surface.identity?.exif,
               alignment: CrossAxisAlignment.start,
+              variant: ExifCaptionVariant.joined,
+              // Mockup `.caption .fn`: 13px, letter-spacing .005em.
+              titleStyle: TextStyle(
+                fontSize: 13,
+                letterSpacing: 0.005 * 13,
+                color: palette.photoInk,
+              ),
+              // Mockup `.exifcap`: 11px, letter-spacing .01em, --photo-ink-dim.
+              detailStyle: TextStyle(
+                fontSize: 11,
+                letterSpacing: 0.01 * 11,
+                color: palette.photoInkDim,
+              ),
+              detailGap: 4, // mockup padding-top:4px
             ),
           ),
         ),
-        // The info plan's counter Positioned(right: 24, bottom: 20) is added
-        // HERE by plan-info-display Task 3. Do not add, move or key it.
+        // Mockup `.counter`: right:24 bottom:20, progress over the tallies.
+        Positioned(
+          right: 24,
+          bottom: 20,
+          child: _buildCounter(surface, palette),
+        ),
         // Transient status toast, floats over the photo.
         Positioned(
           left: viewportLeft + 16,
@@ -149,6 +160,50 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
           right: kDarkroomVerdictInset,
           top: kDarkroomVerdictInset,
           child: _buildActionsCluster(context, surface, palette),
+        ),
+      ],
+    );
+  }
+
+  /// Mockup `.counter` (`c2-desktop-dark.html:218-224`): `<b>37</b> / 412` at
+  /// 13px over `61 starred · 18 marked` at 11px, right-aligned, both carrying
+  /// the mockup's `text-shadow` so type stays legible on a bright photo.
+  Widget _buildCounter(MainSurface surface, DarkroomPalette palette) {
+    final identity = surface.identity;
+    if (identity == null) return const SizedBox.shrink();
+    const shadows = <Shadow>[
+      Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
+    ];
+    return Column(
+      key: kDarkroomCounterKey,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '${identity.indexInFolder}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              TextSpan(text: ' / ${identity.folderCount}'),
+            ],
+          ),
+          style: TextStyle(
+            fontSize: 13,
+            letterSpacing: 0.04 * 13,
+            color: palette.photoInk,
+            shadows: shadows,
+          ),
+        ),
+        const SizedBox(height: 3), // mockup padding-top:3px
+        Text(
+          '${identity.starredCount} starred · ${identity.trashedCount} marked',
+          style: TextStyle(
+            fontSize: 11,
+            color: palette.photoInkDim,
+            shadows: shadows,
+          ),
         ),
       ],
     );
