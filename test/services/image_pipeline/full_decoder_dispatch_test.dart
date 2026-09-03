@@ -108,39 +108,6 @@ void main() {
     });
   });
 
-  group('dispatchSizedDecode', () {
-    test('TC-309: routes .tif to the TIFF arm and .dng to the engine arm',
-        () async {
-      var tiffCalls = 0;
-      var rawCalls = 0;
-      Future<DecodedRgba> tiffArm(String path, {required int maxDim}) async {
-        expect(maxDim, 200);
-        tiffCalls++;
-        return _fakeDecoded();
-      }
-
-      Future<DecodedRgba> rawArm(String path, {required int maxDim}) async {
-        rawCalls++;
-        return _fakeDecoded();
-      }
-
-      await dispatchSizedDecode(
-        '${tmp.path}${Platform.pathSeparator}a.tif',
-        maxDim: 200,
-        rawArm: rawArm,
-        tiffArm: tiffArm,
-      );
-      await dispatchSizedDecode(
-        '${tmp.path}${Platform.pathSeparator}a.dng',
-        maxDim: 200,
-        rawArm: rawArm,
-        tiffArm: tiffArm,
-      );
-      expect(tiffCalls, 1);
-      expect(rawCalls, 1);
-    });
-  });
-
   group('TIFF arm', () {
     test('decodes a real TIFF to a self-consistent RGBA buffer', () async {
       final path = await write('good.tif', realTiff());
@@ -148,14 +115,6 @@ void main() {
       expect(decoded.width, 4);
       expect(decoded.height, 2);
       expect(decoded.rgba.length, 4 * 2 * 4);
-    });
-
-    test('honours maxDim as a downscale request', () async {
-      final path = await write('big.tif', realTiff(width: 400, height: 200));
-      final decoded = await decodeTiffSized(path, maxDim: 100);
-      expect(decoded.width, 100);
-      expect(decoded.height, 50);
-      expect(decoded.rgba.length, 100 * 50 * 4);
     });
 
     test('throws on a TIFF package:image cannot decode', () async {
@@ -173,7 +132,7 @@ void main() {
       await expectLater(decodeTiffFull(path), throwsA(isA<Error>()));
     });
 
-    test('TC-308: the sized arm refuses an over-budget extent BEFORE any '
+    test('TC-308: the TIFF arm refuses an over-budget extent BEFORE any '
         'decode is attempted', () async {
       var decodeAttempts = 0;
       Future<DecodedRgba> spy(Uint8List bytes, {int? maxDim}) async {
@@ -186,7 +145,7 @@ void main() {
         buildSyntheticTiffHeader(width: 30000, height: 30000),
       );
       await expectLater(
-        decodeTiffSized(path, maxDim: 200, decodeBytes: spy),
+        decodeTiffFull(path, decodeBytes: spy),
         throwsA(
           isA<ImageTooLargeException>().having(
             (e) => e.message,
@@ -198,13 +157,11 @@ void main() {
       expect(
         decodeAttempts,
         0,
-        reason: 'the ceiling must be checked before the decode, not after — '
-            'the sidebar path never reaches the loader\'s budget check',
+        reason: 'the budget refusal must precede the decode, not follow it',
       );
     });
 
-    test('TC-308: an in-budget TIFF still reaches the decoder on the sized '
-        'path', () async {
+    test('TC-308: an in-budget TIFF still reaches the decoder', () async {
       var decodeAttempts = 0;
       Future<DecodedRgba> spy(Uint8List bytes, {int? maxDim}) async {
         decodeAttempts++;
@@ -212,7 +169,7 @@ void main() {
       }
 
       final path = await write('small_sidebar.tif', realTiff());
-      await decodeTiffSized(path, maxDim: 200, decodeBytes: spy);
+      await decodeTiffFull(path, decodeBytes: spy);
       expect(decodeAttempts, 1);
     });
   });
@@ -239,28 +196,6 @@ void main() {
         expect(decoded.rgba[0], 0xA5);
       }
       expect(calls, hasLength(2));
-    });
-
-    test('TC-309: the sized path routes .heic to the HEIF arm with maxDim',
-        () async {
-      var heifCalls = 0;
-      Future<DecodedRgba> heifArm(String path, {required int maxDim}) async {
-        expect(maxDim, 200);
-        heifCalls++;
-        return _fakeDecoded();
-      }
-
-      Future<DecodedRgba> never(String path, {required int maxDim}) async =>
-          fail('only the HEIF arm may run for a HEIC container');
-
-      await dispatchSizedDecode(
-        '${tmp.path}${Platform.pathSeparator}a.heic',
-        maxDim: 200,
-        rawArm: never,
-        tiffArm: never,
-        heifArm: heifArm,
-      );
-      expect(heifCalls, 1);
     });
 
     test('TC-327: an unavailable HEIF library becomes a decoder throw, not a '

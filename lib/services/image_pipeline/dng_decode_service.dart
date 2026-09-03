@@ -32,31 +32,3 @@ Future<DecodedRgba> decodeDngFull(String path) async {
 /// Single obvious entry point for the pipe squad to wire into
 /// `image_preload_controller.dart`.
 const DngFullDecoder halcyonDngFullDecoder = decodeDngFull;
-
-/// M6 P2.5b: sized variant for the sidebar RAW-decode fallback (bare-CFA
-/// DNGs with no embedded JPEG at any size). Mirrors [decodeDngFull]'s
-/// length-check pattern exactly; [maxDim] is silently ignored by dylibs that
-/// don't export the sized-decode symbol, so the returned dims are read back
-/// rather than assumed (see [DngSizedDecoder]).
-Future<DecodedRgba> decodeDngSized(String path, {required int maxDim}) async {
-  final service = DngDecoderService();
-  final image = await service.decodeOnWorker(path, maxDim: maxDim);
-
-  final expectedLength = image.width * image.height * 4;
-  if (image.rgbaData.length != expectedLength) {
-    throw StateError(
-      'ceyx sized decode length mismatch: '
-      'rgbaData.length=${image.rgbaData.length} but '
-      'width*height*4=$expectedLength (width=${image.width}, '
-      'height=${image.height})',
-    );
-  }
-
-  return DecodedRgba(
-    rgba: image.rgbaData,
-    width: image.width,
-    height: image.height,
-  );
-}
-
-const DngSizedDecoder halcyonDngSizedDecoder = decodeDngSized;

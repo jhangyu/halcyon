@@ -17,15 +17,22 @@ method is ported **unchanged**:
   G3 sidebar bench invocation) is likewise retired; see the comment at that
   spot in the script.
 
-**2026-08-30 note (AD-039):** the sidebar RAW-decode fallback (`decodeDngSized`
-→ `readOrientation` → …) used to re-encode every produced thumbnail as JPEG
-via a `jpegFromOrientedPixels` step; it now stores the oriented, capped pixels
-directly (no re-encode) so the sidebar tile builds a `RawPixelsImage`. The
-former `g3_sidebar_bench.dart` timed that now-removed re-encode step end to
-end and was deleted rather than repaired (user ruling) — there is nothing
-left in the pixel path that matches its recorded baseline's semantics. Do not
-resurrect a G3-style bench against the pixel path without recording a new
-baseline first.
+**2026-08-30 note (AD-039):** the sidebar RAW-decode fallback used to re-encode
+every produced thumbnail as JPEG via a `jpegFromOrientedPixels` step; it now
+stores the oriented, capped pixels directly (no re-encode) so the sidebar tile
+builds a `RawPixelsImage`. The former `g3_sidebar_bench.dart` timed that
+now-removed re-encode step end to end and was deleted rather than repaired
+(user ruling) — there is nothing left in the pixel path that matches its
+recorded baseline's semantics. Do not resurrect a G3-style bench against the
+pixel path without recording a new baseline first.
+
+**2026-09-03 note:** the sidebar RAW-decode fallback (`decodeDng` + max-dim) and the
+whole sized-decode dispatch layer have been DELETED — the sidebar became a
+payload consumer in commit `28350f7`, which removed the only production caller,
+and AD-039 decision (2) (the degrade-on-throw retry plus the process-wide
+distrust latch) is retired with it. The `dng_decode_and_process_sized` symbol
+described below is no longer called by this app; the gate keeps exercising it
+only as a native-library capability check.
 
 ## Invocation
 

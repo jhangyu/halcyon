@@ -3,10 +3,8 @@ import 'package:ceyx/ceyx.dart';
 import 'dng_decode_contract.dart';
 
 /// Adapter from `ceyx`'s generic still-decode surface to the frozen
-/// [DngFullDecoder] / [DngSizedDecoder] seam, for JPEG XL. Mirrors
-/// `heif_decode_service.dart` deliberately: same length check, same
-/// StateError shape, same "read the dimensions back" discipline for the
-/// sized path.
+/// [DngFullDecoder] seam, for JPEG XL. Mirrors `heif_decode_service.dart`
+/// deliberately: same length check, same StateError shape.
 
 /// The single place the RGBA geometry invariant is enforced on the JXL path,
 /// mirroring `heif_decode_service.dart:17` for the HEIC path.
@@ -39,15 +37,4 @@ Future<DecodedRgba> _decodeJxl(String path, {int? maxDim}) async {
 /// uniform permanent miss.
 Future<DecodedRgba> decodeJxlFull(String path) => _decodeJxl(path);
 
-/// [DngSizedDecoder]-shaped JXL arm (sidebar thumbnails).
-///
-/// [maxDim] is forwarded as a request; the native side may return full
-/// resolution, so the dimensions are read back rather than assumed.
-Future<DecodedRgba> decodeJxlSized(
-  String path, {
-  required int maxDim,
-}) =>
-    _decodeJxl(path, maxDim: maxDim);
-
 const DngFullDecoder halcyonJxlFullDecoder = decodeJxlFull;
-const DngSizedDecoder halcyonJxlSizedDecoder = decodeJxlSized;

@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show visibleForTesting, debugPrint;
 import 'package:image/image.dart' as img;
 
 import '../../models/supported_photo_formats.dart';
@@ -12,9 +11,9 @@ import 'dng_embedded_jpeg_extractor.dart';
 import 'heif_decode_service.dart';
 import 'jxl_decode_service.dart';
 
-/// One production implementation of [DngFullDecoder]/[DngSizedDecoder] for
-/// every format Halcyon can turn into RGBA, so that `dart_image_loader.dart`
-/// and `photo_source.dart` need no format knowledge beyond the registry
+/// One production implementation of [DngFullDecoder] for every format Halcyon
+/// can turn into RGBA, so that `dart_image_loader.dart` and `photo_source.dart`
+/// need no format knowledge beyond the registry
 /// predicate. Routing:
 ///
 ///   .heic/.heif -> the native libheif route in ceyx (phase 2)
@@ -41,8 +40,7 @@ typedef TiffBytesDecoder =
 /// which is what everything downstream of [DecodedRgba] takes anyway.
 ///
 /// [maxDim] > 0 caps the LONG edge, aspect ratio preserved; it is a request,
-/// not a guarantee (see [DngSizedDecoder]) — callers read the returned
-/// dimensions back.
+/// not a guarantee — callers read the returned dimensions back.
 Future<DecodedRgba> decodeTiffBytes(Uint8List bytes, {int? maxDim}) async {
   // Only sendable values cross the isolate boundary: a Uint8List and an int?.
   final decoded =
@@ -93,9 +91,11 @@ Future<DecodedRgba> decodeTiffBytes(Uint8List bytes, {int? maxDim}) async {
 
 /// A declared extent that would blow the decoded-pixel budget.
 ///
-/// A NAMED type, not an anonymous StateError, because the sized-decode
-/// fallback below has to tell a designed refusal apart from "the sized path
-/// is broken" without sniffing an exception message across a boundary.
+/// A NAMED type, not an anonymous StateError: `_refuseOverBudget` throws it
+/// before any decode is attempted, and the tests tell that designed refusal
+/// apart from a decoder that merely failed. (It used to also be what let the
+/// sized-decode fallback distinguish a refusal from a broken symbol; that layer
+/// was retired 2026-09-03 — see the AD entry retiring AD-039 decision (2).)
 class ImageTooLargeException implements Exception {
   const ImageTooLargeException(this.message);
 
@@ -107,12 +107,9 @@ class ImageTooLargeException implements Exception {
 
 /// Refuses a declared extent that would blow the decoded-pixel budget.
 ///
-/// Required on the SIZED path: the sidebar purpose returns `NO_THUMBNAIL` from
-/// the loader before its budget check runs, so without this a 30000x30000 scan
-/// would be decoded on the Dart heap and OOM the process. Kept on the full
-/// path too because `PhotoExportService.exportBytesFor` invokes the decoder
-/// directly. A null extent (unreadable IFD0) waves through, matching the
-/// loader.
+/// `PhotoExportService.exportBytesFor` invokes the decoder directly, so the
+/// loader's own budget check is not on every path into a TIFF decode; this is.
+/// A null extent (unreadable IFD0) waves through, matching the loader.
 Future<void> _refuseOverBudget(String path) async {
   final dims = await DngEmbeddedJpegExtractor.readImageDimensions(path);
   if (dims != null &&
@@ -133,16 +130,6 @@ Future<DecodedRgba> decodeTiffFull(
 }) async {
   await _refuseOverBudget(path);
   return decodeBytes(await File(path).readAsBytes());
-}
-
-/// [DngSizedDecoder]-shaped TIFF arm (sidebar thumbnails).
-Future<DecodedRgba> decodeTiffSized(
-  String path, {
-  required int maxDim,
-  TiffBytesDecoder decodeBytes = decodeTiffBytes,
-}) async {
-  await _refuseOverBudget(path);
-  return decodeBytes(await File(path).readAsBytes(), maxDim: maxDim);
 }
 
 /// `isDecodablePath`, NOT `isRawPath`: the latter also matches D2 browse-only
@@ -172,104 +159,7 @@ Future<DecodedRgba> dispatchFullDecode(
   throw UnsupportedError('no full-decode route for $path');
 }
 
-// Process-wide, evidence-only: set ONLY when a sized decode threw and the
-// full decode of the SAME file then succeeded. That conjunction is what makes
-// it an indictment of the sized path rather than of the file -- a corrupt file
-// fails both arms and must not poison every later thumbnail. Never re-armed:
-// a capability that broke once in this process is not retried (invariant I8's
-// motivation, image_preload_controller.dart:1027-1037).
-//
-// Fail-open: the default is "trusted". No Platform check anywhere (C-3) --
-// the state flips on observed behaviour, never on which OS this is.
-bool _sizedDecodeUntrusted = false;
-
-@visibleForTesting
-bool get debugSizedDecodeLatched => _sizedDecodeUntrusted;
-
-/// Clears the process-wide latch. Tests only: a process-wide flag with no
-/// reset leaks state between cases in one `flutter test` process.
-@visibleForTesting
-void debugResetSizedDecodeLatch() => _sizedDecodeUntrusted = false;
-
-Future<DecodedRgba> _sizedArm(
-  String path, {
-  required int maxDim,
-  required DngSizedDecoder rawArm,
-  required DngSizedDecoder tiffArm,
-  required DngSizedDecoder heifArm,
-  required DngSizedDecoder jxlArm,
-}) {
-  if (SupportedPhotoFormats.isLibheifPath(path)) {
-    return heifArm(path, maxDim: maxDim);
-  }
-  if (SupportedPhotoFormats.isJxlPath(path)) {
-    return jxlArm(path, maxDim: maxDim);
-  }
-  if (SupportedPhotoFormats.isBitmapDecodePath(path)) {
-    return tiffArm(path, maxDim: maxDim);
-  }
-  if (SupportedPhotoFormats.isDecodablePath(path)) {
-    return rawArm(path, maxDim: maxDim);
-  }
-  throw UnsupportedError('no sized-decode route for $path');
-}
-
-/// Sized decode with a degrade-on-throw fallback to the full decode.
-///
-/// Guards the case the absence-only guard in ceyx structurally cannot cover
-/// (`dng_decoder_service.dart:567-569` only checks whether the sized SYMBOL
-/// exists): a symbol that is present and wrong. Only Halcyon's sidebar calls
-/// with maxDim > 0, so only the sidebar can hit it -- which is exactly the
-/// Windows symptom (root-cause R2.3.1 step 5).
-///
-/// At the DISPATCH level, covering all three arms: the failure shape is
-/// arm-independent, and a RAW-only guard would be a guard written on the
-/// motivating case instead of on the real precondition.
-Future<DecodedRgba> dispatchSizedDecode(
-  String path, {
-  required int maxDim,
-  DngSizedDecoder rawArm = halcyonDngSizedDecoder,
-  DngSizedDecoder tiffArm = decodeTiffSized,
-  DngSizedDecoder heifArm = halcyonHeifSizedDecoder,
-  DngSizedDecoder jxlArm = halcyonJxlSizedDecoder,
-  DngFullDecoder fullDecodeFallback = dispatchFullDecode,
-}) async {
-  if (_sizedDecodeUntrusted) return fullDecodeFallback(path);
-
-  try {
-    return await _sizedArm(
-      path,
-      maxDim: maxDim,
-      rawArm: rawArm,
-      tiffArm: tiffArm,
-      heifArm: heifArm,
-      jxlArm: jxlArm,
-    );
-  } on ImageTooLargeException {
-    // A designed refusal, not a broken symbol: the full path would refuse
-    // identically, and retrying it is how a 30000x30000 scan gets decoded.
-    rethrow;
-  } on UnsupportedError {
-    // No route for this format at all -- the full dispatch answers the same.
-    rethrow;
-  } catch (e) {
-    debugPrint(
-      'sidebar.decode|stage=sized|err=${e.runtimeType}|'
-      'msg=${e.toString().substring(0, e.toString().length.clamp(0, 200))}',
-    );
-    // Retry the SAME file on the full path first; only a SUCCESS here proves
-    // the sized arm was at fault, and only then does the latch arm. If this
-    // throws too, the exception propagates and the latch stays clear.
-    final recovered = await fullDecodeFallback(path);
-    _sizedDecodeUntrusted = true;
-    debugPrint('sidebar.decode|stage=latched|msg=sized decode disabled for '
-        'this process after a full-decode recovery');
-    return recovered;
-  }
-}
-
-/// The composition root's entry points. Plain `const` tear-offs, not closures:
-/// the optional named arms are extra parameters, so each tear-off is still a
-/// subtype of the seam typedef.
+/// The composition root's entry point. A plain `const` tear-off, not a
+/// closure: the optional named arms are extra parameters, so the tear-off is
+/// still a subtype of the seam typedef.
 const DngFullDecoder halcyonFullDecoder = dispatchFullDecode;
-const DngSizedDecoder halcyonSizedDecoder = dispatchSizedDecode;

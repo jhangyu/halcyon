@@ -4,10 +4,9 @@ import 'package:ceyx/ceyx.dart';
 
 import 'dng_decode_contract.dart';
 
-/// Adapter from `ceyx`'s HEIF surface to the frozen [DngFullDecoder] /
-/// [DngSizedDecoder] seam. Mirrors `dng_decode_service.dart` deliberately:
-/// same length check, same StateError shape, same "read the dimensions back"
-/// discipline for the sized path.
+/// Adapter from `ceyx`'s HEIF surface to the frozen [DngFullDecoder] seam.
+/// Mirrors `dng_decode_service.dart` deliberately: same length check, same
+/// StateError shape.
 ///
 /// Kept production-clean: no dylib-preload workaround and no dev-only path
 /// hacks. The two LGPL dylibs land in `<App>.app/Contents/Frameworks/` because
@@ -52,21 +51,4 @@ Future<DecodedRgba> decodeHeifFull(String path) async {
   );
 }
 
-/// [DngSizedDecoder]-shaped HEIC arm (sidebar thumbnails).
-///
-/// [maxDim] is forwarded as a request; the native side may return full
-/// resolution, so the dimensions are read back rather than assumed.
-Future<DecodedRgba> decodeHeifSized(
-  String path, {
-  required int maxDim,
-}) async {
-  final image = await HeifDecoderService().decodeOnWorker(path, maxDim: maxDim);
-  return heifImageToDecodedRgba(
-    rgba: image.rgba,
-    width: image.width,
-    height: image.height,
-  );
-}
-
 const DngFullDecoder halcyonHeifFullDecoder = decodeHeifFull;
-const DngSizedDecoder halcyonHeifSizedDecoder = decodeHeifSized;

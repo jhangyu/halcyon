@@ -102,7 +102,7 @@ void main() {
   );
 
   test(
-    'a DngFullDecoder/DngSizedDecoder fake wired through the controller '
+    'a DngFullDecoder fake wired through the controller '
     'reaches an engine-decodable non-DNG RAW when the loader signals '
     'NeedsRawDecode -- proves the full-size path is format-agnostic once the '
     'loader routes correctly (photo_source.dart already dispatches '
