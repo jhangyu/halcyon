@@ -70,6 +70,8 @@ class PhotoIdentity {
     required this.folderCount,
     required this.status,
     required this.exif, // null while unread or unreadable
+    this.starredCount = 0,
+    this.trashedCount = 0,
   });
 
   final String displayName;
@@ -77,6 +79,13 @@ class PhotoIdentity {
   final int folderCount;
   final PhotoStatus status;
   final ExifMetadata? exif;
+
+  /// Folder-wide aggregates, for the themes whose mockup draws a marked-count
+  /// readout (darkroom `.counter .s`, paper `.overcount`). Defaulted to 0 so a
+  /// theme test that does not care about them constructs an identity exactly
+  /// as it did before these fields existed.
+  final int starredCount;
+  final int trashedCount;
 }
 
 @immutable
