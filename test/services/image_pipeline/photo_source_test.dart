@@ -27,6 +27,17 @@ import '../../support/sample_photos.dart';
 ///
 /// Real samples only, per repo convention (see dng_embedded_jpeg_extractor_test.dart):
 /// local_data/photo_samples/DNG/.
+/// An opaque (alpha 0xFF) RGBA8 fixture of [pixelCount] pixels: the
+/// identity-transform short-circuit in decoded_rgba_image_provider.dart
+/// asserts every RAW decode is opaque, so a zero-filled buffer would trip it.
+Uint8List _opaqueRgba(int pixelCount) {
+  final bytes = Uint8List(pixelCount * 4);
+  for (var p = 0; p < pixelCount; p++) {
+    bytes[p * 4 + 3] = 0xFF;
+  }
+  return bytes;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -322,7 +333,11 @@ void main() {
           declaredPreviewsUnreadable: true,
         ),
         dngDecoder: (path) async => DecodedRgba(
-          rgba: Uint8List(4 * 4 * 4),
+          // Opaque fixture (alpha 0xFF): the identity-transform short-circuit
+          // (decoded_rgba_image_provider.dart) asserts every RAW decode is
+          // opaque; a zero-filled buffer trips that assert and turns this
+          // decode-succeeds case into a caught exception.
+          rgba: _opaqueRgba(4 * 4),
           width: 4,
           height: 4,
         ),
