@@ -4,6 +4,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_column.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_desktop.dart';
+import 'package:halcyon_flutter/views/layout/darkroom/darkroom_options_button.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_layout.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_palette.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
@@ -225,6 +226,49 @@ void main() {
       await tester.pump();
       expect(openFolderCalls, 1);
       await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-882 the column bottom carries an Options gear that opens settings',
+      () {
+    testWidgets('the gear sits below the grid and fires its callback', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final gear = find.byKey(
+        const ValueKey<String>('darkroom-rail-options'),
+      );
+      expect(gear, findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(DarkroomColumn), matching: gear),
+        findsOneWidget,
+      );
+      final gridRect = tester.getRect(
+        find.byKey(const ValueKey<String>('darkroom-grid')),
+      );
+      expect(tester.getRect(gear).top, greaterThanOrEqualTo(gridRect.bottom));
+      await tester.binding.setSurfaceSize(null);
+    });
+
+    testWidgets('an injected callback replaces the default dialog', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: darkroomThemeData(Brightness.dark),
+          home: Scaffold(
+            body: DarkroomOptionsButton(onPressed: () => taps++),
+          ),
+        ),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('darkroom-rail-options')),
+      );
+      await tester.pump();
+      expect(taps, 1);
     });
   });
 

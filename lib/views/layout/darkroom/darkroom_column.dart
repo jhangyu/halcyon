@@ -6,6 +6,7 @@ import '../../../models/photo_item.dart';
 import '../common/anchored_scroll.dart';
 import '../common/photo_thumbnail.dart';
 import '../main_surface.dart';
+import 'darkroom_options_button.dart';
 import 'darkroom_palette.dart';
 
 /// Drag range, ruled R9 in `docs/logs/2026-09-01/mockup/darkroom/NOTES.md`:
@@ -198,6 +199,8 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
                     ),
                   ),
                 ),
+                railDivider(context),
+                const DarkroomOptionsButton(),
               ],
             ),
           ),
