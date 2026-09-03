@@ -208,4 +208,73 @@ void main() {
     expect(discarded, 2);
     expect(pacer.queuedCount, 0);
   });
+
+  // TC-XX7 -- deliverable 3: the exempt claim is enforced, not trusted.
+  test('an exempt submission for a non-selected id is downgraded to the queue',
+      () {
+    final frames = FakeFrames();
+    final published = <String>[];
+    final pacer = PublicationPacer(
+      scheduleFrameCallback: frames.arm,
+      isSelected: (id) => id == 'sel',
+    );
+
+    pacer.submit(
+      id: 'other',
+      rank: 3,
+      exempt: true,
+      stillValid: () => true,
+      publish: () => published.add('other'),
+    );
+
+    expect(published, isEmpty, reason: 'only the selected item may go inline');
+    expect(pacer.queuedCount, 1, reason: 'downgraded, never dropped');
+    expect(pacer.debugDowngradedExemptCount, 1);
+
+    frames.frame();
+    expect(published, ['other'], reason: 'pacing decides WHEN, not WHETHER');
+  });
+
+  // TC-XX8 -- the selected item still never waits a frame for its own pixels.
+  test('an exempt submission for the selected id still publishes synchronously',
+      () {
+    final frames = FakeFrames();
+    final published = <String>[];
+    final pacer = PublicationPacer(
+      scheduleFrameCallback: frames.arm,
+      isSelected: (id) => id == 'sel',
+    );
+
+    pacer.submit(
+      id: 'sel',
+      rank: 0,
+      exempt: true,
+      stillValid: () => true,
+      publish: () => published.add('sel'),
+    );
+
+    expect(published, ['sel']);
+    expect(pacer.queuedCount, 0);
+    expect(frames.armedCount, 0);
+    expect(pacer.debugDowngradedExemptCount, 0);
+  });
+
+  // TC-XX9 -- no predicate injected == today's behaviour, byte for byte.
+  test('with no isSelected predicate the exempt path is unchanged', () {
+    final frames = FakeFrames();
+    final published = <String>[];
+    final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
+
+    pacer.submit(
+      id: 'anything',
+      rank: 9,
+      exempt: true,
+      stillValid: () => true,
+      publish: () => published.add('anything'),
+    );
+
+    expect(published, ['anything']);
+    expect(pacer.debugDowngradedExemptCount, 0);
+    expect(pacer.debugHasFrameHook, isTrue);
+  });
 }

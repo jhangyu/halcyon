@@ -111,19 +111,8 @@ class ImagePreloadController {
        _inflight = InflightBytesBudget(
          maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
        ),
-       _pacer = PublicationPacer(
-         scheduleFrameCallback: scheduleFrameCallback,
-         perFrame: publicationsPerFrame,
-         // SIZED FROM THE WINDOW, not left at the unit's default of 4. One
-         // navigation pass submits a registration for EVERY retained slot
-         // (-3..+5 == 9 of them), and the pacer's overflow rule drops the
-         // highest-rank entry outright -- with a queue of 4 the far half of
-         // the window would never receive a tier-1 entry at all, which is the
-         // AC2 guarantee ("every slot of the retention window holds a tier-1
-         // entry"). Pacing is about WHEN a registration lands, never about
-         // whether it lands.
-         maxQueued: retention.before + retention.after + 1,
-       ),
+       _frameHook = scheduleFrameCallback,
+       _publicationsPerFrame = publicationsPerFrame,
        _source = PhotoSource(
          loader: imageLoader,
          dngDecoder: dngDecoder,
@@ -207,13 +196,37 @@ class ImagePreloadController {
   @visibleForTesting
   int get debugEncodeStageRunningCount => _encodeStage.runningCount;
 
+  final FrameHook? _frameHook;
+  final int _publicationsPerFrame;
+
   /// Owns every tier-1 ImageCache registration's TIMING. The pipeline had no
   /// notion of a frame budget anywhere: [_precacheTierOneWindow] walked the
   /// whole retention window in one synchronous loop on every navigation pass,
   /// so codec-completion work arrived as one clump behind one navigation
   /// event. The selected item stays exempt, so first-paint latency for the
   /// photo the user is looking at is unchanged.
-  final PublicationPacer _pacer;
+  ///
+  /// `late final` rather than an initialiser-list entry: the `isSelected`
+  /// predicate reads [_selectedId], and an initialiser list cannot touch
+  /// `this` (same reason [_tierTwo] is lazy).
+  late final PublicationPacer _pacer = PublicationPacer(
+    scheduleFrameCallback: _frameHook,
+    perFrame: _publicationsPerFrame,
+    // SIZED FROM THE WINDOW, not left at the unit's default of 4. One
+    // navigation pass submits a registration for EVERY retained slot, and the
+    // pacer's overflow rule drops the highest-rank entry outright -- with a
+    // queue of 4 the far half of the window would never receive a tier-1
+    // entry at all. Pacing is about WHEN a registration lands, never about
+    // whether it lands.
+    maxQueued: _retention.before + _retention.after + 1,
+    // Deliverable 3: only the selected item may publish synchronously, and
+    // that is now the pacer's rule rather than the call site's promise.
+    isSelected: (id) => id == _selectedId,
+  );
+
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  bool get debugPacerHasFrameHook => _pacer.debugHasFrameHook;
 
   /// Bounds the TRANSIENT full-frame buffers the stage split puts in flight --
   /// the decoded RGBA, the oriented full-res RGBA and the encoder's input.
@@ -619,7 +632,7 @@ class ImagePreloadController {
     // [TierTwoScheduler.updateWindow]). Nothing about WHEN tier-2 decodes run
     // changes -- that is still [TierTwoScheduler.schedule]'s debounce.
     _tierTwoScheduler.updateWindow(items, currentIndex);
-    _selectedIdForPerf = selectedItemId; // PERF-INSTRUMENTATION
+    _selectedId = selectedItemId;
 
     // PERF-INSTRUMENTATION
     final tPrio = PerfLog.us;
@@ -736,7 +749,10 @@ class ImagePreloadController {
     _tierTwoScheduler.schedule(items, currentIndex, notifyLoaded);
   }
 
-  String? _selectedIdForPerf; // PERF-INSTRUMENTATION
+  /// The id the current pass selected. Read by the pacer's exempt-claim
+  /// predicate (deliverable 3) as well as by the perf log, which is why it is
+  /// no longer tagged PERF-INSTRUMENTATION: it now carries production logic.
+  String? _selectedId;
 
   /// [startIdx]..[endIdx] walked outwards from [currentIndex]: the selected
   /// slot, then +1, -1, +2, -2, ... skipping whatever the clamp cut off.
@@ -824,7 +840,7 @@ class ImagePreloadController {
       // PERF-INSTRUMENTATION
       PerfLog.log(
         'loadPreview.skip|$id|cached=true|inFlight=false'
-        '|isSelected=${id == _selectedIdForPerf}',
+        '|isSelected=${id == _selectedId}',
       );
       // No notifyLoaded call here: the payload was already there when this
       // caller asked, so there is nothing new to repaint for IT. Parked
@@ -852,7 +868,7 @@ class ImagePreloadController {
       // PERF-INSTRUMENTATION
       PerfLog.log(
         'loadPreview.skip|$id|cached=false|inFlight=true'
-        '|isSelected=${id == _selectedIdForPerf}',
+        '|isSelected=${id == _selectedId}',
       );
       return true;
     }
@@ -1042,7 +1058,7 @@ class ImagePreloadController {
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
-        '|isSelected=${id == _selectedIdForPerf}',
+        '|isSelected=${id == _selectedId}',
       );
       // A deferred outcome hands both the work and the `_loadingKeys` claim to
       // the lane; the `finally` below must not take the claim back off it.
@@ -1118,7 +1134,7 @@ class ImagePreloadController {
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
-        '|isSelected=${id == _selectedIdForPerf}',
+        '|isSelected=${id == _selectedId}',
       );
       // `onSerialLane: true` makes the deferred hand-off unreachable, so the
       // claim is always still this method's to release below.

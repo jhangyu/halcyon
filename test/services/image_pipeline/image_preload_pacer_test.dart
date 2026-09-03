@@ -182,4 +182,30 @@ void main() {
     }
     expect(windowIds.length, greaterThan(4), reason: 'the cap is under test');
   });
+
+  // TC-XX10 -- the controller-level twin of TC-XX7: with the pacer's exempt
+  // claim enforced against the controller's selected id, a NON-selected window
+  // slot cannot register a tier-1 key before a frame is granted, no matter
+  // what the caller asks for.
+  test('non-selected window items never register a tier-1 key before a frame',
+      () async {
+    final frames = FakeFrames();
+    final controller = buildController(scheduleFrameCallback: frames.arm);
+    addTearDown(controller.dispose);
+    controller.updateTargetSize(800, 600);
+
+    await controller.preloadImages(
+      items: manyCheapItems(),
+      selectedItemId: 'c',
+      notifyLoaded: () {},
+    );
+    await pumpMicrotasks();
+
+    expect(
+      controller.debugTierOneKeyIds,
+      {'c'},
+      reason: 'before any frame, exactly the selected id may be registered',
+    );
+    expect(controller.debugPacerHasFrameHook, isTrue);
+  });
 }

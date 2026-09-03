@@ -21,19 +21,38 @@ class PublicationPacer {
     FrameHook? scheduleFrameCallback,
     int perFrame = 1,
     int maxQueued = 4,
+    bool Function(String id)? isSelected,
   })  : _frameHook = scheduleFrameCallback,
         _perFrame = perFrame < 1 ? 1 : perFrame,
-        _maxQueued = maxQueued < 1 ? 1 : maxQueued;
+        _maxQueued = maxQueued < 1 ? 1 : maxQueued,
+        _isSelected = isSelected;
 
   final FrameHook? _frameHook;
   final int _perFrame;
   final int _maxQueued;
+
+  /// Enforces the [submit] `exempt` claim (contract deliverable 3): only the
+  /// id this predicate accepts may publish synchronously. Null means "trust
+  /// the caller", which is what every existing test and every non-production
+  /// construction does.
+  final bool Function(String id)? _isSelected;
+
+  int _downgradedExempt = 0;
 
   final Map<String, _Entry> _queued = <String, _Entry>{};
   int _seq = 0;
   bool _armed = false;
 
   int get queuedCount => _queued.length;
+
+  @visibleForTesting
+  bool get debugHasFrameHook => _frameHook != null;
+
+  /// How many exempt claims were refused and queued instead. A production
+  /// value above zero means some caller thinks a non-selected item deserves a
+  /// synchronous publish -- the exact drift this predicate exists to catch.
+  @visibleForTesting
+  int get debugDowngradedExemptCount => _downgradedExempt;
 
   /// Submits one publication.
   ///
@@ -58,7 +77,14 @@ class PublicationPacer {
     required void Function() publish,
     void Function()? discard,
   }) {
-    if (exempt) {
+    // ENFORCED, not trusted. `exempt` used to be a caller assertion, and the
+    // only thing keeping the exempt set down to one item was one `==` at the
+    // single call site. A second call site (or an edit to that one) could
+    // silently reintroduce the burst this class exists to prevent, and no test
+    // would notice -- so the pacer now checks the claim itself and DOWNGRADES
+    // a false one to the ordinary queue. Downgraded, never dropped: pacing
+    // decides WHEN a publication lands, never WHETHER.
+    if (exempt && (_isSelected?.call(id) ?? true)) {
       if (stillValid()) {
         publish();
       } else {
@@ -66,6 +92,7 @@ class PublicationPacer {
       }
       return;
     }
+    if (exempt) _downgradedExempt++;
     // A re-submission supersedes the queued entry: the old one's holdings must
     // be released or they leak.
     _queued.remove(id)?.discard?.call();
