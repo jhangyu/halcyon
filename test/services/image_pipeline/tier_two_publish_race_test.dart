@@ -7,7 +7,6 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,19 +17,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
-/// A 1x1 opaque decoded image -- the smallest thing that is a real ui.Image,
-/// so `debugDisposed` is a real engine fact and not a test double's flag.
-Future<ui.Image> _tinyImage() {
-  final completer = Completer<ui.Image>();
-  ui.decodeImageFromPixels(
-    Uint8List(4),
-    1,
-    1,
-    ui.PixelFormat.rgba8888,
-    completer.complete,
-  );
-  return completer.future;
-}
+import '../../support/preload_fixtures.dart';
 
 PixelPayload _pixelPayload() =>
     PixelPayload(rgba: Uint8List(1 * 1 * 4), width: 1, height: 1);
@@ -48,8 +35,8 @@ void main() {
       final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
       addTearDown(registry.clear);
 
-      final winner = await _tinyImage();
-      final loser = await _tinyImage();
+      final winner = await tinyImage();
+      final loser = await tinyImage();
 
       var winnerNotifies = 0;
       var loserNotifies = 0;

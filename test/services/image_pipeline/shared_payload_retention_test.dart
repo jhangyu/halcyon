@@ -1,15 +1,10 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
-List<PhotoItem> _items(int n) => <PhotoItem>[
-  for (var i = 0; i < n; i++)
-    PhotoItem(id: 'p$i', files: <File>[File('/x/p$i.jpg')]),
-];
+import '../../support/preload_fixtures.dart';
 
 Future<NativeImageResult> _bytesLoader(
   String path, {
@@ -28,7 +23,7 @@ void main() {
         imageLoader: _bytesLoader,
         payloadEncoder: null,
       );
-      final items = _items(60);
+      final items = photoItems(60);
 
       await controller.preloadImages(
         items: items,
@@ -56,7 +51,7 @@ void main() {
       imageLoader: _bytesLoader,
       payloadEncoder: null,
     );
-    final items = _items(60);
+    final items = photoItems(60);
     await controller.preloadThumbnails(
       items: items,
       startIdx: 40,
@@ -88,7 +83,7 @@ void main() {
         imageLoader: _bytesLoader,
         payloadEncoder: null,
       );
-      final items = _items(60);
+      final items = photoItems(60);
       await controller.preloadImages(
         items: items,
         selectedItemId: 'p10',
@@ -114,7 +109,7 @@ void main() {
       imageLoader: _bytesLoader,
       payloadEncoder: null,
     );
-    final items = _items(60);
+    final items = photoItems(60);
     // Tier-1 precache is a no-op until the viewport size is known, so without
     // this the tier-1 assertion below would pass vacuously.
     controller.updateTargetSize(800, 600);

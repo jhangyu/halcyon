@@ -41,6 +41,8 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
+import '../../support/preload_fixtures.dart';
+
 /// A REAL, decodable PNG of the given size (opaque RGBA pixels), so the
 /// tier-2 catch-up path's `MemoryImage` decode succeeds and the resulting
 /// `ImageInfo.image.width/height` can be asserted against.
@@ -113,10 +115,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 600));
   }
 
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   // Both tests navigate a 14-item all-RAW window, so neighbouring items get
   // decoded too (retention -3..+5). What is under test is the decode count

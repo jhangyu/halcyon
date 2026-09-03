@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,13 +8,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 
-// A minimal valid 1x1 transparent PNG, so a real engine decode can be
-// exercised without shipping a binary fixture file. Same bytes as
-// test/image_preload_controller_test.dart:16-19.
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
+import '../../support/preload_fixtures.dart';
 
 /// An ImageStreamCompleter that never emits an image and never errors --
 /// used to deterministically simulate a decode that is PENDING forever,
@@ -26,24 +18,6 @@ final _tinyPngBytes = base64Decode(
 /// new decode, so any code path that resolves that provider joins this
 /// completer and never observes completion.
 class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
-
-/// A fresh encoded payload holding its OWN bytes object, so two payloads never
-/// collide on the MemoryImage cache key (which is bytes identity + scale).
-EncodedPayload _freshEncodedPayload() =>
-    EncodedPayload(Uint8List.fromList(_tinyPngBytes));
-
-/// A 1x1 fully transparent decoded image, for the full-res publish paths.
-Future<ui.Image> _tinyImage() {
-  final completer = Completer<ui.Image>();
-  ui.decodeImageFromPixels(
-    Uint8List(4),
-    1,
-    1,
-    ui.PixelFormat.rgba8888,
-    completer.complete,
-  );
-  return completer.future;
-}
 
 /// Publishes [payload] as an encoded tier-2 entry and waits for the decode
 /// listener to fire. Returns the provider, which for MemoryImage IS the
@@ -71,7 +45,7 @@ void main() {
   // (see test/image_preload_controller_test.dart:694-698).
 
   test('TC-231 isReady is false when nothing has been registered', () {
-    final payload = _freshEncodedPayload();
+    final payload = freshEncodedPayload();
     final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
 
     expect(registry.isReady('IMG_00'), isFalse);
@@ -81,7 +55,7 @@ void main() {
   });
 
   test('TC-232 isReady is false while the entry is PENDING, not just missing', () async {
-    final payload = _freshEncodedPayload();
+    final payload = freshEncodedPayload();
     final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
     final provider = fullSizeProviderFor(payload.bytes);
 
@@ -116,7 +90,7 @@ void main() {
   });
 
   test('TC-233 isReady is true once the decode listener has fired', () async {
-    final payload = _freshEncodedPayload();
+    final payload = freshEncodedPayload();
     final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
     addTearDown(registry.clear);
 
@@ -137,7 +111,7 @@ void main() {
       'TC-385 fullResProviderFor serves the ENCODED family through the '
       'display-path getter, not just RawFullResImage (2026-08-30 root-cause '
       'fix, tier2-rootcause.md)', () async {
-    final payload = _freshEncodedPayload();
+    final payload = freshEncodedPayload();
     final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
     addTearDown(registry.clear);
 
@@ -156,7 +130,7 @@ void main() {
   });
 
   test('TC-234 isReady goes false when the payload object is replaced', () async {
-    final original = _freshEncodedPayload();
+    final original = freshEncodedPayload();
     // The BLOCKER-1 scenario as a one-line closure swap. Reaching this through
     // the controller needs a 10-step navigation excursion plus two 350ms
     // debounce sleeps (image_preload_controller_test.dart:526-624).
@@ -169,7 +143,7 @@ void main() {
 
     // The item left the retention window and came back with a NEW payload
     // object; the id-keyed bookkeeping still describes the OLD one.
-    final replacement = _freshEncodedPayload();
+    final replacement = freshEncodedPayload();
     expect(identical(original, replacement), isFalse);
     current = replacement;
 
@@ -187,7 +161,7 @@ void main() {
   });
 
   test('TC-235 isReady goes false when the ImageCache entry is evicted underneath', () async {
-    final payload = _freshEncodedPayload();
+    final payload = freshEncodedPayload();
     final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
     addTearDown(registry.clear);
 
@@ -220,7 +194,7 @@ void main() {
       payloadIdentity: payload,
       width: 1,
       height: 1,
-      image: await _tinyImage(),
+      image: await tinyImage(),
     );
     final ic = PaintingBinding.instance.imageCache;
     ic.putIfAbsent(pendingKey, () => _NeverCompletingImageStreamCompleter());
@@ -230,7 +204,7 @@ void main() {
     registry.publishFullRes(
       'IMG_00',
       payload,
-      await _tinyImage(),
+      await tinyImage(),
       () => notified = true,
     );
 
@@ -249,14 +223,14 @@ void main() {
           'is exactly what AC-M5-4 forbids',
     );
     expect(
-      registry.hasFullResEntryFor('IMG_00', _freshEncodedPayload()),
+      registry.hasFullResEntryFor('IMG_00', freshEncodedPayload()),
       isFalse,
       reason: 'the entry belongs to one payload object, not to the id',
     );
   });
 
   test('TC-237 the full-res failure memo is per payload object, not per id', () {
-    final original = _freshEncodedPayload();
+    final original = freshEncodedPayload();
     SourcePayload current = original;
     final registry = TierTwoRegistry(currentPayloadFor: (id) => current);
 
@@ -272,7 +246,7 @@ void main() {
     // The item left the retention window and came back: NEW payload object,
     // so the memo must not apply and the upgrade may be tried once more
     // (design §2.5 -- a failed upgrade is not a permanent miss).
-    final replacement = _freshEncodedPayload();
+    final replacement = freshEncodedPayload();
     current = replacement;
     expect(registry.hasFullResFailure('IMG_00', replacement), isFalse);
 
@@ -281,8 +255,8 @@ void main() {
   });
 
   test('TC-238 evict drops one id and clear drops every id', () async {
-    final payloadA = _freshEncodedPayload();
-    final payloadB = _freshEncodedPayload();
+    final payloadA = freshEncodedPayload();
+    final payloadB = freshEncodedPayload();
     final byId = {'IMG_00': payloadA, 'IMG_01': payloadB};
     final registry = TierTwoRegistry(currentPayloadFor: (id) => byId[id]);
     addTearDown(registry.clear);
@@ -329,7 +303,7 @@ void main() {
       // this payload object -- the guard this test pins is that the answer
       // is driven by payload identity alone, matching the doc comment's
       // "the entry belongs to one payload object, not to the id".
-      final provider = fullSizeProviderFor(Uint8List.fromList(_tinyPngBytes));
+      final provider = fullSizeProviderFor(Uint8List.fromList(tinyPngBytes));
       var notified = false;
       registry.publishEncoded(
         'IMG_00',
@@ -361,7 +335,7 @@ void main() {
   test(
     'TC-656 publishEncoded evicts the replaced key before overwriting (F6, AC8)',
     () async {
-      final payload = _freshEncodedPayload();
+      final payload = freshEncodedPayload();
       final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
       addTearDown(registry.clear);
 
@@ -375,7 +349,7 @@ void main() {
       // orphan the first entry: the old implementation only ever wrote
       // `_keys[id] = key`, so `firstProvider` became unreachable bookkeeping
       // that nothing could ever evict -- a permanent ImageCache leak.
-      final secondPayload = _freshEncodedPayload();
+      final secondPayload = freshEncodedPayload();
       final secondProvider = await _publishAndAwait(
         registry,
         'IMG_00',

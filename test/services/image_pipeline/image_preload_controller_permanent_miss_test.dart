@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -8,6 +7,8 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
+
+import '../../support/preload_fixtures.dart';
 
 // M4 (scheduling unification). Three acceptance conditions of the frozen
 // convergence contract `docs/logs/2026-08-24/m4-m6-convergence-contract.md`:
@@ -21,13 +22,6 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 //        (invariant I4).
 //   AC3  the step-3b fallback failure path records a permanent miss, which is
 //        what keeps invariant T1 (no spinner-forever) true.
-
-// A minimal valid 1x1 transparent PNG -- a real bitstream the engine can
-// decode, without shipping a binary fixture.
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +50,7 @@ void main() {
             // Unreadable/corrupt: an answer that cannot change.
             return const NativeImageFailure('UNREADABLE', 'corrupt file');
           }
-          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
         payloadEncoder: null,
       );
@@ -130,7 +124,7 @@ void main() {
           if (path == failing.files.single.path) {
             return const NativeImageFailure('UNREADABLE', 'corrupt file');
           }
-          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
         payloadEncoder: null,
       );
@@ -199,7 +193,7 @@ void main() {
             throw StateError('native bridge threw instead of returning '
                 'NativeImageFailure');
           }
-          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
         payloadEncoder: null,
       );
@@ -277,7 +271,7 @@ void main() {
           imageLoader: (path, {required purpose, int? targetLongEdge}) {
             if (path == gatedPath) return gate.future;
             return Future<NativeImageResult>.value(
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
             );
           },
         );
@@ -305,7 +299,7 @@ void main() {
         // _precacheTierOneWindow / _scheduleTierTwoDecode for index 0, which
         // CANCELS the current generation's debounce timer and replaces it with
         // a schedule for a window the user has already left.
-        gate.complete(NativeImageBytes(Uint8List.fromList(_tinyPngBytes)));
+        gate.complete(NativeImageBytes(Uint8List.fromList(tinyPngBytes)));
         await stalePass;
 
         await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -354,7 +348,7 @@ void main() {
           imageLoader: (path, {required purpose, int? targetLongEdge}) {
             if (path == gatedPath) return gate.future;
             return Future<NativeImageResult>.value(
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
             );
           },
         );
@@ -384,7 +378,7 @@ void main() {
         // Release pass A. It resumes past Future.wait with a generation that
         // no longer matches -- guard 2 (:406) is what must stop it here;
         // guard 1 already ran and saw no mismatch.
-        gate.complete(NativeImageBytes(Uint8List.fromList(_tinyPngBytes)));
+        gate.complete(NativeImageBytes(Uint8List.fromList(tinyPngBytes)));
         await stalePass;
 
         await Future<void>.delayed(const Duration(milliseconds: 600));

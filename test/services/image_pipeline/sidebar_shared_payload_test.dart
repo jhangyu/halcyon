@@ -1,20 +1,16 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+
+import '../../support/preload_fixtures.dart';
 
 /// Task 6 (plan `docs/logs/2026-08-30/shared-payload-cache-plan.md`): the
 /// sidebar is a CONSUMER of the shared q70 payload, never a second producer of
 /// pixels. Every test here asserts the consumer property from the outside --
 /// through the decoder call count -- rather than through the sweep's internals.
-List<PhotoItem> _items(int n) => <PhotoItem>[
-  for (var i = 0; i < n; i++) PhotoItem(id: 'p$i', files: <File>[File('/x/p$i.arw')]),
-];
-
 class CountingDecoder {
   final List<String> paths = <String>[];
   int get calls => paths.length;
@@ -45,7 +41,7 @@ void main() {
       dngDecoder: decoder.call,
       payloadEncoder: null,
     );
-    final items = _items(10);
+    final items = photoItems(10, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadImages(
       items: items,
@@ -91,7 +87,7 @@ void main() {
       dngDecoder: decoder.call,
       payloadEncoder: null,
     );
-    final items = _items(1);
+    final items = photoItems(1, extension: 'arw');
     controller.updateTargetSize(800, 600);
 
     // Sidebar asks FIRST, so the row is a waiter when the payload lands.
@@ -127,7 +123,7 @@ void main() {
       dngDecoder: decoder.call,
       payloadEncoder: null,
     );
-    final items = _items(200);
+    final items = photoItems(200, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadThumbnails(
       items: items,
@@ -158,7 +154,7 @@ void main() {
       dngDecoder: null, // no decoder => permanent miss
       payloadEncoder: null,
     );
-    final items = _items(5);
+    final items = photoItems(5, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadImages(
       items: items,

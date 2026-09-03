@@ -30,6 +30,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 // from `photo_source.dart` this file names.
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 
+import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 
@@ -84,16 +85,6 @@ void main() {
       name: 'preview3000.dng',
     );
   });
-
-  Future<void> until(bool Function() condition, {String? reason}) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('timed out waiting for: ${reason ?? 'condition'}');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-  }
 
   test('TC-714 the memo answers for the long edge it was measured at',
       () async {

@@ -1,33 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
-// A minimal valid 1x1 transparent PNG, so a real engine decode can be
-// exercised without shipping a binary fixture file. Same bytes as
-// test/tier_two_registry_test.dart:16-19.
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
-
-/// A fresh encoded payload holding its OWN bytes object, so two payloads never
-/// collide on the MemoryImage cache key (which is bytes identity + scale).
-EncodedPayload _freshEncodedPayload() =>
-    EncodedPayload(Uint8List.fromList(_tinyPngBytes));
-
-List<PhotoItem> _items(int count) => List.generate(
-  count,
-  (i) => PhotoItem(id: 'a$i', files: [File('/tmp/a$i.jpg')]),
-);
+import '../../support/preload_fixtures.dart';
 
 /// Drives the scheduler with everything it needs stubbed out, so the tests
 /// below exercise SCHEDULING only: no controller, no payload cache, no photo
@@ -99,7 +80,7 @@ void main() {
     'navigation position ever gets a tier-2 sweep',
     () async {
       final h = _Harness();
-      final items = _items(10);
+      final items = photoItems(10, idPrefix: 'a', dir: '/tmp');
 
       // Two navigation events with no event-loop turn in between: the first
       // timer must be cancelled, so its window is never decoded at all.
@@ -126,7 +107,7 @@ void main() {
     'a time, released in near-to-far order',
     () async {
       final h = _Harness();
-      final items = _items(5);
+      final items = photoItems(5, idPrefix: 'a', dir: '/tmp');
 
       h.scheduler.schedule(items, 2, () {});
       await h.pump();
@@ -159,7 +140,7 @@ void main() {
     'has navigated away from is dropped instead of loaded',
     () async {
       final h = _Harness();
-      final items = _items(10);
+      final items = photoItems(10, idPrefix: 'a', dir: '/tmp');
 
       h.scheduler.schedule(items, 0, () {});
       await h.pump();
@@ -197,11 +178,11 @@ void main() {
     'and the next sweep evicts the ids that left the window',
     () async {
       final h = _Harness();
-      final items = _items(10);
+      final items = photoItems(10, idPrefix: 'a', dir: '/tmp');
       addTearDown(() => h.registry.clear());
 
       for (final id in ['a0', 'a1', 'a2', 'a3', 'a4']) {
-        h.payloads[id] = _freshEncodedPayload();
+        h.payloads[id] = freshEncodedPayload();
       }
 
       var loaded = 0;

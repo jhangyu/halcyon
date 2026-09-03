@@ -11,13 +11,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 
+import '../../support/preload_fixtures.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   PixelPayload payloadOf(Uint8List rgba) =>
       PixelPayload(rgba: rgba, width: 2, height: 2);

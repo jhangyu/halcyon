@@ -28,20 +28,19 @@
 // walk is a strictly harder case than a cold settle.
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
+
+import '../../support/preload_fixtures.dart';
 
 // A 1x1 image used only to satisfy RawFullResImage's constructor for the
 // PROBE key built in M5-DW2 -- see the comment at that test. The probe's
@@ -60,23 +59,8 @@ Future<ui.Image> _decodeTinyImage() {
   return completer.future;
 }
 
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-  });
-
-  List<PhotoItem> jpgItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
-  });
 
   DecodedRgba fakeDecoded() => DecodedRgba(
     rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
@@ -108,20 +92,7 @@ void main() {
     return PaintingBinding.instance.imageCache.containsKey(key);
   }
 
-  Future<void> until(bool Function() condition, {String? reason}) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('timed out waiting for: ${reason ?? 'condition'}');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-  }
-
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   // ------------------------------------------------------------- AC-M5-2
 
@@ -132,12 +103,12 @@ void main() {
       // --- cheap (encoded) sub-case: whole window is populated in one pass.
       final cheap = ImagePreloadController(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-            NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
       );
       addTearDown(cheap.dispose);
       cheap.updateTargetSize(10, 10);
-      final cheapItems = jpgItems(14);
+      final cheapItems = paddedItems(14);
       const cheapSelected = 5;
       await cheap.preloadImages(
         items: cheapItems,
@@ -201,7 +172,7 @@ void main() {
       final pixel = buildPixelController();
       addTearDown(pixel.dispose);
       pixel.updateTargetSize(10, 10);
-      final pixelItems = rawItems(14);
+      final pixelItems = paddedItems(14, extension: 'dng');
       const pixelSelected = 5;
 
       for (final idx in [5, 7, 3, 5]) {
@@ -268,7 +239,7 @@ void main() {
         final boundary = buildPixelController();
         addTearDown(boundary.dispose);
         boundary.updateTargetSize(10, 10);
-        final boundaryItems = rawItems(14);
+        final boundaryItems = paddedItems(14, extension: 'dng');
         final targetIndex = pixelSelected + d;
 
         // Seed the boundary id's payload by selecting it directly (distance
@@ -322,7 +293,7 @@ void main() {
       );
       addTearDown(controller.dispose);
       controller.updateTargetSize(200, 150);
-      final items = rawItems(14);
+      final items = paddedItems(14, extension: 'dng');
       await controller.preloadImages(
         items: items,
         selectedItemId: items[5].id,
@@ -421,7 +392,7 @@ void main() {
       );
       addTearDown(controller.dispose);
       controller.updateTargetSize(10, 10);
-      final items = rawItems(14);
+      final items = paddedItems(14, extension: 'dng');
       final target = items[5].files.single.path;
 
       await controller.preloadImages(
@@ -460,7 +431,7 @@ void main() {
       );
       addTearDown(controller.dispose);
       controller.updateTargetSize(10, 10);
-      final items = rawItems(20);
+      final items = paddedItems(20, extension: 'dng');
       final target = items[8].files.single.path;
       int targetCalls() => decodeCalls.where((p) => p == target).length;
 
@@ -525,7 +496,7 @@ void main() {
     'permanent miss, and is not retried for the same payload',
     () async {
       final decodeCalls = <String>[];
-      final items = rawItems(20);
+      final items = paddedItems(20, extension: 'dng');
       final target = items[8].files.single.path;
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
@@ -631,7 +602,7 @@ void main() {
     );
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
-    final items = rawItems(14);
+    final items = paddedItems(14, extension: 'dng');
 
     final beforeDecode = controller.retainedByteCost;
     expect(

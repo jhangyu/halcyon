@@ -1,11 +1,11 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+
+import '../../support/preload_fixtures.dart';
 
 // A 1x1 PNG. Real bytes matter: the tier-1 provider is a ResizeImage over a
 // MemoryImage, and the entry only becomes tracked in the ImageCache once the
@@ -22,11 +22,6 @@ final Uint8List _png1x1 = Uint8List.fromList(const <int>[
   0x42, 0x60, 0x82,
 ]);
 
-List<PhotoItem> _items(int n) => <PhotoItem>[
-  for (var i = 0; i < n; i++)
-    PhotoItem(id: 'p$i', files: <File>[File('/x/p$i.jpg')]),
-];
-
 Future<NativeImageResult> _pngLoader(
   String path, {
   required ImageRequestPurpose purpose,
@@ -36,10 +31,7 @@ Future<NativeImageResult> _pngLoader(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   // TC-487
   test('reset evicts the tier-1 ImageCache entries it recorded', () async {
@@ -52,7 +44,7 @@ void main() {
     // Tier-1 precache is a no-op until the viewport size is known; without
     // this the assertions below would pass vacuously.
     controller.updateTargetSize(800, 600);
-    final items = _items(8);
+    final items = photoItems(8);
     await controller.preloadImages(
       items: items,
       selectedItemId: 'p0',

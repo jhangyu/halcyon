@@ -6,7 +6,6 @@
 //   debugDisposed                 -> payloadFor(x) == null
 //   decodedProviderFor(x) != null -> cache holds a payload for x
 
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -19,25 +18,11 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
-
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-  });
-
-  List<PhotoItem> jpgItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
-  });
 
   DecodedRgba fakeDecoded() => DecodedRgba(
     rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
@@ -63,31 +48,18 @@ void main() {
     ),
   );
 
-  Future<void> until(bool Function() condition, {String? reason}) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('timed out waiting for: ${reason ?? 'condition'}');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-  }
-
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
       'cold arrival fills the same window, one decode at a time', () async {
     final cheap = ImagePreloadController(
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-          NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+          NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
       dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
     );
     addTearDown(cheap.dispose);
     cheap.updateTargetSize(800, 600);
-    final cheapItems = rawItems(14);
+    final cheapItems = paddedItems(14, extension: 'dng');
     await cheap.preloadImages(
       items: cheapItems,
       selectedItemId: cheapItems[5].id,
@@ -139,7 +111,7 @@ void main() {
     );
     addTearDown(expensive.dispose);
     expensive.updateTargetSize(800, 600);
-    final expensiveItems = rawItems(14);
+    final expensiveItems = paddedItems(14, extension: 'dng');
     await expensive.preloadImages(
       items: expensiveItems,
       selectedItemId: expensiveItems[5].id,
@@ -182,7 +154,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           targetCalls.add(path);
-          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
       );
       addTearDown(controller.dispose);
@@ -233,7 +205,7 @@ void main() {
     );
     addTearDown(expensive.dispose);
     expensive.updateTargetSize(800, 600);
-    final raws = rawItems(20);
+    final raws = paddedItems(20, extension: 'dng');
     for (final idx in [5, 6, 7, 8, 9, 8, 7, 6, 5]) {
       await expensive.preloadImages(
         items: raws,
@@ -261,11 +233,11 @@ void main() {
 
     final cheap = ImagePreloadController(
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-          NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+          NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
     );
     addTearDown(cheap.dispose);
     cheap.updateTargetSize(800, 600);
-    final jpgs = jpgItems(20);
+    final jpgs = paddedItems(20);
     for (final idx in [5, 6, 7, 8, 9, 8, 7, 6, 5]) {
       await cheap.preloadImages(
         items: jpgs,
@@ -290,7 +262,7 @@ void main() {
     final realCheap = ImagePreloadController(
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         realCheapCalls++;
-        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
       },
     );
     addTearDown(realCheap.dispose);
@@ -325,7 +297,7 @@ void main() {
       },
     );
     addTearDown(controller.dispose);
-    final items = rawItems(20);
+    final items = paddedItems(20, extension: 'dng');
     final target = items[8].files.single.path;
     int targetDecodes() => decodeCalls.where((path) => path == target).length;
 
@@ -369,7 +341,7 @@ void main() {
       },
     );
     addTearDown(controller.dispose);
-    final items = rawItems(20);
+    final items = paddedItems(20, extension: 'dng');
     final target = items[8].files.single.path;
     int decodesOfTarget() => decodeCalls.where((p) => p == target).length;
 
@@ -405,12 +377,12 @@ void main() {
     final cheapController = ImagePreloadController(
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         cheapCalls.add(path);
-        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
       },
     );
     addTearDown(cheapController.dispose);
     cheapController.updateTargetSize(800, 600);
-    final cheapItems = rawItems(20);
+    final cheapItems = paddedItems(20, extension: 'dng');
     final cheapTarget = cheapItems[8].files.single.path;
     await cheapController.preloadImages(
       items: cheapItems,
@@ -434,11 +406,11 @@ void main() {
 
     final jpgController = ImagePreloadController(
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-          NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+          NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
     );
     addTearDown(jpgController.dispose);
     jpgController.updateTargetSize(800, 600);
-    final jpgs = jpgItems(20);
+    final jpgs = paddedItems(20);
     await jpgController.preloadImages(
       items: jpgs,
       selectedItemId: jpgs[8].id,

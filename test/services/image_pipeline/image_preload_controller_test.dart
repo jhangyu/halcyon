@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -13,12 +12,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 
-// A minimal valid 1x1 transparent PNG, used to exercise a real engine decode
-// without shipping a binary fixture file.
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
+import '../../support/preload_fixtures.dart';
 
 /// An ImageStreamCompleter that never emits an image and never errors --
 /// used to deterministically simulate a decode that is PENDING forever,
@@ -352,7 +346,7 @@ void main() {
     'no second decode once the tier-1 entry is warm)',
     (tester) async {
       await tester.runAsync(() async {
-        final bytes = Uint8List.fromList(_tinyPngBytes);
+        final bytes = Uint8List.fromList(tinyPngBytes);
 
         final precacheProvider = tierOneProviderFor(
           bytes,
@@ -418,7 +412,7 @@ void main() {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
         addTearDown(controller.dispose);
 
@@ -463,7 +457,7 @@ void main() {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
         addTearDown(controller.dispose);
 
@@ -528,7 +522,7 @@ void main() {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
         addTearDown(controller.dispose);
 
@@ -621,7 +615,7 @@ void main() {
           // the -3..+5 bytes window gets a NEW bytes object, exactly as the
           // real native loader would produce for a re-fetch.
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
         addTearDown(controller.dispose);
 
@@ -700,7 +694,7 @@ void main() {
       await tester.runAsync(() async {
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
         addTearDown(controller.dispose);
 
@@ -811,19 +805,6 @@ void main() {
       height: 2,
     );
 
-    /// Polls until [condition] holds. The pipeline crosses a 250ms debounce
-    /// plus two real engine futures, so there is no single future to await;
-    /// a fixed sleep would be either flaky or slow.
-    Future<void> until(bool Function() condition, {String? reason}) async {
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (!condition()) {
-        if (DateTime.now().isAfter(deadline)) {
-          fail('timed out waiting for: ${reason ?? 'condition'}');
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-    }
-
     // M6 P3.3 (Appendix B, C-4): the `halcyon/thumbnail` channel is deleted.
     // `_legacyBytes`/`NativeThumbnailService` no longer exist, so a DNG with
     // no embedded preview and no decoder (or a throwing decoder) is a
@@ -853,8 +834,7 @@ void main() {
       // Start from a quiet cache so images created BEFORE the hooks were
       // installed cannot be disposed during the measurement and drive the
       // count negative.
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
+      clearImageCacheSetUp();
 
       var live = 0;
       ui.Image.onCreate = (image) => live++;
@@ -1414,7 +1394,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async =>
               fail('must not decode a bytes-backed item'),
         );

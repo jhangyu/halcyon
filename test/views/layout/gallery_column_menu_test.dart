@@ -14,7 +14,6 @@
 // coverage (the ResizeImage+MemoryImage provider-FAMILY check for an
 // encoded payload, and the null-payload placeholder-box render) alive under
 // a name that still says what regression it catches.
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,24 +29,8 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/preload_fixtures.dart';
 import '../../support/temp_dirs.dart';
-
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
-
-/// Polls [condition] to a deadline instead of a fixed wall-clock sleep —
-/// same remedy as `sidebar_view_test.dart`'s `_until`.
-Future<void> _until(bool Function() condition, {String? reason}) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition()) {
-    if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for: ${reason ?? 'condition'}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-}
 
 void main() {
   setUp(() {
@@ -70,7 +53,7 @@ void main() {
       }
       state = AppState(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+          return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
       );
       await state.loadFolder(dir);
@@ -117,7 +100,7 @@ void main() {
       await tester.runAsync(() async {
         await File(
           p.join(state.currentDir!.path, 'IMG_0001.jpg'),
-        ).writeAsBytes(_tinyPngBytes);
+        ).writeAsBytes(tinyPngBytes);
       });
       state.markCurrent(PhotoStatus.starred);
       await pumpMenu(tester, state);
@@ -142,9 +125,10 @@ void main() {
       final outFile = File(p.join(exportDest.path, 'IMG_0001.jpg'));
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
-        await _until(
+        await until(
           () => state.status?.text.contains('已匯出') ?? false,
           reason: 'the export to finish and set the "已匯出" status message',
+          pollInterval: const Duration(milliseconds: 5),
         );
       });
       await tester.pump();
@@ -168,7 +152,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PhotoThumbnail(
-            payload: EncodedPayload(Uint8List.fromList(_tinyPngBytes)),
+            payload: EncodedPayload(Uint8List.fromList(tinyPngBytes)),
             width: 74,
             height: 49,
           ),

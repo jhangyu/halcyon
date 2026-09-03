@@ -20,8 +20,6 @@
 // order, and mid-queue reprioritisation.
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
@@ -35,26 +33,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
-// A minimal valid 1x1 transparent PNG: exercises a REAL engine decode, so the
-// ImageCache assertions below are about entries that actually landed rather
-// than about bookkeeping.
-final _tinyPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAA'
-  'AAYAAjCB0C8AAAAASUVORK5CYII=',
-);
-
-/// Polls [condition] to a deadline. The serial lane hands work to the event
-/// loop, so "how long the whole window takes" is a sum of decodes rather than a
-/// single await -- a fixed sleep would either be flaky or slow.
-Future<void> _until(bool Function() condition, {String? reason}) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition()) {
-    if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for: ${reason ?? 'condition'}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-}
+import '../../support/preload_fixtures.dart';
 
 /// Whether every slot of the -3..+5 retention window around [selected] holds a
 /// payload. Derived from the retention constants, never hand-written.
@@ -74,16 +53,6 @@ bool controllerWindowFilled(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  List<PhotoItem> jpgItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
-  });
-
-  List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-    final id = 'IMG_${index.toString().padLeft(4, '0')}';
-    return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-  });
-
   DecodedRgba fakeDecoded() => DecodedRgba(
     rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
     width: 2,
@@ -92,7 +61,7 @@ void main() {
 
   ImagePreloadController cheapController() => ImagePreloadController(
     imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-        NativeImageBytes(Uint8List.fromList(_tinyPngBytes)),
+        NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
     dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
   );
 
@@ -112,10 +81,7 @@ void main() {
     return PaintingBinding.instance.imageCache.containsKey(key);
   }
 
-  setUp(() {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-  });
+  setUp(clearImageCacheSetUp);
 
   // ---------------------------------------------------------------- AC2
 
@@ -126,7 +92,7 @@ void main() {
       addTearDown(controller.dispose);
       controller.updateTargetSize(10, 10);
 
-      final photos = jpgItems(14);
+      final photos = paddedItems(14);
       const selected = 5;
       await controller.preloadImages(
         items: photos,
@@ -161,7 +127,7 @@ void main() {
       addTearDown(controller.dispose);
       controller.updateTargetSize(10, 10);
 
-      final photos = jpgItems(20);
+      final photos = paddedItems(20);
       await controller.preloadImages(
         items: photos,
         selectedItemId: photos[5].id,
@@ -218,7 +184,7 @@ void main() {
       addTearDown(controller.dispose);
       controller.updateTargetSize(10, 10);
 
-      final photos = jpgItems(14);
+      final photos = paddedItems(14);
       const selected = 5;
       await controller.preloadImages(
         items: photos,
@@ -279,19 +245,20 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
 
-    final photos = rawItems(14);
+    final photos = paddedItems(14, extension: 'dng');
     const selected = 5;
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[selected].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => List.generate(
         kRetentionBefore + kRetentionAfter + 1,
         (i) => photos[selected - kRetentionBefore + i].id,
       ).every((id) => controller.payloadFor(id) != null),
       reason: 'every slot of the retention window to acquire a payload',
+      pollInterval: const Duration(milliseconds: 5),
     );
 
     for (var d = -kRetentionBefore; d <= kRetentionAfter; d++) {
@@ -329,15 +296,16 @@ void main() {
     );
     addTearDown(expensive.dispose);
     expensive.updateTargetSize(10, 10);
-    final raws = rawItems(14);
+    final raws = paddedItems(14, extension: 'dng');
     await expensive.preloadImages(
       items: raws,
       selectedItemId: raws[5].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => controllerWindowFilled(expensive, raws, 5),
       reason: 'the whole expensive window to land',
+      pollInterval: const Duration(milliseconds: 5),
     );
     expect(
       maxInFlight,
@@ -359,12 +327,12 @@ void main() {
         }
         await Future<void>.delayed(const Duration(milliseconds: 10));
         cheapInFlight--;
-        return NativeImageBytes(Uint8List.fromList(_tinyPngBytes));
+        return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
       },
     );
     addTearDown(cheap.dispose);
     cheap.updateTargetSize(10, 10);
-    final jpgs = jpgItems(14);
+    final jpgs = paddedItems(14);
     await cheap.preloadImages(
       items: jpgs,
       selectedItemId: jpgs[5].id,
@@ -400,16 +368,17 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
 
-    final photos = rawItems(14);
+    final photos = paddedItems(14, extension: 'dng');
     const selected = 5;
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[selected].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => controllerWindowFilled(controller, photos, selected),
       reason: 'the whole expensive window to land',
+      pollInterval: const Duration(milliseconds: 5),
     );
 
     // The user-ruled order, written as signed distances so the intent is
@@ -445,7 +414,7 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
 
-    final photos = rawItems(30);
+    final photos = paddedItems(30, extension: 'dng');
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[5].id,
@@ -453,7 +422,9 @@ void main() {
     );
     // The first decode (index 5) is parked on its gate, so the other eight
     // window items are queued behind it and nothing else has started.
-    await _until(() => starts.length == 1, reason: 'the first decode to start');
+    await until(() => starts.length == 1, reason: 'the first decode to start',
+      pollInterval: const Duration(milliseconds: 5),
+    );
     expect(starts.single, photos[5].files.single.path);
 
     // The user jumps to index 20. Its retention window (17..25) is disjoint
@@ -472,7 +443,9 @@ void main() {
 
     // Release the in-flight decode. What runs NEXT is the load-bearing claim.
     gates.single.complete();
-    await _until(() => starts.length == 2, reason: 'the next decode to start');
+    await until(() => starts.length == 2, reason: 'the next decode to start',
+      pollInterval: const Duration(milliseconds: 5),
+    );
     expect(
       starts[1],
       photos[20].files.single.path,
@@ -499,10 +472,11 @@ void main() {
       // equality is ALWAYS true and guards nothing. The loop then completed
       // whichever gate happened to be last -- which, whenever the next decode
       // had not yet started, was the gate it had just completed.
-      await _until(
+      await until(
         () => gates.length >= i + 2,
         reason: 'decode #${i + 2} to start and reach its gate',
-      );
+      pollInterval: const Duration(milliseconds: 5),
+    );
       final gate = gates.last;
       if (!gate.isCompleted) {
         gate.complete();
@@ -540,7 +514,7 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
 
-    final photos = rawItems(14);
+    final photos = paddedItems(14, extension: 'dng');
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[5].id,
@@ -601,19 +575,20 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(10, 10);
 
-    final photos = rawItems(30);
+    final photos = paddedItems(30, extension: 'dng');
     const selected = 12;
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[selected].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => List.generate(
         midRung.before + midRung.after + 1,
         (i) => photos[selected - midRung.before + i].id,
       ).every((id) => controller.payloadFor(id) != null),
       reason: 'every slot of the mid-rung -3..+8 window to acquire a payload',
+      pollInterval: const Duration(milliseconds: 5),
     );
 
     expect(
@@ -634,16 +609,17 @@ void main() {
     controller.updateTargetSize(10, 10);
     expect(controller.retention, const RetentionPolicy.floor());
 
-    final photos = rawItems(30);
+    final photos = paddedItems(30, extension: 'dng');
     const selected = 12;
     await controller.preloadImages(
       items: photos,
       selectedItemId: photos[selected].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => controllerWindowFilled(controller, photos, selected),
       reason: 'the -3..+5 floor window to fill',
+      pollInterval: const Duration(milliseconds: 5),
     );
 
     expect(
@@ -673,15 +649,16 @@ void main() {
     );
     addTearDown(wide.dispose);
     wide.updateTargetSize(10, 10);
-    final raws = rawItems(14);
+    final raws = paddedItems(14, extension: 'dng');
     await wide.preloadImages(
       items: raws,
       selectedItemId: raws[5].id,
       notifyLoaded: () {},
     );
-    await _until(
+    await until(
       () => controllerWindowFilled(wide, raws, 5),
       reason: 'the whole expensive window to land',
+      pollInterval: const Duration(milliseconds: 5),
     );
     expect(maxInFlight, greaterThan(1),
         reason: 'width 3 must actually overlap decodes');
@@ -704,13 +681,15 @@ void main() {
     );
     addTearDown(wide.dispose);
     wide.updateTargetSize(10, 10);
-    final raws = rawItems(14);
+    final raws = paddedItems(14, extension: 'dng');
     await wide.preloadImages(
       items: raws,
       selectedItemId: raws[5].id,
       notifyLoaded: () {},
     );
-    await _until(() => starts.length >= 3, reason: 'three starts');
+    await until(() => starts.length >= 3, reason: 'three starts',
+      pollInterval: const Duration(milliseconds: 5),
+    );
     expect(
       starts.take(3).toList(),
       [

@@ -11,6 +11,8 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
+import '../../support/preload_fixtures.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -21,16 +23,6 @@ void main() {
 
   DecodedRgba decoded() =>
       DecodedRgba(rgba: Uint8List(2 * 2 * 4), width: 2, height: 2);
-
-  Future<void> until(bool Function() condition, {String? reason}) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('timed out waiting for: ${reason ?? 'condition'}');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-  }
 
   // This is the scheduling killer: all three +/-1 items become eligible after
   // the frozen 250ms debounce, but no-preview RAW execution must be SERIAL.

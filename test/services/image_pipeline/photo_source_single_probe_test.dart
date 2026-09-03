@@ -27,6 +27,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
 
 /// Counts `open()` calls on files created inside an [IOOverrides] zone.
@@ -81,16 +82,6 @@ void main() {
   final noPreviewDng = File('${dngDir.path}/IMG_20251112_092839.dng');
 
   const windowLongEdge = 2800;
-
-  Future<void> until(bool Function() condition, {String? reason}) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('timed out waiting for: ${reason ?? 'condition'}');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-  }
 
   group('single-probe seam', () {
     // THE KILLER for the ruling. A two-call seam opens the file twice however

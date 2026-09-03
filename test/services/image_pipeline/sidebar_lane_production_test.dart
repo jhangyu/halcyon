@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+
+import '../../support/preload_fixtures.dart';
 
 /// Task 7 (plan `docs/logs/2026-08-30/shared-payload-cache-plan.md`):
 /// "scrolling fills the payload cache" (D5 decision 4). A visible row with no
@@ -17,11 +17,6 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 ///
 /// Helpers are copied rather than imported from the Task 6 file: test files do
 /// not export to one another.
-List<PhotoItem> _items(int n) => <PhotoItem>[
-  for (var i = 0; i < n; i++)
-    PhotoItem(id: 'p$i', files: <File>[File('/x/p$i.arw')]),
-];
-
 Future<NativeImageResult> _rawLoader(
   String path, {
   required ImageRequestPurpose purpose,
@@ -46,7 +41,7 @@ void main() {
       payloadEncoder: null,
       decodeLaneWidth: 2,
     );
-    final items = _items(200);
+    final items = photoItems(200, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadImages(
       items: items,
@@ -95,7 +90,7 @@ void main() {
       payloadEncoder: null,
       decodeLaneWidth: 2,
     );
-    final items = _items(200);
+    final items = photoItems(200, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadThumbnails(
       items: items,
@@ -130,7 +125,7 @@ void main() {
       payloadEncoder: null,
       decodeLaneWidth: 1,
     );
-    final items = _items(200);
+    final items = photoItems(200, extension: 'arw');
     controller.updateTargetSize(800, 600);
     // Not awaited: the whole point is to inspect the lane while the navigation
     // window's entries are still pending behind the gated decode.
@@ -188,7 +183,7 @@ void main() {
       payloadEncoder: null,
       decodeLaneWidth: 1,
     );
-    final items = _items(200);
+    final items = photoItems(200, extension: 'arw');
     controller.updateTargetSize(800, 600);
     await controller.preloadThumbnails(
       items: items,
