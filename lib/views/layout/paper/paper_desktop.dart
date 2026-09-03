@@ -48,6 +48,18 @@ const ValueKey<String> kPaperColumnSlotKey = ValueKey<String>(
   'paper.column.slot',
 );
 
+/// The `.overcount` readout (progress + starred) drawn bottom-right over the
+/// photo. Declared here so tests can locate it by key.
+const ValueKey<String> kPaperOverCountKey = ValueKey<String>(
+  'paper.overcount',
+);
+
+/// Mockup `text-shadow:0 1px 4px rgba(0,0,0,.5)` — carried by both the caption
+/// and the over-count, which float directly on the photograph.
+const List<Shadow> _overShadows = <Shadow>[
+  Shadow(color: Color(0x80000000), blurRadius: 4, offset: Offset(0, 1)),
+];
+
 const Duration kPaperWidthBadgeDelay = Duration(milliseconds: 400);
 
 /// Vertical gap between filmstrip rows, in both the in-gutter strip and the
@@ -211,6 +223,23 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
             fileName: surface.identity?.displayName,
             exif: surface.identity?.exif,
             alignment: CrossAxisAlignment.start,
+            variant: ExifCaptionVariant.joined,
+            // Mockup `.overcap .t`: var(--serif), 15px, letter-spacing .01em.
+            titleStyle: const TextStyle(
+              fontFamily: 'serif',
+              fontSize: 15,
+              letterSpacing: 0.01 * 15,
+              color: Colors.white,
+              shadows: _overShadows,
+            ),
+            // Mockup `.overcap .exif`: 11px, letter-spacing .05em, opacity .85.
+            detailStyle: TextStyle(
+              fontSize: 11,
+              letterSpacing: 0.05 * 11,
+              color: Colors.white.withValues(alpha: 0.85),
+              shadows: _overShadows,
+            ),
+            detailGap: 5, // mockup margin-top:5px
           ),
         ),
         // Frame counter, bottom-right of the photo (mockup `.overcount`).
@@ -291,15 +320,22 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
     );
   }
 
+  /// Mockup `.overcount` (`c1-desktop-dark.html:250-251`, markup `:443`):
+  /// `34 / 212 · 18 starred`, one serif line bottom-right over the photo. The
+  /// starred segment is drawn unconditionally, including at 0, as the mockup
+  /// draws it.
   Widget _buildOverCount(BuildContext context, MainSurface surface) {
     final identity = surface.identity;
     if (identity == null) return const SizedBox.shrink();
     return Text(
-      '${identity.indexInFolder} / ${identity.folderCount}',
-      style: const TextStyle(
-        color: Colors.white,
+      '${identity.indexInFolder} / ${identity.folderCount}'
+      ' · ${identity.starredCount} starred',
+      key: kPaperOverCountKey,
+      style: TextStyle(
+        fontFamily: 'serif',
         fontSize: 13,
-        shadows: [Shadow(color: Colors.black45, blurRadius: 4)],
+        color: Colors.white.withValues(alpha: 0.85),
+        shadows: _overShadows,
       ),
     );
   }
