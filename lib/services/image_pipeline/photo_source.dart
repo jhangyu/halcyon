@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
+import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
 import 'payload_normalizer.dart';
 import 'payload_reencoder.dart';
@@ -135,9 +136,15 @@ class PhotoSource {
     required this.loader,
     this.dngDecoder,
     this.payloadEncoder,
+    this.compositeGate = immediateCompositeGate,
   });
 
   final NativeImageLoad loader;
+
+  /// Pacing seam for the UI-isolate compositing/upload steps this class
+  /// triggers (contract deliverable 2). Defaults to no pacing, so every
+  /// existing construction behaves exactly as before.
+  final CompositeGate compositeGate;
 
   /// Null when no RAW decoder is available. Every use is guarded by step 3b:
   /// no decoder (or a throwing one) is a genuine permanent miss (M6 U-12
@@ -268,10 +275,12 @@ class PhotoSource {
             decoded,
             exifOrientation: exifOrientation,
             longEdge: longEdge,
+            gate: compositeGate,
           );
           final fullRes = await decodedRgbaToOrientedFullRes(
             decoded,
             exifOrientation: exifOrientation,
+            gate: compositeGate,
           );
           handedOut = fullRes;
           return (
@@ -376,10 +385,12 @@ class PhotoSource {
         decoded,
         exifOrientation: exifOrientation,
         longEdge: longEdge,
+        gate: compositeGate,
       );
       final fullRes = await decodedRgbaToOrientedFullRes(
         decoded,
         exifOrientation: exifOrientation,
+        gate: compositeGate,
       );
       handedOut = fullRes;
       return (

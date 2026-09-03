@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart';
 
 import 'dng_decode_contract.dart';
 import 'exif_orientation.dart';
+import 'idle_publish_scheduler.dart';
 import 'photo_payload.dart';
 
 /// Turns a [DecodedRgba] (RGBA8 straight from the native DNG decoder) into a
@@ -23,7 +24,16 @@ import 'photo_payload.dart';
 Future<ui.Image> decodedRgbaToImage(
   DecodedRgba rgba, {
   required int exifOrientation,
+  CompositeGate gate = immediateCompositeGate,
 }) async {
+  // PACED BEFORE ALLOCATION (contract deliverable 2). The slot is bought here,
+  // where this function owns nothing, and not around the compositing call
+  // below: a slow or never-granted slot must not be able to leave a ~50MB
+  // `ui.Image` parked with no owner. AC7: an identity orientation composites
+  // nothing, so it buys nothing.
+  if (!_ExifTransform.forOrientation(exifOrientation).isIdentity) {
+    await gate();
+  }
   final raw = await _imageFromPixels(rgba);
   late final ui.Image oriented;
   try {
@@ -46,6 +56,8 @@ Future<ui.Image> decodedRgbaToImage(
 /// unknown orientation tag is not a reason to refuse to show the photo) it
 /// returns [src] ITSELF, so callers must use [identical] before disposing an
 /// intermediate.
+/// NOT gated: pacing is bought by the three entry points above, BEFORE they
+/// allocate. Adding a gate here would charge two slots for one pass.
 Future<ui.Image> applyExifOrientation(ui.Image src, int orientation) async {
   final transform = _ExifTransform.forOrientation(orientation);
   if (transform.isIdentity) return src;
@@ -116,6 +128,7 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
   DecodedRgba decoded, {
   required int exifOrientation,
   required int longEdge,
+  CompositeGate gate = immediateCompositeGate,
 }) async {
   _assertDecodedBufferLength(decoded);
   final transform = _ExifTransform.forOrientation(exifOrientation);
@@ -143,6 +156,11 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
       );
     }
   }
+
+  // Past the short-circuit a GPU pass IS going to run: upload, draw, read
+  // back. Paced here, before the upload, for the same ownership reason as
+  // `decodedRgbaToImage`.
+  await gate();
 
   final raw = await _imageFromPixels(decoded);
   ui.Image? scaled;
@@ -207,6 +225,7 @@ typedef OrientedFullRes = ({
 Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   DecodedRgba decoded, {
   required int exifOrientation,
+  CompositeGate gate = immediateCompositeGate,
 }) async {
   _assertDecodedBufferLength(decoded);
   final transform = _ExifTransform.forOrientation(exifOrientation);
@@ -226,6 +245,8 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       image: null,
     );
   }
+
+  await gate();
 
   final raw = await _imageFromPixels(decoded);
   ui.Image oriented;

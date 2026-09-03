@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import '../../models/photo_item.dart';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'idle_publish_scheduler.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'prefetch_scheduler.dart';
@@ -65,6 +66,7 @@ class TierTwoScheduler {
     required DngFullDecoder? Function() dngDecoder,
     required int? Function(String id) exifOrientationFor,
     required Duration navigationDebounce,
+    CompositeGate compositeGate = immediateCompositeGate,
   }) : _registry = registry,
        _lane = lane,
        _currentPayloadFor = currentPayloadFor,
@@ -72,7 +74,8 @@ class TierTwoScheduler {
        _ensurePayload = ensurePayload,
        _dngDecoder = dngDecoder,
        _exifOrientationFor = exifOrientationFor,
-       _navigationDebounce = navigationDebounce;
+       _navigationDebounce = navigationDebounce,
+       _compositeGate = compositeGate;
 
   final TierTwoRegistry _registry;
 
@@ -98,6 +101,10 @@ class TierTwoScheduler {
   /// `tierTwoNavigationDebounce`, passed in rather than imported so this file
   /// does not import the controller back.
   final Duration _navigationDebounce;
+
+  /// Pacing seam for this class's `decodedRgbaToImage` compositing pass
+  /// (contract deliverable 2). Defaults to no pacing.
+  final CompositeGate _compositeGate;
 
   Timer? _debounceTimer;
 
@@ -432,6 +439,7 @@ class TierTwoScheduler {
         image = await decodedRgbaToImage(
           decoded,
           exifOrientation: orientation,
+          gate: _compositeGate,
         );
       } catch (_) {
         // Tier-1 display is untouched and this is NOT a permanent miss: the

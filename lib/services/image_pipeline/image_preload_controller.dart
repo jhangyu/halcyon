@@ -8,6 +8,7 @@ import 'package:flutter/painting.dart';
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dng_decode_contract.dart';
+import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
 import 'payload_reencoder.dart';
 import 'photo_payload.dart';
@@ -107,16 +108,19 @@ class ImagePreloadController {
     FrameHook? scheduleFrameCallback,
     int publicationsPerFrame = 1,
     int? inflightByteBudget,
+    CompositeGate compositeGate = immediateCompositeGate,
   }) : _retention = retention,
        _inflight = InflightBytesBudget(
          maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
        ),
        _frameHook = scheduleFrameCallback,
        _publicationsPerFrame = publicationsPerFrame,
+       _compositeGate = compositeGate,
        _source = PhotoSource(
          loader: imageLoader,
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
+         compositeGate: compositeGate,
        ),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
        _encodeStage = EncodeStage(width: encodeStageWidth),
@@ -227,6 +231,15 @@ class ImagePreloadController {
   @visibleForTesting
   // ignore: invalid_use_of_visible_for_testing_member
   bool get debugPacerHasFrameHook => _pacer.debugHasFrameHook;
+
+  /// The pacing seam handed to every UI-isolate compositing step (contract
+  /// deliverable 2). Held as a field only so [debugCompositeGateIsPaced] can
+  /// answer "is production actually paced" without reaching into privates.
+  final CompositeGate _compositeGate;
+
+  @visibleForTesting
+  bool get debugCompositeGateIsPaced =>
+      !identical(_compositeGate, immediateCompositeGate);
 
   /// Bounds the TRANSIENT full-frame buffers the stage split puts in flight --
   /// the decoded RGBA, the oriented full-res RGBA and the encoder's input.
@@ -348,6 +361,7 @@ class ImagePreloadController {
     dngDecoder: () => _source.dngDecoder,
     exifOrientationFor: (id) => _exifOrientations[id],
     navigationDebounce: tierTwoNavigationDebounce,
+    compositeGate: _compositeGate,
   );
 
   // Items no source could produce anything for (corrupt/truncated/unsupported,
