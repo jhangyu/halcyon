@@ -166,6 +166,68 @@ void main() {
     });
   });
 
+  group('TC-881 folder and actions menu live inside the column top', () {
+    testWidgets('both are descendants of DarkroomColumn, not of the cluster', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      var openFolderCalls = 0;
+      final surface = minimalSurface();
+      final withMenu = MainSurface(
+        viewport: surface.viewport,
+        statusOverlay: surface.statusOverlay,
+        strip: surface.strip,
+        identity: surface.identity,
+        actions: PhotoActions(
+          recycleMode: false,
+          onStar: () {},
+          onTrash: () {},
+          onToggleRecycleMode: () {},
+          onOpenFolder: () => openFolderCalls++,
+          menu: const SizedBox(
+            key: ValueKey<String>('test-menu'),
+            width: 34,
+            height: 34,
+          ),
+        ),
+      );
+      await pumpDesktop(tester, surface: withMenu);
+
+      final openFolder = find.byKey(
+        const ValueKey<String>('darkroom-rail-open-folder'),
+      );
+      expect(openFolder, findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(DarkroomColumn), matching: openFolder),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(DarkroomColumn),
+          matching: find.byKey(const ValueKey<String>('test-menu')),
+        ),
+        findsOneWidget,
+      );
+
+      // The rail buttons sit above the grid, inside the column's own width.
+      final columnRect = tester.getRect(find.byType(DarkroomColumn));
+      final buttonRect = tester.getRect(openFolder);
+      expect(buttonRect.left, greaterThanOrEqualTo(columnRect.left));
+      expect(buttonRect.right, lessThanOrEqualTo(columnRect.right));
+      expect(
+        buttonRect.bottom,
+        lessThan(tester.getRect(find.byKey(
+          const ValueKey<String>('darkroom-grid'),
+        )).top),
+      );
+
+      await tester.tap(openFolder);
+      await tester.pump();
+      expect(openFolderCalls, 1);
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
   group('TC-582 drag range clamps at 90 and 200', () {
     testWidgets('drag far left clamps to the 90 floor', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));

@@ -62,6 +62,16 @@ double darkroomRowExtentForWidth(double width) {
 /// AD-established 12px target, to keep the handle reliably grabbable).
 const double kDarkroomHandleHitWidth = 12;
 
+/// `.railbtn` geometry, mockup `c2-desktop-dark.html:145-148`: a 32x32 hit box,
+/// 5px radius, a 16px glyph. `.railtop{gap:4px}` (line 149) sets the gap.
+const double kDarkroomRailButtonSize = 32.0;
+const double kDarkroomRailIconSize = 16.0;
+const double kDarkroomRailButtonRadius = 5.0;
+const double kDarkroomRailTopGap = 4.0;
+
+/// `.raildiv` (line 150): a 1px hairline with 1px of air above and below.
+const double kDarkroomRailDividerThickness = 1.0;
+
 /// The `darkroom` theme's wordless picture column (round 2 T13).
 ///
 /// Per the mockup thesis (NOTES.md): "the column carries pictures and nothing
@@ -134,26 +144,61 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
           color: Theme.of(context).colorScheme.surface,
           elevation: widget.width > kDarkroomColumnMinWidth ? 8 : 0,
           child: Padding(
-            padding: const EdgeInsets.all(kDarkroomGridPadding),
-            child: RepaintBoundary(
-              child: ListenableBuilder(
-                listenable: strip.revision,
-                builder: (context, _) => GridView.builder(
-                  key: const ValueKey<String>('darkroom-grid'),
-                  controller: _scrollController,
-                  itemCount: items.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: _columns,
-                    mainAxisSpacing: kDarkroomGridSpacing,
-                    crossAxisSpacing: kDarkroomGridSpacing,
-                    childAspectRatio: kDarkroomChipAspect,
-                  ),
-                  itemBuilder: (context, index) {
-                    _reportVisibleRange(index);
-                    return _buildChip(context, items[index], strip, palette);
-                  },
+            // `.rail{padding:10px 0 8px}` — vertical only; the grid keeps its
+            // own 6px inset so the rail row can span the full width.
+            padding: const EdgeInsets.only(top: 10, bottom: 8),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    railButton(
+                      context,
+                      buttonKey: const ValueKey<String>(
+                        'darkroom-rail-open-folder',
+                      ),
+                      icon: Icons.folder_open,
+                      tooltip: 'Open Folder',
+                      onPressed: widget.surface.actions.onOpenFolder,
+                    ),
+                    const SizedBox(width: kDarkroomRailTopGap),
+                    widget.surface.actions.menu,
+                  ],
                 ),
-              ),
+                railDivider(context),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(kDarkroomGridPadding),
+                    child: RepaintBoundary(
+                      child: ListenableBuilder(
+                        listenable: strip.revision,
+                        builder: (context, _) => GridView.builder(
+                          key: const ValueKey<String>('darkroom-grid'),
+                          controller: _scrollController,
+                          itemCount: items.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: _columns,
+                            mainAxisSpacing: kDarkroomGridSpacing,
+                            crossAxisSpacing: kDarkroomGridSpacing,
+                            childAspectRatio: kDarkroomChipAspect,
+                          ),
+                          itemBuilder: (context, index) {
+                            _reportVisibleRange(index);
+                            return _buildChip(
+                              context,
+                              items[index],
+                              strip,
+                              palette,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -207,6 +252,69 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
       if (!mounted || first == -1) return;
       widget.surface.strip.onVisibleRange(first, last);
     });
+  }
+
+  /// One `.railbtn`. Icon + tooltip only — never a label: TC-583 asserts the
+  /// column contains no `Text`.
+  Widget railButton(
+    BuildContext context, {
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    Key? buttonKey,
+  }) {
+    final palette = DarkroomPalette.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        key: buttonKey,
+        icon: Icon(
+          icon,
+          size: kDarkroomRailIconSize,
+          color: palette.textFaint, // --faint
+        ),
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        style: ButtonStyle(
+          fixedSize: const WidgetStatePropertyAll<Size>(
+            Size(kDarkroomRailButtonSize, kDarkroomRailButtonSize),
+          ),
+          shape: WidgetStatePropertyAll<OutlinedBorder>(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(kDarkroomRailButtonRadius),
+            ),
+          ),
+          // `.railbtn:hover{color:var(--text);background:var(--surface)}`
+          overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+            if (states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.pressed)) {
+              return colors.surfaceContainer;
+            }
+            return null;
+          }),
+        ),
+      ),
+    );
+  }
+
+  /// `.raildiv`: a hairline inset from both column edges.
+  Widget railDivider(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: 1,
+        horizontal: kDarkroomGridPadding,
+      ),
+      child: SizedBox(
+        height: kDarkroomRailDividerThickness,
+        width: double.infinity,
+        child: ColoredBox(
+          // --line-soft: the hairline at reduced weight.
+          color: colors.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+    );
   }
 
   Widget _buildChip(

@@ -180,13 +180,6 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
               onPressed: actions.onTrash,
             ),
           ),
-          _clusterButton(
-            context,
-            icon: Icons.folder_open,
-            tooltip: 'Open Folder',
-            onPressed: actions.onOpenFolder,
-          ),
-          actions.menu,
         ],
       ),
     );
