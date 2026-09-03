@@ -364,6 +364,56 @@ void main() {
     });
   });
 
+  group(
+    'TC-885 the railtop row fits at the 90px floor with the real menu widget',
+    () {
+      testWidgets(
+        'no overflow when the menu is a real 48x48 IconButton, not a stub',
+        (tester) async {
+          // Regression: `minimalSurface()`'s menu stub is a SizedBox(34,34),
+          // which is smaller than the natural size of a real Flutter
+          // IconButton/PopupMenuButton (48x48 minimum tap target, unaffected
+          // by ButtonStyle.fixedSize). The stub therefore could not catch a
+          // railtop row that only fits stub-sized buttons.
+          await tester.binding.setSurfaceSize(const Size(1440, 900));
+          final surface = minimalSurface();
+          final withRealMenu = MainSurface(
+            viewport: surface.viewport,
+            statusOverlay: surface.statusOverlay,
+            strip: surface.strip,
+            identity: surface.identity,
+            actions: PhotoActions(
+              recycleMode: false,
+              onStar: () {},
+              onTrash: () {},
+              onToggleRecycleMode: () {},
+              onOpenFolder: () {},
+              menu: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, size: 20),
+                tooltip: 'Actions',
+                padding: EdgeInsets.zero,
+                itemBuilder: (context) => const [
+                  PopupMenuItem<String>(value: 'a', child: Text('a')),
+                ],
+              ),
+            ),
+          );
+          await pumpDesktop(tester, surface: withRealMenu);
+          final caught = tester.takeException();
+
+          expect(
+            caught,
+            isNull,
+            reason:
+                'RenderFlex overflow in the railtop row at the 90px floor: '
+                '$caught',
+          );
+          await tester.binding.setSurfaceSize(null);
+        },
+      );
+    },
+  );
+
   group('TC-582 drag range clamps at 90 and 200', () {
     testWidgets('drag far left clamps to the 90 floor', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));

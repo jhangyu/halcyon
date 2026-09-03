@@ -164,7 +164,18 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
                       onPressed: widget.surface.actions.onOpenFolder,
                     ),
                     const SizedBox(width: kDarkroomRailTopGap),
-                    widget.surface.actions.menu,
+                    // `actions.menu` is a common-owned widget (AppActionsMenu
+                    // in production) whose own PopupMenuButton/IconButton
+                    // enforces Material's 48x48 minimum tap target — larger
+                    // than the mockup's uniform 32x32 `.railbtn` (TC-885).
+                    // Constraining it here, not inside the common widget,
+                    // matches the other rail buttons without touching
+                    // common-owned files.
+                    SizedBox(
+                      width: kDarkroomRailButtonSize,
+                      height: kDarkroomRailButtonSize,
+                      child: widget.surface.actions.menu,
+                    ),
                   ],
                 ),
                 railDivider(context),
@@ -279,7 +290,11 @@ class _DarkroomColumnState extends State<DarkroomColumn> {
         ),
         onPressed: onPressed,
         padding: EdgeInsets.zero,
+        // Material enforces a 48x48 minimum tap target regardless of
+        // `fixedSize` unless tapTargetSize is shrunk explicitly — without
+        // this the rail row overflows the 90px floor (TC-885).
         style: ButtonStyle(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           fixedSize: const WidgetStatePropertyAll<Size>(
             Size(kDarkroomRailButtonSize, kDarkroomRailButtonSize),
           ),

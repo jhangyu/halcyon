@@ -39,7 +39,10 @@ class DarkroomOptionsButton extends StatelessWidget {
         ),
         onPressed: onPressed ?? () => openSettings(context),
         padding: EdgeInsets.zero,
+        // Material enforces a 48x48 minimum tap target regardless of
+        // `fixedSize` unless tapTargetSize is shrunk explicitly (TC-885).
         style: ButtonStyle(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           fixedSize: const WidgetStatePropertyAll<Size>(
             Size(kDarkroomRailButtonSize, kDarkroomRailButtonSize),
           ),
