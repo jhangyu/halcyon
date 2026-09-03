@@ -456,37 +456,63 @@ class TierTwoScheduler {
   }
 
   /// The PIGGYBACK half of design §2.2: the pixels handed back alongside the
-  /// window-resolution payload by the single decode that just ran. They are
-  /// already oriented and full-resolution, so all that is left is one GPU
-  /// upload. The buffer is a parameter and a local only -- it is never stored
-  /// in a field, so nothing outlives this call except the ImageCache entry.
+  /// window-resolution payload by the single decode that just ran.
+  ///
+  /// When [fullRes] carries a `ui.Image` (the EXIF transform needed a GPU pass
+  /// anyway), that handle IS the frame -- it is published directly and NOT
+  /// re-uploaded. The old code read that image back to bytes and then uploaded
+  /// the very same pixels again, one call later.
+  ///
+  /// OWNERSHIP: this method takes over `fullRes.image` unconditionally. Every
+  /// exit either hands it to the ImageCache through
+  /// [TierTwoRegistry.publishFullRes] or disposes it. Callers must NOT dispose
+  /// it afterwards, and must NOT pre-filter with the window/payload checks
+  /// below -- those live here precisely so no caller can forget the matching
+  /// dispose.
   ///
   /// Public because it is reached from the controller's payload-production
   /// path, which is where the decode that produced these pixels ran.
   Future<void> publishPiggybackFullRes(
     String id,
     SourcePayload payload,
-    ({Uint8List rgba, int width, int height}) fullRes,
+    OrientedFullRes fullRes,
     VoidCallback? notifyLoaded,
   ) async {
-    if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
-      return;
-    }
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      fullRes.rgba,
-      fullRes.width,
-      fullRes.height,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    final image = await completer.future;
-    // Same post-await re-check as the catch-up path; releases in place.
+    final supplied = fullRes.image;
+    // Taken SYNCHRONOUSLY, before any await (invariant I4). These are the
+    // conditions the controller used to evaluate at its call site.
     if (!_windowIds.contains(id) ||
-        !identical(_currentPayloadFor(id), payload)) {
-      image.dispose();
+        !identical(_currentPayloadFor(id), payload) ||
+        _registry.hasFullResEntryFor(id, payload)) {
+      supplied?.dispose();
       return;
     }
+
+    ui.Image image;
+    if (supplied != null) {
+      image = supplied;
+    } else {
+      if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
+        return;
+      }
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        fullRes.rgba,
+        fullRes.width,
+        fullRes.height,
+        ui.PixelFormat.rgba8888,
+        completer.complete,
+      );
+      image = await completer.future;
+      // Same post-await re-check as the catch-up path; releases in place.
+      if (!_windowIds.contains(id) ||
+          !identical(_currentPayloadFor(id), payload)) {
+        image.dispose();
+        return;
+      }
+    }
+    // First-writer-wins inside publishFullRes disposes the loser itself, so
+    // this must NOT dispose after handing over.
     _registry.publishFullRes(id, payload, image, notifyLoaded ?? () {});
   }
 }
