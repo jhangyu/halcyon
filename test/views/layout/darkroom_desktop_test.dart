@@ -79,30 +79,39 @@ double _currentWidth(WidgetTester tester) {
 
 void main() {
   group(
-    'TC-580 the photo is pinned 1350x900 at every column width (floats, never pushes)',
+    'TC-580 the photo shrinks as the column grows (partition, never overlap)',
     () {
-      for (final width in [90.0, 120.0, 180.0, 200.0]) {
-        testWidgets('viewport stays 1350x900 at column width ${width.round()}', (
-          tester,
-        ) async {
-          await tester.binding.setSurfaceSize(const Size(1440, 900));
-          await pumpDesktop(tester, surface: minimalSurface());
+      // Window is 1440 wide; the photo gets exactly what the column does not.
+      final expected = <double, double>{
+        90.0: 1350.0,
+        120.0: 1320.0,
+        180.0: 1260.0,
+        200.0: 1240.0,
+      };
+      for (final entry in expected.entries) {
+        testWidgets(
+          'viewport is ${entry.value.round()}x900 at column width '
+          '${entry.key.round()}',
+          (tester) async {
+            await tester.binding.setSurfaceSize(const Size(1440, 900));
+            await pumpDesktop(tester, surface: minimalSurface());
 
-          if (width > kDarkroomColumnMinWidth) {
-            await dragColumnTo(tester, width);
-          }
+            if (entry.key > kDarkroomColumnMinWidth) {
+              await dragColumnTo(tester, entry.key);
+            }
 
-          final box =
-              tester.renderObject(find.byKey(kViewportKey)) as RenderBox;
-          expect(box.size, const Size(1350, 900));
-          await tester.binding.setSurfaceSize(null);
-        });
+            final box =
+                tester.renderObject(find.byKey(kViewportKey)) as RenderBox;
+            expect(box.size, Size(entry.value, 900));
+            await tester.binding.setSurfaceSize(null);
+          },
+        );
       }
     },
   );
 
-  group('TC-581 the column floats over the photo above the resting width', () {
-    testWidgets('column right edge exceeds the fixed 90px inset at width 150', (
+  group('TC-581 the column and the photo are disjoint at every width', () {
+    testWidgets('column right edge never crosses the photo left edge', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
@@ -114,11 +123,45 @@ void main() {
       final column = tester.getRect(
         find.byKey(const ValueKey('darkroom.column.slot')),
       );
-      // The photo's left edge stays pinned at the resting width (90)...
-      expect(viewport.left, closeTo(90, 0.5));
-      // ...while the column has grown past it, i.e. floats OVER the photo.
-      expect(column.right, greaterThan(viewport.left));
+      // USER RULING R-2: the column PUSHES the photo, it never floats over it.
       expect(column.right, closeTo(150, 0.5));
+      expect(viewport.left, closeTo(150, 0.5));
+      expect(column.right, lessThanOrEqualTo(viewport.left + 0.5));
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-880 disjointness probe, 1px steps across the whole drag range', () {
+    testWidgets('no width in [90, 200] overlaps the photo', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final gesture = await tester.startGesture(_handlePoint(tester));
+      final overlaps = <String>[];
+      for (
+        var width = kDarkroomColumnMinWidth + 1;
+        width <= kDarkroomColumnMaxWidth;
+        width += 1
+      ) {
+        // One logical pixel per step — finer than the 1px defect scale, so a
+        // single-pixel overlap band cannot hide between samples.
+        await gesture.moveBy(const Offset(1, 0));
+        await tester.pump();
+        final viewport = tester.getRect(find.byKey(kViewportKey));
+        final column = tester.getRect(
+          find.byKey(const ValueKey('darkroom.column.slot')),
+        );
+        if (column.right > viewport.left + 0.5) {
+          overlaps.add(
+            'w=${width.round()} column.right=${column.right} '
+            'viewport.left=${viewport.left}',
+          );
+        }
+      }
+      await gesture.up();
+      await tester.pump();
+
+      expect(overlaps, isEmpty, reason: overlaps.join('; '));
       await tester.binding.setSurfaceSize(null);
     });
   });

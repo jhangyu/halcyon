@@ -1,20 +1,33 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
 import '../common/exif_caption.dart';
+import '../common/photo_viewport.dart';
 import '../main_surface.dart';
 import 'darkroom_column.dart';
 import 'darkroom_palette.dart';
 
+/// How long after the last drag delta the decode target is allowed to move
+/// again. Mirrors `kGalleryWidthBadgeDelay` (`gallery_desktop.dart:38`).
+const Duration kDarkroomDragStallDelay = Duration(milliseconds: 400);
+
 /// The desktop arrangement of the `darkroom` theme (round 2, task #13).
 ///
-/// Unlike `gallery`, the picture column FLOATS OVER the photo rather than
-/// pushing it (NOTES.md "R8 model" — "At 90px the column sits BESIDE the
-/// photo at zero image cost. Above 90px it FLOATS OVER the photo rather than
-/// pushing it."). The photo is therefore pinned at a CONSTANT 90px inset for
-/// every column width in the drag range — the viewport's decode target never
-/// changes while dragging, so no `DecodeSizeFreeze` is needed here (that
-/// mechanism exists only because `gallery` reflows the viewport itself).
+/// USER RULING R-2 (2026-09-03, `docs/logs/2026-09-03/theme-parity-contract.md`)
+/// SUPERSEDES the mockup's R8 float-over model: the picture column and the
+/// photo each own their width and PARTITION the window. Widening the column
+/// shrinks the photo; the two never overlap at any width in the drag range.
+/// Do not restore the old constant 90px inset from the mockup NOTES.
+///
+/// Because the viewport now reflows on every drag frame, its tier-1 decode
+/// target would change every frame too. The viewport is therefore wrapped in
+/// [DecodeSizeFreeze] carrying [_DarkroomDesktopSurfaceState._dragActive]:
+/// layout reflows, but [PhotoViewport] keeps reporting and decoding at the last
+/// settled size until the drag stalls, so the `ImageProvider` cache key is
+/// identical for the whole gesture (AD-011). Same mechanism, same reason, as
+/// `GalleryDesktopSurface` (`gallery_desktop.dart:70-85`).
 class DarkroomDesktopSurface extends StatefulWidget {
   const DarkroomDesktopSurface({super.key, required this.surface});
 
@@ -26,12 +39,31 @@ class DarkroomDesktopSurface extends StatefulWidget {
 }
 
 class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
+  // Accumulate RAW (pointer deltas arrive fractional) and round only on read —
+  // rounding the accumulator quantises each delta and the column either never
+  // moves or moves at double speed (measured, `gallery_desktop.dart:100-106`).
   double _rawColumnWidth = kDarkroomColumnMinWidth;
   double get _columnWidth => _rawColumnWidth.roundToDouble();
 
+  /// True from the first pointer delta until [kDarkroomDragStallDelay] after
+  /// the last one.
+  bool _dragActive = false;
+  Timer? _dragStallTimer;
+
+  @override
+  void dispose() {
+    _dragStallTimer?.cancel();
+    super.dispose();
+  }
+
   void _onWidthDelta(double dx) {
+    _dragStallTimer?.cancel();
     setState(() {
       _rawColumnWidth = clampDarkroomColumnWidth(_rawColumnWidth + dx);
+      _dragActive = true;
+    });
+    _dragStallTimer = Timer(kDarkroomDragStallDelay, () {
+      if (mounted) setState(() => _dragActive = false);
     });
   }
 
@@ -39,23 +71,31 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
   Widget build(BuildContext context) {
     final surface = widget.surface;
     final palette = DarkroomPalette.of(context);
+    // R-2: the photo's left edge IS the column's right edge, at every width.
+    final viewportLeft = _columnWidth;
 
     return Stack(
       children: [
-        // The photo, pinned at the CONSTANT free-band inset (the column's
-        // resting/minimum width) — never the live dragged width. This is
-        // what keeps the photo 1350x900 at every column width, per NOTES.md.
         Positioned(
-          left: kDarkroomColumnMinWidth,
+          left: viewportLeft,
           top: 0,
           right: 0,
           bottom: 0,
-          child: surface.viewport,
+          child: DecodeSizeFreeze(
+            frozen: _dragActive,
+            child: surface.viewport,
+          ),
         ),
-        // R4 EXIF caption, floating over the photo — desktop: bottom-left,
-        // type only, no panel (NOTES.md "R4 — EXIF caption").
+        // R4 EXIF caption, floating over the photo — desktop: bottom-left.
+        // TWO-OWNER REGION (finding F6): the CHILD of this Positioned is
+        // "the caption call as written by plan-info-display Task 3"
+        // (ExifCaption with variant: ExifCaptionVariant.joined, titleStyle,
+        // detailStyle, detailGap). This task changes ONLY the `left:` inset so
+        // the caption tracks _columnWidth. If the info plan has already landed,
+        // paste its child verbatim here; the block below is today's on-disk
+        // child, shown only so this step is runnable before that merge.
         Positioned(
-          left: kDarkroomColumnMinWidth + 20,
+          left: viewportLeft + 20,
           bottom: 16,
           child: DefaultTextStyle(
             style: TextStyle(color: palette.photoInk),
@@ -66,15 +106,16 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
             ),
           ),
         ),
+        // The info plan's counter Positioned(right: 24, bottom: 20) is added
+        // HERE by plan-info-display Task 3. Do not add, move or key it.
         // Transient status toast, floats over the photo.
         Positioned(
-          left: kDarkroomColumnMinWidth + 16,
+          left: viewportLeft + 16,
           top: 20,
           child: surface.statusOverlay,
         ),
-        // The wordless picture column. Its own Positioned width grows over
-        // the photo (floats, never pushes) while the viewport inset above
-        // stays pinned at the resting width.
+        // The wordless picture column. It owns [0, _columnWidth]; the photo
+        // owns the rest. Nothing is covered.
         Positioned(
           key: const ValueKey<String>('darkroom.column.slot'),
           left: 0,
@@ -87,8 +128,8 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
             onWidthDelta: _onWidthDelta,
           ),
         ),
-        // Star/trash marks + Open Folder + overflow menu — floating cluster
-        // over the photo, bottom-right, so it never depends on column width.
+        // Star/trash verdict cluster — floating over the photo, right-anchored,
+        // so it is unaffected by the column width.
         Positioned(
           right: 20,
           bottom: 16 + 40,
