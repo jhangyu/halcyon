@@ -4,6 +4,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_column.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_desktop.dart';
+import 'package:halcyon_flutter/views/layout/darkroom/darkroom_options_button.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_layout.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_palette.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
@@ -79,30 +80,39 @@ double _currentWidth(WidgetTester tester) {
 
 void main() {
   group(
-    'TC-580 the photo is pinned 1350x900 at every column width (floats, never pushes)',
+    'TC-580 the photo shrinks as the column grows (partition, never overlap)',
     () {
-      for (final width in [90.0, 120.0, 180.0, 200.0]) {
-        testWidgets('viewport stays 1350x900 at column width ${width.round()}', (
-          tester,
-        ) async {
-          await tester.binding.setSurfaceSize(const Size(1440, 900));
-          await pumpDesktop(tester, surface: minimalSurface());
+      // Window is 1440 wide; the photo gets exactly what the column does not.
+      final expected = <double, double>{
+        90.0: 1350.0,
+        120.0: 1320.0,
+        180.0: 1260.0,
+        200.0: 1240.0,
+      };
+      for (final entry in expected.entries) {
+        testWidgets(
+          'viewport is ${entry.value.round()}x900 at column width '
+          '${entry.key.round()}',
+          (tester) async {
+            await tester.binding.setSurfaceSize(const Size(1440, 900));
+            await pumpDesktop(tester, surface: minimalSurface());
 
-          if (width > kDarkroomColumnMinWidth) {
-            await dragColumnTo(tester, width);
-          }
+            if (entry.key > kDarkroomColumnMinWidth) {
+              await dragColumnTo(tester, entry.key);
+            }
 
-          final box =
-              tester.renderObject(find.byKey(kViewportKey)) as RenderBox;
-          expect(box.size, const Size(1350, 900));
-          await tester.binding.setSurfaceSize(null);
-        });
+            final box =
+                tester.renderObject(find.byKey(kViewportKey)) as RenderBox;
+            expect(box.size, Size(entry.value, 900));
+            await tester.binding.setSurfaceSize(null);
+          },
+        );
       }
     },
   );
 
-  group('TC-581 the column floats over the photo above the resting width', () {
-    testWidgets('column right edge exceeds the fixed 90px inset at width 150', (
+  group('TC-581 the column and the photo are disjoint at every width', () {
+    testWidgets('column right edge never crosses the photo left edge', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
@@ -114,14 +124,299 @@ void main() {
       final column = tester.getRect(
         find.byKey(const ValueKey('darkroom.column.slot')),
       );
-      // The photo's left edge stays pinned at the resting width (90)...
-      expect(viewport.left, closeTo(90, 0.5));
-      // ...while the column has grown past it, i.e. floats OVER the photo.
-      expect(column.right, greaterThan(viewport.left));
+      // USER RULING R-2: the column PUSHES the photo, it never floats over it.
       expect(column.right, closeTo(150, 0.5));
+      expect(viewport.left, closeTo(150, 0.5));
+      expect(column.right, lessThanOrEqualTo(viewport.left + 0.5));
       await tester.binding.setSurfaceSize(null);
     });
   });
+
+  group('TC-880 disjointness probe, 1px steps across the whole drag range', () {
+    testWidgets('no width in [90, 200] overlaps the photo', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final gesture = await tester.startGesture(_handlePoint(tester));
+      final overlaps = <String>[];
+      for (
+        var width = kDarkroomColumnMinWidth + 1;
+        width <= kDarkroomColumnMaxWidth;
+        width += 1
+      ) {
+        // One logical pixel per step — finer than the 1px defect scale, so a
+        // single-pixel overlap band cannot hide between samples.
+        await gesture.moveBy(const Offset(1, 0));
+        await tester.pump();
+        final viewport = tester.getRect(find.byKey(kViewportKey));
+        final column = tester.getRect(
+          find.byKey(const ValueKey('darkroom.column.slot')),
+        );
+        if (column.right > viewport.left + 0.5) {
+          overlaps.add(
+            'w=${width.round()} column.right=${column.right} '
+            'viewport.left=${viewport.left}',
+          );
+        }
+      }
+      await gesture.up();
+      await tester.pump();
+
+      expect(overlaps, isEmpty, reason: overlaps.join('; '));
+      // Guard against a vacuous pass: if the drag never actually reached the
+      // ceiling (e.g. clamped early), every iteration above would trivially
+      // report no overlap without the probe having covered the full range.
+      expect(_currentWidth(tester), kDarkroomColumnMaxWidth);
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-881 folder and actions menu live inside the column top', () {
+    testWidgets('both are descendants of DarkroomColumn, not of the cluster', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      var openFolderCalls = 0;
+      final surface = minimalSurface();
+      final withMenu = MainSurface(
+        viewport: surface.viewport,
+        statusOverlay: surface.statusOverlay,
+        strip: surface.strip,
+        identity: surface.identity,
+        actions: PhotoActions(
+          recycleMode: false,
+          onStar: () {},
+          onTrash: () {},
+          onToggleRecycleMode: () {},
+          onOpenFolder: () => openFolderCalls++,
+          menu: const SizedBox(
+            key: ValueKey<String>('test-menu'),
+            width: 34,
+            height: 34,
+          ),
+        ),
+      );
+      await pumpDesktop(tester, surface: withMenu);
+
+      final openFolder = find.byKey(
+        const ValueKey<String>('darkroom-rail-open-folder'),
+      );
+      expect(openFolder, findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(DarkroomColumn), matching: openFolder),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(DarkroomColumn),
+          matching: find.byKey(const ValueKey<String>('test-menu')),
+        ),
+        findsOneWidget,
+      );
+
+      // The rail buttons sit above the grid, inside the column's own width.
+      final columnRect = tester.getRect(find.byType(DarkroomColumn));
+      final buttonRect = tester.getRect(openFolder);
+      expect(buttonRect.left, greaterThanOrEqualTo(columnRect.left));
+      expect(buttonRect.right, lessThanOrEqualTo(columnRect.right));
+      expect(
+        buttonRect.bottom,
+        lessThan(tester.getRect(find.byKey(
+          const ValueKey<String>('darkroom-grid'),
+        )).top),
+      );
+
+      await tester.tap(openFolder);
+      await tester.pump();
+      expect(openFolderCalls, 1);
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-882 the column bottom carries an Options gear that opens settings',
+      () {
+    testWidgets('the gear sits below the grid and fires its callback', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final gear = find.byKey(
+        const ValueKey<String>('darkroom-rail-options'),
+      );
+      expect(gear, findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(DarkroomColumn), matching: gear),
+        findsOneWidget,
+      );
+      final gridRect = tester.getRect(
+        find.byKey(const ValueKey<String>('darkroom-grid')),
+      );
+      expect(tester.getRect(gear).top, greaterThanOrEqualTo(gridRect.bottom));
+      await tester.binding.setSurfaceSize(null);
+    });
+
+    testWidgets('an injected callback replaces the default dialog', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: darkroomThemeData(Brightness.dark),
+          home: Scaffold(
+            body: DarkroomOptionsButton(onPressed: () => taps++),
+          ),
+        ),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('darkroom-rail-options')),
+      );
+      await tester.pump();
+      expect(taps, 1);
+    });
+  });
+
+  group('TC-883 the verdict cluster floats top-right', () {
+    testWidgets('cluster sits in the top-right corner, 24px in', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      await pumpDesktop(tester, surface: minimalSurface());
+
+      final cluster = tester.getRect(
+        find.byKey(const ValueKey<String>('darkroom-verdict')),
+      );
+      expect(cluster.top, closeTo(24, 0.5));
+      expect(cluster.right, closeTo(1440 - 24, 0.5));
+      expect(cluster.top, lessThan(900 * 0.2));
+      expect(cluster.right, greaterThan(1440 * 0.8));
+
+      // The info plan's counter is also right-anchored (right:24, bottom:20).
+      // Mockup says top-right vs bottom-right are disjoint; assert it rather
+      // than trust it. The finder is tolerant: before the info plan lands the
+      // counter does not exist and the check is skipped.
+      final counter = find.byKey(kDarkroomCounterKey);
+      if (counter.evaluate().isNotEmpty) {
+        final counterRect = tester.getRect(counter);
+        expect(cluster.overlaps(counterRect), isFalse);
+      }
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group('TC-884 the verdict cluster carries only star, trash and the key hint',
+      () {
+    testWidgets('key hint reads "S · X"; no folder or menu in the cluster', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1440, 900));
+      final surface = minimalSurface();
+      final withMenu = MainSurface(
+        viewport: surface.viewport,
+        statusOverlay: surface.statusOverlay,
+        strip: surface.strip,
+        identity: surface.identity,
+        actions: PhotoActions(
+          recycleMode: false,
+          onStar: () {},
+          onTrash: () {},
+          onToggleRecycleMode: () {},
+          onOpenFolder: () {},
+          menu: const SizedBox(
+            key: ValueKey<String>('test-menu'),
+            width: 34,
+            height: 34,
+          ),
+        ),
+      );
+      await pumpDesktop(tester, surface: withMenu);
+
+      final verdict = find.byKey(const ValueKey<String>('darkroom-verdict'));
+      final hint = find.byKey(
+        const ValueKey<String>('darkroom-verdict-key-hint'),
+      );
+      expect(hint, findsOneWidget);
+      expect((tester.widget(hint) as Text).data, 'S · X');
+      expect(
+        find.descendant(of: verdict, matching: hint),
+        findsOneWidget,
+      );
+      // Exactly two icon buttons in the cluster: star and trash.
+      expect(
+        find.descendant(of: verdict, matching: find.byType(IconButton)),
+        findsNWidgets(2),
+      );
+      expect(
+        find.descendant(
+          of: verdict,
+          matching: find.byKey(const ValueKey<String>('test-menu')),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: verdict, matching: find.byIcon(Icons.folder_open)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: verdict,
+          matching: find.byKey(const ValueKey<String>('darkroom-trash')),
+        ),
+        findsOneWidget,
+      );
+      await tester.binding.setSurfaceSize(null);
+    });
+  });
+
+  group(
+    'TC-885 the railtop row fits at the 90px floor with the real menu widget',
+    () {
+      testWidgets(
+        'no overflow when the menu is a real 48x48 IconButton, not a stub',
+        (tester) async {
+          // Regression: `minimalSurface()`'s menu stub is a SizedBox(34,34),
+          // which is smaller than the natural size of a real Flutter
+          // IconButton/PopupMenuButton (48x48 minimum tap target, unaffected
+          // by ButtonStyle.fixedSize). The stub therefore could not catch a
+          // railtop row that only fits stub-sized buttons.
+          await tester.binding.setSurfaceSize(const Size(1440, 900));
+          final surface = minimalSurface();
+          final withRealMenu = MainSurface(
+            viewport: surface.viewport,
+            statusOverlay: surface.statusOverlay,
+            strip: surface.strip,
+            identity: surface.identity,
+            actions: PhotoActions(
+              recycleMode: false,
+              onStar: () {},
+              onTrash: () {},
+              onToggleRecycleMode: () {},
+              onOpenFolder: () {},
+              menu: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, size: 20),
+                tooltip: 'Actions',
+                padding: EdgeInsets.zero,
+                itemBuilder: (context) => const [
+                  PopupMenuItem<String>(value: 'a', child: Text('a')),
+                ],
+              ),
+            ),
+          );
+          await pumpDesktop(tester, surface: withRealMenu);
+          final caught = tester.takeException();
+
+          expect(
+            caught,
+            isNull,
+            reason:
+                'RenderFlex overflow in the railtop row at the 90px floor: '
+                '$caught',
+          );
+          await tester.binding.setSurfaceSize(null);
+        },
+      );
+    },
+  );
 
   group('TC-582 drag range clamps at 90 and 200', () {
     testWidgets('drag far left clamps to the 90 floor', (tester) async {

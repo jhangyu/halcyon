@@ -151,7 +151,7 @@ void main() {
       // genuinely away from offset 0. Without this the anchor has nothing to
       // correct (`row * dExtent` is 0 at the top) and the assertions below
       // would pass for free.
-      final listFinder = find.byType(ListView).first;
+      final listFinder = find.byType(GridView).first;
       await tester.drag(listFinder, const Offset(0, -600));
       await tester.pumpAndSettle();
       final position = tester
@@ -169,20 +169,21 @@ void main() {
 
       double? offsetNow() {
         if (find.byKey(chipKey).evaluate().isEmpty) return null;
-        final stripRect = tester.getRect(find.byType(ListView).first);
+        final stripRect = tester.getRect(find.byType(GridView).first);
         return tester.getRect(find.byKey(chipKey)).center.dy - stripRect.top;
       }
 
       final start = offsetNow()!;
 
-      // Drag the gutter narrower (the paper strip's chip only scales in the
-      // 40-90 band, so shrinking is where the row extent actually changes).
-      // Stops at 74: paper's gutter head `Row`
-      // (paper_desktop.dart:368) intrinsically needs 71px (12 + a 48px
-      // IconButton + 11) and overflows at every gutter width of 70 and below.
-      // That is an unrelated, pre-existing paper defect (round-4
-      // parking-lot); its rendering exception would abort this measurement,
-      // so the sweep stays above it.
+      // Drag the gutter narrower. The paper chip now scales continuously
+      // across the WHOLE 40-200 range (user ruling R-1,
+      // docs/logs/2026-09-03/theme-parity-contract.md), so any direction
+      // changes the row extent. The sweep still stops at 74: paper's gutter
+      // head `Row` intrinsically needs 71px (12 + a 48px IconButton + 11) and
+      // overflows at every gutter width of 70 and below. That is an
+      // unrelated, pre-existing paper defect (round-4 parking lot); its
+      // rendering exception would abort this measurement, so the sweep stays
+      // above it.
       final gesture = await tester.startGesture(const Offset(92, 400));
       final samples = <double?>[];
       for (var i = 0; i < 4; i++) {

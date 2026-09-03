@@ -118,8 +118,12 @@ class PublicationPacer {
       return;
     }
     // Resolved lazily so constructing a pacer before the binding exists is
-    // harmless.
+    // harmless. `addPostFrameCallback` alone only fires when SOMETHING ELSE
+    // schedules a frame; on an idle app (nothing pumping the scheduler) a
+    // queued registration can stall indefinitely. `scheduleFrame()` requests
+    // the frame this pacer itself needs to drain.
     SchedulerBinding.instance.addPostFrameCallback((_) => _drain());
+    SchedulerBinding.instance.scheduleFrame();
   }
 
   void _drain() {

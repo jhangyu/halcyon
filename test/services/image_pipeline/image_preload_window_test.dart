@@ -34,6 +34,29 @@ import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart'
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 import '../../support/preload_fixtures.dart';
+// Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
+// in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
+// publication_pacer.dart: the paced tier-1/tier-2 publish queue only
+// drains when its frame hook fires, and a plain test() never pumps a real
+// frame on its own. The pacer re-arms itself after each drained item, so
+// a synchronous hook fully drains the queue before submit() returns.
+void _microtaskFrame(void Function() callback) => callback();
+
+
+// `_finishOffLane`'s encode continuation is deliberately unawaited by the
+// controller (it has no caller). If a test ends -- and `addTearDown`
+// disposes the controller -- while that continuation is still in flight,
+// its later `_inflight.release(...)` races the disposed budget's `clear()`
+// and trips a cross-test assertion (attributed to whatever test happens to
+// be running when it lands). Poll `debugInflightBytes` to zero before ending
+// a test that used an expensive/RAW controller. Note this alone is not
+// sufficient when a serial-lane burst is still queued (it can read 0
+// transiently between two items); callers with a multi-item burst still in
+// flight should also wait for the actual completion condition first.
+Future<void> _settle(ImagePreloadController controller) => until(
+  () => controller.debugInflightBytes == 0,
+  reason: 'controller inflight-bytes budget to drain before teardown',
+);
 
 /// Whether every slot of the -3..+5 retention window around [selected] holds a
 /// payload. Derived from the retention constants, never hand-written.
@@ -53,13 +76,19 @@ bool controllerWindowFilled(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+  // debug-only identity short-circuit asserts sampled alpha is opaque.
+  // Same repair as commits 253b89f / d43c2a1.
   DecodedRgba fakeDecoded() => DecodedRgba(
-    rgba: Uint8List.fromList(List<int>.generate(2 * 2 * 4, (i) => i)),
+    rgba: Uint8List.fromList(
+      List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 0xFF : i),
+    ),
     width: 2,
     height: 2,
   );
 
   ImagePreloadController cheapController() => ImagePreloadController(
+    scheduleFrameCallback: _microtaskFrame,
     imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
         NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
     dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
@@ -234,6 +263,7 @@ void main() {
       'window, not just +/-1 (criterion 2)', () async {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -277,6 +307,7 @@ void main() {
       hasLength(kRetentionBefore + kRetentionAfter + 1),
       reason: 'one decode per window slot, and no slot decoded twice',
     );
+    await _settle(controller);
   });
 
   test('TC-098b at most ONE expensive decode is ever in flight, while cheap '
@@ -284,6 +315,7 @@ void main() {
     var inFlight = 0;
     var maxInFlight = 0;
     final expensive = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -314,12 +346,14 @@ void main() {
           'a RAW decode saturates cores; nine of them in parallel is exactly '
           'what the serial lane exists to prevent',
     );
+    await _settle(expensive);
 
     // The cheap half of the same claim: parallelism is retained for items
     // that do not need a decode at all.
     var cheapInFlight = 0;
     var cheapMaxInFlight = 0;
     final cheap = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         cheapInFlight++;
         if (cheapInFlight > cheapMaxInFlight) {
@@ -357,6 +391,7 @@ void main() {
       '-3, +4, +5 (criterion 4)', () async {
     final starts = <String>[];
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -393,6 +428,7 @@ void main() {
           'any other order means the item the user is looking at can be stuck '
           'behind one they are not',
     );
+    await _settle(controller);
   });
 
   test('TC-098d navigating mid-queue reprioritises the lane: no decode starts '
@@ -401,6 +437,7 @@ void main() {
     final starts = <String>[];
     final gates = <Completer<void>>[];
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -495,6 +532,21 @@ void main() {
           'navigation: they are outside the retention window, and the lane '
           'body re-checks that when its turn comes',
     );
+    // Drain every gated decode this test left open (including ones that
+    // start ONLY once an earlier one is released) so their off-lane encode
+    // continuations (unawaited by the controller) finish BEFORE
+    // `addTearDown` disposes it -- otherwise a later `_inflight.release(...)`
+    // races the disposed budget's `clear()` and trips a cross-test assertion
+    // attributed to whatever test is running when it lands.
+    for (var round = 0; round < photos.length; round++) {
+      final pending = gates.where((g) => !g.isCompleted).toList();
+      if (pending.isEmpty && gates.length == starts.length) break;
+      for (final gate in pending) {
+        gate.complete();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    await _settle(controller);
   });
 
   test('TC-099 widening tier-1 creates no payloads of its own', () async {
@@ -505,6 +557,7 @@ void main() {
     // itself with RAW decodes outside +/-1.
     var loaderCalls = 0;
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         loaderCalls++;
         return const NativeImageNeedsRawDecode(exifOrientation: 1);
@@ -541,6 +594,7 @@ void main() {
           'new; payload creation belongs to preloadImages and the debounced '
           'tier-2 pass alone',
     );
+    await _settle(controller);
   });
 
   // ------------------------------------------------------------- AC1 pin
@@ -567,6 +621,7 @@ void main() {
       payloadByteBudget: 402653184,
     );
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async => fakeDecoded(),
@@ -601,6 +656,7 @@ void main() {
       isNull,
       reason: '+9 is outside the mid rung and must never be retained',
     );
+    await _settle(controller);
   });
 
   test('TC-319 the default policy is still the shipped -3..+5 floor', () async {
@@ -635,6 +691,7 @@ void main() {
     var maxInFlight = 0;
     var call = 0;
     final wide = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -664,12 +721,14 @@ void main() {
         reason: 'width 3 must actually overlap decodes');
     expect(maxInFlight, lessThanOrEqualTo(3),
         reason: 'and must never exceed the configured width');
+    await _settle(wide);
   });
 
   test('TC-357 width 3 keeps the near-to-far START order: the first three '
       'starts are distances 0, +1, -1', () async {
     final starts = <String>[];
     final wide = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -700,5 +759,10 @@ void main() {
       reason: 'the 2026-08-26 near-to-far ruling is unchanged by width; only '
           'how many of the ranked entries start at once changed',
     );
+    await until(
+      () => controllerWindowFilled(wide, raws, 5),
+      reason: 'the whole expensive window to land before teardown',
+    );
+    await _settle(wide);
   });
 }

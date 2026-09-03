@@ -116,8 +116,15 @@ void main() {
         },
         dngDecoder: (path) async {
           decodedPath = path;
+          // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+          // debug-only identity short-circuit asserts sampled alpha is
+          // opaque. Same repair as commits 253b89f / d43c2a1.
+          final rgba = Uint8List(4 * 2 * 2);
+          for (var i = 3; i < rgba.length; i += 4) {
+            rgba[i] = 0xFF;
+          }
           return DecodedRgba(
-            rgba: Uint8List(4 * 2 * 2),
+            rgba: rgba,
             width: 2,
             height: 2,
           );

@@ -11,7 +11,13 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
-import '../../support/preload_fixtures.dart';
+// Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
+// in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
+// publication_pacer.dart: the paced tier-1/tier-2 publish queue only
+// drains when its frame hook fires, and a plain test() never pumps a real
+// frame on its own. The pacer re-arms itself after each drained item, so
+// a synchronous hook fully drains the queue before submit() returns.
+void _microtaskFrame(void Function() callback) => callback();
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -21,8 +27,38 @@ void main() {
     return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
   });
 
-  DecodedRgba decoded() =>
-      DecodedRgba(rgba: Uint8List(2 * 2 * 4), width: 2, height: 2);
+  // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+  // debug-only identity short-circuit asserts sampled alpha is opaque.
+  // Same repair as commits 253b89f / d43c2a1.
+  DecodedRgba decoded() {
+    final rgba = Uint8List(2 * 2 * 4);
+    for (var i = 3; i < rgba.length; i += 4) {
+      rgba[i] = 0xFF;
+    }
+    return DecodedRgba(rgba: rgba, width: 2, height: 2);
+  }
+
+  Future<void> until(bool Function() condition, {String? reason}) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('timed out waiting for: ${reason ?? 'condition'}');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  // `_finishOffLane`'s encode continuation is deliberately unawaited by the
+  // controller (it has no caller). If a test ends -- and `addTearDown`
+  // disposes the controller -- while that continuation is still in flight,
+  // its later `_inflight.release(...)` races the disposed budget's `clear()`
+  // and trips a cross-test assertion (attributed to whatever test happens to
+  // be running when it lands). Poll `debugInflightBytes` to zero before
+  // ending a test that used an expensive/RAW controller.
+  Future<void> settle(ImagePreloadController controller) => until(
+    () => controller.debugInflightBytes == 0,
+    reason: 'controller inflight-bytes budget to drain before teardown',
+  );
 
   // This is the scheduling killer: all three +/-1 items become eligible after
   // the frozen 250ms debounce, but no-preview RAW execution must be SERIAL.
@@ -34,6 +70,7 @@ void main() {
     var maxConcurrent = 0;
     var started = 0;
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           const NativeImageNeedsRawDecode(exifOrientation: 1),
       dngDecoder: (path) async {
@@ -63,6 +100,17 @@ void main() {
           'all three eligible RAW items may retain under -3..+5, but only '
           'one native RAW decode may execute after the frozen debounce',
     );
+    // `debugInflightBytes` alone can read 0 transiently BETWEEN two serial
+    // items (nothing acquired yet for the next one), so it is not a valid
+    // "the whole retention window is done" signal on its own here: wait for
+    // every -3..+5 slot to actually have landed a payload first.
+    await until(
+      () => List.generate(9, (i) => photos[2 + i].id).every(
+        (id) => controller.payloadFor(id) != null,
+      ),
+      reason: 'the whole -3..+5 retention window to finish its serial decode',
+    );
+    await settle(controller);
   });
 
   // Cheap work retains the opposite scheduling rule: the full retention-window
@@ -73,6 +121,7 @@ void main() {
       'evict identically at -4', () async {
     Future<ImagePreloadController> make(bool expensive) async {
       return ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async => expensive
             ? const NativeImageNeedsRawDecode(exifOrientation: 1)
             : NativeImageBytes(Uint8List.fromList([137, 80, 78, 71])),
@@ -116,6 +165,7 @@ void main() {
         isNull,
         reason: '${expensive ? 'expensive' : 'cheap'} evicts immediately at -4',
       );
+      if (expensive) await settle(controller);
     }
   });
 
@@ -126,6 +176,7 @@ void main() {
     var isFirst = true;
     var firstRequested = false;
     final controller = ImagePreloadController(
+      scheduleFrameCallback: _microtaskFrame,
       imageLoader: (path, {required purpose, int? targetLongEdge}) {
         if (isFirst) {
           isFirst = false;

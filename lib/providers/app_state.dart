@@ -411,6 +411,18 @@ class AppState extends ChangeNotifier {
   // MainScreen creates. See gotcha G-010 / Task 19.
 
   List<PhotoItem> get items => _items;
+
+  /// How many items in the loaded folder are starred / trashed. Computed by a
+  /// linear scan on every read: a folder holds hundreds to a few thousand
+  /// items, so two scans per frame cost nothing next to a decode, and an
+  /// incrementally maintained counter would need `loadFolder`, `markCurrent`,
+  /// `recycleTrashed` and `deleteTrashed` to all keep a second source of
+  /// truth in sync.
+  int get starredCount =>
+      _items.where((item) => item.status == PhotoStatus.starred).length;
+
+  int get trashedCount =>
+      _items.where((item) => item.status == PhotoStatus.trashed).length;
   String? get selectedItemID => _selectedItemID;
   Directory? get currentDir => _currentDir;
   bool get autoAdvance => _autoAdvance;

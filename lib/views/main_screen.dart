@@ -105,6 +105,8 @@ class _MainScreenState extends State<MainScreen> {
                 folderCount: state.items.length,
                 status: item.status,
                 exif: state.currentExif,
+                starredCount: state.starredCount,
+                trashedCount: state.trashedCount,
               ),
         actions: PhotoActions(
           recycleMode: state.recycleMode,

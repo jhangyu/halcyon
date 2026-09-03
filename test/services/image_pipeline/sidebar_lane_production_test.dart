@@ -23,8 +23,16 @@ Future<NativeImageResult> _rawLoader(
   int? targetLongEdge,
 }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
-DecodedRgba _tiny() =>
-    DecodedRgba(rgba: Uint8List(8 * 8 * 4), width: 8, height: 8);
+// Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
+// debug-only identity short-circuit asserts sampled alpha is opaque.
+// Same repair as commits 253b89f / d43c2a1.
+DecodedRgba _tiny() {
+  final rgba = Uint8List(8 * 8 * 4);
+  for (var i = 3; i < rgba.length; i += 4) {
+    rgba[i] = 0xFF;
+  }
+  return DecodedRgba(rgba: rgba, width: 8, height: 8);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
