@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../../models/photo_item.dart';
+import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'idle_publish_scheduler.dart';
@@ -198,26 +199,85 @@ class TierTwoScheduler {
     SourcePayload payload,
     int distance,
     ui.Image image,
-    VoidCallback notifyLoaded,
-  ) {
+    VoidCallback notifyLoaded, {
+    // PERF-INSTRUMENTATION (D1 round-2, H2): 'upgrade' vs 'piggyback',
+    // forwarded to [TierTwoRegistry.publishFullRes]'s own `source` tag.
+    String source = 'publishFullRes',
+  }) {
     _pendingFullResPublish[id] = payload;
+    final exempt = isSelectedExempt(distance);
+    // PERF-INSTRUMENTATION (D1 AC3 marker + gap #3): submit timestamp, so
+    // round-2 analysis can derive submit->publish (land) latency by matching
+    // this id against the later `publish` line -- H3's 32ms safeguard tax.
+    PerfLog.log(
+      'submit|id=$id|path=$source|exempt=$exempt|paced=${!exempt}'
+      '|rank=${laneRankFor(distance)}',
+    );
     _publishPacer(
       id: id,
       rank: laneRankFor(distance),
-      exempt: isSelectedExempt(distance),
+      exempt: exempt,
       stillValid: () =>
           _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
       publish: () {
         if (identical(_pendingFullResPublish[id], payload)) {
           _pendingFullResPublish.remove(id);
         }
-        _registry.publishFullRes(id, payload, image, notifyLoaded);
+        _registry.publishFullRes(id, payload, image, notifyLoaded, source: source);
       },
       discard: () {
         if (identical(_pendingFullResPublish[id], payload)) {
           _pendingFullResPublish.remove(id);
         }
         image.dispose();
+      },
+    );
+  }
+
+  /// The [EncodedPayload] counterpart to [_publishOrDiscard] (contract
+  /// deliverable, docs/logs/2026-09-04/remediation-round-contract.md W2):
+  /// before this, `publishEncoded` was called directly from both call sites
+  /// below, bypassing the pacer entirely (148 unpaced publishes, residual-
+  /// jank-diagnosis.md #7). Routed through the SAME [_publishPacer] seam and
+  /// tracked in the SAME [_pendingFullResPublish] claim map as the pixel
+  /// path, so the `alreadyDecoded` re-check in [_decodeWindow] sees a queued
+  /// (not yet landed) encoded publish exactly like a queued full-res one --
+  /// preventing a second submission for the same id/payload while the first
+  /// is still paced. Unlike a `ui.Image`, an [ImageProvider] built over
+  /// already-retained payload bytes needs no disposal on discard.
+  void _publishEncodedOrDiscard(
+    String id,
+    SourcePayload payload,
+    int distance,
+    ImageProvider provider,
+    VoidCallback notifyLoaded,
+  ) {
+    _pendingFullResPublish[id] = payload;
+    final exempt = isSelectedExempt(distance);
+    // PERF-INSTRUMENTATION (D1 AC3 marker + gap #3, H2): mirrors the submit
+    // line [_publishOrDiscard] emits for the pixel path -- this is what makes
+    // this path's `paced=` value real instead of the previous structural
+    // `paced=false` claim.
+    PerfLog.log(
+      'submit|id=$id|path=publishEncoded|exempt=$exempt|paced=${!exempt}'
+      '|rank=${laneRankFor(distance)}',
+    );
+    _publishPacer(
+      id: id,
+      rank: laneRankFor(distance),
+      exempt: exempt,
+      stillValid: () =>
+          _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
+      publish: () {
+        if (identical(_pendingFullResPublish[id], payload)) {
+          _pendingFullResPublish.remove(id);
+        }
+        _registry.publishEncoded(id, payload, provider, notifyLoaded);
+      },
+      discard: () {
+        if (identical(_pendingFullResPublish[id], payload)) {
+          _pendingFullResPublish.remove(id);
+        }
       },
     );
   }
@@ -381,11 +441,13 @@ class TierTwoScheduler {
       if (alreadyDecoded) continue;
       switch (payload) {
         case EncodedPayload():
-          // Verbatim today's behaviour. The cheap path is the floor: M5 adds
-          // nothing to it and takes nothing away.
-          _registry.publishEncoded(
+          // Contract deliverable W2 (2026-09-04): routed through the pacer
+          // like every other tier-2 publish -- this used to bypass it
+          // entirely (residual-jank-diagnosis.md #7).
+          _publishEncodedOrDiscard(
             item.id,
             payload,
+            i - currentIndex,
             _fullSizeProviderForPayload(payload),
             notifyLoaded,
           );
@@ -490,9 +552,12 @@ class TierTwoScheduler {
       return;
     }
     assert(landed is EncodedPayload);
-    _registry.publishEncoded(
+    // Contract deliverable W2 (2026-09-04): same pacer routing as the
+    // catch-up-loop call site above.
+    _publishEncodedOrDiscard(
       item.id,
       landed,
+      distance,
       _fullSizeProviderForPayload(landed),
       notifyLoaded,
     );
@@ -590,7 +655,7 @@ class TierTwoScheduler {
       // time (G-023 pattern): a paced entry may sit queued across a
       // navigation or a payload replacement, and a stale `ui.Image` must be
       // disposed, not cached.
-      _publishOrDiscard(id, payload, distance, image, notifyLoaded);
+      _publishOrDiscard(id, payload, distance, image, notifyLoaded, source: 'upgrade');
     } finally {
       _upgradesInFlight.remove(id);
     }
@@ -640,12 +705,26 @@ class TierTwoScheduler {
         return;
       }
       final completer = Completer<ui.Image>();
+      // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+      // pipeline-architecture-v2.md §5-P0): the architecture doc's own
+      // materialize call site on the tier-2 piggyback route -- `id` is the
+      // photo id already in scope here, unlike the sibling sites.
+      final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
       ui.decodeImageFromPixels(
         fullRes.rgba,
         fullRes.width,
         fullRes.height,
         ui.PixelFormat.rgba8888,
-        completer.complete,
+        (decodedImage) {
+          if (PerfLog.enabled) {
+            PerfLog.log(
+              'materialize|id=$id'
+              '|bytes=${fullRes.rgba.lengthInBytes}'
+              '|dur_us=${PerfLog.us - materializeStartUs}',
+            );
+          }
+          completer.complete(decodedImage);
+        },
       );
       image = await completer.future;
       // Same post-await re-check as the catch-up path; releases in place.
@@ -661,6 +740,13 @@ class TierTwoScheduler {
     // (contract deliverable 2): the piggyback publish is just as capable of
     // landing for a non-selected item as the catch-up upgrade is, and both
     // must obey the same pacing, claim-tracking and staleness re-check rules.
-    _publishOrDiscard(id, payload, distance, image, notifyLoaded ?? () {});
+    _publishOrDiscard(
+      id,
+      payload,
+      distance,
+      image,
+      notifyLoaded ?? () {},
+      source: 'piggyback',
+    );
   }
 }

@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
+import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
 import 'photo_payload.dart';
 import 'raw_full_res_image.dart';
 
@@ -55,6 +56,19 @@ class TierTwoRegistry {
   /// be tried once more. Without it, every 250ms settle would re-run a
   /// 61-406ms FFI decode that just failed.
   final Map<String, SourcePayload> _fullResFailures = {};
+
+  /// id -> the payload a [publishEncoded] call has been SUBMITTED for but
+  /// whose async `obtainKey().then(...)` registration has not landed yet.
+  /// Content-version dedupe (batch-A #3): [_sources] alone cannot catch a
+  /// second `publishEncoded` call for the SAME (id, payload-object) pair
+  /// that arrives WHILE the first one's registration is still in flight,
+  /// because [_sources] is only written inside that `.then`. This map closes
+  /// that window. Compared with [identical], never a hash of the payload
+  /// bytes -- content-version here is payload OBJECT IDENTITY, matching how
+  /// every other per-payload memo in this class already works ([_sources],
+  /// [_fullResFailures]); hashing multi-MB buffers on the UI isolate would be
+  /// its own perf regression.
+  final Map<String, SourcePayload> _pendingEncoded = {};
 
   ImageCache get _imageCache => PaintingBinding.instance.imageCache;
 
@@ -164,6 +178,49 @@ class TierTwoRegistry {
     ImageProvider provider,
     VoidCallback notifyLoaded,
   ) {
+    // PUBLISH DEDUPE (batch-A #3, docs/logs/2026-09-04/remediation-round-
+    // contract.md AC4): a repeat publish for the SAME id and the SAME
+    // payload object -- i.e. no new content-version -- is a redundant
+    // re-publish IF the earlier one is still in flight ([_pendingEncoded])
+    // or still RESIDENT ([_sources] match AND the ImageCache key is still
+    // present). Dropped silently (one log line only). A NEW payload object
+    // for the same id (tier1 -> full-res upgrade, or a re-encode landing) is
+    // a different identity and always proceeds.
+    //
+    // round-2 review BLOCKER-1: an earlier version dropped whenever
+    // `identical(_sources[id], payload)`, with no residency check at all.
+    // ImageCache can evict this entry (LRU pressure) WITHOUT telling the
+    // registry -- `_sources[id]` still holds the same payload object, but
+    // the entry is gone. The window sweep's recovery path re-submits that
+    // SAME object to re-populate the cache, and an identity-only guard
+    // dropped that recovery publish PERMANENTLY (nothing ever clears
+    // `_sources`), stranding the item on tier-1 forever.
+    //
+    // round-2 review re-review (S1): residency is checked with
+    // `_imageCache.containsKey`, NOT [isReady]. [isReady] additionally
+    // requires the decode LISTENER to have fired, so it is false for the
+    // whole window between "registration landed" and "decode completed" --
+    // during which the entry is still genuinely resident (containsKey is
+    // true for a pending entry, same fact BLOCKER 3 documents on [isReady]
+    // itself). Using [isReady] here would have let a same-payload resubmit
+    // through mid-decode, buying a second redundant pending registration for
+    // an upgrade already in flight. `containsKey` closes that window while
+    // still going false -- and so still allowing recovery -- once the entry
+    // is actually evicted.
+    final registeredKey = _keys[id];
+    final stillResident = identical(_sources[id], payload) &&
+        registeredKey != null &&
+        _imageCache.containsKey(registeredKey);
+    if (identical(_pendingEncoded[id], payload) || stillResident) {
+      PerfLog.log('publish|id=$id|path=publishEncoded|dup_dropped=1');
+      return;
+    }
+    _pendingEncoded[id] = payload;
+    // PERF-INSTRUMENTATION (D1 AC3 marker, H2): pacing for this path is now
+    // decided by the caller (TierTwoScheduler._publishEncodedOrDiscard),
+    // which already emits its own submit|...|paced= line before reaching
+    // here -- this line only marks that the publish was NOT deduped.
+    PerfLog.log('publish|id=$id|path=publishEncoded');
     final stream = provider.resolve(const ImageConfiguration());
     late ImageStreamListener listener;
     listener = ImageStreamListener((image, synchronousCall) {
@@ -185,6 +242,9 @@ class TierTwoRegistry {
       }
       _keys[id] = key;
       _sources[id] = payload;
+      if (identical(_pendingEncoded[id], payload)) {
+        _pendingEncoded.remove(id);
+      }
     });
   }
 
@@ -197,8 +257,15 @@ class TierTwoRegistry {
     String id,
     SourcePayload payload,
     ui.Image image,
-    VoidCallback notifyLoaded,
-  ) {
+    VoidCallback notifyLoaded, {
+    // PERF-INSTRUMENTATION (D1 round-2, H2): which caller produced this
+    // publish -- 'upgrade' (catch-up FFI decode) or 'piggyback' (rides the
+    // payload decode that just ran). Optional with a default so every
+    // existing call site (including tests) keeps compiling unchanged; the
+    // two real production callers in tier_two_scheduler.dart pass it
+    // explicitly.
+    String source = 'publishFullRes',
+  }) {
     // FIRST WRITER WINS (verdict 2026-08-30 fix B). Every caller checks
     // `hasFullResEntryFor` BEFORE its decode await, and the post-await
     // re-checks validate window membership and payload identity but not entry
@@ -213,6 +280,9 @@ class TierTwoRegistry {
       // No notifyLoaded: the winning entry's own listener owns that.
       return;
     }
+    // PERF-INSTRUMENTATION (D1 AC3 marker): only the WINNING writer reaches
+    // here, so this is the actual publish, not merely an attempt.
+    PerfLog.log('publish|id=$id|path=$source');
     // Any entry still here is for a DIFFERENT (replaced) payload. Evicting it
     // before the overwrite closes the same orphan leak on the stale-payload
     // path.
@@ -266,6 +336,7 @@ class TierTwoRegistry {
     final key = _keys.remove(id);
     _sources.remove(id);
     _readyIds.remove(id);
+    _pendingEncoded.remove(id);
     if (key != null) {
       _imageCache.evict(key);
     }
@@ -281,5 +352,6 @@ class TierTwoRegistry {
     _sources.clear();
     _readyIds.clear();
     _fullResFailures.clear();
+    _pendingEncoded.clear();
   }
 }
