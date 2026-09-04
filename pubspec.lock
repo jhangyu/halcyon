@@ -39,7 +39,7 @@ packages:
       path: "../ceyx/plugin"
       relative: true
     source: path
-    version: "0.1.4"
+    version: "0.1.5"
   characters:
     dependency: transitive
     description:

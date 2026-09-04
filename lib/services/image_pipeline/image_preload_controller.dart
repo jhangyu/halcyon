@@ -7,7 +7,10 @@ import 'package:flutter/painting.dart';
 
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
+import 'dart_image_loader.dart' show resetSidebarWalkMemo;
 import 'dng_decode_contract.dart';
+import 'dng_decode_service.dart'
+    show bumpHalcyonDecodePoolGeneration, setHalcyonDecodePoolWidth;
 import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
 import 'payload_reencoder.dart';
@@ -124,7 +127,14 @@ class ImagePreloadController {
        ),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
        _encodeStage = EncodeStage(width: encodeStageWidth),
-       _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget);
+       _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget) {
+    // Push the width the lane was BUILT with, not just later changes: until
+    // the stored preference hydrates and calls [setDecodeLaneWidth], the lane
+    // and the pool would otherwise disagree (lane = this constructor's value,
+    // pool = its own construction default), and any decode admitted in that
+    // window is bounded by the wrong number.
+    decodePoolWidthSink(_decodeLane.width);
+  }
 
   /// How far retention reaches and how many bytes it may hold. Sized from
   /// total physical memory at startup (see retention_policy.dart); the
@@ -167,7 +177,28 @@ class ImagePreloadController {
   int get decodeLaneWidth => _decodeLane.width;
 
   /// Live setting change from the settings page. Values below 1 clamp to 1.
-  void setDecodeLaneWidth(int width) => _decodeLane.width = width;
+  ///
+  /// P2: the same number also sizes the persistent decode worker pool, so the
+  /// lane's ordering bound and the pool's admission bound can never disagree.
+  /// The lane still owns near-to-far ORDER (the pool is FIFO and knows nothing
+  /// about the selected index); the pool owns worker lifetime and the dylib.
+  void setDecodeLaneWidth(int width) {
+    _decodeLane.width = width;
+    decodePoolWidthSink(_decodeLane.width);
+  }
+
+  /// Seam for the process-wide pool-width push. Overridable so a test can
+  /// observe the push without constructing a real pool.
+  @visibleForTesting
+  static void Function(int width) decodePoolWidthSink =
+      setHalcyonDecodePoolWidth;
+
+  /// Seam for the folder-switch generation bump (soft cancellation). Same
+  /// reason as [decodePoolWidthSink]: a test can observe the push without a
+  /// real pool, and a controller under test never reaches into ceyx.
+  @visibleForTesting
+  static void Function() decodePoolGenerationSink =
+      bumpHalcyonDecodePoolGeneration;
 
   /// Everything the sidebar thumbnail strip owns, extracted 2026-09-03. Built
   /// AD-028-style from supplier CLOSURES, never from the cache/source objects
@@ -404,6 +435,27 @@ class ImagePreloadController {
   // Re-checked after every await, per invariant I4.
   int _previewGeneration = 0;
 
+  /// Which FOLDER the currently-wanted work belongs to. Bumped ONLY by
+  /// [reset] and [dispose].
+  ///
+  /// Deliberately NOT [_previewGeneration], which counts navigation passes and
+  /// is bumped on every window walk (`++_previewGeneration` in the preview
+  /// pass): gating payload completion on that counter would discard every load
+  /// started before the user's next arrow key, i.e. almost all of them. A
+  /// folder switch is the only event that makes an in-flight payload's whole
+  /// bookkeeping — cost memo, cache write, permanent-miss latch — belong to
+  /// state that no longer exists.
+  ///
+  /// Why it must exist at all: no FFI decode is cancellable, so [reset] cannot
+  /// stop an in-flight expensive load; it can only clear the maps the load is
+  /// about to write into. Without this gate, a decode started for the OLD
+  /// folder lands after `reset()` has cleared `_permanentMisses` and writes
+  /// into the NEW folder's state. Because [PhotoItem.id] is a user-controlled
+  /// FILENAME (the collision class documented in decode_lane.dart), a
+  /// same-named file in the new folder would be latched "unreadable for this
+  /// session" by a failure that had nothing to do with it.
+  int _folderGeneration = 0;
+
   int get _longEdge {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
@@ -550,10 +602,21 @@ class ImagePreloadController {
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
+    // W4b: the sidebar walk memo is keyed by path and must not survive a
+    // folder switch, same lifetime as the prefetch memo reset above.
+    resetSidebarWalkMemo();
     _permanentMisses.clear();
     _noNativeDecoderMisses.clear();
     _exifOrientations.clear();
     _previewGeneration++;
+    // A folder switch supersedes every in-flight load. Two halves, and both
+    // are needed: the pool stops DELIVERING old-folder decode results (soft
+    // cancellation -- the only cancellation there is), and the folder gate in
+    // [_completeOutcome] refuses whatever still lands from producers the pool
+    // does not own. Order matters only in that both happen before the first
+    // new-folder load is admitted, which they do: this is synchronous.
+    _folderGeneration++;
+    decodePoolGenerationSink();
   }
 
   /// Called by the view whenever the viewport's decode target size is known
@@ -567,6 +630,9 @@ class ImagePreloadController {
   }
 
   void dispose() {
+    // Same reason as [reset]: an unawaited in-flight load must not write into
+    // the maps cleared below.
+    _folderGeneration++;
     _sidebar.dispose();
     _decodeLane.clearPending();
     _encodeStage.clear();
@@ -936,6 +1002,11 @@ class ImagePreloadController {
     final file = item.bestFileToLoad;
     if (file == null) return;
 
+    // The FOLDER this load belongs to. Read before any await, checked again in
+    // [_completeOutcome] -- see [_folderGeneration] for why this is not
+    // `_previewGeneration`.
+    final loadGeneration = _folderGeneration;
+
     // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
     // `_earlyResolve` above read `_loadingKeys`; taking the claim after the
     // `classify` await below left a suspension point between check and claim,
@@ -1037,6 +1108,11 @@ class ImagePreloadController {
       // landing inside the await would otherwise file this answer under a
       // viewport that never asked the question.
       final loadLongEdge = _longEdge;
+      // PERF-INSTRUMENTATION (D1 AC3 marker): tier-1/tier-2 request start.
+      PerfLog.log(
+        'req_start|id=$id|tier=${onSerialLane ? "lane" : "parallel"}'
+        '|expensive=$canDoExpensive|longEdge=$loadLongEdge',
+      );
       final decode =
           canDoExpensive &&
               cost == SourceCost.expensive &&
@@ -1051,6 +1127,27 @@ class ImagePreloadController {
               longEdge: loadLongEdge,
               allowExpensive: canDoExpensive,
             );
+      // PERF-INSTRUMENTATION (D1 AC3 markers + gap #5): request end + decode
+      // phase result, now carrying the payload classification round-2
+      // needs to pick between H1/H2 (EncodedPayload path) vs H4
+      // (PixelPayload/RAW path). `pixels != null` marks a real RAW/full
+      // decode ran; otherwise this was an embedded-preview/bitmap byte
+      // handoff (dart_image_loader).
+      final payloadKind = decode.pixels != null
+          ? 'Pixel'
+          : (decode.encodedPayload != null ? 'Encoded' : 'none');
+      PerfLog.log(
+        'req_end|id=$id|dur=${PerfLog.us - tCh}'
+        '|rawDecode=${decode.pixels != null}'
+        '|payloadKind=$payloadKind'
+        '|bytes=${decode.encodedPayload?.byteCost ?? decode.pixels?.byteCost ?? -1}'
+        '|cost=${decode.observedCost}'
+        '|exifOrientation=${decode.exifOrientation}',
+      );
+      PerfLog.log(
+        'decode|id=$id|rawDecode=${decode.pixels != null}'
+        '|dur=${PerfLog.us - tCh}',
+      );
 
       // THE STAGE BOUNDARY. A real decode ran and an encode is owed, and this
       // call IS the lane's task body -- so return now and let the encode run
@@ -1065,6 +1162,7 @@ class ImagePreloadController {
             distance: distance,
             notifyLoaded: notifyLoaded,
             loadLongEdge: loadLongEdge,
+            loadGeneration: loadGeneration,
           ),
         );
         return;
@@ -1089,6 +1187,7 @@ class ImagePreloadController {
         notifyLoaded: notifyLoaded,
         onSerialLane: onSerialLane,
         loadLongEdge: loadLongEdge,
+        loadGeneration: loadGeneration,
       )) {
         handedOff = true;
       }
@@ -1134,6 +1233,7 @@ class ImagePreloadController {
     required int distance,
     required VoidCallback? notifyLoaded,
     required int loadLongEdge,
+    required int loadGeneration,
   }) async {
     final id = item.id;
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
@@ -1165,6 +1265,7 @@ class ImagePreloadController {
         notifyLoaded: notifyLoaded,
         onSerialLane: true,
         loadLongEdge: loadLongEdge,
+        loadGeneration: loadGeneration,
       );
     } catch (_) {
       // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
@@ -1203,8 +1304,29 @@ class ImagePreloadController {
     required VoidCallback? notifyLoaded,
     required bool onSerialLane,
     required int loadLongEdge,
+    required int loadGeneration,
   }) async {
     final id = item.id;
+
+    // FOLDER GATE. Everything below this point writes into state that
+    // [reset] has just cleared for a DIFFERENT folder: the cost memo, the
+    // payload cache, the sidebar, and -- the damaging one -- the
+    // `_permanentMisses` latch. An in-flight expensive load cannot be
+    // cancelled (no FFI decode is), so this is the only place the result of
+    // one can be refused.
+    //
+    // Same shape as the "left the window while the load was in flight"
+    // early-out below, for the same reason: release the parked callbacks so
+    // nobody strands on a spinner, hand the piggyback handle no new owner, and
+    // record NOTHING. Deliberately not special-cased to the pool's discard
+    // exception -- a stale SUCCESS is just as wrong to land as a stale
+    // failure, and both arrive here.
+    if (loadGeneration != _folderGeneration) {
+      outcome.fullRes?.image?.dispose();
+      _flushPendingNotifies(id);
+      return false;
+    }
+
     _scheduler.observe(id, outcome.observedCost, longEdge: loadLongEdge);
     // Rung-2 only: reached when the probe could not measure the file, so the
     // bridge answer is the sole orientation available (frozen contract A-§2).
@@ -1228,6 +1350,11 @@ class ImagePreloadController {
         return false;
       }
       _cache.put(id, payload);
+      // PERF-INSTRUMENTATION (D1 AC3 marker): payload publish.
+      PerfLog.log(
+        'publish|id=$id|bytes=${payload.byteCost}'
+        '|onSerialLane=$onSerialLane|isSelected=${id == _selectedId}',
+      );
       // Whoever produced it, the sidebar's waiters get their tile from THIS
       // payload -- never from a second decode of their own (D5 decision 2).
       _sidebar.onPayloadLanded(id, payload);
@@ -1548,6 +1675,12 @@ class ImagePreloadController {
     required int rank,
     required bool exempt,
   }) {
+    // PERF-INSTRUMENTATION (D1 gap #3): submit timestamp for the tier-1
+    // (window-resolution) registration path, so submit->publish latency is
+    // derivable the same way it is for tier-2 (H3's safeguard tax).
+    PerfLog.log(
+      'submit|id=$id|path=tier1|exempt=$exempt|paced=${!exempt}|rank=$rank',
+    );
     _pacer.submit(
       id: id,
       rank: rank,
@@ -1563,6 +1696,8 @@ class ImagePreloadController {
   }
 
   void _publishTierOneRegistration(String id, ImageProvider provider) {
+    // PERF-INSTRUMENTATION (D1 AC3 marker): tier-1 registration lands.
+    PerfLog.log('publish|id=$id|path=tier1');
     _registerDecode(provider, onReady: () {}, onError: () {});
     provider
         .obtainKey(const ImageConfiguration())

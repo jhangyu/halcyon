@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../perf/perf_log.dart';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
 import 'dng_embedded_jpeg_extractor.dart';
@@ -270,7 +271,24 @@ class PhotoSource {
         }
         OrientedFullRes? handedOut;
         try {
+          // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+          // pipeline-architecture-v2.md §5-P0): `decode.ffi` measures the
+          // native FFI decode call itself -- DELIBERATELY a different event
+          // name from `materialize`, which is now emitted at the
+          // architecture doc's own 4 sites (decoded_rgba_image_provider.dart,
+          // raw_pixels_image.dart, tier_two_scheduler.dart,
+          // sidebar_thumbnail_codec.dart) so the two measurements are not
+          // conflated: this is FFI/decode wall time, `materialize` is the
+          // GPU-texture/engine-buffer hand-off cost.
+          final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
           final decoded = await decoder(path);
+          if (PerfLog.enabled) {
+            PerfLog.log(
+              'decode.ffi|id=$path'
+              '|bytes=${decoded.rgba.lengthInBytes}'
+              '|dur_us=${PerfLog.us - materializeStartUs}',
+            );
+          }
           final pixels = await decodedRgbaToPixelPayload(
             decoded,
             exifOrientation: exifOrientation,
@@ -380,7 +398,16 @@ class PhotoSource {
     }
     OrientedFullRes? handedOut;
     try {
+      // P0 -- `decode.ffi`, see the matching comment in [decodePhase]'s try block.
+      final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
       final decoded = await decoder(path);
+      if (PerfLog.enabled) {
+        PerfLog.log(
+          'decode.ffi|id=$path'
+          '|bytes=${decoded.rgba.lengthInBytes}'
+          '|dur_us=${PerfLog.us - materializeStartUs}',
+        );
+      }
       final pixels = await decodedRgbaToPixelPayload(
         decoded,
         exifOrientation: exifOrientation,
