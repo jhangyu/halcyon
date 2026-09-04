@@ -39,6 +39,20 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // W3 (residual-jank-diagnosis.md fix #6): a single choke point for every
+    // pointer signal (click, drag, scroll wheel/momentum) at the root of the
+    // screen, feeding the idle-publish scheduler's input-recency check --
+    // cheaper than instrumenting each scrollable individually and it cannot
+    // miss a new one added later.
+    return Listener(
+      onPointerDown: (_) => context.read<AppState>().noteInputActivity(),
+      onPointerMove: (_) => context.read<AppState>().noteInputActivity(),
+      onPointerSignal: (_) => context.read<AppState>().noteInputActivity(),
+      child: _buildDropTarget(context),
+    );
+  }
+
+  Widget _buildDropTarget(BuildContext context) {
     return DropTarget(
       // Disabled under a modal route (e.g. a rename/confirm dialog): a drop
       // there would call openPhotoAtPath -> loadFolder and swap the folder

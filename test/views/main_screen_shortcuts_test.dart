@@ -57,6 +57,25 @@ void main() {
     await tester.pump(const Duration(seconds: 6));
   }
 
+  // TC-919 (W3, residual-jank-diagnosis.md fix #6): the root `Listener` wired
+  // in main_screen.dart must feed the idle-publish scheduler's input-recency
+  // signal on a plain pointer event, not just keyboard nav.
+  testWidgets(
+      'TC-919 a pointer tap anywhere on screen marks the idle scheduler not-idle',
+      (tester) async {
+    final state = await seededState(tester);
+    await pumpMainScreen(tester, state);
+
+    expect(state.debugPublishScheduler.debugIsIdle, true,
+        reason: 'no input has landed yet');
+
+    await tester.tapAt(tester.getCenter(find.byType(MainScreen)));
+    await tester.pump();
+
+    expect(state.debugPublishScheduler.debugIsIdle, false,
+        reason: 'a pointer event must count as input activity');
+  });
+
   testWidgets(
       'TC-453 the seven default bindings drive the same actions as before',
       (tester) async {

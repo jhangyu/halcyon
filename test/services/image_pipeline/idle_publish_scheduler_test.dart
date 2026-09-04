@@ -133,6 +133,76 @@ void main() {
     await scheduler.awaitSlot();
   });
 
+  // TC-911 (W3, residual-jank-diagnosis.md fix #6): input within the settle
+  // window defers the idle-priority run -- only the safeguard fires.
+  test('recent input defers the idle-priority run until settle window elapses',
+      () async {
+    var fakeNow = DateTime(2026, 1, 1);
+    final scheduler = IdlePublishScheduler(
+      safeguard: kNeverFires,
+      settleWindow: const Duration(milliseconds: 150),
+      now: () => fakeNow,
+    );
+    addTearDown(scheduler.dispose);
+
+    scheduler.noteInputActivity();
+    var runs = 0;
+    scheduler.schedule(() => runs++);
+
+    // Still well within the settle window: repeated idle attempts must keep
+    // deferring, never running the callback.
+    await pumpEventLoop();
+    expect(runs, 0, reason: 'recent input means the app is not idle yet');
+    expect(scheduler.debugIsIdle, false);
+
+    // Advance the fake clock past the settle window with no further input.
+    fakeNow = fakeNow.add(const Duration(milliseconds: 151));
+    expect(scheduler.debugIsIdle, true);
+    await pumpEventLoop();
+    expect(runs, 1, reason: 'once quiet, the idle path must run it');
+    expect(scheduler.debugIdleRuns, 1);
+    expect(scheduler.debugSafeguardRuns, 0);
+  });
+
+  // TC-912 -- the positive control: with no input ever recorded, the app is
+  // idle from construction and the idle slot runs without waiting on the
+  // safeguard at all.
+  test('no input activity means idle from the start', () async {
+    final scheduler = IdlePublishScheduler(safeguard: kNeverFires);
+    addTearDown(scheduler.dispose);
+
+    expect(scheduler.debugIsIdle, true);
+    var runs = 0;
+    scheduler.schedule(() => runs++);
+    await pumpEventLoop();
+
+    expect(runs, 1);
+    expect(scheduler.debugIdleRuns, 1);
+    expect(scheduler.debugSafeguardRuns, 0);
+  });
+
+  // TC-913 -- input recency alone must not defeat the safeguard: an
+  // animating (idle-refusing) app with continuous input still eventually
+  // publishes via the safeguard rather than stalling forever.
+  test('continuous input still cannot defeat the safeguard', () async {
+    SchedulerBinding.instance.schedulingStrategy = _idleRefusingStrategy;
+    var fakeNow = DateTime(2026, 1, 1);
+    final scheduler = IdlePublishScheduler(
+      safeguard: Duration.zero,
+      now: () => fakeNow,
+    );
+    addTearDown(scheduler.dispose);
+
+    scheduler.noteInputActivity();
+    var runs = 0;
+    scheduler.schedule(() => runs++);
+    await pumpEventLoop();
+
+    expect(runs, 1, reason: 'the safeguard must still be unconditional');
+    expect(scheduler.debugSafeguardRuns, 1);
+    expect(scheduler.debugIdleRuns, 0);
+  });
+
   // TC-893 -- structural conformance to both seams, checked by assignment.
   test('schedule is FrameHook-shaped and awaitSlot is CompositeGate-shaped',
       () async {

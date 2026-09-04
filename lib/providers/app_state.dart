@@ -229,6 +229,13 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   IdlePublishScheduler get debugPublishScheduler => _publishScheduler;
 
+  /// Signals the idle-publish scheduler that the user is actively
+  /// interacting right now (residual-jank-diagnosis.md fix #6). [selectItem]
+  /// (keyboard/programmatic navigation) already calls this; pointer/scroll
+  /// wiring lives in the views layer and is a follow-up outside this file's
+  /// ownership boundary.
+  void noteInputActivity() => _publishScheduler.noteInputActivity();
+
   /// One mechanically checkable answer to "is production actually paced"
   /// (contract AC1), so the test does not have to read private state.
   @visibleForTesting
@@ -744,8 +751,19 @@ class AppState extends ChangeNotifier {
 
   void selectItem(String id) {
     if (_selectedItemID != id) {
+      noteInputActivity();
       final tEnter = PerfLog.us; // PERF-INSTRUMENTATION
       PerfLog.log('selectItem.enter|$id'); // PERF-INSTRUMENTATION
+      // PERF-INSTRUMENTATION (D1 AC3 marker): navigation/selection event.
+      // Round-1 review fix (MEDIUM): the indexWhere scan is O(n) and used to
+      // run unconditionally, adding a second full-list scan per keypress on
+      // top of nextPhoto/previousPhoto's own even with logging OFF. Guarded
+      // on `PerfLog.enabled` (not `kPerfLog` alone: the PerfDriver/
+      // HALCYON_PERF_DIR path enables logging without the const flag).
+      if (PerfLog.enabled) {
+        final navIdx = _items.indexWhere((item) => item.id == id);
+        PerfLog.log('nav|id=$id|index=$navIdx');
+      }
       _selectedItemID = id;
       // PERF-INSTRUMENTATION
       final cached = _preloadController.imageBytesFor(id);
