@@ -21,6 +21,11 @@
 			</array>
 		</dict>
 	</array>
+	<!-- TEMPORARY jank experiment 2026-09-04: disable the experimental merged
+	     UI/platform thread to A/B the message-dispatch overhead hypothesis.
+	     Remove after the comparison capture. -->
+	<key>FLTEnableMergedPlatformUIThread</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
