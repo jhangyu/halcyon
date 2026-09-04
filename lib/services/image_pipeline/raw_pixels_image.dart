@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
+import '../../perf/perf_log.dart';
 import 'photo_payload.dart';
 
 /// An [ImageProvider] backed by retained RGBA8 pixels.
@@ -46,12 +47,28 @@ class RawPixelsImage extends ImageProvider<RawPixelsImage> {
 
   static Future<ui.Image> _decode(PixelPayload payload) {
     final completer = Completer<ui.Image>();
+    // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+    // pipeline-architecture-v2.md §5-P0): the architecture doc's own
+    // materialize call site on the pixel-payload (tier-1) route. See
+    // decoded_rgba_image_provider.dart's `_imageFromPixels` for the same
+    // convention (id = identityHashCode of the pixel buffer).
+    final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
+    final materializeId = PerfLog.enabled ? identityHashCode(payload.rgba) : 0;
     ui.decodeImageFromPixels(
       payload.rgba,
       payload.width,
       payload.height,
       ui.PixelFormat.rgba8888,
-      completer.complete,
+      (image) {
+        if (PerfLog.enabled) {
+          PerfLog.log(
+            'materialize|id=$materializeId'
+            '|bytes=${payload.rgba.lengthInBytes}'
+            '|dur_us=${PerfLog.us - materializeStartUs}',
+          );
+        }
+        completer.complete(image);
+      },
     );
     return completer.future;
   }

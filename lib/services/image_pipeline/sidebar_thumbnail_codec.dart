@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
+import '../../perf/perf_log.dart';
 import 'jpeg_encoder.dart';
 
 /// Bounds what the sidebar byte cache stores (M6 F-10 half 2).
@@ -28,7 +29,23 @@ Future<Uint8List> sidebarCacheBytes(
 }) async {
   if (encoded.length <= reencodeThreshold) return encoded;
   try {
+    // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+    // pipeline-architecture-v2.md §5-P0): the architecture doc's own
+    // materialize call site on the sidebar-thumbnail route --
+    // `ImmutableBuffer.fromUint8List` is where the encoded bitstream becomes
+    // an engine-owned buffer. No photo id reaches this function (only raw
+    // bytes), so `identityHashCode(encoded)` is the correlation id, same
+    // convention as the sibling sites.
+    final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
+    final materializeId = PerfLog.enabled ? identityHashCode(encoded) : 0;
     final buffer = await ui.ImmutableBuffer.fromUint8List(encoded);
+    if (PerfLog.enabled) {
+      PerfLog.log(
+        'materialize|id=$materializeId'
+        '|bytes=${encoded.lengthInBytes}'
+        '|dur_us=${PerfLog.us - materializeStartUs}',
+      );
+    }
     final codec = await ui.instantiateImageCodecWithSize(
       buffer,
       getTargetSize: (int width, int height) {

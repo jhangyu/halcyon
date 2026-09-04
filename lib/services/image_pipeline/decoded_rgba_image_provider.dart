@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
+import '../../perf/perf_log.dart';
 import 'dng_decode_contract.dart';
 import 'exif_orientation.dart';
 import 'idle_publish_scheduler.dart';
@@ -101,12 +102,29 @@ bool _sampledOpaque(Uint8List rgba) {
 Future<ui.Image> _imageFromPixels(DecodedRgba decoded) {
   _assertDecodedBufferLength(decoded);
   final completer = Completer<ui.Image>();
+  // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+  // pipeline-architecture-v2.md §5-P0): this is the architecture doc's own
+  // materialize call site -- the RGBA buffer becomes a GPU-resident
+  // `ui.Image` here. No photo id reaches this deep (only the raw pixel
+  // buffer), so `identityHashCode(decoded.rgba)` stands in as a
+  // per-call correlation id, same convention as payload_reencoder.dart.
+  final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
+  final materializeId = PerfLog.enabled ? identityHashCode(decoded.rgba) : 0;
   ui.decodeImageFromPixels(
     decoded.rgba,
     decoded.width,
     decoded.height,
     ui.PixelFormat.rgba8888,
-    completer.complete,
+    (image) {
+      if (PerfLog.enabled) {
+        PerfLog.log(
+          'materialize|id=$materializeId'
+          '|bytes=${decoded.rgba.lengthInBytes}'
+          '|dur_us=${PerfLog.us - materializeStartUs}',
+        );
+      }
+      completer.complete(image);
+    },
   );
   return completer.future;
 }

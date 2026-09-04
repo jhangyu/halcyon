@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
+import 'perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1)
 import 'providers/app_state.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/full_decoder_dispatch.dart';
@@ -30,12 +31,30 @@ void configureImageCache({int? physicalMemoryBytes}) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // PERF-INSTRUMENTATION (D1): interactive debug-logging path, distinct from
+  // PerfDriver's benchmark harness below. `kPerfLog` is a const
+  // bool.fromEnvironment('HALCYON_PERF_LOG') check, so this whole branch
+  // tree-shakes out of a release build when the flag is not passed.
+  if (kPerfLog) {
+    PerfLog.initForInteractiveSession();
+  }
   // ONE reading, taken before runApp. It must be awaited here rather than
   // fired off: AppState is constructed on the next line, and a late-arriving
   // reading would silently leave the app on the floor policy while looking
   // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
   final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
   configureImageCache(physicalMemoryBytes: physicalMemoryBytes);
+  // D3 (docs/logs/2026-09-04/occupancy-attribution-contract.md): round-2
+  // found the original build.stamp (in PerfLog.init) samples
+  // imageCache.maximumSizeBytes BEFORE this call runs, so it always reads
+  // the Flutter-default 100MB rather than the actually-configured budget.
+  // This second stamp closes that gap without touching the first one.
+  if (PerfLog.enabled) {
+    PerfLog.log(
+      'build.stamp.effective'
+      '|imageCacheMaxBytes=${PaintingBinding.instance.imageCache.maximumSizeBytes}',
+    );
+  }
   final retention = retentionPolicyFor(
     physicalMemoryBytes: physicalMemoryBytes,
   );
@@ -60,6 +79,25 @@ Future<void> main() async {
     dngDecoder: halcyonFullDecoder,
     retention: retention,
   ); // PERF-INSTRUMENTATION
+  // PERF-INSTRUMENTATION (P0, docs/logs/2026-09-05/pool-round-contract.md
+  // AC7 / pipeline-architecture-v2.md §5-P0): decodeLaneWidth is only known
+  // once AppState's async `_initPrefs` resolves the stored pref (it is not
+  // available synchronously at `build.stamp.effective` above, which fires
+  // before AppState even exists) -- so this is a SEPARATE one-shot event
+  // rather than an extra field appended to that earlier line. A one-shot
+  // listener is the only hook available from here without reaching into
+  // AppState's private `_initPrefs` (out of this task's file ownership):
+  // `_initPrefs` calls `notifyListeners()` exactly once after every pref
+  // (including decodeLaneWidth) is hydrated, so the first notification is
+  // guaranteed to observe the resolved value.
+  if (PerfLog.enabled) {
+    late final VoidCallback logLaneWidthOnce;
+    logLaneWidthOnce = () {
+      PerfLog.log('lane.width|width=${appState.decodeLaneWidth}');
+      appState.removeListener(logLaneWidthOnce);
+    };
+    appState.addListener(logLaneWidthOnce);
+  }
   // Finder "Open With" / shell association: load the file's folder and select
   // that photo. Registered before runApp so a launch-time file isn't missed.
   OpenWithChannel.listen(appState.openPhotoAtPath);

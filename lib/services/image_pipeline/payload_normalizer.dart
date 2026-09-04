@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
+import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2, H1)
 import 'payload_reencoder.dart';
 import 'photo_payload.dart';
 
@@ -121,18 +122,43 @@ Future<({Uint8List rgba, int width, int height})?> decodeEncodedToRgba(
   Uint8List encoded,
 ) async {
   ui.Image? image;
+  // PERF-INSTRUMENTATION (D1 round-2, H1's "highest-value addition"): this
+  // work happens entirely inside the req_start->req_end gap with no event of
+  // its own, so a normalize_start/end pair plus an internal phase split is
+  // the only way round-2 analysis can see it. No id is threaded down to this
+  // function (see [normalizeEncodedPayload]'s doc) -- callers correlate by
+  // nearest timestamp against the surrounding req_start/req_end/decode lines
+  // for the same photo, which are already logged one call frame up.
+  final tStart = PerfLog.us;
+  PerfLog.log('normalize_start|bytes=${encoded.lengthInBytes}');
   try {
+    final tCodec = PerfLog.us;
     final codec = await ui.instantiateImageCodec(encoded);
+    PerfLog.log(
+      'normalize_phase|phase=instantiateImageCodec|dur=${PerfLog.us - tCodec}',
+    );
+    final tFrame = PerfLog.us;
     final frame = await codec.getNextFrame();
+    PerfLog.log('normalize_phase|phase=getNextFrame|dur=${PerfLog.us - tFrame}');
     image = frame.image;
+    final tByteData = PerfLog.us;
     final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (data == null) return null;
+    PerfLog.log('normalize_phase|phase=toByteData|dur=${PerfLog.us - tByteData}');
+    if (data == null) {
+      PerfLog.log('normalize_end|ok=false|dur=${PerfLog.us - tStart}');
+      return null;
+    }
+    PerfLog.log(
+      'normalize_end|ok=true|dur=${PerfLog.us - tStart}'
+      '|w=${image.width}|h=${image.height}',
+    );
     return (
       rgba: data.buffer.asUint8List(),
       width: image.width,
       height: image.height,
     );
   } catch (_) {
+    PerfLog.log('normalize_end|ok=false|error=true|dur=${PerfLog.us - tStart}');
     return null;
   } finally {
     image?.dispose();

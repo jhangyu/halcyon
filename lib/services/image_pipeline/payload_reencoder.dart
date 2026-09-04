@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../perf/perf_log.dart';
 import 'jpeg_encoder.dart';
 import 'photo_payload.dart';
 
@@ -100,6 +101,19 @@ Future<SourcePayload> reencodePayload({
   }
 
   Uint8List jpeg;
+  // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
+  // pipeline-architecture-v2.md §5-P0): submit/end split so the worker's
+  // native encode time is separable in the log from the publish step that
+  // follows in the caller. No photo id is threaded this far down the call
+  // chain (`reencodePayload` only receives the raw buffers), so
+  // `identityHashCode(fullRes.rgba)` is used as the correlation id -- stable
+  // for the lifetime of this one call, unique enough to pair submit with
+  // end, and free to compute (an int read, not an allocation).
+  final reencodeId = PerfLog.enabled ? identityHashCode(fullRes.rgba) : 0;
+  if (PerfLog.enabled) {
+    PerfLog.log('reencode.submit|id=$reencodeId');
+  }
+  final reencodeStartUs = PerfLog.enabled ? PerfLog.us : 0;
   try {
     jpeg = await encoder(
       fullRes.rgba,
@@ -108,8 +122,20 @@ Future<SourcePayload> reencodePayload({
       quality: quality,
     );
   } catch (_) {
+    if (PerfLog.enabled) {
+      PerfLog.log(
+        'reencode.end|id=$reencodeId'
+        '|dur_us=${PerfLog.us - reencodeStartUs}|bytes=0',
+      );
+    }
     reencodeFallbacks++;
     return fallback;
+  }
+  if (PerfLog.enabled) {
+    PerfLog.log(
+      'reencode.end|id=$reencodeId'
+      '|dur_us=${PerfLog.us - reencodeStartUs}|bytes=${jpeg.length}',
+    );
   }
   if (jpeg.isEmpty) {
     reencodeFallbacks++;
