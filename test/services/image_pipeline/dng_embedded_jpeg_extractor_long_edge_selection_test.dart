@@ -379,7 +379,9 @@ void main() {
       });
 
       final pathResult = await DngEmbeddedJpegExtractor.readOrientation(tempFile.path);
-      final bytesResult = DngEmbeddedJpegExtractor.readDngOrientation(fileBytes);
+      final bytesResult = await DngEmbeddedJpegExtractor.readDngOrientation(
+        fileBytes,
+      );
 
       expect(pathResult, isNull, reason: 'unreadable-but-present tag must be null, not 1');
       expect(

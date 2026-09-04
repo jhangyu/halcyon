@@ -142,7 +142,7 @@ class PhotoFileActions {
           try {
             await _moveFile(
               target,
-              _availablePath(trashDir.path, p.basename(target.path)),
+              await _availablePath(trashDir.path, p.basename(target.path)),
             );
             movedCount++;
           } catch (e) {
@@ -157,9 +157,9 @@ class PhotoFileActions {
 
   /// `IMG_0001.jpg` -> `IMG_0001-1.jpg` -> `IMG_0001-2.jpg` when taken.
   /// Never overwrites an earlier recycle batch.
-  String _availablePath(String trashDirPath, String fileName) {
+  Future<String> _availablePath(String trashDirPath, String fileName) async {
     var candidate = p.join(trashDirPath, fileName);
-    if (!File(candidate).existsSync()) return candidate;
+    if (!await File(candidate).exists()) return candidate;
 
     final stem = p.basenameWithoutExtension(fileName);
     final ext = p.extension(fileName);
@@ -167,7 +167,7 @@ class PhotoFileActions {
     do {
       candidate = p.join(trashDirPath, '$stem-$counter$ext');
       counter++;
-    } while (File(candidate).existsSync());
+    } while (await File(candidate).exists());
     return candidate;
   }
 

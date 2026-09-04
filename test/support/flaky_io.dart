@@ -99,6 +99,17 @@ class ShortReadRandomAccessFile extends _DelegatingRandomAccessFile {
     if (!shouldTruncate || bytes.length < 2) return bytes;
     return Uint8List.sublistView(bytes, 0, bytes.length - 1);
   }
+
+  // Async counterpart of readSync above (2026-09-04 W4): the extractor now
+  // reads through RandomAccessFile.read/setPosition instead of the Sync
+  // pair, so the short-read fault must be injected on the same async path
+  // the extractor actually calls, or the fault silently stops firing.
+  @override
+  Future<Uint8List> read(int count) async {
+    final bytes = await inner.read(count);
+    if (!shouldTruncate || bytes.length < 2) return bytes;
+    return Uint8List.sublistView(bytes, 0, bytes.length - 1);
+  }
 }
 
 /// A [File] whose opened handle is wrapped by [wrap].
@@ -115,6 +126,18 @@ class FaultInjectingFile implements File {
   @override
   RandomAccessFile openSync({FileMode mode = FileMode.read}) =>
       _wrap(_inner.openSync(mode: mode));
+
+  // Forwarded, not faulted (2026-09-05, P1b BLOCKER-3 test support): a caller
+  // exercising `dartImageLoad` under fault injection hits
+  // `File(path).exists()` before ever touching the extractor's read path --
+  // that existence check is not part of what any fault shape here simulates,
+  // and leaving it unimplemented makes every such call throw
+  // `NoSuchMethodError` regardless of [failFirstOpens].
+  @override
+  Future<bool> exists() => _inner.exists();
+
+  @override
+  bool existsSync() => _inner.existsSync();
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

@@ -40,7 +40,9 @@ void main() {
       // but we need one we are free to mutate in place regardless.
       final data = Uint8List.fromList(original);
 
-      final result = DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data);
+      final result = await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
+        data,
+      );
       expect(result, isNotNull, reason: '$sampleName expected a full-size embedded preview');
 
       // Snapshot the expected content BEFORE mutating the source.

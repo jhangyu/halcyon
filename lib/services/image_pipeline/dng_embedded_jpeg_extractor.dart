@@ -35,6 +35,8 @@ class DngEmbeddedJpeg {
     required this.width,
     required this.height,
     required this.orientation,
+    required this.offset,
+    required this.byteCount,
   });
 
   /// JPEG bitstream, with EXIF orientation injected when `orientation != 1`
@@ -46,6 +48,18 @@ class DngEmbeddedJpeg {
 
   /// IFD0 tag 0x0112 as read; 1 when absent.
   final int orientation;
+
+  /// Byte range of the SELECTED candidate's strip within the source file --
+  /// i.e. exactly what [DngEmbeddedJpegExtractor.readKnownStrip] needs to
+  /// re-read this same JPEG bitstream (add-only, 2026-09-04 W4b round-2 fix
+  /// for BLOCKER-2: a caller that only needs to REPLAY a previously-selected
+  /// candidate, not repeat the IFD/SubIFD walk that selected it, can memoise
+  /// these two ints plus [orientation] instead of retaining [bytes]).
+  /// [byteCount] is the RAW strip length on disk, before any EXIF-injection
+  /// rebuild -- `readKnownStrip` reproduces the injection from [orientation],
+  /// so the byte-for-byte result matches what this field's own [bytes] holds.
+  final int offset;
+  final int byteCount;
 }
 
 /// Outcome of a malformed-aware walk: the selected embedded JPEG (when one was
@@ -65,6 +79,61 @@ class DngEmbeddedJpegProbe {
 
   final DngEmbeddedJpeg? jpeg;
   final bool malformed;
+}
+
+/// One structurally valid, in-range embedded-JPEG candidate as recorded by
+/// [DngEmbeddedJpegExtractor.probeFile]. Deliberately holds no bytes -- see
+/// [DngEmbeddedJpeg]'s BLOCKER-2 note; the same reasoning applies here, one
+/// walk stronger: a whole FOLDER's worth of these must stay cheap to retain.
+class DngProbeCandidate {
+  const DngProbeCandidate({
+    required this.width,
+    required this.height,
+    required this.offset,
+    required this.byteCount,
+  });
+
+  final int width;
+  final int height;
+  final int offset;
+  final int byteCount;
+
+  int get area => width * height;
+  int get maxDim => width > height ? width : height;
+}
+
+/// Everything [DngEmbeddedJpegExtractor.probeFile]'s single IFD0/SubIFD walk
+/// learns about a file: its EXIF orientation, its IFD0 dimensions (or the
+/// Panasonic stand-in), every structurally valid candidate the container
+/// declares (unfiltered by any long-edge floor), how many DECLARED candidates
+/// were unreadable, and the crop-size ceiling ([cropMax]) the full-size
+/// `0.90 * cropMax` floor is measured against. [DngEmbeddedJpegExtractor
+/// .selectAndRead] turns this record plus a specific request into the same
+/// answer [probeEmbeddedJpeg]/[extractEmbeddedJpeg] would give, without
+/// repeating the walk.
+class DngFileProbe {
+  const DngFileProbe({
+    required this.orientation,
+    required this.dimensions,
+    required this.cropMax,
+    required this.candidates,
+    required this.unreadableCount,
+  });
+
+  /// Already sanitized to the EXIF-legal range (M7 ruling E); 1 when the file
+  /// could not be read at all, the tag is absent, or its value did not parse.
+  final int orientation;
+
+  /// IFD0's own width/height (or the Panasonic extent stand-in), or `null`
+  /// when neither could be determined -- the same three-way-folded contract
+  /// [DngEmbeddedJpegExtractor.readImageDimensions] documents.
+  final ({int width, int height})? dimensions;
+
+  /// See [_CandidateScan.cropMax]. 0 when unavailable.
+  final int cropMax;
+
+  final List<DngProbeCandidate> candidates;
+  final int unreadableCount;
 }
 
 /// Reads and extracts DNG embedded JPEG previews, mirroring the Swift
@@ -129,6 +198,19 @@ class DngEmbeddedJpegExtractor {
     required T miss,
     required void Function(int byteCount)? onDiskRead,
     required Future<T> Function(RandomAccessFile raf, _FileSource source) body,
+    // Round review BLOCKER-3 fix (2026-09-05): fired exactly once, right
+    // before a final return caused by EXHAUSTING every retry while still
+    // faulted -- i.e. the returned [result] (usually [miss]) reflects "the
+    // volume never gave a clean read", not "this container was genuinely
+    // parsed and found wanting". A caller that memoises this method's return
+    // value (`probeFile`'s per-path cache in `dart_image_loader.dart`) MUST
+    // NOT cache that result, or a transient I/O hiccup on the external
+    // volume the user's photos live on gets permanently misreported as a
+    // structural miss for the rest of the folder session. Never fired on the
+    // structural-miss path (an intact, parseable-but-empty container, or a
+    // non-TIFF file) -- those return with `faulted == false` on the first
+    // attempt and are exactly as safe to memoise as before this fix.
+    void Function()? onExhaustedFault,
   }) async {
     for (var attempt = 0; ; attempt++) {
       var faulted = false;
@@ -174,7 +256,10 @@ class DngEmbeddedJpegExtractor {
       // elsewhere.
       final exhausted = attempt >= _maxTransientReadRetries;
       _logFault(path, attempt: attempt, detail: detail, exhausted: exhausted);
-      if (exhausted) return result;
+      if (exhausted) {
+        onExhaustedFault?.call();
+        return result;
+      }
       await Future<void>.delayed(_retryBackoff * (attempt + 1));
     }
   }
@@ -269,6 +354,60 @@ class DngEmbeddedJpegExtractor {
     return result?.bytes;
   }
 
+  /// Re-reads a PREVIOUSLY-SELECTED candidate's strip directly, given the
+  /// `(offset, byteCount, orientation)` a prior [extractEmbeddedJpeg] /
+  /// [probeEmbeddedJpeg] call already reported on [DngEmbeddedJpeg].
+  ///
+  /// Added 2026-09-04 (W4b round-2, BLOCKER-2 fix): a caller that wants to
+  /// REPLAY a walk's answer -- e.g. a memo keyed by (path, longEdge) -- must
+  /// not retain the multi-MB [DngEmbeddedJpeg.bytes] to do so. This is the
+  /// cheap replay path the diagnosis actually motivates: the walk's expense
+  /// is the IFD0/SubIFD traversal (dozens of cold 8KiB page reads), NOT the
+  /// final strip read, which this performs alone -- one open, one bounded
+  /// read, the same EXIF-orientation injection [extractEmbeddedJpeg] already
+  /// applies. Returns bit-for-bit the same bytes [DngEmbeddedJpeg.bytes] held
+  /// at selection time, or `null` if the file has since changed underneath
+  /// the caller (shrunk below the recorded range) -- callers must treat that
+  /// exactly like any other extraction miss, not retry the full walk from
+  /// here. Never throws.
+  ///
+  /// [strictBitstream] MUST mirror the strictness of whichever entry point
+  /// recorded the `(offset, byteCount)` this call replays (round-2 S3 fix):
+  /// [extractEmbeddedJpeg] (and therefore the sidebar's memo) selects and
+  /// reads a candidate through [_walk], which passes `strictBitstream: false`
+  /// -- so a candidate with no JPEG SOI marker is still returned there. This
+  /// method used to check for the SOI marker UNCONDITIONALLY, so a strip that
+  /// [extractEmbeddedJpeg] happily returned on first load would come back
+  /// `null` on a memo hit -- a caller relying on both paths agreeing (exactly
+  /// what a memo needs) would see a live regression the first time a no-SOI
+  /// candidate reached the sidebar. Only [probeEmbeddedJpeg] (`strictBitstream:
+  /// true`, via [_probeWalk]) needs the SOI check enforced here. This exactly
+  /// mirrors [_readStrip]'s own conditional check.
+  static Future<Uint8List?> readKnownStrip(
+    String path, {
+    required int offset,
+    required int byteCount,
+    required int orientation,
+    required bool strictBitstream,
+  }) async {
+    return _readFileWithRetry<Uint8List?>(
+      path,
+      miss: null,
+      onDiskRead: null,
+      body: (raf, source) async {
+        final bytes = await source.read(offset, byteCount);
+        if (bytes == null || bytes.length != byteCount) return null;
+        if (strictBitstream &&
+            (bytes.length < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8)) {
+          return null;
+        }
+        if (orientation == 1) return bytes;
+        final oriented = await _injectExifOrientation(bytes, orientation);
+        return oriented ?? bytes;
+      },
+    );
+  }
+
   /// IFD0 tag 0x0112 for [path], read through the same bounded byte-range walk
   /// used by [extractEmbeddedJpeg]. Never throws. Works whether or not the
   /// file carries an embedded JPEG -- only the TIFF header and IFD0 are read,
@@ -293,14 +432,14 @@ class DngEmbeddedJpegExtractor {
       miss: null,
       onDiskRead: onDiskRead,
       body: (raf, source) async {
-        final reader = _readerFor(source);
+        final reader = await _readerFor(source);
         if (reader == null) return null;
-        final ifd0 = _readIFD0(reader);
+        final ifd0 = await _readIFD0(reader);
         if (ifd0 == null) return null;
         // Null is preserved (it means "could not determine", per this method's
         // documented three-way contract); only a value that WAS read is clamped
         // to the EXIF-legal range.
-        final raw = _orientationOf(reader, ifd0);
+        final raw = await _orientationOf(reader, ifd0);
         return raw == null ? null : _sanitizeOrientation(raw);
       },
     );
@@ -327,9 +466,9 @@ class DngEmbeddedJpegExtractor {
       miss: null,
       onDiskRead: onDiskRead,
       body: (raf, source) async {
-        final reader = _readerFor(source);
+        final reader = await _readerFor(source);
         if (reader == null) return null;
-        final ifd0 = _readIFD0(reader);
+        final ifd0 = await _readIFD0(reader);
         if (ifd0 == null) return null;
         final widthEntry = ifd0[0x0100];
         final heightEntry = ifd0[0x0101];
@@ -340,8 +479,8 @@ class DngEmbeddedJpegExtractor {
           if (reader.isPanasonic) return _panasonicExtent(reader, ifd0);
           return null;
         }
-        final widthVals = reader.values(widthEntry);
-        final heightVals = reader.values(heightEntry);
+        final widthVals = await reader.values(widthEntry);
+        final heightVals = await reader.values(heightEntry);
         if (widthVals == null || widthVals.isEmpty) return null;
         if (heightVals == null || heightVals.isEmpty) return null;
         return (width: widthVals.first, height: heightVals.first);
@@ -349,29 +488,239 @@ class DngEmbeddedJpegExtractor {
     );
   }
 
+  /// ONE-WALK probe record covering every question [dartImageLoad] used to ask
+  /// this extractor separately (orientation, image dimensions, and every
+  /// long-edge candidate for both the sidebar and full-size selection). Added
+  /// 2026-09-05 (P1b, `pipeline-architecture-v2.md` §2.2a): the IFD0/SubIFD
+  /// walk (`_gatherCandidates`) is deterministic for a given file regardless
+  /// of which `longEdge` a caller eventually selects against, so a caller that
+  /// needs several of these answers for the same [path] can perform the walk
+  /// ONCE via [probeFile] and answer them all from this record -- selecting a
+  /// specific candidate afterward (a cheap in-memory operation) via
+  /// [selectAndRead], which only pays for a bounded strip read, not another
+  /// walk.
+  static Future<DngFileProbe?> probeFile(
+    String path, {
+    void Function(int byteCount)? onDiskRead,
+  }) async {
+    return (await probeFileResult(path, onDiskRead: onDiskRead)).probe;
+  }
+
+  /// [probeFile]'s full result, additionally distinguishing WHY a `null`
+  /// probe came back (round review BLOCKER-3 fix, 2026-09-05): [transientFault]
+  /// is true only when every retry attempt still hit an I/O fault (see
+  /// [_readFileWithRetry]'s `onExhaustedFault`) -- the container was NEVER
+  /// actually read cleanly, so `null` here means "could not determine, try
+  /// again", not "confirmed: not a parseable container". A caller that
+  /// memoises the probe (`dart_image_loader.dart`'s per-path cache) MUST
+  /// treat `transientFault: true` as un-memoizable, or a transient hiccup on
+  /// a flaky external volume becomes a permanent false "no preview" for the
+  /// rest of the folder session. [probeFile] is kept as a thin wrapper over
+  /// this for every caller that does not need the distinction.
+  static Future<({DngFileProbe? probe, bool transientFault})> probeFileResult(
+    String path, {
+    void Function(int byteCount)? onDiskRead,
+  }) async {
+    var transientFault = false;
+    final probe = await _readFileWithRetry<DngFileProbe?>(
+      path,
+      miss: null,
+      onDiskRead: onDiskRead,
+      onExhaustedFault: () => transientFault = true,
+      body: (raf, source) async {
+        final reader = await _readerFor(source);
+        if (reader == null) return null;
+        final ifd0 = await _readIFD0(reader);
+        if (ifd0 == null) return null;
+        final orientation = _sanitizeOrientation(
+          await _orientationOf(reader, ifd0),
+        );
+        // Mirrors [readImageDimensions]'s body exactly (including the
+        // Panasonic fallback), sharing this walk's already-parsed IFD0.
+        ({int width, int height})? dims;
+        final widthEntry = ifd0[0x0100];
+        final heightEntry = ifd0[0x0101];
+        if (widthEntry != null && heightEntry != null) {
+          final widthVals = await reader.values(widthEntry);
+          final heightVals = await reader.values(heightEntry);
+          if (widthVals != null &&
+              widthVals.isNotEmpty &&
+              heightVals != null &&
+              heightVals.isNotEmpty) {
+            dims = (width: widthVals.first, height: heightVals.first);
+          }
+        }
+        if (dims == null && reader.isPanasonic) {
+          dims = await _panasonicExtent(reader, ifd0);
+        }
+        // `longEdge: 0` (a non-null sentinel, never a real caller request --
+        // real long edges are display pixel sizes) deliberately bypasses BOTH
+        // of [_gatherCandidates]'s `longEdge == null` branches: the
+        // full-size 0.90*cropMax floor is not applied at gather time, and the
+        // "no usable DefaultCropSize" bail-out does not fire. The record
+        // therefore holds every structurally valid, in-range candidate the
+        // container declares; [selectAndRead] re-applies the floor itself
+        // when the CALLER'S request is actually full-size, using [cropMax]
+        // from the same scan.
+        final scan = await _gatherCandidates(reader, source, ifd0, 0);
+        if (scan == null) {
+          return DngFileProbe(
+            orientation: orientation,
+            dimensions: dims,
+            cropMax: 0,
+            candidates: const <DngProbeCandidate>[],
+            unreadableCount: 0,
+          );
+        }
+        return DngFileProbe(
+          orientation: orientation,
+          dimensions: dims,
+          cropMax: scan.cropMax,
+          candidates: [
+            for (final c in scan.candidates)
+              DngProbeCandidate(
+                width: c.width,
+                height: c.height,
+                offset: c.offset,
+                byteCount: c.byteCount,
+              ),
+          ],
+          unreadableCount: scan.unreadable,
+        );
+      },
+    );
+    return (probe: probe, transientFault: transientFault);
+  }
+
+  /// Selects a candidate from a previously-computed [probe] and reads its
+  /// strip -- the read-only half of [_probeWalk], factored out so a caller
+  /// holding a memoised [DngFileProbe] (from [probeFile]) never repeats the
+  /// walk that produced it. Selection semantics are IDENTICAL to
+  /// [probeEmbeddedJpeg]/[extractEmbeddedJpeg]: `longEdge == null` applies the
+  /// `0.90 * cropMax` floor before picking the largest-area candidate;
+  /// `longEdge != null` picks the smallest candidate reaching it, falling back
+  /// to the largest; [minLongEdge] is a post-selection rejection in both
+  /// modes (M7 ruling G-2). On a failed strip read it falls back through the
+  /// other candidates to decide [DngEmbeddedJpegProbe.malformed], exactly as
+  /// [_probeWalk] does.
+  static Future<DngEmbeddedJpegProbe> selectAndRead(
+    DngFileProbe probe, {
+    required String path,
+    int? longEdge,
+    int? minLongEdge,
+    bool strictBitstream = false,
+  }) async {
+    const miss = DngEmbeddedJpegProbe(jpeg: null, malformed: false);
+    var candidates = probe.candidates;
+    if (longEdge == null) {
+      if (probe.cropMax <= 0) return miss;
+      candidates = [
+        for (final c in candidates)
+          if (c.maxDim >= 0.90 * probe.cropMax) c,
+      ];
+    }
+    final best = _selectProbeCandidate(candidates, longEdge);
+    if (best == null) {
+      return DngEmbeddedJpegProbe(
+        jpeg: null,
+        malformed: probe.unreadableCount > 0,
+      );
+    }
+    if (minLongEdge != null && best.maxDim < minLongEdge) return miss;
+
+    final bytes = await readKnownStrip(
+      path,
+      offset: best.offset,
+      byteCount: best.byteCount,
+      orientation: probe.orientation,
+      strictBitstream: strictBitstream,
+    );
+    if (bytes == null) {
+      var anyReadable = false;
+      for (final c in candidates) {
+        if (identical(c, best)) continue;
+        final alt = await readKnownStrip(
+          path,
+          offset: c.offset,
+          byteCount: c.byteCount,
+          orientation: probe.orientation,
+          strictBitstream: strictBitstream,
+        );
+        if (alt != null) {
+          anyReadable = true;
+          break;
+        }
+      }
+      return DngEmbeddedJpegProbe(jpeg: null, malformed: !anyReadable);
+    }
+    return DngEmbeddedJpegProbe(
+      jpeg: DngEmbeddedJpeg(
+        bytes: bytes,
+        width: best.width,
+        height: best.height,
+        orientation: probe.orientation,
+        offset: best.offset,
+        byteCount: best.byteCount,
+      ),
+      malformed: false,
+    );
+  }
+
+  /// [_select]'s twin over the public [DngProbeCandidate] shape.
+  static DngProbeCandidate? _selectProbeCandidate(
+    List<DngProbeCandidate> candidates,
+    int? longEdge,
+  ) {
+    if (candidates.isEmpty) return null;
+    DngProbeCandidate? largest;
+    for (final c in candidates) {
+      if (largest == null || c.area > largest.area) largest = c;
+    }
+    if (longEdge == null) return largest;
+    DngProbeCandidate? smallestReaching;
+    for (final c in candidates) {
+      if (c.maxDim < longEdge) continue;
+      if (smallestReaching == null || c.area < smallestReaching.area) {
+        smallestReaching = c;
+      }
+    }
+    return smallestReaching ?? largest;
+  }
+
   /// Pure in-memory variant reading the IFD0 Orientation tag (0x0112) without
   /// performing any extraction judgment. Returns 1 (no transform) when the
   /// data cannot be parsed or the tag is absent.
-  static int readDngOrientation(Uint8List data) {
+  ///
+  /// `Future`-returning (2026-09-04 W4): [_ByteSource.read] became async so
+  /// the file-backed walk could use real async disk I/O, and this method
+  /// shares that one walk implementation with the file-backed entry points
+  /// rather than duplicating ~600 lines of TIFF parsing. `data` is already
+  /// resident in memory, so no real asynchronous gap occurs -- this purely
+  /// widens the return type to `Future<int>`.
+  static Future<int> readDngOrientation(Uint8List data) async {
     if (data.length < 8) return 1;
     final source = _MemorySource(data);
-    final reader = _readerFor(source);
+    final reader = await _readerFor(source);
     if (reader == null) return 1;
-    final ifd0 = _readIFD0(reader);
+    final ifd0 = await _readIFD0(reader);
     if (ifd0 == null) return 1;
     // Folding null to 1 keeps this method's observable behaviour identical by
     // construction: every input that yielded 1 before still yields 1. M7
     // ruling E additionally folds an out-of-range value to 1.
-    return _sanitizeOrientation(_orientationOf(reader, ifd0));
+    return _sanitizeOrientation(await _orientationOf(reader, ifd0));
   }
 
   /// Pure in-memory variant of [extractFullSizeEmbeddedJpegFromFile]. Returns
   /// `null` on malformed/non-DNG input or when no qualifying embedded JPEG is
   /// found; never throws.
-  static Uint8List? extractFullSizeEmbeddedJpeg(Uint8List data) {
+  ///
+  /// `Future`-returning for the same reason as [readDngOrientation] (2026-09-04
+  /// W4): shares the one walk implementation instead of a duplicate.
+  static Future<Uint8List?> extractFullSizeEmbeddedJpeg(Uint8List data) async {
     if (data.length < 8) return null;
     try {
-      return _walk(_MemorySource(data), null)?.bytes;
+      final walked = await _walk(_MemorySource(data), null);
+      return walked?.bytes;
     } catch (_) {
       return null;
     }
@@ -396,13 +745,13 @@ class DngEmbeddedJpegExtractor {
   /// nothing. See [_panasonicPreviewTags].
   static const int _tiffVersionPanasonic = 85;
 
-  static _TIFFReader? _readerFor(_ByteSource source) {
-    final littleEndian = _detectByteOrder(source);
+  static Future<_TIFFReader?> _readerFor(_ByteSource source) async {
+    final littleEndian = await _detectByteOrder(source);
     if (littleEndian == null) return null;
     // The version word is read through a throwaway reader because the real one
     // is constructed WITH that version -- the container flavour decides which
     // candidate tags the gather step is allowed to look at, and nothing else.
-    final version = _TIFFReader(source, littleEndian, 0).u16(2);
+    final version = await _TIFFReader(source, littleEndian, 0).u16(2);
     if (version == null) return null;
     if (version != _tiffVersionStandard && version != _tiffVersionPanasonic) {
       return null;
@@ -410,10 +759,10 @@ class DngEmbeddedJpegExtractor {
     return _TIFFReader(source, littleEndian, version);
   }
 
-  static Map<int, _IFDEntry>? _readIFD0(_TIFFReader reader) {
-    final ifd0Offset = reader.u32(4);
+  static Future<Map<int, _IFDEntry>?> _readIFD0(_TIFFReader reader) async {
+    final ifd0Offset = await reader.u32(4);
     if (ifd0Offset == null) return null;
-    final ifd0Result = reader.readIFD(ifd0Offset);
+    final ifd0Result = await reader.readIFD(ifd0Offset);
     if (ifd0Result == null) return null;
     return ifd0Result.$1;
   }
@@ -429,10 +778,13 @@ class DngEmbeddedJpegExtractor {
   /// Note this reports the tag's value VERBATIM when it was read -- range
   /// validation is [_sanitizeOrientation]'s job, deliberately kept separate so
   /// "what the file claims" and "what we act on" stay distinguishable.
-  static int? _orientationOf(_TIFFReader reader, Map<int, _IFDEntry> ifd0) {
+  static Future<int?> _orientationOf(
+    _TIFFReader reader,
+    Map<int, _IFDEntry> ifd0,
+  ) async {
     final entry = ifd0[0x0112];
     if (entry == null) return 1;
-    final vals = reader.values(entry);
+    final vals = await reader.values(entry);
     if (vals == null || vals.isEmpty) return null;
     return vals.first;
   }
@@ -504,17 +856,18 @@ class DngEmbeddedJpegExtractor {
           return (jpegBitstream: true, largestLongEdge: 0, orientation: null);
         }
 
-        // Positional reads from here on (_readDirect uses setPositionSync), so
-        // the two bytes already consumed above do not shift what follows.
-        final reader = _readerFor(source);
+        // Positional reads from here on (_readDirect uses the async
+        // setPosition/read pair), so the two bytes already consumed above do
+        // not shift what follows.
+        final reader = await _readerFor(source);
         if (reader == null) return null;
-        final ifd0 = _readIFD0(reader);
+        final ifd0 = await _readIFD0(reader);
         if (ifd0 == null) return null;
         // Free at this point: IFD0 is already parsed and in memory. This is the
         // whole reason the two questions share one walk.
         // Same three-way contract as [readOrientation]: null survives, a value
         // that WAS read is clamped to the EXIF-legal range (M7 ruling E).
-        final rawOrientation = _orientationOf(reader, ifd0);
+        final rawOrientation = await _orientationOf(reader, ifd0);
         final orientation = rawOrientation == null
             ? null
             : _sanitizeOrientation(rawOrientation);
@@ -530,7 +883,7 @@ class DngEmbeddedJpegExtractor {
         // lane for the rest of the session. The retry wrapper now re-runs the
         // whole walk in that case, so a shrunken measurement can no longer be
         // published on the strength of a read that failed.
-        final scan = _gatherCandidates(reader, source, ifd0, 0);
+        final scan = await _gatherCandidates(reader, source, ifd0, 0);
         if (scan == null) return null;
         var best = 0;
         for (final c in scan.candidates) {
@@ -548,16 +901,19 @@ class DngEmbeddedJpegExtractor {
   /// Walks IFD0 + SubIFDs once, selects a candidate per [longEdge] and reads
   /// the selected strip. Returns `null` when nothing qualifies, including when
   /// the selected candidate is rejected by [minLongEdge].
-  static DngEmbeddedJpeg? _walk(
+  static Future<DngEmbeddedJpeg?> _walk(
     _ByteSource source,
     int? longEdge, {
     int? minLongEdge,
-  }) => _probeWalk(
-    source,
-    longEdge,
-    minLongEdge: minLongEdge,
-    strictBitstream: false,
-  ).jpeg;
+  }) async {
+    final probe = await _probeWalk(
+      source,
+      longEdge,
+      minLongEdge: minLongEdge,
+      strictBitstream: false,
+    );
+    return probe.jpeg;
+  }
 
   /// The one implementation behind both [_walk] and [probeEmbeddedJpeg]. With
   /// [strictBitstream] false its `jpeg` field is bit-for-bit what [_walk]
@@ -567,16 +923,16 @@ class DngEmbeddedJpegExtractor {
   /// Reading a strip to decide `malformed` costs nothing on the hot paths: the
   /// selected candidate's read is the one [_walk] already performs, and the
   /// other candidates are only touched when that read fails.
-  static DngEmbeddedJpegProbe _probeWalk(
+  static Future<DngEmbeddedJpegProbe> _probeWalk(
     _ByteSource source,
     int? longEdge, {
     int? minLongEdge,
     required bool strictBitstream,
-  }) {
+  }) async {
     const miss = DngEmbeddedJpegProbe(jpeg: null, malformed: false);
-    final reader = _readerFor(source);
+    final reader = await _readerFor(source);
     if (reader == null) return miss;
-    final ifd0 = _readIFD0(reader);
+    final ifd0 = await _readIFD0(reader);
     if (ifd0 == null) return miss;
 
     // Orientation lives in IFD0. The extraction path cannot express
@@ -585,9 +941,11 @@ class DngEmbeddedJpegExtractor {
     // out-of-range value folds to 1 too (M7 ruling E): a file claiming
     // orientation 0 or 9 must not propagate that into pixel-orientation
     // baking downstream.
-    final orientation = _sanitizeOrientation(_orientationOf(reader, ifd0));
+    final orientation = _sanitizeOrientation(
+      await _orientationOf(reader, ifd0),
+    );
 
-    final scan = _gatherCandidates(reader, source, ifd0, longEdge);
+    final scan = await _gatherCandidates(reader, source, ifd0, longEdge);
     if (scan == null) return miss;
 
     final best = _select(scan.candidates, longEdge);
@@ -605,21 +963,26 @@ class DngEmbeddedJpegExtractor {
     // keep routing to a real RAW decode.
     if (minLongEdge != null && best.maxDim < minLongEdge) return miss;
 
-    final jpegBytes = _readStrip(source, best, strictBitstream);
+    final jpegBytes = await _readStrip(source, best, strictBitstream);
     if (jpegBytes == null) {
       // The selected strip did not read back. Malformed only if NO declared
       // candidate is readable -- one bad strip beside a good one is not a
-      // broken container.
-      final anyReadable = scan.candidates.any(
-        (c) =>
-            !identical(c, best) && _readStrip(source, c, strictBitstream) != null,
-      );
+      // broken container. `.any()` can't take an async predicate, so this is
+      // an explicit loop rather than the original one-liner.
+      var anyReadable = false;
+      for (final c in scan.candidates) {
+        if (identical(c, best)) continue;
+        if (await _readStrip(source, c, strictBitstream) != null) {
+          anyReadable = true;
+          break;
+        }
+      }
       return DngEmbeddedJpegProbe(jpeg: null, malformed: !anyReadable);
     }
 
     var bytes = jpegBytes;
     if (orientation != 1) {
-      final oriented = _injectExifOrientation(jpegBytes, orientation);
+      final oriented = await _injectExifOrientation(jpegBytes, orientation);
       if (oriented != null) bytes = oriented;
     }
     return DngEmbeddedJpegProbe(
@@ -628,6 +991,8 @@ class DngEmbeddedJpegExtractor {
         width: best.width,
         height: best.height,
         orientation: orientation,
+        offset: best.offset,
+        byteCount: best.byteCount,
       ),
       malformed: false,
     );
@@ -636,12 +1001,12 @@ class DngEmbeddedJpegExtractor {
   /// Reads one candidate's strip, returning `null` when it is unreadable:
   /// out of bounds, short of its declared byte count, or -- when
   /// [strictBitstream] -- not starting with a JPEG SOI marker.
-  static Uint8List? _readStrip(
+  static Future<Uint8List?> _readStrip(
     _ByteSource source,
     _Candidate candidate,
     bool strictBitstream,
-  ) {
-    final bytes = source.read(candidate.offset, candidate.byteCount);
+  ) async {
+    final bytes = await source.read(candidate.offset, candidate.byteCount);
     if (bytes == null || bytes.length != candidate.byteCount) return null;
     if (strictBitstream &&
         (bytes.length < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8)) {
@@ -665,16 +1030,16 @@ class DngEmbeddedJpegExtractor {
   /// whose strip lies outside the file -- is counted in [_CandidateScan
   /// .unreadable], because a container whose every declared candidate is
   /// unreadable is broken, not preview-less (M7 Task 3, audit gaps 2+3).
-  static _CandidateScan? _gatherCandidates(
+  static Future<_CandidateScan?> _gatherCandidates(
     _TIFFReader reader,
     _ByteSource source,
     Map<int, _IFDEntry> ifd0,
     int? longEdge,
-  ) {
-    (int, int)? cropSize(Map<int, _IFDEntry> entries) {
+  ) async {
+    Future<(int, int)?> cropSize(Map<int, _IFDEntry> entries) async {
       final entry = entries[0xC620];
       if (entry == null) return null;
-      final vals = reader.values(entry);
+      final vals = await reader.values(entry);
       if (vals == null || vals.length < 2) return null;
       return (vals[0], vals[1]);
     }
@@ -683,10 +1048,10 @@ class DngEmbeddedJpegExtractor {
     final candidateIFDs = <Map<int, _IFDEntry>>[ifd0];
     final subEntry = ifd0[0x014A];
     if (subEntry != null) {
-      final subOffsets = reader.values(subEntry);
+      final subOffsets = await reader.values(subEntry);
       if (subOffsets != null) {
         for (final off in subOffsets) {
-          final sub = reader.readIFD(off);
+          final sub = await reader.readIFD(off);
           if (sub != null) candidateIFDs.add(sub.$1);
         }
       }
@@ -698,17 +1063,17 @@ class DngEmbeddedJpegExtractor {
     // payload-bench-report.md §3). Cycle- and depth-bounded: `visited` stops
     // a maliciously/corruptly self-referencing chain, and the depth cap keeps
     // a hostile file from turning this into an unbounded walk.
-    final ifd0Offset = reader.u32(4);
+    final ifd0Offset = await reader.u32(4);
     if (ifd0Offset != null) {
       final visited = <int>{ifd0Offset};
-      var nextOffset = reader.readIFD(ifd0Offset)?.$2;
+      var nextOffset = (await reader.readIFD(ifd0Offset))?.$2;
       var depth = 0;
       while (nextOffset != null &&
           nextOffset != 0 &&
           depth < 16 &&
           !visited.contains(nextOffset)) {
         visited.add(nextOffset);
-        final result = reader.readIFD(nextOffset);
+        final result = await reader.readIFD(nextOffset);
         if (result == null) break;
         candidateIFDs.add(result.$1);
         nextOffset = result.$2;
@@ -717,10 +1082,10 @@ class DngEmbeddedJpegExtractor {
     }
 
     // DefaultCropSize (0xC620) may live in IFD0 or in one of the SubIFDs.
-    var defaultCrop = cropSize(ifd0);
+    var defaultCrop = await cropSize(ifd0);
     if (defaultCrop == null) {
       for (final ifd in candidateIFDs) {
-        final c = cropSize(ifd);
+        final c = await cropSize(ifd);
         if (c != null) {
           defaultCrop = c;
           break;
@@ -738,7 +1103,7 @@ class DngEmbeddedJpegExtractor {
     // candidate. Its own width/height tags stand in for the same quantity: the
     // sensor extent the full-size floor is measured against.
     if (cropMax <= 0 && reader.isPanasonic) {
-      cropMax = _panasonicSensorMax(reader, ifd0);
+      cropMax = await _panasonicSensorMax(reader, ifd0);
     }
     // The 0.90 * cropMax floor only guards the full-size request; without a
     // usable DefaultCropSize that request cannot be judged at all.
@@ -750,7 +1115,7 @@ class DngEmbeddedJpegExtractor {
     for (final ifd in candidateIFDs) {
       final compEntry = ifd[0x0103];
       if (compEntry == null) continue;
-      final compVals = reader.values(compEntry);
+      final compVals = await reader.values(compEntry);
       if (compVals == null || compVals.isEmpty) continue;
       // 7 is the "new-style JPEG" TIFF compression value; Sony additionally
       // ships JPEG-bearing IFDs (IFD0 PreviewImage, IFD2 full-res) tagged 6
@@ -771,7 +1136,7 @@ class DngEmbeddedJpegExtractor {
       // sidebar/preview selection needs.
       final photoEntry = ifd[0x0106];
       if (photoEntry != null) {
-        final photoVals = reader.values(photoEntry);
+        final photoVals = await reader.values(photoEntry);
         if (photoVals == null || photoVals.isEmpty || photoVals.first != 6) {
           continue;
         }
@@ -788,8 +1153,8 @@ class DngEmbeddedJpegExtractor {
       final stripOffEntry = ifd[0x0111];
       final stripCountEntry = ifd[0x0117];
       if (stripOffEntry != null && stripCountEntry != null) {
-        final stripOffVals = reader.values(stripOffEntry);
-        final stripCountVals = reader.values(stripCountEntry);
+        final stripOffVals = await reader.values(stripOffEntry);
+        final stripCountVals = await reader.values(stripCountEntry);
         if (stripOffVals != null &&
             stripOffVals.length == 1 &&
             stripCountVals != null &&
@@ -802,8 +1167,8 @@ class DngEmbeddedJpegExtractor {
         final jifOffEntry = ifd[0x0201];
         final jifLenEntry = ifd[0x0202];
         if (jifOffEntry != null && jifLenEntry != null) {
-          final jifOffVals = reader.values(jifOffEntry);
-          final jifLenVals = reader.values(jifLenEntry);
+          final jifOffVals = await reader.values(jifOffEntry);
+          final jifLenVals = await reader.values(jifLenEntry);
           if (jifOffVals != null &&
               jifOffVals.length == 1 &&
               jifLenVals != null &&
@@ -831,8 +1196,8 @@ class DngEmbeddedJpegExtractor {
         final widthEntry = ifd[0x0100];
         final heightEntry = ifd[0x0101];
         if (widthEntry == null || heightEntry == null) continue;
-        final widthVals = reader.values(widthEntry);
-        final heightVals = reader.values(heightEntry);
+        final widthVals = await reader.values(widthEntry);
+        final heightVals = await reader.values(heightEntry);
         if (widthVals == null || widthVals.isEmpty) continue;
         if (heightVals == null || heightVals.isEmpty) continue;
         width = widthVals.first;
@@ -850,12 +1215,12 @@ class DngEmbeddedJpegExtractor {
           unreadable++;
           continue;
         }
-        final soi = source.read(offset, 2);
+        final soi = await source.read(offset, 2);
         if (soi != null &&
             soi.length >= 2 &&
             soi[0] == 0xFF &&
             soi[1] == 0xD8) {
-          final size = _jpegFrameSize(source, offset, byteCount);
+          final size = await _jpegFrameSize(source, offset, byteCount);
           if (size != null) {
             width = size.$1;
             height = size.$2;
@@ -892,7 +1257,7 @@ class DngEmbeddedJpegExtractor {
     }
 
     if (reader.isPanasonic) {
-      _gatherPanasonicCandidates(
+      await _gatherPanasonicCandidates(
         reader,
         source,
         ifd0,
@@ -903,7 +1268,11 @@ class DngEmbeddedJpegExtractor {
       );
     }
 
-    return _CandidateScan(candidates: candidates, unreadable: unreadable);
+    return _CandidateScan(
+      candidates: candidates,
+      unreadable: unreadable,
+      cropMax: cropMax,
+    );
   }
 
   /// IFD0 tags holding a whole JPEG bitstream in a Panasonic RW2, in the order
@@ -946,7 +1315,7 @@ class DngEmbeddedJpegExtractor {
   /// declared broken -- that is a limit of this bounded reader, not proven
   /// damage, and reporting it as damage would replace a working RAW decode with
   /// a broken-file error.
-  static void _gatherPanasonicCandidates(
+  static Future<void> _gatherPanasonicCandidates(
     _TIFFReader reader,
     _ByteSource source,
     Map<int, _IFDEntry> ifd0,
@@ -954,7 +1323,7 @@ class DngEmbeddedJpegExtractor {
     int cropMax,
     List<_Candidate> candidates,
     void Function() onUnreadable,
-  ) {
+  ) async {
     for (final tag in _panasonicPreviewTags) {
       final entry = ifd0[tag];
       if (entry == null) continue;
@@ -969,7 +1338,7 @@ class DngEmbeddedJpegExtractor {
       if (byteCount <= 4) {
         offset = entry.valueFieldOffset;
       } else {
-        final resolved = reader.u32(entry.valueFieldOffset);
+        final resolved = await reader.u32(entry.valueFieldOffset);
         if (resolved == null) {
           onUnreadable();
           continue;
@@ -984,7 +1353,7 @@ class DngEmbeddedJpegExtractor {
         continue;
       }
 
-      final soi = source.read(offset, 2);
+      final soi = await source.read(offset, 2);
       if (soi == null || soi.length < 2 || soi[0] != 0xFF || soi[1] != 0xD8) {
         onUnreadable();
         continue;
@@ -992,7 +1361,7 @@ class DngEmbeddedJpegExtractor {
 
       // Panasonic states the preview's extent nowhere in the IFD, so the only
       // honest source for it is the bitstream's own frame header.
-      final size = _jpegFrameSize(source, offset, byteCount);
+      final size = await _jpegFrameSize(source, offset, byteCount);
       if (size == null) continue;
       final width = size.$1;
       final height = size.$2;
@@ -1014,27 +1383,27 @@ class DngEmbeddedJpegExtractor {
   /// Largest edge Panasonic IFD0 claims for the frame, or 0 when neither tag
   /// pair is readable. Stands in for DefaultCropSize's role in the full-size
   /// `0.90 * cropMax` floor.
-  static int _panasonicSensorMax(
+  static Future<int> _panasonicSensorMax(
     _TIFFReader reader,
     Map<int, _IFDEntry> ifd0,
-  ) {
-    final extent = _panasonicExtent(reader, ifd0);
+  ) async {
+    final extent = await _panasonicExtent(reader, ifd0);
     if (extent == null) return 0;
     return extent.width > extent.height ? extent.width : extent.height;
   }
 
   /// Panasonic IFD0's own width/height, or `null` when neither pair is present
   /// and readable.
-  static ({int width, int height})? _panasonicExtent(
+  static Future<({int width, int height})?> _panasonicExtent(
     _TIFFReader reader,
     Map<int, _IFDEntry> ifd0,
-  ) {
+  ) async {
     for (final pair in _panasonicExtentTags) {
       final widthEntry = ifd0[pair.$1];
       final heightEntry = ifd0[pair.$2];
       if (widthEntry == null || heightEntry == null) continue;
-      final widthVals = reader.values(widthEntry);
-      final heightVals = reader.values(heightEntry);
+      final widthVals = await reader.values(widthEntry);
+      final heightVals = await reader.values(heightEntry);
       if (widthVals == null || widthVals.isEmpty) continue;
       if (heightVals == null || heightVals.isEmpty) continue;
       final width = widthVals.first;
@@ -1051,18 +1420,18 @@ class DngEmbeddedJpegExtractor {
   ///
   /// Every read goes through the bounds-checked [source]; a segment length that
   /// would walk past the blob simply ends the scan.
-  static (int, int)? _jpegFrameSize(
+  static Future<(int, int)?> _jpegFrameSize(
     _ByteSource source,
     int offset,
     int byteCount,
-  ) {
+  ) async {
     final limit = byteCount < _jpegFrameScanLimit
         ? byteCount
         : _jpegFrameScanLimit;
     var pos = 2; // just past SOI
     var segments = 0;
     while (pos + 4 <= limit && segments < _jpegFrameScanMaxSegments) {
-      final head = source.read(offset + pos, 4);
+      final head = await source.read(offset + pos, 4);
       if (head == null) return null;
       if (head[0] != 0xFF) return null;
       final marker = head[1];
@@ -1081,7 +1450,7 @@ class DngEmbeddedJpegExtractor {
       if (_isStartOfFrame(marker)) {
         // SOFn payload: precision(1) height(2) width(2).
         if (segLen < 7) return null;
-        final frame = source.read(offset + pos + 4, 5);
+        final frame = await source.read(offset + pos + 4, 5);
         if (frame == null || frame.length < 5) return null;
         final height = (frame[1] << 8) | frame[2];
         final width = (frame[3] << 8) | frame[4];
@@ -1127,8 +1496,8 @@ class DngEmbeddedJpegExtractor {
 
   /// Returns `true` for little-endian ("II"), `false` for big-endian ("MM"),
   /// `null` when neither byte-order marker is present.
-  static bool? _detectByteOrder(_ByteSource source) {
-    final head = source.read(0, 2);
+  static Future<bool?> _detectByteOrder(_ByteSource source) async {
+    final head = await source.read(0, 2);
     if (head == null || head.length < 2) return null;
     final b0 = head[0];
     final b1 = head[1];
@@ -1143,11 +1512,14 @@ class DngEmbeddedJpegExtractor {
   /// with a valid SOI marker or already declares Orientation; returns `null`
   /// only if construction is impossible (never happens in practice, kept for
   /// parity with the Swift optional return).
-  static Uint8List? _injectExifOrientation(Uint8List jpeg, int orientation) {
+  static Future<Uint8List?> _injectExifOrientation(
+    Uint8List jpeg,
+    int orientation,
+  ) async {
     if (jpeg.length < 2) return jpeg;
     if (jpeg[0] != 0xFF || jpeg[1] != 0xD8) return jpeg;
 
-    if (_jpegHasExifOrientation(jpeg)) return jpeg;
+    if (await _jpegHasExifOrientation(jpeg)) return jpeg;
 
     final tiff = BytesBuilder();
     tiff.add([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]); // II,42,IFD@8
@@ -1180,7 +1552,7 @@ class DngEmbeddedJpegExtractor {
 
   /// Scans JPEG marker segments for an APP1/Exif block that already declares
   /// Orientation.
-  static bool _jpegHasExifOrientation(Uint8List jpeg) {
+  static Future<bool> _jpegHasExifOrientation(Uint8List jpeg) async {
     var pos = 2;
     final end = jpeg.length;
     while (pos + 2 <= end) {
@@ -1206,7 +1578,7 @@ class DngEmbeddedJpegExtractor {
           final header = jpeg.sublist(payloadStart, payloadStart + 6);
           if (_bytesEqual(header, const [0x45, 0x78, 0x69, 0x66, 0x00, 0x00])) {
             final tiffData = jpeg.sublist(payloadStart + 6, payloadEnd);
-            if (_tiffDataHasOrientation(tiffData)) return true;
+            if (await _tiffDataHasOrientation(tiffData)) return true;
           }
         }
       }
@@ -1215,11 +1587,11 @@ class DngEmbeddedJpegExtractor {
     return false;
   }
 
-  static bool _tiffDataHasOrientation(Uint8List tiffData) {
+  static Future<bool> _tiffDataHasOrientation(Uint8List tiffData) async {
     if (tiffData.length < 8) return false;
-    final reader = _readerFor(_MemorySource(tiffData));
+    final reader = await _readerFor(_MemorySource(tiffData));
     if (reader == null) return false;
-    final ifd0 = _readIFD0(reader);
+    final ifd0 = await _readIFD0(reader);
     if (ifd0 == null) return false;
     return ifd0[0x0112] != null;
   }
@@ -1238,10 +1610,24 @@ class DngEmbeddedJpegExtractor {
 /// the file. Zero usable candidates with a non-zero [unreadable] is the
 /// malformed-container signal.
 class _CandidateScan {
-  const _CandidateScan({required this.candidates, required this.unreadable});
+  const _CandidateScan({
+    required this.candidates,
+    required this.unreadable,
+    required this.cropMax,
+  });
 
   final List<_Candidate> candidates;
   final int unreadable;
+
+  /// The largest edge of DefaultCropSize (0xC620), or the Panasonic
+  /// sensor-extent stand-in when that tag is absent (see [_panasonicSensorMax]).
+  /// 0 when neither is available. Carried out of the gather step (2026-09-05
+  /// P1b) so a caller performing exactly one walk (see
+  /// [DngEmbeddedJpegExtractor.probeFile]) can apply the full-size `0.90 *
+  /// cropMax` floor itself, after the fact, without re-walking to recompute
+  /// it -- the same number [_gatherCandidates] already derives internally to
+  /// apply that same floor when `longEdge == null`.
+  final int cropMax;
 }
 
 class _Candidate {
@@ -1283,7 +1669,14 @@ abstract class _ByteSource {
 
   /// Returns exactly [count] bytes starting at [offset], or `null` when the
   /// range is out of bounds or unreadable. Never throws.
-  Uint8List? read(int offset, int count);
+  ///
+  /// `Future`-returning uniformly (even for the fully-resident
+  /// [_MemorySource], where it resolves without any real asynchronous gap):
+  /// this lets the whole IFD walk below be written once and shared by both
+  /// the in-memory and file-backed sources, rather than maintaining two
+  /// copies of ~600 lines of bounds-checked TIFF parsing (2026-09-04 W4 --
+  /// see class dartdoc note on [_FileSource]).
+  Future<Uint8List?> read(int offset, int count);
 
   /// Whether any read against this source failed for an I/O reason (the read
   /// threw, or came back short) as opposed to being refused by the bounds
@@ -1323,7 +1716,7 @@ class _MemorySource implements _ByteSource {
   int get length => _data.length;
 
   @override
-  Uint8List? read(int offset, int count) {
+  Future<Uint8List?> read(int offset, int count) async {
     if (offset < 0 || count < 0 || offset + count > _data.length) return null;
     // Independent copy, not a view: the returned bytes must not stay pinned
     // to (or mutate alongside) the caller's source buffer. See
@@ -1364,7 +1757,7 @@ class _FileSource implements _ByteSource {
   final int length;
 
   @override
-  Uint8List? read(int offset, int count) {
+  Future<Uint8List?> read(int offset, int count) async {
     if (offset < 0 || count < 0 || offset + count > length) return null;
     if (count == 0) return Uint8List(0);
     if (count >= _directReadThreshold) return _readDirect(offset, count);
@@ -1374,7 +1767,7 @@ class _FileSource implements _ByteSource {
     var cursor = offset;
     while (written < count) {
       final pageIndex = cursor ~/ _pageSize;
-      final page = _page(pageIndex);
+      final page = await _page(pageIndex);
       if (page == null) return null;
       final within = cursor - pageIndex * _pageSize;
       if (within >= page.length) return null;
@@ -1388,7 +1781,7 @@ class _FileSource implements _ByteSource {
     return out;
   }
 
-  Uint8List? _page(int pageIndex) {
+  Future<Uint8List?> _page(int pageIndex) async {
     final cached = _pages.remove(pageIndex);
     if (cached != null) {
       _pages[pageIndex] = cached; // refresh LRU position
@@ -1397,17 +1790,30 @@ class _FileSource implements _ByteSource {
     final start = pageIndex * _pageSize;
     if (start >= length) return null;
     final want = (length - start) < _pageSize ? (length - start) : _pageSize;
-    final bytes = _readDirect(start, want);
+    final bytes = await _readDirect(start, want);
     if (bytes == null) return null;
     _pages[pageIndex] = bytes;
     if (_pages.length > _maxPages) _pages.remove(_pages.keys.first);
     return bytes;
   }
 
-  Uint8List? _readDirect(int offset, int count) {
+  /// The one place that actually touches the disk. `await`s the async
+  /// [RandomAccessFile.setPosition]/[RandomAccessFile.read] pair instead of
+  /// their `Sync` counterparts (2026-09-04 W4): the previous `setPositionSync`
+  /// + `readSync` pair issued a blocking syscall directly on the calling
+  /// isolate -- the UI isolate for every sidebar/preview probe -- which
+  /// showed up as 40.9% of its busy time during the loading phase (dozens of
+  /// cold 8KiB preads per file on an external volume; see
+  /// docs/logs/2026-09-04/residual-jank-diagnosis.md addendum "recapture2").
+  /// The async variants hand the read off to the VM's I/O thread pool and let
+  /// the isolate's event loop keep servicing frames while the syscall is in
+  /// flight. Page size, direct-read threshold and every bounds/fault-detail
+  /// rule below are unchanged -- this is an I/O-mode change, not a parser or
+  /// budget change.
+  Future<Uint8List?> _readDirect(int offset, int count) async {
     try {
-      _raf.setPositionSync(offset);
-      final bytes = _raf.readSync(count);
+      await _raf.setPosition(offset);
+      final bytes = await _raf.read(count);
       _onDiskRead?.call(bytes.length);
       if (bytes.length != count) {
         // A SHORT read of an in-bounds range. The caller already proved the
@@ -1447,22 +1853,22 @@ class _TIFFReader {
   bool get isPanasonic =>
       version == DngEmbeddedJpegExtractor._tiffVersionPanasonic;
 
-  int? u16(int offset) {
-    final b = source.read(offset, 2);
+  Future<int?> u16(int offset) async {
+    final b = await source.read(offset, 2);
     if (b == null) return null;
     return littleEndian ? (b[0] | (b[1] << 8)) : ((b[0] << 8) | b[1]);
   }
 
-  int? u32(int offset) {
-    final b = source.read(offset, 4);
+  Future<int?> u32(int offset) async {
+    final b = await source.read(offset, 4);
     if (b == null) return null;
     return littleEndian
         ? (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24))
         : ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
   }
 
-  int? u8(int offset) {
-    final b = source.read(offset, 1);
+  Future<int?> u8(int offset) async {
+    final b = await source.read(offset, 1);
     if (b == null) return null;
     return b[0];
   }
@@ -1492,15 +1898,15 @@ class _TIFFReader {
 
   /// Reads an IFD at [offset]: entry count (2 bytes) + count*12-byte entries
   /// + next-IFD offset (4 bytes).
-  (Map<int, _IFDEntry>, int)? readIFD(int offset) {
-    final entryCount = u16(offset);
+  Future<(Map<int, _IFDEntry>, int)?> readIFD(int offset) async {
+    final entryCount = await u16(offset);
     if (entryCount == null) return null;
     final entries = <int, _IFDEntry>{};
     var pos = offset + 2;
     for (var i = 0; i < entryCount; i++) {
-      final tag = u16(pos);
-      final type = u16(pos + 2);
-      final count = u32(pos + 4);
+      final tag = await u16(pos);
+      final type = await u16(pos + 2);
+      final count = await u32(pos + 4);
       if (tag == null || type == null || count == null) return null;
       entries[tag] = _IFDEntry(
         tag: tag,
@@ -1510,7 +1916,7 @@ class _TIFFReader {
       );
       pos += 12;
     }
-    final next = u32(pos);
+    final next = await u32(pos);
     if (next == null) return null;
     return (entries, next);
   }
@@ -1519,7 +1925,7 @@ class _TIFFReader {
   /// RATIONAL is reduced to a rounded quotient; BYTE is widened.
   /// Bounds-checked against the source length; returns `null` on any
   /// malformed/out-of-range field.
-  List<int>? values(_IFDEntry entry) {
+  Future<List<int>?> values(_IFDEntry entry) async {
     final size = _typeSize(entry.type);
     if (size <= 0 || entry.count <= 0 || entry.count >= 100000) return null;
     final totalBytes = entry.count * size;
@@ -1527,7 +1933,7 @@ class _TIFFReader {
     if (totalBytes <= 4) {
       base = entry.valueFieldOffset;
     } else {
-      final off = u32(entry.valueFieldOffset);
+      final off = await u32(entry.valueFieldOffset);
       if (off == null) return null;
       base = off;
     }
@@ -1538,20 +1944,20 @@ class _TIFFReader {
       switch (entry.type) {
         case 3: // SHORT
         case 8: // SSHORT
-          final v = u16(elemOffset);
+          final v = await u16(elemOffset);
           if (v == null) return null;
           result.add(v);
           break;
         case 4: // LONG
         case 9: // SLONG
-          final v = u32(elemOffset);
+          final v = await u32(elemOffset);
           if (v == null) return null;
           result.add(v);
           break;
         case 5: // RATIONAL
         case 10: // SRATIONAL
-          final numerator = u32(elemOffset);
-          final denominator = u32(elemOffset + 4);
+          final numerator = await u32(elemOffset);
+          final denominator = await u32(elemOffset + 4);
           if (numerator == null || denominator == null || denominator == 0) {
             return null;
           }
@@ -1561,7 +1967,7 @@ class _TIFFReader {
         case 1: // BYTE
         case 6: // SBYTE
         case 7: // UNDEFINED
-          final v = u8(elemOffset);
+          final v = await u8(elemOffset);
           if (v == null) return null;
           result.add(v);
           break;

@@ -8,6 +8,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
+import '../../support/flaky_io.dart';
 import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
@@ -885,5 +886,277 @@ void main() {
       expect(result, isA<NativeImageFailure>());
       expect((result as NativeImageFailure).code, 'IMAGE_TOO_LARGE');
     });
+  });
+
+  group('W4b: sidebar embedded-JPEG walk memo', () {
+    test(
+      'a second sidebarThumbnail load of the SAME (path, longEdge) hits the '
+      'memo instead of repeating the IFD/strip walk, and produces the exact '
+      'same bytes as the first',
+      () async {
+        final samples = dngs();
+        expect(samples, isNotEmpty, reason: 'no sample DNGs under $sampleDir');
+        final sample = samples.first;
+        resetSidebarWalkMemo();
+        final before = debugSidebarWalkCount;
+
+        final first = await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.sidebarThumbnail,
+        );
+        final afterFirst = debugSidebarWalkCount;
+        expect(
+          afterFirst,
+          before + 1,
+          reason: 'first load must perform exactly one real walk',
+        );
+
+        // BLOCKER-2 regression guard: the memo entry must be a small verdict
+        // record, never a Uint8List/DngEmbeddedJpeg holding the decoded
+        // bitstream. `is! Uint8List` on the raw stored value is a genuine
+        // runtime assertion (not just a compile-time type argument), since
+        // `debugSidebarWalkMemoRawValueFor` returns `Object?`.
+        final storedRaw = debugSidebarWalkMemoRawValueFor(
+          sample.path,
+          ImageRequestPurpose.sidebarThumbnail.targetSize,
+        );
+        expect(
+          storedRaw,
+          isNot(same(debugSidebarWalkMemoNoEntry)),
+          reason: 'the first load must have written an entry',
+        );
+        expect(
+          storedRaw,
+          isNot(isA<Uint8List>()),
+          reason: 'memo must not retain the JPEG bitstream itself',
+        );
+        expect(
+          storedRaw,
+          isNot(isA<DngEmbeddedJpeg>()),
+          reason: 'memo must not retain the whole extraction result object',
+        );
+        if (storedRaw != null) {
+          // A verdict record only: this closed record type structurally
+          // cannot hold anything larger than three ints, which is the actual
+          // size bound the fix provides -- proven by construction, not by
+          // measuring bytes at runtime.
+          expect(
+            storedRaw,
+            isA<({int offset, int byteCount, int orientation})>(),
+          );
+        }
+
+        final second = await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.sidebarThumbnail,
+        );
+        expect(
+          debugSidebarWalkCount,
+          afterFirst,
+          reason:
+              'second load of the same (path, longEdge) must hit the memo '
+              '-- no additional walk',
+        );
+
+        // Same observable answer either way, memo hit or not.
+        expect(second.runtimeType, first.runtimeType);
+        if (first is NativeImageBytes) {
+          expect((second as NativeImageBytes).bytes, first.bytes);
+        } else {
+          expect((second as NativeImageFailure).code, (first as NativeImageFailure).code);
+        }
+
+        // resetSidebarWalkMemo() (the folder-reload seam) makes the walk
+        // happen again rather than latching the answer forever.
+        resetSidebarWalkMemo();
+        await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.sidebarThumbnail,
+        );
+        expect(
+          debugSidebarWalkCount,
+          afterFirst + 1,
+          reason: 'after reset, the next load must walk again',
+        );
+
+        // A DIFFERENT longEdge is a different key: also walks again, mirroring
+        // PrefetchScheduler's F5/AC7 keying (prefetch_scheduler.dart).
+        final beforeDifferentEdge = debugSidebarWalkCount;
+        await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.preview,
+        );
+        // ImageRequestPurpose.preview does not go through the sidebar branch
+        // at all, so this must NOT touch the sidebar walk counter -- proves
+        // the memo/counter is scoped to the sidebar branch only.
+        expect(debugSidebarWalkCount, beforeDifferentEdge);
+      },
+      skip: samplePhotosSkipReason,
+    );
+  });
+
+  group('P1b: single-walk probe record', () {
+    test(
+      'TC-945: an orientation/dimensions-driven preview load followed by a '
+      'sidebar load of the same path performs exactly ONE probeFile walk',
+      () async {
+        final samples = dngs();
+        expect(samples, isNotEmpty, reason: 'no sample DNGs under $sampleDir');
+        final sample = samples.first;
+        resetSidebarWalkMemo();
+        final before = debugFileProbeWalkCount;
+
+        // The preview branch asks the shared probe first (it needs
+        // orientation/dimensions on a RAW-decode-signal path and the
+        // full-size embedded-preview candidate).
+        await dartImageLoad(sample.path, purpose: ImageRequestPurpose.preview);
+        final afterPreview = debugFileProbeWalkCount;
+        expect(
+          afterPreview,
+          before + 1,
+          reason: 'the first question about this path must walk exactly once',
+        );
+
+        // The sidebar branch asks a DIFFERENT question (a different
+        // long-edge candidate selection) about the SAME path. Under the old
+        // four-separate-questions design this would have been a second,
+        // independent IFD/SubIFD walk; under the P1b single-walk probe
+        // record it must be answered entirely from the memoized record.
+        await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.sidebarThumbnail,
+        );
+        expect(
+          debugFileProbeWalkCount,
+          afterPreview,
+          reason:
+              'the sidebar question about an already-probed path must not '
+              'trigger a second walk -- one walk serves both consumers',
+        );
+
+        // resetSidebarWalkMemo() also clears the shared probe memo, so the
+        // next question about this path walks again.
+        resetSidebarWalkMemo();
+        await dartImageLoad(
+          sample.path,
+          purpose: ImageRequestPurpose.sidebarThumbnail,
+        );
+        expect(debugFileProbeWalkCount, afterPreview + 1);
+      },
+      skip: samplePhotosSkipReason,
+    );
+
+    test(
+      'TC-946: probeFile answers orientation, dimensions and a full-size '
+      'candidate from one walk, matching the separate legacy entry points',
+      () async {
+        final samples = dngs();
+        expect(samples, isNotEmpty, reason: 'no sample DNGs under $sampleDir');
+        final sample = samples.first;
+
+        final probe = await DngEmbeddedJpegExtractor.probeFile(sample.path);
+        final expectedOrientation = await DngEmbeddedJpegExtractor
+            .readOrientation(sample.path);
+        final expectedDims = await DngEmbeddedJpegExtractor
+            .readImageDimensions(sample.path);
+        final expectedFull = await DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
+          sample.path,
+          longEdge: null,
+        );
+
+        expect(probe, isNotNull);
+        expect(probe!.orientation, expectedOrientation ?? kDefaultExifOrientation);
+        expect(probe.dimensions, expectedDims);
+
+        final selected = await DngEmbeddedJpegExtractor.selectAndRead(
+          probe,
+          path: sample.path,
+          longEdge: null,
+          strictBitstream: true,
+        );
+        expect(selected.jpeg?.bytes, expectedFull.jpeg?.bytes);
+        expect(selected.malformed, expectedFull.malformed);
+      },
+      skip: samplePhotosSkipReason,
+    );
+
+    test(
+      'TC-954 (round review BLOCKER-3 fix): a probe that exhausts every '
+      'retry while still I/O-faulted is NOT memoized -- the next question '
+      'about the same path re-walks and serves normally once the volume '
+      'gives a clean read, instead of being permanently stuck on the '
+      'fault-derived miss',
+      () async {
+        final dir = await Directory.systemTemp.createTemp('p1b_fault_');
+        addTempDirTeardown(dir);
+        final path = await writeSyntheticDng(
+          buildSyntheticDng(
+            candidates: const [SyntheticCandidate(width: 3200, height: 2133)],
+          ),
+          dir: dir,
+          name: 'preview_bearing.dng',
+        );
+        resetSidebarWalkMemo();
+
+        // 4 faulted `File(path)` constructions: 1 for `dartImageLoad`'s own
+        // `File(path).exists()` check (forwarded, unaffected by the fault --
+        // see flaky_io.dart) plus all 3 of `_readFileWithRetry`'s own
+        // attempts (`_maxTransientReadRetries == 2`, so attempt 0/1/2). That
+        // exhausts the extractor's OWN internal retry budget, which is
+        // exactly the scenario BLOCKER-3 is about: the probe never got a
+        // clean read at all, not merely "retried once and then succeeded"
+        // (already covered by TC-717 at the extractor level).
+        final run = await withInjectedReadFaults(
+          failFirstOpens: 4,
+          shape: ReadFaultShape.thrown,
+          body: () async {
+            final walksBefore = debugFileProbeWalkCount;
+            final first = await dartImageLoad(
+              path,
+              purpose: ImageRequestPurpose.sidebarThumbnail,
+            );
+            final afterFirst = debugFileProbeWalkCount;
+            expect(
+              afterFirst,
+              walksBefore + 1,
+              reason: 'the faulted attempt still counts as one walk attempt',
+            );
+            expect(
+              first,
+              isA<NativeImageFailure>(),
+              reason:
+                  'every attempt faulted, so this question surfaces as a '
+                  'miss -- the bug is specifically about what gets CACHED, '
+                  'not this answer',
+            );
+
+            // Before the BLOCKER-3 fix, the fault-derived null was memoized
+            // exactly like a genuine structural miss, so this second
+            // question would hit the memo and never walk again.
+            final second = await dartImageLoad(
+              path,
+              purpose: ImageRequestPurpose.sidebarThumbnail,
+            );
+            expect(
+              debugFileProbeWalkCount,
+              afterFirst + 1,
+              reason:
+                  'a transient-fault probe must NOT be memoized -- the '
+                  'second question about the same path must walk again',
+            );
+            return second;
+          },
+        );
+
+        expect(
+          run.value,
+          isA<NativeImageBytes>(),
+          reason:
+              'once the volume gives a clean read, the sidebar must serve '
+              'the preview normally -- not a permanently cached miss from '
+              'the earlier transient fault',
+        );
+      },
+    );
   });
 }

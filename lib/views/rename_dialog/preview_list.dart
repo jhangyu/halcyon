@@ -17,12 +17,19 @@ class RenamePreviewList extends StatelessWidget {
     required this.rule,
     required this.sample,
     required this.sampleMeta,
+    required this.fileModified,
     required this.onReroll,
   });
 
   final RenameRule rule;
   final List<PhotoItem> sample;
   final Map<String, ExifMetadata?> sampleMeta;
+
+  /// Modified time per item id, read once (async) when [sample] is rolled —
+  /// NOT stat'd here, because `build()` (and its `_previewCard` helper) reruns
+  /// on every keystroke in the rule template, and a sync stat per rebuild
+  /// blocks the UI isolate on disk latency (visible on external volumes).
+  final Map<String, DateTime> fileModified;
   final VoidCallback onReroll;
 
   @override
@@ -79,8 +86,13 @@ class RenamePreviewList extends StatelessWidget {
             child: ListView.separated(
               itemCount: sample.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) =>
-                  _previewCard(t, rule, sample[index], index),
+              itemBuilder: (context, index) => _previewCard(
+                t,
+                rule,
+                sample[index],
+                index,
+                fileModified[sample[index].id],
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -95,13 +107,19 @@ class RenamePreviewList extends StatelessWidget {
     );
   }
 
-  Widget _previewCard(HalcyonTokens t, RenameRule rule, PhotoItem item, int index) {
+  Widget _previewCard(
+    HalcyonTokens t,
+    RenameRule rule,
+    PhotoItem item,
+    int index,
+    DateTime? modified,
+  ) {
     final file = item.bestFileToLoad;
     final newBase = rule.error != null
         ? '—'
         : rule.render(
             meta: sampleMeta[item.id],
-            fileModified: file?.statSync().modified ?? DateTime(1970),
+            fileModified: modified ?? DateTime(1970),
             originalBase: item.id,
             seq: index + 1,
           );

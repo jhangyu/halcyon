@@ -106,10 +106,14 @@ void main() {
     () async {
       final path = '${sampleDir.path}/2026-08-07-17-52-54.dng';
       final data = await File(path).readAsBytes();
-      final orientation = DngEmbeddedJpegExtractor.readDngOrientation(data);
+      final orientation = await DngEmbeddedJpegExtractor.readDngOrientation(
+        data,
+      );
       expect(orientation, 6);
 
-      final bytes = DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data);
+      final bytes = await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
+        data,
+      );
       expect(bytes, isNotNull);
       // Orientation != 1 means the extractor must have injected an APP1/Exif
       // segment right after SOI (0xFFE1 marker at offset 2).
@@ -120,34 +124,42 @@ void main() {
   );
 
   group('malformed/truncated/non-DNG input degrades to null, never throws', () {
-    test('empty bytes', () {
+    test('empty bytes', () async {
       expect(
-        DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(Uint8List(0)),
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
+          Uint8List(0),
+        ),
         isNull,
       );
     });
 
-    test('too short to contain a TIFF header', () {
+    test('too short to contain a TIFF header', () async {
       expect(
-        DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
           Uint8List.fromList([1, 2, 3]),
         ),
         isNull,
       );
     });
 
-    test('wrong byte-order marker (not II/MM)', () {
+    test('wrong byte-order marker (not II/MM)', () async {
       final data = Uint8List.fromList(List.filled(16, 0));
       data[0] = 0x00;
       data[1] = 0x00;
-      expect(DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data), isNull);
+      expect(
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data),
+        isNull,
+      );
     });
 
-    test('valid byte-order marker but garbage magic/IFD offset', () {
+    test('valid byte-order marker but garbage magic/IFD offset', () async {
       final data = Uint8List.fromList(List.filled(16, 0xAB));
       data[0] = 0x49;
       data[1] = 0x49; // "II"
-      expect(DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data), isNull);
+      expect(
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data),
+        isNull,
+      );
     });
 
     test(
@@ -157,17 +169,22 @@ void main() {
         final full = await File(path).readAsBytes();
         final truncated = Uint8List.sublistView(full, 0, full.length ~/ 4);
         expect(
-          DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(truncated),
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
+            truncated,
+          ),
           isNull,
         );
       },
       skip: samplePhotosSkipReason,
     );
 
-    test('a plain JPEG (non-DNG) file is rejected without throwing', () {
+    test('a plain JPEG (non-DNG) file is rejected without throwing', () async {
       // Not a TIFF container at all: no II/MM marker.
       final data = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]);
-      expect(DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data), isNull);
+      expect(
+        await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(data),
+        isNull,
+      );
     });
 
     test(
@@ -181,9 +198,11 @@ void main() {
       },
     );
 
-    test('readDngOrientation degrades to 1 for malformed input', () {
+    test('readDngOrientation degrades to 1 for malformed input', () async {
       expect(
-        DngEmbeddedJpegExtractor.readDngOrientation(Uint8List.fromList([1, 2])),
+        await DngEmbeddedJpegExtractor.readDngOrientation(
+          Uint8List.fromList([1, 2]),
+        ),
         1,
       );
     });
@@ -226,7 +245,7 @@ void main() {
           reason: 'readOrientation',
         );
         expect(
-          DngEmbeddedJpegExtractor.readDngOrientation(
+          await DngEmbeddedJpegExtractor.readDngOrientation(
             await File(path).readAsBytes(),
           ),
           expected,
@@ -248,7 +267,9 @@ void main() {
         'and stays null where the contract preserves it', () async {
       // Folded: readDngOrientation cannot express "undetermined".
       expect(
-        DngEmbeddedJpegExtractor.readDngOrientation(Uint8List.fromList([1, 2])),
+        await DngEmbeddedJpegExtractor.readDngOrientation(
+          Uint8List.fromList([1, 2]),
+        ),
         1,
       );
       // Preserved: readOrientation's documented three-way contract must NOT
@@ -793,6 +814,148 @@ void main() {
         }
       });
     });
+  });
+
+  group('readKnownStrip (W4b round-2, S2/S3)', () {
+    late Directory tmp;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('halcyon_known_strip_');
+      addTearDown(() async {
+        if (await tmp.exists()) await tmp.delete(recursive: true);
+      });
+    });
+
+    test(
+      'TC-925: orientation != 1 -- readKnownStrip reproduces the SAME '
+      'EXIF-injected bytes extractEmbeddedJpeg selected, byte-for-byte',
+      () async {
+        // Local sample DNGs are all orientation 1 (per the reviewer finding
+        // that motivated this test), so the injection branch needs a
+        // synthetic fixture to exercise at all.
+        final path = await writeSyntheticDng(
+          buildSyntheticDng(
+            candidates: const [SyntheticCandidate(width: 400, height: 300)],
+            orientation: 6,
+          ),
+          dir: tmp,
+          name: 'oriented.dng',
+        );
+
+        final extracted = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
+          path,
+          longEdge: null,
+        );
+        expect(extracted, isNotNull);
+        expect(extracted!.orientation, 6);
+
+        final replayed = await DngEmbeddedJpegExtractor.readKnownStrip(
+          path,
+          offset: extracted.offset,
+          byteCount: extracted.byteCount,
+          orientation: extracted.orientation,
+          strictBitstream: false,
+        );
+        expect(replayed, isNotNull);
+        expect(
+          replayed,
+          extracted.bytes,
+          reason:
+              'readKnownStrip must reproduce the exact same '
+              'EXIF-orientation-injected bytes the recording walk selected',
+        );
+      },
+    );
+
+    test(
+      'TC-926: a stale (offset, byteCount) beyond the current file length '
+      'returns null, not a throw or a short read',
+      () async {
+        final path = await writeSyntheticDng(
+          buildSyntheticDng(
+            candidates: const [SyntheticCandidate(width: 400, height: 300)],
+          ),
+          dir: tmp,
+          name: 'shrunk.dng',
+        );
+        final fullLength = await File(path).length();
+
+        final result = await DngEmbeddedJpegExtractor.readKnownStrip(
+          path,
+          offset: fullLength, // starts exactly at EOF: nothing to read
+          byteCount: 4096,
+          orientation: 1,
+          strictBitstream: false,
+        );
+        expect(result, isNull);
+      },
+    );
+
+    test(
+      'TC-927: strictBitstream mirrors the recording walk -- a no-SOI strip '
+      'is accepted when strictBitstream: false (matching extractEmbeddedJpeg\'s '
+      'sidebar-facing _walk) and rejected when strictBitstream: true '
+      '(matching probeEmbeddedJpeg\'s _probeWalk)',
+      () async {
+        // Build a container whose candidate strip does NOT start with a JPEG
+        // SOI marker -- corruptOffsets keeps the container structurally
+        // walkable while pointing the strip somewhere that is in-bounds but
+        // not a JPEG, by writing the candidate then overwriting its first two
+        // bytes after the fact.
+        final bytes = buildSyntheticDng(
+          candidates: const [SyntheticCandidate(width: 400, height: 300)],
+        );
+        // The extractor's own leniency test elsewhere locates candidates by
+        // walking the container rather than assuming a fixed layout, so do
+        // the same here: extract once (non-strict) to learn where the strip
+        // actually landed, THEN corrupt just those two bytes and reopen.
+        final path = await writeSyntheticDng(bytes, dir: tmp, name: 'soi.dng');
+        final located = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
+          path,
+          longEdge: null,
+        );
+        expect(located, isNotNull);
+
+        final corrupted = Uint8List.fromList(bytes);
+        corrupted[located!.offset] = 0x00;
+        corrupted[located.offset + 1] = 0x00;
+        final corruptPath = await writeSyntheticDng(
+          corrupted,
+          dir: tmp,
+          name: 'no_soi.dng',
+        );
+
+        final lenient = await DngEmbeddedJpegExtractor.readKnownStrip(
+          corruptPath,
+          offset: located.offset,
+          byteCount: located.byteCount,
+          orientation: 1,
+          strictBitstream: false,
+        );
+        expect(
+          lenient,
+          isNotNull,
+          reason:
+              'strictBitstream: false must accept a no-SOI strip, matching '
+              'extractEmbeddedJpeg / the sidebar memo\'s recording walk',
+        );
+
+        final strict = await DngEmbeddedJpegExtractor.readKnownStrip(
+          corruptPath,
+          offset: located.offset,
+          byteCount: located.byteCount,
+          orientation: 1,
+          strictBitstream: true,
+        );
+        expect(
+          strict,
+          isNull,
+          reason:
+              'strictBitstream: true must reject the same no-SOI strip, '
+              'matching probeEmbeddedJpeg\'s _probeWalk',
+        );
+      },
+    );
   });
 }
 

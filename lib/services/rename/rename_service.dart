@@ -88,7 +88,7 @@ List<RenamePlan> planRenames({
     // collision: it is a case-only rename of the file with itself, which
     // `File.rename` performs in place on every filesystem we ship on. The
     // fold below would otherwise report a clash, because `existingNames`
-    // (rename_coordinator.dart, `dir.listSync()`) seeds `taken` with the
+    // (rename_coordinator.dart, `dir.list()`) seeds `taken` with the
     // item's own basename -- so a rule that merely lower-cases would append
     // `-1` to every single file in the folder.
     //

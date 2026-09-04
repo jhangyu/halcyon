@@ -89,13 +89,13 @@ class RenameCoordinator {
 
       final fileModified = <String, DateTime>{};
       final existingNames = <String>{};
-      for (final entity in dir.listSync()) {
+      await for (final entity in dir.list()) {
         existingNames.add(p.basename(entity.path));
       }
       for (final item in items) {
         final file = item.bestFileToLoad;
         if (file == null) continue;
-        fileModified[item.id] = file.statSync().modified;
+        fileModified[item.id] = (await file.stat()).modified;
       }
 
       final plans = planRenames(
@@ -180,7 +180,7 @@ class RenameCoordinator {
     final dir = _dirOf();
     if (dir == null || _isRenaming) return;
 
-    final logExists = File(p.join(dir.path, kRenameLogName)).existsSync();
+    final logExists = await File(p.join(dir.path, kRenameLogName)).exists();
     if (!logExists) {
       _showStatus(const StatusMessage('沒有可還原的重新命名紀錄'));
       return;

@@ -36,6 +36,7 @@ class _RenameDialogState extends State<RenameDialog> {
   String _selectedLabel = RenameRule.presets.first.label;
   List<PhotoItem> _sample = const [];
   Map<String, ExifMetadata?> _sampleMeta = const {};
+  Map<String, DateTime> _fileModified = const {};
 
   @override
   void initState() {
@@ -76,10 +77,18 @@ class _RenameDialogState extends State<RenameDialog> {
     final items = [...state.items]..shuffle(Random());
     final sample = items.take(5).toList();
     final meta = await state.readMetadataFor(sample);
+    final modified = <String, DateTime>{};
+    for (final item in sample) {
+      final file = item.bestFileToLoad;
+      if (file == null) continue;
+      final stat = await file.stat();
+      modified[item.id] = stat.modified;
+    }
     if (!mounted) return;
     setState(() {
       _sample = sample;
       _sampleMeta = meta;
+      _fileModified = modified;
     });
   }
 
@@ -149,6 +158,7 @@ class _RenameDialogState extends State<RenameDialog> {
                       rule: _rule,
                       sample: _sample,
                       sampleMeta: _sampleMeta,
+                      fileModified: _fileModified,
                       onReroll: _reroll,
                     ),
                   ),
