@@ -15,7 +15,22 @@
 //
 // Usage: dart run tool/decode_worker_bench/width_sweep.dart <width> <file...>
 //
-// Prints one line per run to stdout: "width,sampleCount,wallMs".
+// Prints one summary line per run to stdout: "width,sampleCount,wallMs",
+// followed by a "COMPLETIONS:t1,t2,...,tN" line (offsets in ms from a single
+// batch-start instant, one per successfully decoded file, in completion
+// order) -- added for parallel-decode R3-T3 (ticket #15) so AC1's "the
+// completions list shows the staircase gone" can be checked mechanically
+// via spread = c_last - c_first, instead of eyeballed.
+//
+// Instrumentation constraints (see ticket #15 pre-registration addendum):
+//  - No changes to DngDecoderService / decodeOnWorker (the code under test).
+//  - No I/O inside the timed region: each worker's completion offset is
+//    buffered in memory (`completions`) and everything is printed only
+//    after `sw.stop()`, so printing itself cannot perturb the measured wall
+//    time.
+//  - All offsets share the single `sw` instance as their origin, so
+//    subtracting them is a direct, unambiguous spread.
+//
 // Headless: no dart:ui, no UI, no RSS measurement.
 import 'dart:io';
 
@@ -37,12 +52,15 @@ Future<void> main(List<String> args) async {
   final files = args.sublist(1);
 
   final sw = Stopwatch()..start();
+  final completions = <int>[];
   var next = 0;
   Future<void> worker() async {
     while (next < files.length) {
       final i = next++;
       try {
         await DngDecoderService().decodeOnWorker(files[i]);
+        // Buffer only -- no I/O here, so this cannot perturb the timed batch.
+        completions.add(sw.elapsedMilliseconds);
       } catch (e) {
         stderr.writeln('decode failed for ${files[i]}: $e');
       }
@@ -53,4 +71,6 @@ Future<void> main(List<String> args) async {
   sw.stop();
 
   stdout.writeln('$width,${files.length},${sw.elapsedMilliseconds}');
+  final sorted = List<int>.of(completions)..sort();
+  stdout.writeln('COMPLETIONS:${sorted.join(',')}');
 }
