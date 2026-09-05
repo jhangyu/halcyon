@@ -2509,9 +2509,42 @@ def verify_macos_dependency_closure(app_bundle):
        f"({len(visited)} librar{'y' if len(visited) == 1 else 'ies'} checked)")
 
 
+def refresh_macos_pods(layout):
+    """Re-run `pod install` when Libraries/ and the Pods project disagree.
+
+    ceyx.podspec declares `vendored_libraries = 'Libraries/*'` (ceyx 633aaa5)
+    precisely because the staged set differs per layout: ten files for a local
+    dev build whose decoder links Homebrew's webp dynamically, six for the
+    release/CI build that links libwebp statically. CocoaPods resolves that
+    glob ONCE, at pod-install time, and bakes the result into
+    macos/Pods/Pods.xcodeproj; neither the Podfile nor the podspec checksum
+    changes when the directory does, so `flutter build` silently reuses the
+    snapshot. Both directions of the mismatch are broken, which is why this
+    compares the two sets for EQUALITY rather than for missing entries:
+      - project has fewer files than staged -> the bundle ships an incomplete
+        dependency closure (Phase 3 rejects it);
+      - project has more files than staged -> the link fails outright with
+        "library 'sharpyuv.0' not found", the exact failure 633aaa5 fixed.
+    """
+    pods_proj = layout.halcyon / "macos" / "Pods" / "Pods.xcodeproj" / "project.pbxproj"
+    libs_dir = layout.decoder / NATIVE_SPECS["macos"]["dest"]
+    if not pods_proj.exists() or not libs_dir.is_dir():
+        return  # no Pods tree yet: flutter's own pod install resolves the glob
+    staged = {p.name for p in libs_dir.glob("*.dylib")}
+    referenced = set(re.findall(
+        r"macos/Libraries/([^\s;\"]+\.dylib)", pods_proj.read_text(errors="replace")))
+    if staged == referenced:
+        return
+    drift = ", ".join(sorted(staged ^ referenced))
+    step(f"Pods project disagrees with ceyx Libraries/ ({drift}) - re-running pod install")
+    run_checked("pod", ["install"], layout.halcyon / "macos", "pod install")
+
+
 def build_flutter(target, layout, mode, args, placed_native):
     phase(f"Phase 2: flutter build {target} ({mode})")
     run_checked("flutter", ["pub", "get"], layout.halcyon, "flutter pub get")
+    if target == "macos":
+        refresh_macos_pods(layout)
 
     build_commit = git_build_commit(layout.halcyon)
     step(f"build commit stamp: {build_commit}")
