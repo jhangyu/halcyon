@@ -26,21 +26,30 @@ import 'dart:io';
 
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart';
 
-Future<void> main(List<String> args) async {
-  if (args.length < 2) {
-    stderr.writeln(
-      'usage: dart run tool/decode_worker_bench/width_sweep_pool.dart '
-      '<width> <file...>',
-    );
-    exit(2);
-  }
-  final width = int.parse(args.first);
-  if (width < 1) {
-    stderr.writeln('ERROR: width must be >= 1, got $width');
-    exit(2);
-  }
-  final files = args.sublist(1);
+/// Result of one width sweep batch: total wall time plus each successfully
+/// decoded file's completion offset (ms from the batch's Stopwatch start,
+/// sorted ascending). Buffering/printing discipline lives in the caller;
+/// this function itself performs no I/O other than the decode calls.
+class PoolSweepResult {
+  PoolSweepResult(this.width, this.sampleCount, this.wallMs, this.completions);
+  final int width;
+  final int sampleCount;
+  final int wallMs;
+  final List<int> completions;
+}
 
+/// Runs `width` concurrent workers pulling from `files` through the
+/// PRODUCTION entry point `decodeDngFull`, which is what the running app
+/// actually calls (branches into `CeyxDecodePool.shared.decode()` when
+/// `kDecodePoolEnabled`). No changes to that function or to
+/// `CeyxDecodePool` -- timing is captured entirely in this harness.
+///
+/// Extracted as a standalone function (rather than only inline in `main`)
+/// so both a plain-Dart CLI entrypoint and a `flutter test` entrypoint can
+/// call the identical measured logic -- `decodeDngFull` requires the
+/// Flutter engine bindings that `dart run`/`dart compile exe` cannot
+/// provide, so this harness must run under `flutter test`.
+Future<PoolSweepResult> runPoolSweep(int width, List<String> files) async {
   // Setup, not a measured quantity: match how the app sets the pool width
   // via setHalcyonDecodePoolWidth from decodeLaneWidth at the user's stress
   // setting.
@@ -65,7 +74,26 @@ Future<void> main(List<String> args) async {
   await Future.wait(List.generate(width, (_) => worker()));
   sw.stop();
 
-  stdout.writeln('$width,${files.length},${sw.elapsedMilliseconds}');
   final sorted = List<int>.of(completions)..sort();
-  stdout.writeln('COMPLETIONS:${sorted.join(',')}');
+  return PoolSweepResult(width, files.length, sw.elapsedMilliseconds, sorted);
+}
+
+Future<void> main(List<String> args) async {
+  if (args.length < 2) {
+    stderr.writeln(
+      'usage: dart run tool/decode_worker_bench/width_sweep_pool.dart '
+      '<width> <file...>',
+    );
+    exit(2);
+  }
+  final width = int.parse(args.first);
+  if (width < 1) {
+    stderr.writeln('ERROR: width must be >= 1, got $width');
+    exit(2);
+  }
+  final files = args.sublist(1);
+
+  final result = await runPoolSweep(width, files);
+  stdout.writeln('${result.width},${result.sampleCount},${result.wallMs}');
+  stdout.writeln('COMPLETIONS:${result.completions.join(',')}');
 }
