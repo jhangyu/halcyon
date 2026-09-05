@@ -130,7 +130,12 @@ void main() {
   });
 
   tearDown(() async {
-    await PerfLog.flush();
+    // PerfLog.close() (not just flush()) releases the sink's OS file handle
+    // before we delete tmpDir -- on windows-latest, deleting a directory
+    // that still has an open file inside it throws PathAccessException
+    // (errno 32); POSIX permits it, which made this invisible on
+    // macOS/Linux CI legs. See PerfLog.close()'s doc comment.
+    await PerfLog.close();
     PerfLog.enabled = false;
     resetReencodeCounters();
     tmpDir.deleteSync(recursive: true);

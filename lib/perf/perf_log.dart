@@ -273,4 +273,24 @@ class PerfLog {
     await _sink?.flush();
     await stdout.flush();
   }
+
+  /// Closes the underlying file sink, releasing its OS file handle.
+  ///
+  /// [flush] alone never did this -- it only flushes buffered bytes and
+  /// cancels timers, leaving `_sink` open (by design: a live interactive
+  /// session calls [flush] periodically without wanting to lose its sink).
+  /// On Windows this open handle keeps the log file (and therefore its
+  /// parent directory) locked, so a test's `tearDown` that does
+  /// `await PerfLog.flush(); ...; tmpDir.deleteSync(recursive: true);`
+  /// throws `PathAccessException` (errno 32, "used by another process") --
+  /// POSIX (macOS/Linux) allows deleting a file/dir with an open handle, so
+  /// this was invisible outside CI's windows-latest runner. Callers that
+  /// need the file handle released (tests deleting their temp dir; a real
+  /// shutdown path) must call this in addition to [flush].
+  static Future<void> close() async {
+    await flush();
+    final sink = _sink;
+    _sink = null;
+    await sink?.close();
+  }
 }
