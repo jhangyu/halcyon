@@ -448,6 +448,21 @@ CEYX_FETCH_SPECS = {
     # Verified but NOT placed: plugin/android/src/main/jniLibs is a committed
     # ceyx tree this script is forbidden to overwrite. Covering it here keeps
     # the Android decoder inside the pin + lock cross-check.
+    #
+    # libheif.so / libde265.so (2026-09-05): this list named only the decoder
+    # from the day this entry was first written, but ceyx commit 3911cce
+    # ("feat(android): wire HEIF into the Android leg, multi-.so packaging")
+    # -- predating and unrelated to the 2026-09 parallel-decode campaign --
+    # already made the Android archive a 3-file set. That drift went
+    # undetected because nothing checked this list against the archive's
+    # actual contents until the loud unpinned-member guard in
+    # extract_ceyx_archive() below was added (same 2026-09-05 fix that
+    # caught the macOS webp-family gap); it is what surfaced this one too.
+    # No `atomic_group` here: that flag only changes an error-message hint
+    # in extract_ceyx_archive() ("this is an ATOMIC GROUP and must arrive
+    # complete") about placement failing partially - meaningless with
+    # `place: False`, since nothing here is ever placed into a live app
+    # bundle in the first place.
     "android": {
         "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
         "dest": None,
@@ -455,6 +470,8 @@ CEYX_FETCH_SPECS = {
         "members": [
             {"member": "libdng_decoder_native.so",
              "artifact": "libdng_decoder_native.so"},
+            {"member": "libheif.so", "artifact": "libheif.so"},
+            {"member": "libde265.so", "artifact": "libde265.so"},
         ],
     },
     # Third-party SDK dists. Their consumers are ceyx's own native build and its
@@ -1676,6 +1693,36 @@ def extract_ceyx_archive(archive_path, members, dest_dir, atomic_group=False,
                 + ", ".join(missing),
                 hints=["The upstream archive layout changed; CEYX_FETCH_SPECS "
                        "in this script must be updated deliberately.",
+                       f"Archive contains: {', '.join(sorted(names)[:20])}"],
+            )
+        # Loud unpinned-member guard (2026-09-05, R3-T1b/webp-fetch-gap
+        # incident): CEYX_FETCH_SPECS is a hand-maintained, fixed member
+        # list. A prior campaign build's macos-arm64 decoder gained a
+        # dynamic dependency on four webp-family dylibs that this list did
+        # not name; had that archive been fetched, the 4 extra dylibs would
+        # have been silently absent from the placed set with no error at
+        # all - the exact "6-of-10 files" failure mode this guard exists to
+        # convert into a hard stop. Any native-library member the archive
+        # carries but the spec does not name is refused here, rather than
+        # discovered later as a dlopen failure on a clean machine.
+        expected_names = {m["member"] for m in members}
+        native_exts = (".dylib", ".so", ".dll")
+        unpinned = sorted(
+            n for n in names
+            if n not in expected_names and n.lower().endswith(native_exts)
+        )
+        if unpinned:
+            fail(
+                f"{archive_path.name} carries native librar{'y' if len(unpinned) == 1 else 'ies'} "
+                f"not named in CEYX_FETCH_SPECS: {', '.join(unpinned)}",
+                hints=["The archive's own dependency closure grew (e.g. a new "
+                       "dynamically-linked third-party library) but this "
+                       "script's fixed member list was not updated to match - "
+                       "a partial, silently-incomplete fetch would otherwise "
+                       "ship a decoder missing part of its own runtime "
+                       "dependency closure.",
+                       "Add the missing member(s) to CEYX_FETCH_SPECS for "
+                       f"this platform, then re-run.",
                        f"Archive contains: {', '.join(sorted(names)[:20])}"],
             )
         for m in members:
