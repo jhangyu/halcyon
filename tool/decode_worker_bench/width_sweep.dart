@@ -4,14 +4,27 @@
 // lane width; it cannot -- that script is the cold/warm DngDecoderService
 // gate from spec-tier2-bias-and-persistent-decoder.md §B.5, and it has no
 // concept of a controller or a width. This file replaces it for the width
-// sweep only: it drives the SAME call path the app's DecodeLane bodies use
-// in production -- `DngDecoderService.decodeOnWorker`, bench.dart's
-// `throwaway` variant -- which spawns a fresh worker Isolate per call, so
-// concurrent calls genuinely run in parallel (unlike the synchronous
-// same-isolate `.decode()` the `warm` variant uses, which cannot overlap on
-// a single isolate). `width` concurrent async workers pull from a shared
-// queue and call `decodeOnWorker`, matching how `DecodeLane` admits up to
-// `width` task bodies at once.
+// sweep only: it drives `DngDecoderService.decodeOnWorker` directly (same as
+// bench.dart's `throwaway` variant) -- a fresh worker Isolate spawn plus a
+// fresh dylib load per call. `width` concurrent async workers pull from a
+// shared queue and call `decodeOnWorker`, matching how `DecodeLane` admits up
+// to `width` task bodies at once.
+//
+// CORRECTED 2026-09-05 (parallel-decode ticket #15): this file's original
+// header claimed the above IS "the SAME call path the app's DecodeLane
+// bodies use in production". That was true when written and stopped being
+// true when the resident decode pool landed (commit 0b08152): production now
+// calls `decodeDngFull` (lib/services/image_pipeline/dng_decode_service.dart)
+// which branches into `CeyxDecodePool.shared.decode()`, NOT
+// `DngDecoderService().decodeOnWorker` directly. Nobody updated this comment
+// when that landed, and a stale "drives the production path" claim survived
+// long enough to be picked as ticket #15's AC1 instrument before the
+// discrepancy was found. This file measures the LEGACY per-decode isolate
+// path, still real and still useful as a contrast case, but NOT what the
+// running app currently does. For a production-path measurement, see the
+// sibling `width_sweep_pool.dart` (calls `decodeDngFull`, requires
+// `flutter test` rather than `dart run`/`dart compile exe` because that
+// function transitively needs Flutter's dart:ui bindings).
 //
 // Usage: dart run tool/decode_worker_bench/width_sweep.dart <width> <file...>
 //
