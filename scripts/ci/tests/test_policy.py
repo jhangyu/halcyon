@@ -40,9 +40,17 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # 2026-09-03 (ROI refactor T1): refreshed to the tag v0.1.10 pin, which added
 # the macos-arm64 / macos-x86_64 entries when the macOS CI leg migrated off its
 # committed dylibs. The digest was recomputed from the file, never transcribed.
+#
+# 2026-09-05 (parallel-decode campaign release cut): refreshed to the tag
+# v0.1.14 pin (via `python3 scripts/build_apps.py --ceyx-release latest`,
+# reviewed and committed alongside this test update in the same commit as the
+# loud unpinned-member guard and the Android CEYX_FETCH_SPECS fix -- see that
+# commit's message for full provenance). Every archive/library sha256 in the
+# pin changed (genuine re-derivation across all platforms); recomputed from
+# the file with `shasum -a 256`, never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "d1c95d8d27985bd90888e2e89c6ce7ccc3ca294cb2fb12840396891a4e28ab38"
+    "3c631a35347b85deaebe429073a7bc55ba3127ff8385f044240e9769166eef1f"
 )
 
 
@@ -252,7 +260,19 @@ class TestPinFileUntouched(unittest.TestCase):
     def test_pin_file_untouched(self):
         if not PIN_FILE.is_file():
             self.fail(f"{PIN_FILE} is missing entirely")
-        actual = hashlib.sha256(PIN_FILE.read_bytes()).hexdigest()
+        # Line endings, not just PIN_FILE_SHA256_REVIEWED, must be normalized
+        # (2026-09-05): this repo has no .gitattributes forcing LF, and
+        # windows-latest runners checked this file out with CRLF line
+        # endings while macos-14/ubuntu-latest got LF -- same committed
+        # bytes, three different `git checkout`s, two different raw-byte
+        # hashes. Hashing raw bytes made this test PLATFORM-DEPENDENT, which
+        # defeats its own point (a single reviewed digest for the file's
+        # CONTENT). Normalizing CRLF -> LF before hashing makes the digest a
+        # property of the pin's actual content again, matching every other
+        # platform's checkout.
+        raw = PIN_FILE.read_bytes()
+        normalized = raw.replace(b"\r\n", b"\n")
+        actual = hashlib.sha256(normalized).hexdigest()
         self.assertEqual(
             actual,
             PIN_FILE_SHA256_REVIEWED,
