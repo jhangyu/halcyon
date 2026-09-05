@@ -2415,6 +2415,53 @@ def verify_macos_heif_rpaths(app_bundle):
        f"({', '.join(HEIF_RUNTIME_LIBS['macos'])})")
 
 
+def verify_macos_dependency_closure(app_bundle):
+    """Prove every @rpath dependency the bundled decoder (transitively) declares
+    is physically present in Frameworks/, derived from `otool -L` on the actual
+    binaries rather than a hand-maintained name list (R3-T1b: the webp-family
+    libraries Phase 13's native encoder added - libwebpmux/libwebpdemux/libwebp/
+    libsharpyuv - shipped in the decoder's load commands but were never added to
+    ceyx.podspec's vendored_libraries, so CocoaPods never embedded them and this
+    same Phase 3 step printed [ok] on a bundle that could not load the decoder
+    at all. A fixed name list cannot see a dependency added after the list was
+    written; walking the binary's own otool -L output can."""
+    frameworks = app_bundle / "Contents" / "Frameworks"
+    decoder = frameworks / "libdng_decoder_native.dylib"
+    if not decoder.exists():
+        fail(f"{decoder} not bundled - the dependency-closure check cannot run.")
+    visited = set()
+    missing = []
+    stack = [decoder]
+    while stack:
+        lib = stack.pop()
+        if lib in visited:
+            continue
+        visited.add(lib)
+        if not lib.exists():
+            continue
+        out = subprocess.run(["otool", "-L", str(lib)],
+                             capture_output=True, text=True, check=False).stdout
+        for line in out.splitlines():
+            line = line.strip()
+            if not line.startswith("@rpath/"):
+                continue
+            name = line.split()[0][len("@rpath/"):]
+            dep_path = frameworks / name
+            if dep_path == lib:
+                continue  # the binary's own install-name line, not a dependency
+            if not dep_path.exists():
+                missing.append(
+                    f"{lib.name} declares @rpath/{name} but {dep_path} is not bundled"
+                )
+            elif dep_path not in visited:
+                stack.append(dep_path)
+    if missing:
+        fail("the shipped macOS bundle's decoder dependency closure is incomplete.",
+             hints=missing)
+    ok(f"decoder dependency closure fully present in Frameworks/ "
+       f"({len(visited)} librar{'y' if len(visited) == 1 else 'ies'} checked)")
+
+
 def build_flutter(target, layout, mode, args, placed_native):
     phase(f"Phase 2: flutter build {target} ({mode})")
     run_checked("flutter", ["pub", "get"], layout.halcyon, "flutter pub get")
@@ -2450,6 +2497,7 @@ def build_flutter(target, layout, mode, args, placed_native):
     if target == "macos":
         verify_macos_slices(artifact, layout, args)
         verify_macos_heif_rpaths(artifact)
+        verify_macos_dependency_closure(artifact)
 
     if target == "windows":
         expect_dll = (layout.decoder / NATIVE_SPECS["windows"]["dest"] /
