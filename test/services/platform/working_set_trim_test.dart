@@ -58,8 +58,17 @@ void main() {
       reason: 'a second request inside the rate-limit window is suppressed',
     );
 
-    // trimNow() is the folder-switch trigger and deliberately ignores it.
-    expect(WorkingSetTrim.trimNow(), isFalse); // false: not Windows here
+    // trimNow() is the folder-switch trigger and deliberately ignores the
+    // rate limit above -- that is what debugTrimAttempts below proves. Its
+    // own return value is a different thing: whether the underlying
+    // platform call was reached AND reported success. Off Windows (and on
+    // Windows if kernel32 binding somehow failed) the call is a no-op and
+    // returns false; on a real Windows host `SetProcessWorkingSetSize`
+    // legitimately returns true, so the expectation must track
+    // `isSupported` rather than hard-coding the non-Windows answer (see
+    // TC-488's own `Platform.isWindows` carve-out for the same reason).
+    final trimResult = WorkingSetTrim.trimNow();
+    expect(trimResult, WorkingSetTrim.isSupported ? isTrue : isFalse);
     expect(WorkingSetTrim.debugTrimNowCalls, 1);
     expect(WorkingSetTrim.debugTrimAttempts, 2);
 
