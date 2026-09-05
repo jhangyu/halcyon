@@ -59,15 +59,40 @@ def _call(fake):
     return rc, buf.getvalue()
 
 
-class VersionParsingTestCase(unittest.TestCase):
-    def test_reads_semantic_version_without_build_number(self):
-        version = release_gate.read_pubspec_version(REPO_ROOT)
-        self.assertRegex(
-            version,
-            r"^[0-9]+\.[0-9]+\.[0-9]+$",
-            "the tag must be the semantic version alone: pubspec's `+<build>` "
-            "suffix is not part of a release tag",
+def _tag_for(version_line):
+    """release_tag() against a throwaway pubspec containing `version_line`."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "pubspec.yaml").write_text(
+            f"name: halcyon\n{version_line}\n", encoding="utf-8"
         )
+        return release_gate.release_tag(Path(tmp))
+
+
+class VersionToTagTestCase(unittest.TestCase):
+    """User ruling 2026-09-05: a FOURTH segment means "bug-fix-only, no
+    app-side functional change". `dart pub get` rejects a 4-segment version, so
+    that segment rides in pubspec's build-number slot and is promoted back into
+    the tag here. Only a bare integer carries that meaning."""
+
+    def test_integer_build_becomes_the_fourth_tag_segment(self):
+        self.assertEqual(_tag_for("version: 1.0.3+1"), "v1.0.3.1")
+        self.assertEqual(_tag_for("version: 1.0.3+4"), "v1.0.3.4")
+        self.assertEqual(_tag_for("version: 2.10.0+12"), "v2.10.0.12")
+
+    def test_no_build_suffix_keeps_the_three_segment_tag(self):
+        self.assertEqual(_tag_for("version: 1.0.3"), "v1.0.3")
+
+    def test_non_numeric_suffix_is_dropped_not_appended(self):
+        """`+rc1` is build metadata, not a bug-fix number — appending it would
+        mint a tag like v1.0.3.rc1. It must also NOT be mistaken for a missing
+        version line (the regex accepts it, release_tag drops it)."""
+        self.assertEqual(_tag_for("version: 1.0.3+rc1"), "v1.0.3")
+
+    def test_live_pubspec_parses(self):
+        version, _build = release_gate.read_pubspec_version(REPO_ROOT)
+        self.assertRegex(version, r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
     def test_missing_version_line_raises(self):
         import tempfile
@@ -95,9 +120,9 @@ class SkipPathTestCase(unittest.TestCase):
         fake = FakeRun([0])
         _call(fake)
         probe = fake.calls[0]
-        version = release_gate.read_pubspec_version(REPO_ROOT)
+        tag = release_gate.release_tag(REPO_ROOT)
         self.assertEqual(probe[:2], ["gh", "api"])
-        self.assertEqual(probe[2], f"repos/jhangyu/Halcyon/git/ref/tags/v{version}")
+        self.assertEqual(probe[2], f"repos/jhangyu/Halcyon/git/ref/tags/{tag}")
 
 
 class DispatchPathTestCase(unittest.TestCase):
@@ -109,9 +134,11 @@ class DispatchPathTestCase(unittest.TestCase):
         self.assertIn("AUTO-RELEASE-OK", out)
         self.assertEqual(len(fake.calls), 2)
         dispatch = fake.calls[1]
-        version = release_gate.read_pubspec_version(REPO_ROOT)
+        tag = release_gate.release_tag(REPO_ROOT)
         self.assertEqual(dispatch[:4], ["gh", "workflow", "run", "release.yml"])
-        self.assertIn(f"version=v{version}", dispatch)
+        # The dispatched version is the TAG, fourth segment included: the
+        # release must be published as v1.0.3.1, not as v1.0.3.
+        self.assertIn(f"version={tag}", dispatch)
         self.assertIn("publish=true", dispatch)
         self.assertIn("--ref", dispatch)
 

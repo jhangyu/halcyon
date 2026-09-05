@@ -31,24 +31,48 @@ from pathlib import Path
 
 from . import run
 
-# `version: 1.0.3+4` -> ("1.0.3", "4"). The build number after `+` is not part
-# of the tag: releases are named for the semantic version alone (v1.0.0..v1.0.3
-# on this repo), and two builds of the same version are the same release.
-VERSION_RE = re.compile(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\+([0-9]+))?\s*$")
+# `version: 1.0.3+1` -> ("1.0.3", "1"). The suffix is captured loosely (any
+# non-space run) rather than as digits-only: a non-numeric suffix must reach
+# `release_tag` and be DROPPED there, not silently fail to match this regex and
+# be reported as "pubspec has no version line".
+VERSION_RE = re.compile(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\+(\S+))?\s*$")
 
 RELEASE_WORKFLOW = "release.yml"
 
 
-def read_pubspec_version(repo_root: Path) -> str:
-    """Returns the semantic version string from pubspec.yaml (no `v`, no build
-    number). Raises ValueError if the file has no parseable `version:` line --
-    a loud failure, because silently defaulting would publish a wrong tag."""
+def read_pubspec_version(repo_root: Path):
+    """Returns ``(version, build)`` from pubspec.yaml -- ``build`` is None when
+    there is no ``+`` suffix. Raises ValueError if the file has no parseable
+    ``version:`` line: a loud failure, because silently defaulting would publish
+    a wrong tag."""
     pubspec = Path(repo_root, "pubspec.yaml")
     for line in pubspec.read_text(encoding="utf-8").splitlines():
         match = VERSION_RE.match(line)
         if match:
-            return match.group(1)
+            return match.group(1), match.group(2)
     raise ValueError(f"no `version: X.Y.Z` line found in {pubspec}")
+
+
+def release_tag(repo_root: Path) -> str:
+    """Maps pubspec's version onto the release tag (user ruling, 2026-09-05).
+
+    A fourth segment means "bug-fix-only release, no app-side functional
+    change" -- and pubspec CANNOT express it: `dart pub get` rejects a
+    4-segment version. So the fourth segment rides in pubspec's build-number
+    slot and is promoted back into the tag here:
+
+        version: 1.0.3+1  ->  v1.0.3.1     (bug-fix release #1 on top of 1.0.3)
+        version: 1.0.3    ->  v1.0.3       (a plain release, as before)
+        version: 1.0.3+rc ->  v1.0.3       (non-numeric suffix: not a segment)
+
+    The last case is why the suffix is dropped rather than appended blindly:
+    only a bare integer carries the bug-fix-number meaning; anything else is
+    build metadata that must not leak into a tag name.
+    """
+    version, build = read_pubspec_version(repo_root)
+    if build is not None and build.isdigit():
+        return f"v{version}.{build}"
+    return f"v{version}"
 
 
 def tag_exists(repo: str, tag: str) -> bool:
@@ -67,14 +91,15 @@ def auto_release(repo_root: Path, repo: str, ref: str = "main") -> int:
     non-zero only when something genuinely broke (unreadable pubspec, failed
     dispatch call), because a release decision must never redden a green CI run
     for a reason that is not a defect."""
-    version = read_pubspec_version(repo_root)
-    tag = f"v{version}"
+    version, build = read_pubspec_version(repo_root)
+    tag = release_tag(repo_root)
+    declared = version if build is None else f"{version}+{build}"
 
     if tag_exists(repo, tag):
         # Loud, greppable, and the ONLY output of the idempotent path: a second
         # green run on an unchanged version must skip visibly, not quietly.
         print(f"AUTO-RELEASE-SKIP: tag {tag} already exists on {repo} -- "
-              f"nothing to publish for pubspec version {version}")
+              f"nothing to publish for pubspec version {declared}")
         return 0
 
     print(f"AUTO-RELEASE-DISPATCH: tag {tag} absent on {repo}; "
