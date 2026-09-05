@@ -113,7 +113,38 @@ void bumpHalcyonDecodePoolGeneration() {
   CeyxDecodePool.shared.bumpGeneration();
 }
 
+/// Test seam for [halcyonDecodeWidthRecommendations]. When non-null it is used
+/// instead of the live pool, so widget tests can render the settings panel
+/// without spawning a decode worker or loading the dylib.
+@visibleForTesting
+List<int>? Function()? debugDecodeWidthRecommendationsOverride;
+
+/// R4 item 1 / ruling r-6. This machine's ADVISORY recommended decode widths
+/// for the 24 MP / 61 MP / 108 MP classes, or null when no decode worker has
+/// reported yet (or the pinned dylib predates the query).
+///
+/// FOR DISPLAY ONLY — nothing clamps the user's lane width against these.
+List<int>? halcyonDecodeWidthRecommendations() {
+  final override = debugDecodeWidthRecommendationsOverride;
+  if (override != null) return override();
+  return CeyxDecodePool.shared.nativeRecommendations;
+}
+
+/// R4 item 1: this same assignment now ALSO configures the ceyx native slot
+/// cap. `CeyxDecodePool.width` broadcasts the value to its workers, which call
+/// the native configure entry in this same process against the process-global
+/// slot pool. Before this the setting reached the Dart pool only, so a user
+/// asking for 8 lanes got 8 isolates contending for a hardcoded 4 native
+/// slots — the narrower number silently governed.
+///
+/// Ruling r-6: the user's value is pushed through unmodified. Nothing here
+/// clamps it against the machine's recommended width; that recommendation is
+/// displayed in settings and is advisory only.
 void setHalcyonDecodePoolWidth(int width) {
   _ensurePoolLogger();
   CeyxDecodePool.shared.width = width;
+  // Requested, not effective: the effective value arrives asynchronously as a
+  // worker ack and is logged by the pool logger installed above. Logging both
+  // is what makes a divergence visible instead of silent.
+  PerfLog.log('lane.native_slots|requested=$width');
 }

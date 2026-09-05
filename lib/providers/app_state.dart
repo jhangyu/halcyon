@@ -13,6 +13,10 @@ import '../models/supported_photo_formats.dart';
 import '../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/dng_decode_contract.dart';
+// R4 item 1: the advisory decode-width recommendations the settings dialog
+// displays. Read-only accessor; it carries no clamping authority.
+import '../services/image_pipeline/dng_decode_service.dart'
+    show halcyonDecodeWidthRecommendations;
 import '../services/image_pipeline/idle_publish_scheduler.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
@@ -499,6 +503,19 @@ class AppState extends ChangeNotifier {
 
   /// The largest width the user may set. Fixed on every platform (AD-044).
   int get maxDecodeLaneWidth => kMaxDecodeLaneWidth;
+
+  /// R4 item 1 / ruling r-6. This machine's ADVISORY recommended decode widths
+  /// for the 24 MP / 61 MP / 108 MP sensor-resolution classes, in that order,
+  /// or null when the native layer has not reported them yet (no decode worker
+  /// has booted) or cannot (the pinned dylib predates the query).
+  ///
+  /// FOR DISPLAY ONLY. [setDecodeLaneWidth] does not consult this, and no code
+  /// path may clamp the user's setting against it: the user's value reaches
+  /// both the Dart decode pool and the native slot pool unmodified. The
+  /// settings dialog shows these numbers so the choice is informed, not
+  /// constrained.
+  List<int>? get decodeWidthRecommendations =>
+      halcyonDecodeWidthRecommendations();
 
   int get exportJpegQuality => _exportJpegQuality;
 

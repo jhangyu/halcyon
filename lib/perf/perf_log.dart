@@ -226,7 +226,21 @@ class PerfLog {
     });
   }
 
+  /// Test-only observation seam.
+  ///
+  /// Consulted BEFORE the [enabled] gate below, and that placement is
+  /// load-bearing: `log()` returns immediately when the perf log has not been
+  /// initialised, which is the state every unit test runs in. A sink consulted
+  /// after the gate would observe nothing, making any assertion against it
+  /// vacuous (it would pass against an always-empty list).
+  ///
+  /// Assert on this rather than capturing `debugPrint`, which is process-wide
+  /// and order-dependent across the suite.
+  @visibleForTesting
+  static void Function(String line)? testSink;
+
   static void log(String s) {
+    testSink?.call(s);
     if (!enabled) return;
     // D3: tag every event with `iso=` -- a superset of the contract's
     // "decode/normalize/publish phase events" requirement (AC3), since all

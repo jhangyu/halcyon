@@ -84,11 +84,50 @@ class PerformanceMemoryTab extends StatelessWidget {
                       .read<AppState>()
                       .setDecodeLaneWidth(value.round()),
                 ),
+                _recommendations(t, state),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  /// R4 item 1 / ruling r-6: this machine's RECOMMENDED decode widths for three
+  /// sensor-resolution classes, so the user can judge their own setting.
+  ///
+  /// Deliberately advisory. The slider above is never clamped against these
+  /// numbers — the user's choice reaches the Dart pool and the native slot
+  /// pool unmodified. This block only tells them what their hardware suits.
+  ///
+  /// The figures come from the native layer via a decode-pool worker (the UI
+  /// isolate never opens the dylib), so they are absent until a worker has
+  /// reported, and absent permanently on a build whose pinned dylib predates
+  /// the query. Both cases render as a plain "unavailable" line rather than a
+  /// fabricated number.
+  Widget _recommendations(HalcyonTokens t, AppState state) {
+    final recs = state.decodeWidthRecommendations;
+    if (recs == null || recs.length < 3) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: settingsCaption(t, 'Recommended for this Mac: not yet measured'),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          settingsCaption(t, 'Recommended for this Mac'),
+          const SizedBox(height: 2),
+          settingsCaption(
+            t,
+            '24MP ${recs[0]}   ·   61MP ${recs[1]}   ·   108MP ${recs[2]}',
+          ),
+          const SizedBox(height: 2),
+          settingsCaption(t, 'Guidance only — your setting is always applied.'),
+        ],
+      ),
     );
   }
 
