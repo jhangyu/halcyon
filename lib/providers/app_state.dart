@@ -112,7 +112,13 @@ class AppState extends ChangeNotifier {
   /// genuinely must rebuild when the photo on screen gains its payload.
   final ValueNotifier<int> thumbnailsRevision = ValueNotifier<int>(0);
 
-  void _bumpThumbnails() => thumbnailsRevision.value++;
+  void _bumpThumbnails() {
+    // Same disposed-after-fire hazard as the preview path's notifyListeners
+    // guard above: a thumbnail-preload slot handed out before dispose() can
+    // still fire afterwards, and thumbnailsRevision is disposed in dispose().
+    if (_disposed) return;
+    thumbnailsRevision.value++;
+  }
 
   AppState({
     PhotoLibraryScanner? scanner,
@@ -1049,7 +1055,15 @@ class AppState extends ChangeNotifier {
     await _preloadController.preloadImages(
       items: _items,
       selectedItemId: selectedId,
-      notifyLoaded: notifyListeners,
+      // Guarded rather than a bare `notifyListeners` reference: preload work
+      // fans out through idle-scheduler slots and lane awaits, so a callback
+      // handed out before dispose() can still fire afterwards (observed on
+      // Windows CI as "A AppState was used after being disposed" from
+      // ImagePreloadController._flushPendingNotifies -- the controller has no
+      // way to know the notifier it was given has since been torn down).
+      notifyLoaded: () {
+        if (!_disposed) notifyListeners();
+      },
     );
   }
 
