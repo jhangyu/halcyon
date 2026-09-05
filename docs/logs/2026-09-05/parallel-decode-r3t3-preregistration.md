@@ -173,3 +173,48 @@ report and stop, not a measurement outcome.
 Addendum committed. Still no machine work started (no swap, no bench run).
 Awaiting explicit GO for the first arm from lead3-opus, gated on r3t2-haiku's
 suite re-run completing without overlap.
+
+## ADDENDUM 2 2026-09-05 (r3t3-sonnet) — production-path arm (ruling: option c)
+
+The legacy-path A/B (Amendment 1+2 above) is COMPLETE and its result stands
+as recorded evidence — not discarded, not superseded, kept as the contrast
+case. It measured `DngDecoderService.decodeOnWorker` directly, which the
+plan's harness comment claimed was "the SAME call path the app's DecodeLane
+bodies use in production" — that claim went stale when the resident decode
+pool landed (`0b08152`) and was never updated. Confirmed by reading source:
+`width_sweep.dart` never calls `decodeDngFull` or touches `CeyxDecodePool`.
+
+This addendum adds ONE further arm, run once, no iterations: the PRODUCTION
+path, via a new sibling file `tool/decode_worker_bench/width_sweep_pool.dart`
+(not editing the frozen `width_sweep.dart`), calling
+`decodeDngFull(path)` (`lib/services/image_pipeline/dng_decode_service.dart:52`)
+instead of `DngDecoderService().decodeOnWorker`. That function contains the
+`kDecodePoolEnabled` branch into `CeyxDecodePool.shared.decode()`, which is
+what the running app actually uses.
+
+**Frozen, unchanged from Amendment 1+2:** ratio threshold <2.5x; staircase
+threshold `spread > 1.5S`; interleaved A,B,A,B,A,B with A-first-per-pair;
+one discarded warmup; `S` from this same new binary at width=1 per arm;
+`cp` never `mv`; sha256 + dyld UUID verified after every swap; distinct
+final-state check (B decoder + four webp libraries present); all four
+backups re-verified at the end.
+
+**New for this arm only:** `CeyxDecodePool.shared.width` set to 5 before
+the batch (matching how the app sets it via `setHalcyonDecodePoolWidth`
+from `decodeLaneWidth` at the user's stress setting) — this is setup, not
+an expected result. The observed worker count from `[ceyx-pool]` log lines
+is reported as OBSERVED, not assumed to be 5.
+
+**Expected direction** (stated before any number exists): if the campaign's
+native concurrency work is effective, the production-pool arm should show a
+materially better ratio and shape than the legacy-path arm already measured
+(A=4.888/STAIRCASE, B=4.622/STAIRCASE), because the pool path removes the
+per-decode isolate-spawn-and-dylib-load cost that the legacy arm pays on
+every call in both A and B — that fixed cost is a plausible explanation for
+why the legacy arm could not discriminate between the two native dylibs.
+**Failure**, pre-committed: if the production-pool B arm's ratio is still
+>=2.5x or its spread is still >1.5S, that is reported as a FAIL exactly as
+written, with no threshold adjustment and no proposal to alter contract
+scope (standing directive 1).
+
+One run only, per the ruling — no re-run for a disappointing number.
