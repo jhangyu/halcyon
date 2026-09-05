@@ -108,3 +108,36 @@ jobs:
           name: ci-logs-build-macos
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
+
+  # Auto-release gate (2026-09-05 contract, user ruling option 1): the LAST job,
+  # gated on every other job being green and on this being a real push to main
+  # (never a pull_request, where secrets/permissions differ and no release is
+  # wanted). It reads pubspec.yaml's version and, if v<X.Y.Z> has no tag yet,
+  # dispatches release.yml for it; if the tag exists it logs AUTO-RELEASE-SKIP
+  # and exits 0. `needs` makes "green" mechanical: a red verify leg on ANY OS
+  # skips this job entirely, so a broken build can never publish a release.
+  #
+  # No ceyx checkout here on purpose — this job builds nothing (scripts/ci.py
+  # exempts auto-release from the sibling-checkout requirement).
+  #
+  # `actions: write` is what lets GITHUB_TOKEN start release.yml. A tag PUSHED
+  # with GITHUB_TOKEN would NOT trigger release.yml's `on: push: tags` (GitHub
+  # suppresses workflow events from that token to prevent recursion); a
+  # workflow_dispatch through the API is the documented path that does work.
+  auto-release:
+    name: Auto-release gate
+    needs: [verify, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Halcyon
+
+      - name: ci.py auto-release (publish pubspec version if its tag is absent)
+        run: python3 scripts/ci.py auto-release --repo ${{ github.repository }} --ref main

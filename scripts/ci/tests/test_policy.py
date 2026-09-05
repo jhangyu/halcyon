@@ -252,6 +252,45 @@ class TestNoBashShellInWorkflows(unittest.TestCase):
         )
 
 
+class TestAutoReleaseWiring(unittest.TestCase):
+    """2026-09-05 auto-release contract, restated mechanically.
+
+    Each assertion here corresponds to a way the chain silently produces
+    NOTHING rather than failing: a gate that doesn't depend on the build would
+    publish red code; a gate that runs on pull_request would publish from a fork
+    context; a publish step without an explicit `make_latest` leaves the Latest
+    marker where it was (the 2026-09-01 incident, hand-corrected twice); a
+    publish step without `tag_name` cannot know its tag on the dispatch path,
+    where github.ref is refs/heads/main.
+    """
+
+    def _text(self, name):
+        path = WORKFLOWS_DIR / name
+        if not path.is_file():
+            self.skipTest(f"{path} not present")
+        return path.read_text(encoding="utf-8")
+
+    def test_ci_has_auto_release_job_gated_on_all_other_jobs(self):
+        text = self._text("ci.yml")
+        self.assertIn("auto-release:", text, "ci.yml has no auto-release gate job")
+        self.assertIn("needs: [verify, build]", text,
+                      "the gate must depend on every other job, or a red build could publish")
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", text,
+                      "the gate must run only on real pushes to main")
+        self.assertIn("actions: write", text,
+                      "dispatching release.yml under GITHUB_TOKEN needs actions: write")
+        self.assertIn("python3 scripts/ci.py auto-release", text)
+
+    def test_release_publish_step_marks_latest_explicitly(self):
+        text = self._text("release.yml")
+        self.assertIn("make_latest: 'true'", text,
+                      "GitHub does not move the Latest marker automatically (2026-09-01)")
+        self.assertIn("tag_name: ${{ env.HALCYON_VERSION }}", text,
+                      "the dispatch path has no tag in github.ref; tag_name must be explicit")
+        self.assertIn("inputs.publish", text,
+                      "release.yml must expose a real publish path for the gate")
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6

@@ -27,15 +27,28 @@
 # cancelled — a leg still fails when it fails. Don't "clean up" one into the other.
 name: Release
 
+# Two entry points, both real:
+#   * `push: tags: v*`  — a human pushing a tag, unchanged behaviour.
+#   * `workflow_dispatch` — the auto-release gate in ci.yml (and manual use).
+#     `publish` decides which kind of dispatch it is: false (the default, so a
+#     hand-triggered run stays harmless) builds/packages/preflights and stops,
+#     preserving the old dry-run capability; true additionally publishes. The
+#     gate always passes publish=true. A tag pushed by GITHUB_TOKEN would NOT
+#     trigger the push path above — that is exactly why the gate dispatches.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version string used for a dry-run (no tag, no publish)'
+        description: 'Version tag, e.g. v1.0.4 (dry-run default publishes nothing)'
         required: false
         default: 'v0.0.0-dryrun'
+      publish:
+        description: 'Publish a GitHub Release for `version` and mark it Latest'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -101,9 +114,21 @@ jobs:
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
 
+      # `make_latest: true` is NOT redundant (2026-09-01, this machine): GitHub
+      # does not automatically move the Latest marker, and two releases had to be
+      # hand-corrected afterwards. State it explicitly and it stays stated.
+      #
+      # tag_name/target_commitish are required for the dispatch path: on a
+      # workflow_dispatch, github.ref is refs/heads/main, so the tag cannot be
+      # inferred from the ref. The action creates refs/tags/<version> at this
+      # run's commit — meaning the tag only ever comes into existence once the
+      # build for it has succeeded, and a failed release leaves no dangling tag.
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish }}
         with:
+          tag_name: ${{ env.HALCYON_VERSION }}
+          target_commitish: ${{ github.sha }}
+          make_latest: 'true'
           files: Halcyon/${{ matrix.archive }}${{ env.HALCYON_VERSION }}.*
           fail_on_unmatched_files: true

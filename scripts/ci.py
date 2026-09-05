@@ -19,6 +19,7 @@ Frozen CLI surface (workflows depend on these exact strings):
     python3 scripts/ci.py assert-capabilities --target T
     python3 scripts/ci.py package             --target T --version V
     python3 scripts/ci.py release-preflight   --version V --target T [--target T2 ...]
+    python3 scripts/ci.py auto-release        --repo OWNER/NAME [--ref main]
     python3 scripts/ci.py --print-plan        --target T
 
 If a function in this file grows past 15 lines it belongs in phases.py.
@@ -78,6 +79,10 @@ def build_parser():
     rp = sub.add_parser("release-preflight", help="assert every expected archive exists")
     rp.add_argument("--version", required=True)
     rp.add_argument("--target", action="append", required=True, dest="targets")
+    ar = sub.add_parser("auto-release",
+                        help="publish a release for pubspec's version if its tag is absent")
+    ar.add_argument("--repo", required=True, help="OWNER/NAME")
+    ar.add_argument("--ref", default="main", help="branch the release workflow runs from")
     return p
 
 
@@ -104,6 +109,9 @@ def dispatch(args):
         return assertions.run_suite(REPO_ROOT, args.target)
     if args.command == "package":
         return phases.package(REPO_ROOT, args.target, args.version)
+    if args.command == "auto-release":
+        import ci.release_gate as release_gate
+        return release_gate.auto_release(REPO_ROOT, args.repo, args.ref)
     return phases.release_preflight(REPO_ROOT, args.version, args.targets)
 
 
@@ -120,7 +128,9 @@ def main(argv=None):
     # selftest reads only this repo's own files: it must NOT require a sibling
     # ceyx checkout, so a developer can run it on a bare clone. The interpreter
     # refusal is likewise irrelevant here — nothing is executed as a child.
-    if args.command == "selftest":
+    # auto-release is exempt for the same reason: it reads pubspec.yaml and talks
+    # to the GitHub API, builds nothing, so its job needs no ceyx checkout at all.
+    if args.command in ("selftest", "auto-release"):
         return dispatch(args)
     rc = check_python_interpreter() or check_ceyx_sibling(REPO_ROOT)
     if rc:
