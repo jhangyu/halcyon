@@ -45,6 +45,10 @@ typedef PublishPacer =
       required bool Function() stillValid,
       required void Function() publish,
       void Function()? discard,
+      // R3-WP8 (plan Step 9.5): mirrors `PublicationPacer.submit`'s now-
+      // required `byteCost`, so the production tearoff binds without a
+      // wrapper.
+      required int byteCost,
     });
 
 /// The default binding: publish immediately when still valid, otherwise
@@ -58,6 +62,7 @@ void immediatePublishPacer({
   required bool Function() stillValid,
   required void Function() publish,
   void Function()? discard,
+  required int byteCost,
 }) {
   if (stillValid()) {
     publish();
@@ -233,6 +238,10 @@ class TierTwoScheduler {
       exempt: exempt,
       stillValid: () =>
           _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
+      // R3-WP8 (plan Step 9.4): `image.width * image.height * 4`, NOT
+      // `rgba.length` -- WP4 empties `rgba` on the rotated path, which would
+      // charge 0 for exactly the most expensive publications.
+      byteCost: image.width * image.height * 4,
       publish: () {
         if (identical(_pendingFullResPublish[id], payload)) {
           _pendingFullResPublish.remove(id);
@@ -282,6 +291,10 @@ class TierTwoScheduler {
       exempt: exempt,
       stillValid: () =>
           _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
+      // R3-WP8 (plan Step 9.4): no `ui.Image` on this path -- it publishes an
+      // `ImageProvider` over already-retained payload bytes, so the cost is
+      // the payload's own byteCost.
+      byteCost: payload.byteCost,
       publish: () {
         if (identical(_pendingFullResPublish[id], payload)) {
           _pendingFullResPublish.remove(id);

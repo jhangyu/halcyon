@@ -137,6 +137,7 @@ void main() {
           PublicationPacer(scheduleFrameCallback: frames.arm, perFrame: 1);
       for (final id in ['a', 'b', 'c']) {
         pacer.submit(
+        byteCost: 0,
           id: id,
           rank: 1,
           exempt: false,
@@ -158,6 +159,7 @@ void main() {
       final published = <String>[];
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
       pacer.submit(
+        byteCost: 0,
         id: 'sel',
         rank: 0,
         exempt: true,
@@ -177,6 +179,7 @@ void main() {
       var discarded = 0;
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
       pacer.submit(
+        byteCost: 0,
         id: 'a',
         rank: 1,
         exempt: false,
@@ -201,6 +204,7 @@ void main() {
       );
       for (final entry in [('near', 1), ('far', 5), ('mid', 3)]) {
         pacer.submit(
+        byteCost: 0,
           id: entry.$1,
           rank: entry.$2,
           exempt: false,
@@ -219,6 +223,7 @@ void main() {
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
       for (final entry in [('far', 9), ('near', 1), ('mid', 4)]) {
         pacer.submit(
+        byteCost: 0,
           id: entry.$1,
           rank: entry.$2,
           exempt: false,
@@ -238,6 +243,7 @@ void main() {
       final published = <int>[];
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
       pacer.submit(
+        byteCost: 0,
         id: 'a',
         rank: 5,
         exempt: false,
@@ -246,6 +252,7 @@ void main() {
         discard: () => dropped.add('first'),
       );
       pacer.submit(
+        byteCost: 0,
         id: 'a',
         rank: 1,
         exempt: false,
@@ -279,6 +286,7 @@ void main() {
         final pacer = PublicationPacer();
         var published = false;
         pacer.submit(
+        byteCost: 0,
           id: 'idle',
           rank: 1,
           exempt: false,
@@ -307,6 +315,7 @@ void main() {
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
       for (final id in ['a', 'b']) {
         pacer.submit(
+        byteCost: 0,
           id: id,
           rank: 1,
           exempt: false,
@@ -331,6 +340,7 @@ void main() {
       );
 
       pacer.submit(
+        byteCost: 0,
         id: 'other',
         rank: 3,
         exempt: true,
@@ -357,6 +367,7 @@ void main() {
       );
 
       pacer.submit(
+        byteCost: 0,
         id: 'sel',
         rank: 0,
         exempt: true,
@@ -377,6 +388,7 @@ void main() {
       final pacer = PublicationPacer(scheduleFrameCallback: frames.arm);
 
       pacer.submit(
+        byteCost: 0,
         id: 'anything',
         rank: 9,
         exempt: true,

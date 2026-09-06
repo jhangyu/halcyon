@@ -20,16 +20,43 @@ class PublicationPacer {
   PublicationPacer({
     FrameHook? scheduleFrameCallback,
     int perFrame = 1,
+    // R3-WP8: the byte-quota half of the per-frame budget, alongside the
+    // pre-existing count budget ([perFrame]). Defaults effectively unbounded
+    // so every existing construction (and every pre-existing test) keeps its
+    // count-only behaviour byte for byte.
+    int perFrameBytes = 1 << 62,
     int maxQueued = 4,
     bool Function(String id)? isSelected,
   })  : _frameHook = scheduleFrameCallback,
         _perFrame = perFrame < 1 ? 1 : perFrame,
+        _perFrameBytes = perFrameBytes < 1 ? 1 : perFrameBytes,
         _maxQueued = maxQueued < 1 ? 1 : maxQueued,
         _isSelected = isSelected;
 
   final FrameHook? _frameHook;
   final int _perFrame;
+  final int _perFrameBytes;
   final int _maxQueued;
+
+  /// Bytes actually published by the most recently completed [_drain] call.
+  /// Exists purely for the quota test (TC-1056): the budget itself is
+  /// consumed internally by [_drain] and never otherwise observable.
+  @visibleForTesting
+  int debugBytesPublishedLastFrame = 0;
+
+  /// Number of [_drain] calls that published at least one entry. Together
+  /// with [debugMaxBatchSize] this is what a batched-drain test asserts
+  /// against (AC9.5): several entries queued in the SAME turn (before the
+  /// frame hook fires) drain in ONE `_drain` call, because [_arm] is
+  /// idempotent while `_armed` is true -- multiple `submit` calls in one turn
+  /// collapse onto the single scheduled drain rather than each requesting its
+  /// own.
+  @visibleForTesting
+  int debugBatchesDrained = 0;
+
+  /// The largest number of entries a single [_drain] call has published.
+  @visibleForTesting
+  int debugMaxBatchSize = 0;
 
   /// Enforces the [submit] `exempt` claim (contract deliverable 3): only the
   /// id this predicate accepts may publish synchronously. Null means "trust
@@ -76,6 +103,13 @@ class PublicationPacer {
     required bool Function() stillValid,
     required void Function() publish,
     void Function()? discard,
+    // R3-WP8: REQUIRED (plan Step 9.5), not defaulted -- every call site is
+    // fixed explicitly rather than silently opting out of the byte budget.
+    // Charged against [_perFrameBytes] at drain time, the same way [rank]
+    // charges against [_perFrame]'s count. A caller with no separately
+    // measurable bytes (e.g. a test with no byte budget in play) passes 0,
+    // which is a no-op against the byte side of the quota.
+    required int byteCost,
   }) {
     // ENFORCED, not trusted. `exempt` used to be a caller assertion, and the
     // only thing keeping the exempt set down to one item was one `==` at the
@@ -102,6 +136,7 @@ class PublicationPacer {
       stillValid: stillValid,
       publish: publish,
       discard: discard,
+      byteCost: byteCost,
     );
     _enforceCapacity();
     _arm();
@@ -156,17 +191,34 @@ class PublicationPacer {
   void _drain() {
     _armed = false;
     var budget = _perFrame;
+    var byteBudget = _perFrameBytes;
+    var bytesThisFrame = 0;
+    var batch = 0;
     while (budget > 0 && _queued.isNotEmpty) {
       final id = _nearestId()!;
-      final entry = _queued.remove(id)!;
+      final entry = _queued[id]!;
+      // A single entry larger than the whole quota publishes anyway when it
+      // is FIRST this frame -- the same "one oversized item must make
+      // progress" rule as InflightBytesBudget's empty-budget clause, and for
+      // the same reason: a ~97MB upload would otherwise never publish at all.
+      if (bytesThisFrame > 0 && entry.byteCost > byteBudget) break;
+      _queued.remove(id);
       if (!entry.stillValid()) {
-        // A dropped stale entry does NOT consume the frame's budget: it did no
+        // A dropped stale entry does NOT consume either budget: it did no
         // work, so charging for it would starve a valid entry behind it.
         entry.discard?.call();
         continue;
       }
       entry.publish();
       budget--;
+      byteBudget -= entry.byteCost;
+      bytesThisFrame += entry.byteCost;
+      batch++;
+    }
+    debugBytesPublishedLastFrame = bytesThisFrame;
+    if (batch > 0) {
+      debugBatchesDrained++;
+      if (batch > debugMaxBatchSize) debugMaxBatchSize = batch;
     }
     _arm();
   }
@@ -193,6 +245,7 @@ class _Entry {
     required this.stillValid,
     required this.publish,
     required this.discard,
+    required this.byteCost,
   });
 
   final int rank;
@@ -200,4 +253,5 @@ class _Entry {
   final bool Function() stillValid;
   final void Function() publish;
   final void Function()? discard;
+  final int byteCost;
 }

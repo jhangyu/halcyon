@@ -163,6 +163,9 @@ class _FakePacerDedupe {
     required bool Function() stillValid,
     required void Function() publish,
     void Function()? discard,
+    // R3-WP8: mechanical addition to satisfy PublishPacer's now-required
+    // param; this fake does not otherwise use it.
+    required int byteCost,
   }) {
     submissions.add((id: id, exempt: exempt));
     if (exempt) {
@@ -213,6 +216,9 @@ class _FakePacerPacing {
     required bool Function() stillValid,
     required void Function() publish,
     void Function()? discard,
+    // R3-WP8: mechanical addition to satisfy PublishPacer's now-required
+    // param; this fake does not otherwise use it.
+    required int byteCost,
   }) {
     submissions.add((id: id, exempt: exempt));
     if (exempt) {
