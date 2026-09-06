@@ -48,9 +48,20 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # commit's message for full provenance). Every archive/library sha256 in the
 # pin changed (genuine re-derivation across all platforms); recomputed from
 # the file with `shasum -a 256`, never transcribed by hand.
+#
+# 2026-09-06 (parallel-decode campaign, ceyx v0.1.15 release): refreshed to the
+# tag v0.1.15 pin (via `python3 scripts/build_apps.py --ceyx-release v0.1.15`,
+# an explicit tag rather than 'latest'). Every archive digest changed: a tag
+# push implicitly rebuilds the three Windows third-party dists too, so the
+# heif/libjxl/libwebp dist archives moved as well as the five decoder entries
+# -- a wider diff than the release-prep notes predicted, and a real
+# re-derivation rather than a relabel. Both macOS decoder UUIDs changed
+# (arm64 EBFE23E9 -> C1B5E36C, x86_64 76615796 -> 25CAA76D). Recomputed with
+# the SAME CRLF-normalizing method test_pin_file_untouched itself uses (see
+# that test's body), never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "3c631a35347b85deaebe429073a7bc55ba3127ff8385f044240e9769166eef1f"
+    "3d017c061542cd68c13cbb794874ac27eca69cfcad357c97a70a378664f02311"
 )
 
 
