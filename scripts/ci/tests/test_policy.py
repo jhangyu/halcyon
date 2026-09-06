@@ -59,9 +59,20 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # (arm64 EBFE23E9 -> C1B5E36C, x86_64 76615796 -> 25CAA76D). Recomputed with
 # the SAME CRLF-normalizing method test_pin_file_untouched itself uses (see
 # that test's body), never transcribed by hand.
+#
+# 2026-09-06 (gc-remediation-r5 WP9, ceyx v0.1.16 release; PR #4): refreshed to
+# the tag v0.1.16 pin -- tag plus all 9 archive digests re-derived, written by
+# `python3 scripts/build_apps.py --ceyx-release latest` and checked by
+# `--ceyx-release verify` (9/9 entries re-downloaded and re-extracted). The
+# artifacts.lock digest moved too (3e8dd8e6 -> 91c66ad0), and the decoder
+# member changed in all five decoder entries. This guard fired exactly as
+# designed on PR #4 -- it is the ledger entry that moves, never the test.
+# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
+# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
+# transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "3d017c061542cd68c13cbb794874ac27eca69cfcad357c97a70a378664f02311"
+    "37532d6963e5bdaab39f89dabb02bd3438ea2c3a98dcca09e5216e1a556dff7b"
 )
 
 
