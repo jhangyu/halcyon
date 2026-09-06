@@ -58,7 +58,7 @@ class PublicationPacer {
   ///
   /// [exempt] publishes SYNCHRONOUSLY, in this turn: the item the user is
   /// looking at must never wait a frame for its own pixels (the same rationale
-  /// as `kFullResPriorityBase`'s "blank slots the user can SEE go first").
+  /// as the full-res band's "blank slots the user can SEE go first").
   ///
   /// [stillValid] is the load-bearing check and is evaluated at DRAIN time, not
   /// here (G-023): between submit and drain the payload may have been replaced

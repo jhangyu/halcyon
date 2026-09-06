@@ -684,19 +684,22 @@ class ImagePreloadController {
     if (items.isEmpty) return;
 
     // Snapshot. `items` belongs to the CALLER (AppState hands us its live
-    // photo list), this method awaits several times, and a folder reload
-    // clears that list in between -- after which `items.length - 1` is -1 and
-    // the window clamp below throws ArgumentError from inside an async gap.
+    // photo list), and a folder reload clears that list -- after which
+    // `items.length - 1` is -1 and the window clamp below throws
+    // ArgumentError.
     //
-    // The probe-first change made this reachable on the ordinary path by
-    // adding an await before the clamp, but the aliasing was always the bug:
-    // indices computed from a list that another object may mutate are only
-    // ever accidentally correct.
+    // Since Phase 3 this method itself no longer awaits, so the clamp cannot
+    // be reached across an async gap in THIS frame; the snapshot still stands
+    // because the per-slot chains it launches ([_issueWindowItem]) hold this
+    // list across their own awaits. The aliasing was always the bug: indices
+    // computed from a list that another object may mutate are only ever
+    // accidentally correct.
     items = List<PhotoItem>.of(items);
 
     // This call's generation. Every later navigation event -- and every folder
-    // reload, via [reset] -- supersedes it, so the two awaits below re-check
-    // this before acting on a window that may already be history.
+    // reload, via [reset] -- supersedes it, so the per-slot chain launched
+    // below re-checks it after its probe, before acting on a window that may
+    // already be history.
     final generation = ++_previewGeneration;
 
     final currentIndex = items.indexWhere((item) => item.id == selectedItemId);

@@ -507,10 +507,16 @@ class SidebarThumbnailController {
         //
         // PHASE 4 note: this comparison still separates exactly the two cases
         // it always did, on the new band table. The lane key here is
-        // (payload, id), and the ONLY producers of that key are navigation
-        // (P1/P2, < 2000) and the sidebar (P3/P4, >= 3000); full-res work uses
-        // a different key entirely, so it can never be the pending entry this
-        // reads. Getting this wrong re-opens G-027 in the silent direction --
+        // (payload, id). THREE producers write that key -- the controller's
+        // navigation pass, the tier-2 scheduler's catch-up sweep, and this
+        // sidebar -- but the first two both enqueue in the NAVIGATION bands
+        // (P1/P2, < 2000) via `navigationPriorityFor`, so from this
+        // predicate's point of view they are one case: "not the sidebar".
+        // (An earlier revision of this comment claimed navigation was the
+        // only other producer; the tier-2 catch-up path was missed by the
+        // Phase 4 rebase and is fixed in the same commit as this correction.)
+        // Full-res upgrades use a different key entirely, so they can never
+        // be the pending entry this reads. Getting this wrong re-opens G-027 in the silent direction --
         // demoting the item the user is looking at -- which is why both
         // directions are asserted by test rather than argued here.
         //

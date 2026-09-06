@@ -464,7 +464,8 @@ class TierTwoScheduler {
           // Collected rather than enqueued here, so the lane order is the one
           // the user ruled on (open question 4): payload production -- the
           // blank slots the user can SEE -- goes in first, then upgrades
-          // near-to-far. [kFullResPriorityBase] is what makes that ordering
+          // near-to-far. The full-res BAND (lane_priority.dart) is what makes
+          // that ordering
           // hold even against a payload task queued after this loop ran.
           pendingUpgrades.add((
             item: item,
@@ -515,7 +516,19 @@ class TierTwoScheduler {
   }) {
     _lane.enqueue(
       (LaneTaskKind.payload, item.id),
-      priority: laneRankFor(distance),
+      // THE NAVIGATION BAND, not a raw rank. This enqueue shares the
+      // `(payload, id)` key space with the controller's own production, and
+      // DecodeLane RE-RANKS a pending key on re-enqueue -- so handing it a
+      // bare 0..N rank here would silently pull whichever slots this sweep
+      // touches (the tier-2 window, -1..+3) below every plain navigation slot
+      // sitting at 1000+. Concretely: the -2 slot (1004) would lose to +3
+      // (5), inverting the 2026-08-26 start-order ruling.
+      //
+      // Before Phase 4 this site and `_enqueueSerialLoad` both used
+      // `laneRankFor`, so they agreed by accident; Phase 4 rebased that one
+      // and missed this one. TC-984 is the regression pin, and it is the only
+      // test that mixes the two producers.
+      priority: navigationPriorityFor(distance),
       body: () => _runLoadAndChainTierTwo(item, distance, notifyLoaded),
     );
   }
@@ -652,7 +665,7 @@ class TierTwoScheduler {
       // of calling `publishFullRes` directly. `exempt` mirrors the tier-1
       // rule ([isSelectedExempt]) -- the item the user is looking at must not
       // wait a frame for its own full-resolution pixels, the same rationale
-      // [kFullResPriorityBase] already applies to decode ORDER; this applies
+      // The full-res band already applies to decode ORDER; this applies
       // it to publish TIMING too. [_publishOrDiscard] tracks the claim in
       // [_pendingFullResPublish] so a queued (not yet drained) publish still
       // blocks a redundant decode, and its `stillValid` re-checks at DRAIN

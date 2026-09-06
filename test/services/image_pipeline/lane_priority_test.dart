@@ -451,4 +451,86 @@ void main() {
       },
     );
   });
+
+  // ROUND B REVIEW BLOCKER (fix cycle 1). The Phase 4 rebase moved three
+  // producers onto the band table and missed a FOURTH: TierTwoScheduler's
+  // catch-up sweep also enqueues the `(payload, id)` key, and it was still
+  // handing the lane a bare `laneRankFor(distance)` (0..N).
+  //
+  // That is not a cosmetic inconsistency. DecodeLane RE-RANKS a pending key on
+  // re-enqueue, so the sweep pulled the slots it touches (the tier-2 window,
+  // -1..+3) down to 0..N while the plain navigation slots stayed at 1000+ --
+  // silently inverting the 2026-08-26 start-order ruling. The suite was green
+  // over it because no test mixed the two producers. This one does.
+  group('TC-984 merged producer order (tier-2 catch-up + navigation)', () {
+    test(
+      'the tier-2 catch-up sweep does not demote navigation slots below it',
+      () async {
+        final gate = Completer<void>();
+        final controller = ImagePreloadController(
+          imageLoader: _rawLoader,
+          dngDecoder: (path) async {
+            // Gated forever: every window slot stays PENDING, so the merged
+            // pending order is fully observable.
+            await gate.future;
+            return _tiny();
+          },
+          payloadEncoder: null,
+          decodeLaneWidth: 1,
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(800, 600);
+        final items = photoItems(40, extension: 'arw');
+
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[10].id,
+          notifyLoaded: () {},
+        );
+
+        // Past the tier-2 debounce (250ms), so the catch-up sweep has run and
+        // re-enqueued the -1..+3 slots it found without payloads. Without the
+        // fix, THIS is the step that corrupts the order.
+        await until(
+          () => controller.debugLanePendingPriorityFor(items[13].id) != null,
+          reason: 'the +3 slot to be pending',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        // The reviewer's counterexample, verbatim: -2 is ruled to start before
+        // +3 (order 0, +1, -1, +2, -2, +3, ...). Asserted on PRIORITIES, never
+        // on enqueue order.
+        final minusTwo = controller.debugLanePendingPriorityFor(items[8].id);
+        final plusThree = controller.debugLanePendingPriorityFor(items[13].id);
+        expect(minusTwo, isNotNull, reason: 'the -2 slot must still be pending');
+        expect(plusThree, isNotNull, reason: 'the +3 slot must still be pending');
+        expect(
+          minusTwo!,
+          lessThan(plusThree!),
+          reason:
+              'the tier-2 catch-up sweep re-ranked +3 ($plusThree) below the '
+              'untouched -2 slot ($minusTwo), inverting the 2026-08-26 '
+              'start-order ruling',
+        );
+
+        // The whole ruled walk, not just the one pair: every slot the sweep
+        // touched must still sit in the navigation bands alongside the ones it
+        // did not touch, so the merged order is one consistent sequence.
+        const ruledOrder = [0, 1, -1, 2, -2, 3];
+        var previous = -1;
+        for (final d in ruledOrder) {
+          final p = controller.debugLanePendingPriorityFor(items[10 + d].id);
+          expect(p, isNotNull, reason: 'slot $d must be pending');
+          expect(
+            p!,
+            greaterThan(previous),
+            reason: 'slot $d broke the merged ruled order',
+          );
+          previous = p;
+        }
+
+        gate.complete();
+      },
+    );
+  });
 }

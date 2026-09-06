@@ -38,7 +38,6 @@ enum LaneTaskKind {
 
 typedef LaneKey = (LaneTaskKind kind, String id);
 
-
 /// THE ONE place an expensive (real RAW) decode may run.
 ///
 /// Up to [width] task bodies execute at once, ordered near-to-far by priority.
