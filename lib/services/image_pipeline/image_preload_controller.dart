@@ -316,6 +316,28 @@ class ImagePreloadController {
   int? debugLanePendingPriorityFor(String id) =>
       _decodeLane.pendingPriorityOf((LaneTaskKind.payload, id));
 
+  /// Count of content-probe (file IO) calls launched by [_probeWindowItem],
+  /// i.e. once per window slot per navigation pass that reaches the probe
+  /// (fast-path resolutions in [_earlyResolve] do not count). Phase 6's real
+  /// saving -- one probe chain per window slot per superseded event never
+  /// launched at all -- has no seam that discriminates it at the lane layer
+  /// (parking-lot item 3, docs/logs/2026-09-06/phase5-6-baton-for-next-worker.md
+  /// §6): the lane's post-burst state is identical with or without
+  /// coalescing, so this counter is the only observable that can tell the two
+  /// apart. Zero behavior change: read-only, incremented alongside the
+  /// existing probe call.
+  @visibleForTesting
+  int debugProbeInvocationCount = 0;
+
+  /// Count of tier-2 catch-up re-enqueues issued so far (see
+  /// [TierTwoScheduler.debugCatchUpEnqueueCount]). Proves the sweep actually
+  /// fired at least once, which TC-984's merged-order assertions cannot: they
+  /// would pass identically if the sweep never ran and navigation alone
+  /// produced the ruled order.
+  @visibleForTesting
+  int get debugCatchUpEnqueueCount =>
+      _tierTwoScheduler.debugCatchUpEnqueueCount;
+
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
 
@@ -1272,6 +1294,7 @@ class ImagePreloadController {
     if (_earlyResolve(id, notifyLoaded)) return null;
     final file = item.bestFileToLoad;
     if (file == null) return null;
+    debugProbeInvocationCount++;
     final probed = await _scheduler.classify(
       id,
       file.path,

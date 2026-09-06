@@ -497,6 +497,22 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 400));
 
+        // ANTI-VACUITY (parking-lot item 2, async-pipeline-campaign-handover
+        // §9): the merged-order assertions below would pass identically if
+        // the tier-2 catch-up sweep never ran at all -- navigation alone
+        // produces the ruled order for slots it already owns. This proves the
+        // sweep actually re-enqueued at least one payload key, so the test's
+        // bite depends on the mechanism its name claims, not solely on the
+        // external red-proof (docs/logs/2026-09-06/parklot-redproof.txt).
+        expect(
+          controller.debugCatchUpEnqueueCount,
+          greaterThan(0),
+          reason:
+              'the tier-2 catch-up sweep must have re-enqueued at least one '
+              'slot for this assertion to test anything beyond navigation '
+              'alone',
+        );
+
         // The reviewer's counterexample, verbatim: -2 is ruled to start before
         // +3 (order 0, +1, -1, +2, -2, +3, ...). Asserted on PRIORITIES, never
         // on enqueue order.

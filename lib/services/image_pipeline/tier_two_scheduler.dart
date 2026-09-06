@@ -129,6 +129,19 @@ class TierTwoScheduler {
        _compositeGate = compositeGate,
        _publishPacer = publishPacer;
 
+  /// Count of catch-up re-enqueues issued by [_enqueueLoad] (the sweep path
+  /// TC-984 exists to pin the order of). Incremented, never reset, so a test
+  /// can assert the sweep actually fired at least once rather than trusting
+  /// that the merged-order assertions imply it (they do not discriminate a
+  /// sweep that never ran from one that ran and was correctly ordered by
+  /// accident -- see docs/logs/2026-09-06/async-pipeline-campaign-handover.md
+  /// §9). Zero behavior change: read-only, incremented alongside the existing
+  /// enqueue call. Not itself `@visibleForTesting` -- it is forwarded through
+  /// [ImagePreloadController.debugCatchUpEnqueueCount], which carries the
+  /// annotation for the one call site that matters (this is an internal
+  /// collaborator of the controller, not a public API surface of its own).
+  int debugCatchUpEnqueueCount = 0;
+
   final TierTwoRegistry _registry;
 
   /// The pipeline's ONE serial decode lane, shared with the controller's
@@ -514,6 +527,7 @@ class TierTwoScheduler {
     required int distance,
     required VoidCallback notifyLoaded,
   }) {
+    debugCatchUpEnqueueCount++;
     _lane.enqueue(
       (LaneTaskKind.payload, item.id),
       // THE NAVIGATION BAND, not a raw rank. This enqueue shares the

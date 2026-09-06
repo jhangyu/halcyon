@@ -323,6 +323,55 @@ void main() {
     );
   });
 
+  test(
+    'TC-998: a nine-event synchronous burst probes each window slot of the '
+    'surviving pass exactly once (parking-lot item 3, '
+    'phase5-6-baton-for-next-worker.md §6) -- a probe-count seam for the '
+    'saving TC-992..997 cannot assert because it sits above the lane layer',
+    () async {
+      final controller = _cheapController();
+      addTearDown(controller.dispose);
+      controller.updateTargetSize(800, 600);
+
+      // Spaced 10 apart, same shape as TC-992: no selection's window overlaps
+      // another's.
+      final items = paddedItems(120);
+      final selections = [for (var k = 0; k < 9; k++) items[k * 10]];
+
+      for (final item in selections) {
+        unawaited(
+          controller.preloadImages(
+            items: items,
+            selectedItemId: item.id,
+            notifyLoaded: () {},
+          ),
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        controller.debugSchedulingPassCount,
+        1,
+        reason: 'precondition: the burst coalesced into one pass',
+      );
+      // THE BOUND: with a fresh controller (nothing cached, no sidebar
+      // activity), every content probe launched belongs to the ONE surviving
+      // pass's window, and that pass probes each of its window slots exactly
+      // once. If any of the eight superseded events had launched its own
+      // probe chain (the defect this phase removes), this count would exceed
+      // the surviving window's size -- eight superseded passes at up to 9
+      // slots each is the magnitude of what coalescing is saving.
+      expect(
+        controller.debugProbeInvocationCount,
+        controller.debugRetentionIds.length,
+        reason:
+            'probe count must equal exactly one pass worth of window slots; '
+            'a probe launched for a superseded event would inflate this past '
+            'the surviving retention set',
+      );
+    },
+  );
+
   test('TC-996: reset() drops a queued intent', () async {
     final controller = _cheapController();
     addTearDown(controller.dispose);
