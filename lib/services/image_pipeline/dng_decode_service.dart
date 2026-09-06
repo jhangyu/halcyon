@@ -90,6 +90,11 @@ void _ensurePoolLogger() {
     PerfLog.log(line);
     debugPrint('[ceyx-pool] $line');
   };
+  // H2 discriminator: time the main-isolate materialize step only while the
+  // perf log is actually recording, so a non-capture run pays one function
+  // call per job and nothing else. The emitted `pool.materialize|...` line
+  // reaches the PERF| file through the logger wired above.
+  CeyxDecodePool.materializeTimingEnabled = () => PerfLog.enabled;
 }
 
 /// Pushes the user's decode-lane width onto the pool, so N persistent workers

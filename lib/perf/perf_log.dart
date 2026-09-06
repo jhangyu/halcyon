@@ -33,6 +33,11 @@ import '../services/image_pipeline/photo_payload_cache.dart' show kPayloadByteBu
 const String _perfLogEnv = String.fromEnvironment('HALCYON_PERF_LOG');
 const bool kPerfLog = _perfLogEnv == '1' || _perfLogEnv == 'true';
 
+// Optional override for where the interactive-session log lands (used by
+// scripts/capture_perf.py to write straight into docs/logs/ instead of the
+// sandboxed system temp dir). Empty = keep the systemTemp default.
+const String kPerfLogDir = String.fromEnvironment('HALCYON_PERF_LOG_DIR');
+
 // Build-commit stamp (round-1 parking-lot P-2). Injected via
 // `--dart-define=HALCYON_BUILD_COMMIT=$(git rev-parse HEAD)` at build time;
 // defaults to 'unknown' for a plain `flutter run` or a build that did not
@@ -184,9 +189,9 @@ class PerfLog {
   /// re-check it, so it stays a plain no-op-free function for tests.
   static void initForInteractiveSession() {
     _timelineMirror = true;
+    final dir = kPerfLogDir.isNotEmpty ? kPerfLogDir : Directory.systemTemp.path;
     final outPath =
-        '${Directory.systemTemp.path}${Platform.pathSeparator}'
-        'halcyon_perf_$pid.log';
+        '$dir${Platform.pathSeparator}halcyon_perf_$pid.log';
     init(outPath);
     // ignore: avoid_print
     print('HALCYON_PERF_LOG active -- writing to $outPath');
