@@ -397,7 +397,7 @@ void main() {
     test('encodes the FULL-RESOLUTION pixels into a plain EncodedPayload', () async {
       final result = await reencodePayload(
         encoder: okEncoderRe,
-        fallback: pixelsRe(10, 10),
+        fallback: () async => pixelsRe(10, 10),
         fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
       );
       expect(result, isA<EncodedPayload>());
@@ -413,7 +413,7 @@ void main() {
       final result = await reencodePayload(
         encoder: (rgba, {required width, required height, required quality}) =>
             throw StateError('boom'),
-        fallback: fallback,
+        fallback: () async => fallback,
         fullRes: (rgba: Uint8List(16), width: 2, height: 2),
       );
       expect(identical(result, fallback), isTrue);
@@ -426,7 +426,7 @@ void main() {
       final fallback = pixelsRe(10, 10);
       final result = await reencodePayload(
         encoder: okEncoderRe,
-        fallback: fallback,
+        fallback: () async => fallback,
         fullRes: null,
       );
       expect(identical(result, fallback), isTrue,
@@ -444,7 +444,7 @@ void main() {
           encoderCalled = true;
           return okEncoderRe(rgba, width: width, height: height, quality: quality);
         },
-        fallback: fallback,
+        fallback: () async => fallback,
         // Claims 4x4 (needs 64 bytes) but only supplies 16 -- the native
         // encoder has no way to catch this itself (encode_ffi_api.cpp only
         // has the pointer + claimed dimensions), so the guard must be here.
@@ -476,7 +476,7 @@ void main() {
       );
       final out = await reencodePayload(
         encoder: spy,
-        fallback: fallback,
+        fallback: () async => fallback,
         fullRes: (rgba: Uint8List(2 * 2 * 4), width: 2, height: 2),
       );
 

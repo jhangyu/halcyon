@@ -77,7 +77,11 @@ void resetReencodeCounters() {
 /// called. See `normalizeEncodedPayload`'s dartdoc for both.
 Future<SourcePayload> reencodePayload({
   required PayloadEncoder encoder,
-  required SourcePayload fallback,
+  /// A THUNK, not a value (WP1, gc-remediation 2026-09-06): building the
+  /// fallback is what allocates the ~21MB window-resolution buffer, and every
+  /// exit below that does not return it never needed it. Invoked AT MOST ONCE,
+  /// on the four failure exits only -- the success path never calls it.
+  required Future<SourcePayload> Function() fallback,
   required ({Uint8List rgba, int width, int height})? fullRes,
   int quality = kReencodeJpegQuality,
 }) async {
@@ -86,7 +90,7 @@ Future<SourcePayload> reencodePayload({
     // window-resolution pixels: those would land in the full-size tier and
     // silently show a low-resolution frame at 100% zoom.
     reencodeFallbacks++;
-    return fallback;
+    return await fallback();
   }
 
   // The native encoder trusts width*height to bound its scanline reads
@@ -97,7 +101,7 @@ Future<SourcePayload> reencodePayload({
   // mismatch (tier_two_scheduler.dart); this is the only unguarded one.
   if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
     reencodeFallbacks++;
-    return fallback;
+    return await fallback();
   }
 
   Uint8List jpeg;
@@ -129,7 +133,7 @@ Future<SourcePayload> reencodePayload({
       );
     }
     reencodeFallbacks++;
-    return fallback;
+    return await fallback();
   }
   if (PerfLog.enabled) {
     PerfLog.log(
@@ -139,7 +143,7 @@ Future<SourcePayload> reencodePayload({
   }
   if (jpeg.isEmpty) {
     reencodeFallbacks++;
-    return fallback;
+    return await fallback();
   }
 
   return EncodedPayload(jpeg);

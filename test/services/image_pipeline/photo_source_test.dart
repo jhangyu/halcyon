@@ -1182,7 +1182,24 @@ void main() {
           exifOrientation: 6,
         );
 
-        expect(decode.pixels, isNotNull);
+        expect(decode.rawDecodeRan, isTrue);
+        // WP1 (2026-09-06) SPLIT THIS ASSERTION IN TWO rather than relaxing it.
+        // Both provider passes are still gated -- that is what this test exists
+        // to pin -- but the pixel pass no longer runs during
+        // `decodePhaseExpensive`: it is deferred into the fallback thunk. So
+        // the decode phase now takes exactly ONE slot (the full-res pass)...
+        expect(
+          gate.requests,
+          1,
+          reason: 'the decode phase itself now runs only the full-res pass',
+        );
+        // ...and the second slot is still taken, by the pixel payload pass,
+        // when the fallback is actually built. Asserting it HERE keeps the
+        // original coverage ("the gate is forwarded to BOTH provider calls")
+        // intact; dropping this half would have been the weakening.
+        final fallback = decode.pixelFallback;
+        expect(fallback, isNotNull);
+        await fallback!();
         expect(
           gate.requests,
           2,
@@ -1460,7 +1477,7 @@ void main() {
 
           final decode = await source.decodePhase('sample.dng', longEdge: 0);
 
-          expect(decode.pixels, isNotNull);
+          expect(decode.rawDecodeRan, isTrue);
           expect(decode.fullRes, isNotNull);
           decode.fullRes!.image?.dispose();
 
@@ -1498,7 +1515,7 @@ void main() {
             exifOrientation: 6,
           );
 
-          expect(decode.pixels, isNotNull);
+          expect(decode.rawDecodeRan, isTrue);
           expect(decode.fullRes, isNotNull);
           decode.fullRes!.image?.dispose();
 
@@ -1519,6 +1536,115 @@ void main() {
         },
       );
 
+  });
+
+  group('photo_source_lazy_fallback_test.dart', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    setUp(() {
+      resetPixelFallbackCounters();
+      resetReencodeCounters();
+    });
+
+    tearDown(() {
+      PerfLog.testSink = null;
+      PerfLog.enabled = false;
+    });
+
+    // TC-1040 (WP1, AC1.2). The whole point of the lazy fallback: a run whose
+    // encode succeeds must never materialize the window-resolution pixels.
+    test('success path builds no pixel fallback', () async {
+      const source = PhotoSource(
+        loader: _needsRawDecodeReencode,
+        dngDecoder: _fakeDecoder,
+        payloadEncoder: _fakeEncoder,
+      );
+      final outcome = await source.load('a.dng', longEdge: 32);
+      expect(outcome.payload, isA<EncodedPayload>());
+      expect(pixelFallbackBuilds, 0);
+      expect(reencodeFallbacks, 0);
+    });
+
+    // TC-1041 (WP1, AC1.3). Laziness must not cost the failure path its
+    // displayable result: the thunk fires exactly once when the encoder throws.
+    test('encode failure still yields a displayable payload', () async {
+      final source = PhotoSource(
+        loader: _needsRawDecodeReencode,
+        dngDecoder: _fakeDecoder,
+        payloadEncoder:
+            (rgba, {required width, required height, required quality}) async =>
+                throw StateError('encoder down'),
+      );
+      final outcome = await source.load('a.dng', longEdge: 32);
+      expect(outcome.payload, isA<PixelPayload>());
+      expect(pixelFallbackBuilds, 1);
+      expect(reencodeFallbacks, 1);
+    });
+
+    // TC-1041a (WP1, AC1.5). The `materialize|` PERF event is the mechanical
+    // trace of the window-res build. It must DISAPPEAR from the success path
+    // (that is the saving) and must still be emitted on the failure path (the
+    // fallback really did materialize). Counted, not merely present/absent, so
+    // "strictly fewer than before" is an observed number rather than a claim.
+    test('materialize events move off the success path onto the failure path',
+        () async {
+      Future<int> materializeCountFor(PayloadEncoder encoder) async {
+        final lines = <String>[];
+        PerfLog.enabled = true;
+        PerfLog.testSink = lines.add;
+        final source = PhotoSource(
+          loader: _needsRawDecodeReencode,
+          dngDecoder: _fakeDecoder,
+          payloadEncoder: encoder,
+        );
+        await source.load('a.dng', longEdge: 32);
+        PerfLog.testSink = null;
+        PerfLog.enabled = false;
+        return lines.where((l) => l.contains('materialize|')).length;
+      }
+
+      final onSuccess = await materializeCountFor(_fakeEncoder);
+      resetPixelFallbackCounters();
+      final onFailure = await materializeCountFor(
+        (rgba, {required width, required height, required quality}) async =>
+            throw StateError('encoder down'),
+      );
+
+      expect(
+        onFailure,
+        greaterThan(0),
+        reason: 'the failure path still materializes the window-res fallback',
+      );
+      expect(
+        onSuccess,
+        lessThan(onFailure),
+        reason:
+            'the success path must emit strictly fewer materialize| events '
+            'than the failure path -- that difference IS the avoided build',
+      );
+    });
+
+    // TC-1041b (WP1, AC1.6). The thunk must not outlive the encode: once
+    // `encodePhase` has produced a final payload, nothing reachable from the
+    // outcome holds the closure (SourceOutcome carries no fallback field), so
+    // the retained-closure counter is back to zero. Asserted mechanically
+    // rather than argued from the closure's capture list.
+    test('the fallback closure is not retained past a successful encode',
+        () async {
+      const source = PhotoSource(
+        loader: _needsRawDecodeReencode,
+        dngDecoder: _fakeDecoder,
+        payloadEncoder: _fakeEncoder,
+      );
+      final outcome = await source.load('a.dng', longEdge: 32);
+      expect(outcome.payload, isA<EncodedPayload>());
+      expect(pixelFallbackBuilds, 0);
+      expect(
+        debugPixelFallbackRetained,
+        0,
+        reason: 'encodePhase must drop the thunk before it returns',
+      );
+    });
   });
 }
 

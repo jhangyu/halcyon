@@ -1215,7 +1215,7 @@ void main() {
         PerfLog.init(logPath);
         final result = await reencodePayload(
           encoder: _okEncoder,
-          fallback: _pixels(10, 10),
+          fallback: () async => _pixels(10, 10),
           fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
         );
         await PerfLog.flush();
@@ -1251,7 +1251,7 @@ void main() {
 
         final result = await reencodePayload(
           encoder: _okEncoder,
-          fallback: _pixels(10, 10),
+          fallback: () async => _pixels(10, 10),
           fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
         );
         expect(result, isA<EncodedPayload>());
@@ -1276,7 +1276,9 @@ void main() {
         final fallback = _pixels(10, 10);
         final result = await reencodePayload(
           encoder: _throwingEncoder,
-          fallback: fallback,
+          // WP1: `fallback` is a thunk now. Returning the SAME object keeps the
+          // `identical(result, fallback)` assertion below meaningful.
+          fallback: () async => fallback,
           fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
         );
         await PerfLog.flush();

@@ -1,4 +1,6 @@
-import 'dart:typed_data';
+// `dart:typed_data`'s elements all come through `foundation.dart`, which WP1
+// needs anyway for `@visibleForTesting` on the fallback counters.
+import 'package:flutter/foundation.dart';
 
 import '../../perf/perf_log.dart';
 import 'decoded_rgba_image_provider.dart';
@@ -76,6 +78,41 @@ typedef SourceOutcome = ({
   String? failureCode,
 });
 
+/// Builds the window-resolution fallback for one decode.
+///
+/// Called AT MOST ONCE per decode, and only when the re-encode failed; never
+/// called on the success path. Invoking it is what allocates the ~21MB
+/// window-resolution buffer, so every call site that is not a re-encode
+/// failure exit is a regression, not an optimisation opportunity.
+typedef PixelFallbackBuilder = Future<PixelPayload> Function();
+
+/// How many times the lazy window-resolution fallback was actually built.
+///
+/// MUST stay 0 across a run whose encodes all succeed -- that is the whole
+/// point of WP1. Observability, not policy, and deliberately NOT merged with
+/// `payload_reencoder.dart`'s [reencodeFallbacks]: that counter counts
+/// re-encode degradations, this one counts materializations performed. They
+/// coincide today on the RAW path and would diverge the moment a degradation
+/// stops needing a fresh buffer.
+@visibleForTesting
+int pixelFallbackBuilds = 0;
+
+/// How many fallback thunks are still held by an unfinished [SourceDecode].
+///
+/// Incremented where the thunk is created, zeroed by [PhotoSource.encodePhase]
+/// once it has produced its final payload -- past that point the closure is
+/// unreachable (a `SourceOutcome` carries no fallback field), so a non-zero
+/// reading after a completed load means something is retaining the decode
+/// record and, through it, the decoded frame.
+@visibleForTesting
+int debugPixelFallbackRetained = 0;
+
+@visibleForTesting
+void resetPixelFallbackCounters() {
+  pixelFallbackBuilds = 0;
+  debugPixelFallbackRetained = 0;
+}
+
 /// Everything ONE decode produced, BEFORE the re-encode.
 ///
 /// This exists so the JPEG re-encode (~89ms median, native libjpeg-turbo) can
@@ -84,18 +121,27 @@ typedef SourceOutcome = ({
 /// bounded stage. Lane occupancy then approximates decode time, which is what
 /// the width setting was always implicitly assumed to mean.
 ///
-/// Exactly one of [encodedPayload] and [pixels] is non-null on a success:
-/// [encodedPayload] means "already final, nothing to encode" (the cheap and
-/// fallback routes), [pixels] means "the window-resolution fallback is ready
-/// and the full-resolution encode is still owed". Both are null on every
-/// failure and on the deferred hand-off.
+/// Exactly one of [encodedPayload] and [pixelFallback] is non-null on a
+/// success: [encodedPayload] means "already final, nothing to encode" (the
+/// cheap and fallback routes), [pixelFallback] means "a RAW decode ran, the
+/// full-resolution encode is still owed, and the window-resolution fallback
+/// CAN be built if that encode fails". Both are null on every failure and on
+/// the deferred hand-off.
+///
+/// WP1 (gc-remediation, 2026-09-06): this field used to be an already-built
+/// `PixelPayload`, materialized on EVERY expensive decode and then thrown away
+/// unread whenever the encode succeeded -- which is the overwhelmingly common
+/// case. It is now a thunk, so the window-resolution buffer is allocated only
+/// on the failure path. [rawDecodeRan] records what `pixels != null` used to
+/// mean for callers that only asked "did a RAW decode happen here".
 ///
 /// AD-040 (single-buffer rule) is untouched: nothing here reaches the payload
 /// cache. The cache is written only once the encode has produced the FINAL
 /// payload object, so payload object identity is never swapped.
 typedef SourceDecode = ({
   SourcePayload? encodedPayload,
-  PixelPayload? pixels,
+  PixelFallbackBuilder? pixelFallback,
+  bool rawDecodeRan,
   OrientedFullRes? fullRes,
   SourceCost? observedCost,
   bool deferred,
@@ -221,7 +267,8 @@ class PhotoSource {
       case NativeImageBytes(:final bytes):
         return (
           encodedPayload: await _normalizedEncoded(bytes),
-          pixels: null,
+          pixelFallback: null,
+          rawDecodeRan: false,
           // Deliberately NULL. `fullRes` means "pixels from the SAME FFI
           // decode that produced this payload" and feeds the tier-2
           // piggyback; the normaliser's ENGINE decode is not that, and
@@ -250,7 +297,8 @@ class PhotoSource {
           // miss, recorded immediately rather than left as a spinner.
           return (
             encodedPayload: null,
-            pixels: null,
+            pixelFallback: null,
+            rawDecodeRan: false,
             fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: false,
@@ -261,7 +309,8 @@ class PhotoSource {
         if (!allowExpensive) {
           return (
             encodedPayload: null,
-            pixels: null,
+            pixelFallback: null,
+            rawDecodeRan: false,
             fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: true,
@@ -295,21 +344,34 @@ class PhotoSource {
             gate: compositeGate,
           );
           handedOut = fullRes;
-          final pixels = fullRes.image == null
-              ? await decodedRgbaToPixelPayload(
-                  decoded,
-                  exifOrientation: exifOrientation,
-                  longEdge: longEdge,
-                  gate: compositeGate,
-                )
-              : await pixelPayloadFromOrientedImage(
-                  fullRes.image!,
-                  longEdge: longEdge,
-                  gate: compositeGate,
-                );
+          // LAZY (WP1). Identical arguments to the eager call this replaces,
+          // captured at the same point in the same scope. The closure captures
+          // only objects this record ALREADY keeps alive across the encode --
+          // `decoded` aliases `fullRes.rgba` on the identity path, and
+          // `fullRes.image` is held until publish on the rotated path -- so it
+          // extends NO lifetime. Invoked at most once, and only by
+          // `reencodePayload`'s failure exits.
+          Future<PixelPayload> buildFallback() {
+            pixelFallbackBuilds++;
+            return fullRes.image == null
+                ? decodedRgbaToPixelPayload(
+                    decoded,
+                    exifOrientation: exifOrientation,
+                    longEdge: longEdge,
+                    gate: compositeGate,
+                  )
+                : pixelPayloadFromOrientedImage(
+                    fullRes.image!,
+                    longEdge: longEdge,
+                    gate: compositeGate,
+                  );
+          }
+
+          debugPixelFallbackRetained++;
           return (
             encodedPayload: null,
-            pixels: pixels,
+            pixelFallback: buildFallback,
+            rawDecodeRan: true,
             fullRes: fullRes,
             observedCost: SourceCost.expensive,
             deferred: false,
@@ -344,7 +406,8 @@ class PhotoSource {
           handedOut?.image?.dispose();
           return (
             encodedPayload: null,
-            pixels: null,
+            pixelFallback: null,
+            rawDecodeRan: false,
             fullRes: null,
             observedCost: SourceCost.expensive,
             deferred: false,
@@ -363,7 +426,8 @@ class PhotoSource {
           encodedPayload: recovered == null
               ? null
               : await _normalizedEncoded(recovered),
-          pixels: null,
+          pixelFallback: null,
+          rawDecodeRan: false,
           fullRes: null,
           observedCost: recovered == null ? null : SourceCost.cheap,
           deferred: false,
@@ -394,7 +458,8 @@ class PhotoSource {
       // ever changes.
       return (
         encodedPayload: null,
-        pixels: null,
+        pixelFallback: null,
+        rawDecodeRan: false,
         fullRes: null,
         observedCost: SourceCost.expensive,
         deferred: false,
@@ -420,21 +485,30 @@ class PhotoSource {
         gate: compositeGate,
       );
       handedOut = fullRes;
-      final pixels = fullRes.image == null
-          ? await decodedRgbaToPixelPayload(
-              decoded,
-              exifOrientation: exifOrientation,
-              longEdge: longEdge,
-              gate: compositeGate,
-            )
-          : await pixelPayloadFromOrientedImage(
-              fullRes.image!,
-              longEdge: longEdge,
-              gate: compositeGate,
-            );
+      // LAZY (WP1) -- see the identical closure in [decodePhase]'s RAW arm for
+      // the lifetime argument. The two arms must not diverge: they are the
+      // same decode reached by two entry points.
+      Future<PixelPayload> buildFallback() {
+        pixelFallbackBuilds++;
+        return fullRes.image == null
+            ? decodedRgbaToPixelPayload(
+                decoded,
+                exifOrientation: exifOrientation,
+                longEdge: longEdge,
+                gate: compositeGate,
+              )
+            : pixelPayloadFromOrientedImage(
+                fullRes.image!,
+                longEdge: longEdge,
+                gate: compositeGate,
+              );
+      }
+
+      debugPixelFallbackRetained++;
       return (
         encodedPayload: null,
-        pixels: pixels,
+        pixelFallback: buildFallback,
+        rawDecodeRan: true,
         fullRes: fullRes,
         observedCost: SourceCost.expensive,
         deferred: false,
@@ -446,7 +520,8 @@ class PhotoSource {
       handedOut?.image?.dispose();
       return (
         encodedPayload: null,
-        pixels: null,
+        pixelFallback: null,
+        rawDecodeRan: false,
         fullRes: null,
         observedCost: SourceCost.expensive,
         deferred: false,
@@ -474,23 +549,32 @@ class PhotoSource {
 
     final ready = decode.encodedPayload;
     if (ready != null) return outcomeWith(ready);
-    final pixels = decode.pixels;
+    final fallback = decode.pixelFallback;
     // Covers the deferred hand-off, the no-decoder verdict, the decoder-threw
     // miss and the unrecoverable NativeImageFailure -- all of which have
     // nothing to encode and must keep their fields exactly as decoded.
-    if (pixels == null) return outcomeWith(null);
+    if (fallback == null) return outcomeWith(null);
+    // WP1: from here on this method owns the thunk, and every exit below
+    // either invokes it or drops it -- so the decode record stops being a
+    // reachable holder of the decoded frame either way.
+    debugPixelFallbackRetained--;
     final encoder = payloadEncoder;
-    if (encoder == null) return outcomeWith(pixels);
+    // The decode-only binding (no encoder configured) has always produced the
+    // window-resolution pixels AS the payload, so here the fallback IS the
+    // product and the thunk is awaited unconditionally. Observably unchanged.
+    if (encoder == null) return outcomeWith(await fallback());
     final fullRes = decode.fullRes;
-    // PHASE 13 (one buffer, user ruling 2026-08-30). The re-encode happens
-    // HERE, before the outcome exists, so the payload the controller writes
-    // to the cache is already final: publishing a PixelPayload and swapping
-    // it later would change payload object identity and orphan the tier-1
-    // ImageCache key and the tier-2 registry entry keyed on it.
+    // PHASE 13 (one buffer, user ruling 2026-08-30) -- UNCHANGED by WP1. The
+    // re-encode still happens HERE, before the outcome exists, so the payload
+    // the controller writes to the cache is already final: publishing a
+    // PixelPayload and swapping it later would change payload object identity
+    // and orphan the tier-1 ImageCache key and the tier-2 registry entry keyed
+    // on it. WP1 changes only WHEN the fallback CANDIDATE is built, never when
+    // a payload is published.
     return outcomeWith(
       await reencodePayload(
         encoder: encoder,
-        fallback: pixels,
+        fallback: fallback,
         fullRes: fullRes == null
             ? null
             : (
