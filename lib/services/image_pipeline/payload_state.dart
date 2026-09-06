@@ -62,12 +62,6 @@ class PayloadState {
   /// True once the sidebar has written a derived tile for this item.
   final bool thumbnailReady;
 
-  /// There is something to paint at some resolution.
-  bool get hasPayload =>
-      stage == PayloadStage.tierOneReady || stage == PayloadStage.tierTwoReady;
-
-  bool get hasFullSize => stage == PayloadStage.tierTwoReady;
-
   bool get hasFailed => stage == PayloadStage.failed;
 
   PayloadState copyWith({PayloadStage? stage, bool? thumbnailReady}) =>
