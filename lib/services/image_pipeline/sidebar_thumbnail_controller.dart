@@ -190,6 +190,12 @@ class SidebarThumbnailController {
   /// NARROWING never pre-empts -- see [DeriveQueue.width].
   void setDeriveQueueWidth(int width) => _deriveQueue.width = width;
 
+  /// Read-through to the queue, never a shadow field (same rule as
+  /// [ImagePreloadController.decodeLaneWidth]). Public rather than
+  /// `@visibleForTesting` because the owning controller reads it back to
+  /// expose its own propagation assertions.
+  int get deriveQueueWidth => _deriveQueue.width;
+
   /// Test-only: this sweep's row distance for [id], or null if [id] was not
   /// part of the latest sweep's order.
   @visibleForTesting

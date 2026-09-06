@@ -1,5 +1,3 @@
-import 'retention_policy.dart' show kMaxDecodeLaneWidth;
-
 /// Width of every bounded stage that is NOT the decode lane.
 ///
 /// Pinned at 2 in this revision (`EncodeStage`'s and `DeriveQueue`'s shipped
@@ -27,8 +25,17 @@ class StageWidths {
   /// The ONE derivation. Clamps its input exactly once, here, so each stage's
   /// own `value < 1 ? 1 : value` guard is a no-op rather than a second,
   /// differently-shaped clamp.
+  ///
+  /// LOWER BOUND ONLY (lead ruling 2026-09-06). An earlier revision also
+  /// clamped to `kMaxDecodeLaneWidth`, which broke TC-966
+  /// (`decode_pool_wiring_test.dart`): that test pins "clamps exactly once"
+  /// to mean the `< 1` guard alone, and asserts a requested width of 9
+  /// reaches the lane as 9. Capping the user's setting is `AppState`'s job,
+  /// where the persisted preference is read; duplicating it here would make
+  /// the ceiling live in two places and silently narrow the lane below what
+  /// the caller asked for.
   factory StageWidths.derive(int decodeLaneWidth) => StageWidths(
-    decodeLane: decodeLaneWidth.clamp(1, kMaxDecodeLaneWidth),
+    decodeLane: decodeLaneWidth < 1 ? 1 : decodeLaneWidth,
     encode: kSecondaryStageWidth,
     derive: kSecondaryStageWidth,
   );

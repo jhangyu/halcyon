@@ -366,13 +366,24 @@ void main() {
         }
       });
 
-      test('TC-1021: clamps the configured width once, at the source', () {
+      test('TC-1021: clamps the configured width once, at the source -- LOW '
+          'side only; the ceiling belongs to AppState', () {
         expect(StageWidths.derive(0).decodeLane, 1);
         expect(StageWidths.derive(-5).decodeLane, 1);
+
+        // NO UPPER CLAMP (lead ruling 2026-09-06, r1 gate). An earlier
+        // revision clamped to `kMaxDecodeLaneWidth` here, which broke TC-966
+        // in this same file: that case pins "clamps exactly once" to mean the
+        // `< 1` guard ALONE, and asserts a requested width of 9 reaches the
+        // lane as 9. Capping the user's setting is AppState's job, where the
+        // persisted preference is read; a second ceiling in the derivation
+        // would silently narrow the lane below what the caller asked for.
         expect(
           StageWidths.derive(kMaxDecodeLaneWidth + 3).decodeLane,
-          kMaxDecodeLaneWidth,
+          kMaxDecodeLaneWidth + 3,
+          reason: 'above-ceiling widths pass through the derivation untouched',
         );
+
         // Clamping never leaks into the secondary stages.
         expect(StageWidths.derive(0).encode, 2);
         expect(StageWidths.derive(kMaxDecodeLaneWidth + 3).derive, 2);

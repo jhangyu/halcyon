@@ -13,6 +13,7 @@ import 'dng_decode_service.dart'
     show bumpHalcyonDecodePoolGeneration, setHalcyonDecodePoolWidth;
 import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
+import 'payload_claim.dart';
 import 'payload_reencoder.dart';
 import 'payload_state.dart';
 import 'photo_payload.dart';
@@ -23,6 +24,7 @@ import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
 import 'sidebar_thumbnail_controller.dart';
+import 'stage_widths.dart';
 import 'decode_lane.dart';
 import 'lane_priority.dart';
 import 'encode_stage.dart';
@@ -127,12 +129,16 @@ class ImagePreloadController {
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
-    int encodeStageWidth = 2,
     FrameHook? scheduleFrameCallback,
     int publicationsPerFrame = 1,
     int? inflightByteBudget,
     CompositeGate compositeGate = immediateCompositeGate,
-  }) : _retention = retention,
+    // Test-only seam (test-speedup campaign 2026-09-06): lets tests shrink
+    // the production 250ms tier-2 quiet period instead of waiting it out in
+    // real time. Production callers must not pass this.
+    Duration navigationDebounce = tierTwoNavigationDebounce,
+  }) : _navigationDebounce = navigationDebounce,
+       _retention = retention,
        _inflight = InflightBytesBudget(
          maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
        ),
@@ -145,14 +151,20 @@ class ImagePreloadController {
          payloadEncoder: payloadEncoder,
          compositeGate: compositeGate,
        ),
+       _stageWidths = StageWidths.derive(decodeLaneWidth),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
-       _encodeStage = EncodeStage(width: encodeStageWidth) {
-    // Push the width the lane was BUILT with, not just later changes: until
-    // the stored preference hydrates and calls [setDecodeLaneWidth], the lane
-    // and the pool would otherwise disagree (lane = this constructor's value,
-    // pool = its own construction default), and any decode admitted in that
-    // window is bounded by the wrong number.
-    _applyLaneWidth(decodeLaneWidth);
+       _encodeStage = EncodeStage(width: kSecondaryStageWidth) {
+    // Push the widths the stages were BUILT with, not just later changes:
+    // until the stored preference hydrates and calls [setDecodeLaneWidth], the
+    // lane and the pool would otherwise disagree (lane = this constructor's
+    // value, pool = its own construction default), and any decode admitted in
+    // that window is bounded by the wrong number.
+    //
+    // `pushSidebar: false` because [_sidebar] is `late final` and its closures
+    // capture `this`: touching it here would force it into existence during
+    // construction. It is born at the right width instead, from
+    // `deriveQueueWidth: _stageWidths.derive` in its own initialiser.
+    _applyStageWidths(_stageWidths, pushSidebar: false);
   }
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -162,6 +174,9 @@ class ImagePreloadController {
   /// [setRetention] (the user's memory-tier setting), publicly read-only.
   RetentionPolicy _retention;
   RetentionPolicy get retention => _retention;
+
+  /// See the constructor's test-only seam note; wired into [_tierTwoScheduler].
+  final Duration _navigationDebounce;
 
   /// Re-tunes retention at runtime (the user's memory-tier setting).
   ///
@@ -201,23 +216,53 @@ class ImagePreloadController {
   /// lane can then never disagree (same reasoning as [AppState.retentionPolicy]).
   int get decodeLaneWidth => _decodeLane.width;
 
-  /// Live setting change from the settings page. Values below 1 clamp to 1.
+  /// Every stage width in this controller, derived from the one configured
+  /// number. Read-through, never a shadow copy of the stages' own fields.
+  StageWidths get stageWidths => _stageWidths;
+  StageWidths _stageWidths;
+
+  /// Live setting change from the settings page. Values below 1 clamp to 1,
+  /// once, inside [StageWidths.derive]. There is no upper clamp here: the
+  /// ceiling on the user's setting belongs to `AppState`, where the
+  /// preference is read (lead ruling 2026-09-06, TC-966).
   ///
-  /// P2: the same number also sizes the persistent decode worker pool, so the
-  /// lane's ordering bound and the pool's admission bound can never disagree.
+  /// P2: the number the user sets is the ONE input every stage width derives
+  /// from -- lane, native pool, encode stage and the sidebar derive queue.
   /// The lane still owns near-to-far ORDER (the pool is FIFO and knows nothing
   /// about the selected index); the pool owns worker lifetime and the dylib.
-  void setDecodeLaneWidth(int width) => _applyLaneWidth(width);
+  void setDecodeLaneWidth(int width) =>
+      _applyStageWidths(StageWidths.derive(width));
 
-  /// The single write path for lane width: sets the lane (clamping happens
-  /// exactly once, inside [DecodeLane.width]'s setter) and pushes the same,
-  /// already-clamped value read back off the lane to the native pool. Both
-  /// the constructor and [setDecodeLaneWidth] route through here so the lane
-  /// and the pool can never see two different numbers.
-  void _applyLaneWidth(int width) {
-    _decodeLane.width = width;
+  /// THE single write path for every stage width.
+  ///
+  /// The pool is pushed the value read back OFF THE LANE rather than the
+  /// argument, so the "clamped exactly once, in the lane's setter" property
+  /// the pool relied on before P2 is unchanged.
+  ///
+  /// There is deliberately NO equality guard: TC-938/TC-966
+  /// (`decode_pool_wiring_test.dart`) pin push-on-EVERY-call as the pool's
+  /// contract -- `pushed.last` after any `setDecodeLaneWidth` must be that
+  /// call's clamped width, which a "skip the redundant push" short-circuit
+  /// turns into a stale read (or, on the first call, no element at all).
+  /// Suppressing pushes would also be a behaviour change at default widths,
+  /// which P2 forbids. The two added pushes are idempotent setters, so
+  /// pushing unconditionally costs nothing.
+  ///
+  /// [pushSidebar] exists only so the constructor's call does not force the
+  /// `late final` [_sidebar] into existence.
+  void _applyStageWidths(StageWidths widths, {bool pushSidebar = true}) {
+    _stageWidths = widths;
+    _decodeLane.width = widths.decodeLane;
     decodePoolWidthSink(_decodeLane.width);
+    _encodeStage.width = widths.encode;
+    if (pushSidebar) _sidebar.setDeriveQueueWidth(widths.derive);
   }
+
+  @visibleForTesting
+  int get debugEncodeStageWidth => _encodeStage.width;
+
+  @visibleForTesting
+  int get debugDeriveQueueWidth => _sidebar.deriveQueueWidth;
 
   /// Seam for the process-wide pool-width push. Overridable so a test can
   /// observe the push without constructing a real pool.
@@ -252,6 +297,7 @@ class ImagePreloadController {
     retentionIds: () => _retentionIds,
     republishEvictionPriority: _republishEvictionPriority,
     onTileLanded: _markThumbnailReady,
+    deriveQueueWidth: _stageWidths.derive,
   );
 
   /// The JPEG re-encode's own bounded stage. Deliberately NOT the [DecodeLane]:
@@ -361,8 +407,13 @@ class ImagePreloadController {
   int get debugCatchUpEnqueueCount =>
       _tierTwoScheduler.debugCatchUpEnqueueCount;
 
-  /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
-  final Set<String> _loadingKeys = {};
+  /// Detail-path (tier-1/tier-2) production claims, keyed by BARE photo id.
+  ///
+  /// Same membership at every instant as the bare `Set<String>` of in-flight
+  /// ids it replaces; the addition is an owner tag and an assertion at each
+  /// hand-off. Thumbnail loads live in the sidebar's own set and deliberately
+  /// do not appear here.
+  final PayloadClaimRegistry _claims = PayloadClaimRegistry();
 
   // ---------------------------------------------------------------------------
   // PHASE 5 -- per-item payload state.
@@ -444,7 +495,7 @@ class ImagePreloadController {
         thumbnailReady: thumbnailReady,
       );
     }
-    if (_loadingKeys.contains(id)) {
+    if (_claims.isHeld(id)) {
       return PayloadState(
         stage: PayloadStage.decoding,
         thumbnailReady: thumbnailReady,
@@ -675,7 +726,7 @@ class ImagePreloadController {
     ensurePayload: _ensurePayload,
     dngDecoder: () => _source.dngDecoder,
     exifOrientationFor: (id) => _exifOrientations[id],
-    navigationDebounce: tierTwoNavigationDebounce,
+    navigationDebounce: _navigationDebounce,
     compositeGate: _compositeGate,
     // Contract deliverable 2: tier-2 full-resolution publishes now go
     // through the SAME pacer instance as tier-1 registrations, not a second
@@ -761,7 +812,7 @@ class ImagePreloadController {
   /// Whether the DETAIL path currently has [id] in flight. Thumbnail loads
   /// live in a separate set and deliberately do not answer true here.
   @visibleForTesting
-  bool isLoadingForTest(String id) => _loadingKeys.contains(id);
+  bool isLoadingForTest(String id) => _claims.isHeld(id);
 
   /// Encoded bytes for [id], or null when the item is not byte-backed (a RAW
   /// item retains pixels instead) or nothing is retained.
@@ -883,7 +934,7 @@ class ImagePreloadController {
     // [stateFor] builds a fresh one from the (now empty) containers.
     _disposeAllPayloadStates();
     _sidebar.reset();
-    _loadingKeys.clear();
+    _claims.clear();
     _pendingPreviewNotifies.clear();
     _navRetentionIds = {};
     _navPriorityIds = [];
@@ -1114,7 +1165,7 @@ class ImagePreloadController {
     _selectedId = selectedItemId;
 
     // PERF-INSTRUMENTATION
-    final wasInFlight = _loadingKeys.contains(selectedItemId);
+    final wasInFlight = _claims.isHeld(selectedItemId);
     final wasCached = _cache.contains(selectedItemId);
     PerfLog.log(
       'preload.priority.begin|$selectedItemId'
@@ -1328,7 +1379,7 @@ class ImagePreloadController {
       return true;
     }
 
-    if (_loadingKeys.contains(id)) {
+    if (_claims.isHeld(id)) {
       // Someone else's load for this item is already in flight (queued by a
       // previous pass, or the caller selected an item that is mid-window-load).
       // Register to be notified when it lands instead of dropping the callback,
@@ -1451,14 +1502,18 @@ class ImagePreloadController {
     final loadGeneration = _folderGeneration;
 
     // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
-    // `_earlyResolve` above read `_loadingKeys`; taking the claim after the
+    // `_earlyResolve` above read `_claims`; taking the claim after the
     // `classify` await below left a suspension point between check and claim,
     // so two entrants for the same id both passed the check and both bought a
     // source load -- and the second `_cache.put` replaced the payload object,
     // orphaning the tier-1 ImageCache key (which is bytes identity). Every
     // exit below removes it again: the expensive-route hand-off, the probe's
     // catch, and the `finally`.
-    _loadingKeys.add(id);
+    // The claim OBJECT is kept, not just the id: every release below hands it
+    // back, so a release that outlived a `reset()` (or a lane hand-off and
+    // re-acquire) is matched by identity and becomes a genuine no-op instead of
+    // stealing whoever holds the id now. See [PayloadClaimRegistry.release].
+    final claim = _claims.acquire(id);
     // PHASE 5: the claim IS the "decoding" event -- the same instant that
     // makes every other caller park instead of producing.
     _markStage(id, PayloadStage.decoding);
@@ -1482,9 +1537,9 @@ class ImagePreloadController {
     } catch (_) {
       // The claim is now taken BEFORE this await, and this await is outside
       // the `try/finally` below, so a probe that throws would strand the id
-      // in `_loadingKeys` forever -- every later caller would park on a load
+      // in `_claims` forever -- every later caller would park on a load
       // that will never land. Error propagation is unchanged.
-      _loadingKeys.remove(id);
+      _claims.release(id, by: PayloadClaimOwner.producer, claim: claim);
       rethrow;
     }
     final cost = probed.cost;
@@ -1507,14 +1562,18 @@ class ImagePreloadController {
       // `_earlyResolve` in-flight branch -- it would park its callback and
       // produce nothing, i.e. a permanent spinner. Production of this payload
       // now belongs to the lane task, which takes its own claim.
-      _loadingKeys.remove(id);
+      _claims.handOffToLane(
+        id,
+        from: PayloadClaimOwner.producer,
+        claim: claim,
+      );
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
 
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
-    // Set when the encode is handed to [_finishOffLane]: the `_loadingKeys`
-    // claim then belongs to that continuation, not to this `finally`.
+    // Set when the encode is handed to [_finishOffLane]: the production claim
+    // then belongs to that continuation, not to this `finally`.
     var handedOff = false;
     try {
       // Only the lane's own task body may run a real RAW decode. Everywhere
@@ -1597,9 +1656,21 @@ class ImagePreloadController {
 
       // THE STAGE BOUNDARY. A real decode ran and an encode is owed, and this
       // call IS the lane's task body -- so return now and let the encode run
-      // on its own stage. The lane slot is freed here; the `_loadingKeys`
+      // on its own stage. The lane slot is freed here; the production
       // claim is NOT (see [_finishOffLane]).
       if (onSerialLane && decode.pixels != null) {
+        // The claim moves with the work: `_finishOffLane`'s `finally` is the
+        // only thing that releases it from here. Transferred BEFORE the
+        // `unawaited` below, because that continuation can begin before this
+        // method returns -- and `handedOff` is set only AFTER the transfer, so
+        // that a throw from `transfer` cannot leave the flag true with the
+        // claim still owned by the producer (nobody would then release it).
+        _claims.transfer(
+          id,
+          from: PayloadClaimOwner.producer,
+          to: PayloadClaimOwner.offLaneEncode,
+          claim: claim,
+        );
         handedOff = true;
         unawaited(
           _finishOffLane(
@@ -1609,6 +1680,7 @@ class ImagePreloadController {
             notifyLoaded: notifyLoaded,
             loadLongEdge: loadLongEdge,
             loadGeneration: loadGeneration,
+            claim: claim,
           ),
         );
         return;
@@ -1624,7 +1696,7 @@ class ImagePreloadController {
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedId}',
       );
-      // A deferred outcome hands both the work and the `_loadingKeys` claim to
+      // A deferred outcome hands both the work and the production claim to
       // the lane; the `finally` below must not take the claim back off it.
       if (await _completeOutcome(
         item,
@@ -1632,6 +1704,7 @@ class ImagePreloadController {
         distance: distance,
         notifyLoaded: notifyLoaded,
         onSerialLane: onSerialLane,
+        claim: claim,
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
       )) {
@@ -1656,7 +1729,9 @@ class ImagePreloadController {
       // NOT released on the hand-off path: production of this payload now
       // belongs to [_finishOffLane], and a released claim would let a second
       // producer decode the same file while the first is still encoding.
-      if (!handedOff) _loadingKeys.remove(id);
+      if (!handedOff) {
+        _claims.release(id, by: PayloadClaimOwner.producer, claim: claim);
+      }
     }
   }
 
@@ -1666,7 +1741,7 @@ class ImagePreloadController {
   /// encode no longer blocks the next decode. Two things must therefore be
   /// true here and are:
   ///
-  ///   * `_loadingKeys` still holds [item]'s id -- released only in this
+  ///   * the production claim still holds [item]'s id -- released only in this
   ///     method's `finally`. Releasing it at lane-body return would let a
   ///     second producer start a duplicate decode while this encode runs.
   ///   * nothing is unawaited-and-unguarded: this future has no caller, so a
@@ -1680,6 +1755,7 @@ class ImagePreloadController {
     required VoidCallback? notifyLoaded,
     required int loadLongEdge,
     required int loadGeneration,
+    required PayloadClaim claim,
   }) async {
     final id = item.id;
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
@@ -1712,6 +1788,7 @@ class ImagePreloadController {
         onSerialLane: true,
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
+        claim: claim,
       );
     } catch (_) {
       // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
@@ -1726,7 +1803,13 @@ class ImagePreloadController {
       // Released exactly once, after [_completeOutcome] has either retained or
       // dropped the payload -- the buffers are only out of flight then.
       _inflight.release(bytes, epoch: budgetEpoch);
-      _loadingKeys.remove(id);
+      // [claim] plays the role `budgetEpoch` plays for the byte budget on the
+      // line above, though it matches by object identity rather than by
+      // counter. This future is unawaited and can outlive the `reset()` that
+      // cleared the registry; passing the claim back makes that late release a
+      // no-op instead of an assertion failure against -- and a theft of -- a
+      // fresh producer's claim on the same id.
+      _claims.release(id, by: PayloadClaimOwner.offLaneEncode, claim: claim);
     }
   }
 
@@ -1741,7 +1824,7 @@ class ImagePreloadController {
   /// used to be (the encode), which is exactly why none of them may be
   /// weakened or hoisted (G-023).
   /// Returns true when this call handed [item] to the [DecodeLane] AND handed
-  /// the `_loadingKeys` claim over with it (the deferred route below). The
+  /// the production claim over with it (the deferred route below). The
   /// caller must then NOT release that claim in its own `finally`.
   Future<bool> _completeOutcome(
     PhotoItem item, {
@@ -1751,6 +1834,7 @@ class ImagePreloadController {
     required bool onSerialLane,
     required int loadLongEdge,
     required int loadGeneration,
+    required PayloadClaim claim,
   }) async {
     final id = item.id;
 
@@ -1881,7 +1965,11 @@ class ImagePreloadController {
       // order. Ownership of the claim moves to the lane task with the work;
       // the caller learns that from this method's return value and leaves it
       // alone.
-      _loadingKeys.remove(id);
+      _claims.handOffToLane(
+        id,
+        from: PayloadClaimOwner.producer,
+        claim: claim,
+      );
       handedToLane = true;
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
     }
@@ -1968,6 +2056,16 @@ class ImagePreloadController {
       // of `distance` inside the body is _ensurePayload's deferred
       // re-enqueue rank, which the next navigation pass overwrites anyway.
       body: () async {
+        // FIRST, ahead of every exit path. The claim was dropped at the
+        // hand-off (see [PayloadClaimRegistry.handOffToLane]); this call closes
+        // the awaiting-lane record. It must not sit behind the retention
+        // early-return below: an item that fell out of the window between
+        // enqueue and its turn would leave its id armed in the awaiting-lane
+        // set forever, and the NEXT legitimate producer for that id would then
+        // be miscounted as a duplicate -- silently corrupting
+        // [debugDuplicateProducerCount], which is the only signal the probe
+        // verdict and TC-1035 rest on. It gates nothing.
+        _claims.assumeFromLane(id);
         if (!_retentionIds.contains(id)) {
           // Out of the window by the time its turn came: no decode, no bridge
           // call. Release any parked callbacks so they do not accumulate
