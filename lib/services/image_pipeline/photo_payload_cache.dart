@@ -59,8 +59,22 @@ const int kPayloadByteBudget = 256 * 1024 * 1024;
 /// because there is no longer anything whose lifetime has to be managed by
 /// hand (design §4, I5 deliberately dissolved).
 class PhotoPayloadCache {
-  PhotoPayloadCache({int byteBudget = kPayloadByteBudget})
-    : _byteBudget = byteBudget < 1 ? 1 : byteBudget;
+  PhotoPayloadCache({
+    int byteBudget = kPayloadByteBudget,
+    void Function(String id)? onEvicted,
+  }) : _byteBudget = byteBudget < 1 ? 1 : byteBudget,
+       _onEvicted = onEvicted;
+
+  /// Reports every id dropped BY BUDGET PRESSURE, after the entry is gone (so a
+  /// handler that re-reads [contains] sees the truth).
+  ///
+  /// Only the budget path: [retainOnly] and [clear] drop ids that have left the
+  /// retention union, whose per-item observers the caller retires on the same
+  /// pass -- reporting those would be a write to an object about to be
+  /// destroyed. Budget eviction is the opposite case: the id is still retained,
+  /// still watched, and its observer would otherwise keep claiming a payload
+  /// this cache no longer holds.
+  final void Function(String id)? _onEvicted;
 
   int _byteBudget;
 
@@ -168,6 +182,7 @@ class PhotoPayloadCache {
       final victim = _pickVictim(exclude: justWritten);
       final evicted = _entries.remove(victim)!;
       total -= evicted.byteCost;
+      _onEvicted?.call(victim);
     }
   }
 

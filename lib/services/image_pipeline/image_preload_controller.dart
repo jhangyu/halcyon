@@ -79,6 +79,24 @@ ImageProvider fullSizeProviderFor(Uint8List bytes) => MemoryImage(bytes);
 /// expensive full-frame decodes for images the user only passed through.
 const Duration tierTwoNavigationDebounce = Duration(milliseconds: 250);
 
+/// How long a notifier survives after a view last asked for it, even once its
+/// id has left the retention union.
+///
+/// Sized to the sidebar's scroll debounce: a row built during that window has
+/// called `stateFor` but its id is not in the sidebar's wanted set yet (the set
+/// is rewritten only inside the timer), so a navigation-side sweep in the same
+/// window used to dispose a notifier a live row was already holding --
+/// silently, since every later `_markStage` for a missing id early-returns.
+/// Deliberately NOT the sidebar's own constant: this bounds NOTIFIER LIFETIME,
+/// not scroll settling, and the two must be free to move apart.
+///
+/// The notifier map's bound therefore becomes "retention union + ids touched
+/// within this grace", which is still finite: a deferred id is collected by the
+/// NEXT sweep after its grace expires, and sweeps run from both contributors to
+/// the union. No new timer is introduced -- a second lifetime authority is
+/// exactly what this map does not need.
+const Duration kPayloadStateDisposalGrace = Duration(milliseconds: 100);
+
 /// Rows of sidebar thumbnails fetched (and kept cached) beyond each edge of
 /// the visible range. See [ImagePreloadController.preloadThumbnails].
 const int thumbnailPrefetchMargin = 20;
@@ -128,8 +146,7 @@ class ImagePreloadController {
          compositeGate: compositeGate,
        ),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
-       _encodeStage = EncodeStage(width: encodeStageWidth),
-       _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget) {
+       _encodeStage = EncodeStage(width: encodeStageWidth) {
     // Push the width the lane was BUILT with, not just later changes: until
     // the stored preference hydrates and calls [setDecodeLaneWidth], the lane
     // and the pool would otherwise disagree (lane = this constructor's value,
@@ -164,7 +181,13 @@ class ImagePreloadController {
   int get debugPayloadCacheByteBudget => _cache.byteBudget;
 
   final PhotoSource _source;
-  final PhotoPayloadCache _cache;
+
+  /// `late final` for the same reason [_sidebar] is: the eviction callback is
+  /// an instance method, so this cannot be built in the initialiser list.
+  late final PhotoPayloadCache _cache = PhotoPayloadCache(
+    byteBudget: _retention.payloadByteBudget,
+    onEvicted: _onPayloadEvicted,
+  );
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
   /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
@@ -363,6 +386,24 @@ class ImagePreloadController {
   // survives the removal.
   int _payloadStateDisposeCount = 0;
 
+  /// When each id was last handed to a view through [stateFor]. Entries are
+  /// dropped with their notifier, so this map is bounded by [_payloadStates].
+  final Map<String, DateTime> _payloadStateTouchedAt = {};
+
+  int _payloadStateDeferredCount = 0;
+
+  /// How many notifiers the last sweep kept alive purely because of
+  /// [kPayloadStateDisposalGrace].
+  @visibleForTesting
+  int get debugPayloadStateDeferredCount => _payloadStateDeferredCount;
+
+  /// Seam for the grace period's clock, same shape as [decodePoolWidthSink]:
+  /// a test can advance time without a faked engine clock (FakeAsync plus a
+  /// real engine future hangs forever, so it is not an option here).
+  /// Production code never assigns it.
+  @visibleForTesting
+  static DateTime Function() payloadStateClock = DateTime.now;
+
   /// [id]'s payload readiness, for a view to listen to instead of rebuilding
   /// on the app-wide notification.
   ///
@@ -373,10 +414,15 @@ class ImagePreloadController {
   /// this class's two factories (plan risk R1).
   ValueListenable<PayloadState> stateFor(String id) => _notifierFor(id);
 
-  PayloadStateNotifier _notifierFor(String id) => _payloadStates.putIfAbsent(
-    id,
-    () => PayloadStateNotifier(_derivedStateFor(id)),
-  );
+  PayloadStateNotifier _notifierFor(String id) {
+    // Stamped on every call, creation and re-read alike: a re-read is equally
+    // the signal that a live view is holding this id.
+    _payloadStateTouchedAt[id] = payloadStateClock();
+    return _payloadStates.putIfAbsent(
+      id,
+      () => PayloadStateNotifier(_derivedStateFor(id)),
+    );
+  }
 
   /// The truth as of right now, read off the same containers the getters use.
   /// A notifier is born with this rather than with `absent` so a widget that
@@ -426,6 +472,26 @@ class ImagePreloadController {
     notifier.trySetValue(current.copyWith(stage: stage));
   }
 
+  /// The ONE place a stage may move BACKWARDS.
+  ///
+  /// [PhotoPayloadCache] evicts under byte pressure without asking whether the
+  /// id is still retained, so an item inside the window can lose its payload
+  /// while a view is watching it. [_markStage] is forward-only by design (a
+  /// landing must never be un-landed by a late arrival), which is why the
+  /// demotion cannot go through it: instead this recomputes the item's state
+  /// from the same containers a notifier born right now would read, so the
+  /// observable state stays a FUNCTION of the containers rather than a second
+  /// opinion. A permanently-missing item is untouched -- `failed` is terminal
+  /// until `reset()`, which [_derivedStateFor] already encodes.
+  ///
+  /// Runs synchronously inside `_cache.put`, i.e. inside a landing: it touches
+  /// [_payloadStates] only and never calls back into the cache's mutating API.
+  void _onPayloadEvicted(String id) {
+    final notifier = _payloadStates[id];
+    if (notifier == null) return;
+    notifier.trySetValue(_derivedStateFor(id));
+  }
+
   /// The sidebar wrote a derived tile for [id]. A separate axis from the stage
   /// ladder -- see [PayloadState.thumbnailReady].
   void _markThumbnailReady(String id) {
@@ -470,10 +536,24 @@ class ImagePreloadController {
   void _sweepPayloadStates() {
     if (_payloadStates.isEmpty) return;
     final keep = _retentionIds;
+    final now = payloadStateClock();
+    _payloadStateDeferredCount = 0;
     _payloadStates.removeWhere((id, notifier) {
       if (keep.contains(id)) return false;
+      // A row that asked for this state moments ago is live even though the
+      // sidebar's wanted set has not caught up yet (the set is rewritten only
+      // inside its 100ms debounce). Disposing here is the orphan bug; the NEXT
+      // sweep after the grace expires collects it, and sweeps run from both
+      // contributors to the union, so nothing is kept indefinitely.
+      final touchedAt = _payloadStateTouchedAt[id];
+      if (touchedAt != null &&
+          now.difference(touchedAt) < kPayloadStateDisposalGrace) {
+        _payloadStateDeferredCount++;
+        return false;
+      }
       notifier.dispose();
       _payloadStateDisposeCount++;
+      _payloadStateTouchedAt.remove(id);
       return true;
     });
   }
@@ -484,6 +564,9 @@ class ImagePreloadController {
       _payloadStateDisposeCount++;
     }
     _payloadStates.clear();
+    // A folder reload destroys everything: the grace period does not apply.
+    _payloadStateTouchedAt.clear();
+    _payloadStateDeferredCount = 0;
   }
 
   /// Live per-item notifiers. The no-leak acceptance condition asserts this

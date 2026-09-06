@@ -205,6 +205,21 @@ void main() {
       'a 200-item navigation leaves at most (retention union) notifiers, and '
       'every notifier that left the map was disposed',
       () async {
+        // The 200 iterations below complete inside a single real
+        // `kPayloadStateDisposalGrace` window, so with the wall clock every
+        // notifier would still be inside its grace at assertion time and the
+        // bound would be vacuously unreachable. The clock is therefore driven
+        // explicitly: each navigation happens more than a grace after the
+        // `stateFor` that preceded it, which is the steady state this test is
+        // about. The BOUND ITSELF is unchanged -- relaxing it to
+        // "union + deferred" would make it inflate with any leak that
+        // manifested as mass deferral, i.e. an assertion that cannot fail.
+        var now = DateTime(2026, 9, 6, 12);
+        ImagePreloadController.payloadStateClock = () => now;
+        addTearDown(
+          () => ImagePreloadController.payloadStateClock = DateTime.now,
+        );
+
         final controller = _cheapController();
         addTearDown(controller.dispose);
         controller.updateTargetSize(800, 600);
@@ -216,6 +231,7 @@ void main() {
           // about to paint, every navigation.
           controller.stateFor(item.id);
           asked++;
+          now = now.add(kPayloadStateDisposalGrace * 2);
           await controller.preloadImages(
             items: items,
             selectedItemId: item.id,
@@ -251,6 +267,17 @@ void main() {
       'TC-988: listen, evict, read again — no throw and the fresh state is '
       'absent',
       () async {
+        // Same reason as the test above: this case runs well inside one real
+        // `kPayloadStateDisposalGrace`, so the sweep below would defer rather
+        // than dispose and the eviction under test would never happen. The
+        // clock is advanced past the grace before the far navigation; every
+        // assertion is unchanged.
+        var now = DateTime(2026, 9, 6, 12);
+        ImagePreloadController.payloadStateClock = () => now;
+        addTearDown(
+          () => ImagePreloadController.payloadStateClock = DateTime.now,
+        );
+
         final controller = _cheapController();
         addTearDown(controller.dispose);
         controller.updateTargetSize(800, 600);
@@ -273,6 +300,7 @@ void main() {
         expect(before, greaterThan(0));
 
         // Navigate far enough that `id` leaves the retention union entirely.
+        now = now.add(kPayloadStateDisposalGrace * 2);
         await controller.preloadImages(
           items: items,
           selectedItemId: items[40].id,
