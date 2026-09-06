@@ -14,6 +14,8 @@ class DecodedRgba {
     required this.rgba,
     required this.width,
     required this.height,
+    this.nativeAddress = 0,
+    this.nativeKeepAlive,
   });
 
   /// RGBA8 interleaved, length == width * height * 4.
@@ -22,6 +24,22 @@ class DecodedRgba {
   /// Already cropped to DefaultCropSize by the decoder; do not crop again.
   final int width;
   final int height;
+
+  /// WP3/R2b (gc-remediation, 2026-09-06). The address of the native buffer
+  /// [rgba] views, or 0 when [rgba] is Dart-heap-owned (the legacy arm, and
+  /// every existing fake decoder in the test suite -- both default this to
+  /// 0, so every existing construction is unaffected). Mirrors
+  /// `DngImage.nativeAddress` (ceyx, landed eec995b): non-zero only on the
+  /// pointer-transfer decode path.
+  final int nativeAddress;
+
+  /// The object that must stay reachable for as long as [nativeAddress] is
+  /// used (typically the `DngImage` ceyx handed back) -- the native buffer's
+  /// lifetime is tied to it via a `NativeFinalizer`, and this repo does not
+  /// import `dart:ffi`'s `Finalizable` here to keep this class decoder-
+  /// package-agnostic (class dartdoc above: "no package import"). Null
+  /// whenever [nativeAddress] is 0.
+  final Object? nativeKeepAlive;
 }
 
 /// Decodes a DNG that carries no embedded full-size JPEG preview.

@@ -147,6 +147,17 @@ typedef SourceDecode = ({
   bool deferred,
   int? exifOrientation,
   String? failureCode,
+  // R2b (gc-remediation, 2026-09-06): carries `DecodedRgba.nativeAddress`/
+  // `.nativeKeepAlive` forward from decode to [encodePhase]. NOT on
+  // [OrientedFullRes] (E-WP4-1 froze that record's field set for R2) --
+  // this typedef is the seam that is allowed to grow. 0/null on every path
+  // that is not a real RAW decode, and on the RAW decode path it is only
+  // MEANINGFUL when [fullRes]'s `image` is null: a rotated decode's
+  // `fullRes.rgba` is a fresh `toByteData` GPU readback with no native
+  // address of its own, so [encodePhase] must re-check `fullRes.image` and
+  // not just trust these being non-zero.
+  int nativeAddress,
+  Object? nativeKeepAlive,
 });
 
 /// What ONE bounded content probe learned about a file.
@@ -183,6 +194,7 @@ class PhotoSource {
     required this.loader,
     this.dngDecoder,
     this.payloadEncoder,
+    this.pointerPayloadEncoder,
     this.compositeGate = immediateCompositeGate,
   });
 
@@ -207,6 +219,15 @@ class PhotoSource {
   /// the pre-Phase-13 `PixelPayload` behaviour, which is what every
   /// decode-only test keeps exercising.
   final PayloadEncoder? payloadEncoder;
+
+  /// R2b (gc-remediation, WP3 production wiring): the pointer-based sibling
+  /// used ONLY when [SourceDecode.nativeAddress] is non-zero AND
+  /// [SourceDecode.fullRes]'s `image` is null (the identity path -- see
+  /// [encodePhase]'s dartdoc). Null means "no pointer path available",
+  /// which is every existing test binding and every rotated decode: both
+  /// keep using [payloadEncoder] on the copied bytes, byte-for-byte as
+  /// before this field existed.
+  final PointerPayloadEncoder? pointerPayloadEncoder;
 
   /// Every ENCODED bitstream this class emits goes through here, so a JPG's
   /// bytes, an embedded preview and a decoded RAW all become the same q70
@@ -281,6 +302,8 @@ class PhotoSource {
           deferred: false,
           exifOrientation: null,
           failureCode: null,
+          nativeAddress: 0,
+          nativeKeepAlive: null,
         );
 
       case NativeImageNeedsRawDecode(
@@ -304,6 +327,8 @@ class PhotoSource {
             deferred: false,
             exifOrientation: null,
             failureCode: kNoNativeDecoderCode,
+            nativeAddress: 0,
+            nativeKeepAlive: null,
           );
         }
         if (!allowExpensive) {
@@ -316,6 +341,8 @@ class PhotoSource {
             deferred: true,
             exifOrientation: exifOrientation,
             failureCode: null,
+            nativeAddress: 0,
+            nativeKeepAlive: null,
           );
         }
         OrientedFullRes? handedOut;
@@ -377,6 +404,8 @@ class PhotoSource {
             deferred: false,
             exifOrientation: null,
             failureCode: null,
+            nativeAddress: decoded.nativeAddress,
+            nativeKeepAlive: decoded.nativeKeepAlive,
           );
         } catch (_) {
           // Step 3b. A throwing decoder is a genuine permanent miss (M6
@@ -414,6 +443,8 @@ class PhotoSource {
             exifOrientation: null,
             failureCode:
                 declaredPreviewsUnreadable ? 'DNG_PARSE_FAILED' : null,
+            nativeAddress: 0,
+            nativeKeepAlive: null,
           );
         }
 
@@ -433,6 +464,8 @@ class PhotoSource {
           deferred: false,
           exifOrientation: null,
           failureCode: null,
+          nativeAddress: 0,
+          nativeKeepAlive: null,
         );
     }
   }
@@ -465,6 +498,8 @@ class PhotoSource {
         deferred: false,
         exifOrientation: null,
         failureCode: kNoNativeDecoderCode,
+        nativeAddress: 0,
+        nativeKeepAlive: null,
       );
     }
     OrientedFullRes? handedOut;
@@ -514,6 +549,8 @@ class PhotoSource {
         deferred: false,
         exifOrientation: null,
         failureCode: null,
+        nativeAddress: decoded.nativeAddress,
+        nativeKeepAlive: decoded.nativeKeepAlive,
       );
     } catch (_) {
       // M6 U-12: a throwing decoder is a genuine permanent miss, not D3.
@@ -527,6 +564,8 @@ class PhotoSource {
         deferred: false,
         exifOrientation: null,
         failureCode: null,
+        nativeAddress: 0,
+        nativeKeepAlive: null,
       );
     }
   }
@@ -564,6 +603,16 @@ class PhotoSource {
     // product and the thunk is awaited unconditionally. Observably unchanged.
     if (encoder == null) return outcomeWith(await fallback());
     final fullRes = decode.fullRes;
+    // R2b: the pointer path is only valid when `fullRes.rgba` really IS the
+    // native-backed buffer `decode.nativeAddress` describes. That is true
+    // ONLY on the identity path (`fullRes.image == null` --
+    // `decoded_rgba_image_provider.dart`'s short-circuit returns
+    // `decoded.rgba` itself). On the rotated path `fullRes.rgba` is a fresh
+    // `toByteData` GPU readback (a NEW Dart-heap buffer with no address of
+    // its own), so this gate must re-check `fullRes.image`, not just trust a
+    // non-zero `decode.nativeAddress` -- trusting it there would hand the
+    // encoder a stale/foreign address for a buffer it never produced.
+    final usePointer = fullRes != null && fullRes.image == null;
     // PHASE 13 (one buffer, user ruling 2026-08-30) -- UNCHANGED by WP1. The
     // re-encode still happens HERE, before the outcome exists, so the payload
     // the controller writes to the cache is already final: publishing a
@@ -582,6 +631,9 @@ class PhotoSource {
                 width: fullRes.width,
                 height: fullRes.height,
               ),
+        pointerEncoder: pointerPayloadEncoder,
+        nativeAddress: usePointer ? decode.nativeAddress : 0,
+        keepAlive: usePointer ? decode.nativeKeepAlive : null,
       ),
     );
   }

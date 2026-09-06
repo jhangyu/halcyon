@@ -352,6 +352,171 @@ void main() {
         await pumpMicrotasks();
       },
     );
+
+    // WP4 (docs/logs/2026-09-06/gc-remediation-plan.md Task 5) / spec AC6
+    // half. On the rotated path (`fullRes.image != null`), the ~96MB `rgba`
+    // readback's only consumer is the encoder, which has already returned by
+    // the time this fires. This test fails if the double-hold (rgba retained
+    // alongside the image through publish) ever comes back: before the fix,
+    // `debugFullResBytesReleasedEarly` never increments.
+    test(
+      'the rotated path releases its rgba readback once the encoder is done',
+      () async {
+        // Orientation 3 (180deg, no mirror) is non-identity, so
+        // decodedRgbaToOrientedFullRes renders a `ui.Image` and hands back a
+        // non-null `image` -- the rotated path this test targets.
+        Future<NativeImageResult> rotatedLoader(
+          String path, {
+          required ImageRequestPurpose purpose,
+          int? targetLongEdge,
+        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
+
+        final controller = ImagePreloadController(
+          imageLoader: rotatedLoader,
+          dngDecoder: (path) async => decodedFixture(),
+          payloadEncoder:
+              (rgba, {required width, required height, required quality}) async =>
+                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+          decodeLaneWidth: 1,
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        await controller.preloadImages(
+          items: twoRawItems(),
+          selectedItemId: 'a',
+          notifyLoaded: () {},
+        );
+        await pumpMicrotasks();
+
+        expect(
+          controller.debugFullResBytesReleasedEarly,
+          greaterThan(0),
+          reason:
+              'the rotated path full-res record must be shrunk before '
+              'publish, dropping the readback whose only consumer (the '
+              'encoder) has already returned',
+        );
+        // The shrink must not break the piggyback publish: the image handle
+        // is still carried and lands in the tier-2 registry.
+        expect(controller.fullResProviderFor('a'), isNotNull);
+      },
+    );
+
+    // R2b (docs/logs/2026-09-06/gc-remediation-plan.md, production wiring):
+    // a native-backed IDENTITY decode must be re-encoded through the pointer
+    // entry, with the exact address/keepAlive `DecodedRgba` carried, and must
+    // NOT touch the byte-copy encoder at all.
+    test(
+      'a native-backed identity decode uses the pointer encoder, not the '
+      'byte-copy encoder',
+      () async {
+        final keeper = Object();
+        var pointerCalls = 0;
+        var copyCalls = 0;
+        final controller = ImagePreloadController(
+          imageLoader: needsRawDecodeLoader, // orientation 1 == identity
+          dngDecoder: (path) async => DecodedRgba(
+            rgba: decodedFixture().rgba,
+            width: 4,
+            height: 4,
+            nativeAddress: 0x1234,
+            nativeKeepAlive: keeper,
+          ),
+          payloadEncoder:
+              (rgba, {required width, required height, required quality}) async {
+                copyCalls++;
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+          pointerPayloadEncoder:
+              ({
+                required nativeAddress,
+                required width,
+                required height,
+                required quality,
+                keepAlive,
+              }) async {
+                pointerCalls++;
+                expect(nativeAddress, 0x1234);
+                expect(identical(keepAlive, keeper), isTrue);
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+          decodeLaneWidth: 1,
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        await controller.preloadImages(
+          items: rawItems(['a']),
+          selectedItemId: 'a',
+          notifyLoaded: () {},
+        );
+        await pumpMicrotasks();
+
+        expect(pointerCalls, 1);
+        expect(copyCalls, 0);
+        expect(controller.payloadFor('a'), isA<EncodedPayload>());
+      },
+    );
+
+    // R2b -- the gate must re-check `fullRes.image`, not just trust a
+    // non-zero address: a ROTATED decode's `fullRes.rgba` is a fresh GPU
+    // readback with no relation to the native address the decoder reported,
+    // so even a native-backed decode must fall back to the byte-copy encoder
+    // once orientation forces a GPU pass.
+    test(
+      'a native-backed ROTATED decode still uses the byte-copy encoder',
+      () async {
+        var pointerCalls = 0;
+        var copyCalls = 0;
+        Future<NativeImageResult> rotatedLoader(
+          String path, {
+          required ImageRequestPurpose purpose,
+          int? targetLongEdge,
+        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
+
+        final controller = ImagePreloadController(
+          imageLoader: rotatedLoader,
+          dngDecoder: (path) async => DecodedRgba(
+            rgba: decodedFixture().rgba,
+            width: 4,
+            height: 4,
+            nativeAddress: 0x1234,
+            nativeKeepAlive: Object(),
+          ),
+          payloadEncoder:
+              (rgba, {required width, required height, required quality}) async {
+                copyCalls++;
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+          pointerPayloadEncoder:
+              ({
+                required nativeAddress,
+                required width,
+                required height,
+                required quality,
+                keepAlive,
+              }) async {
+                pointerCalls++;
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+          decodeLaneWidth: 1,
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        await controller.preloadImages(
+          items: rawItems(['a']),
+          selectedItemId: 'a',
+          notifyLoaded: () {},
+        );
+        await pumpMicrotasks();
+
+        expect(pointerCalls, 0);
+        expect(copyCalls, 1);
+        expect(controller.payloadFor('a'), isA<EncodedPayload>());
+      },
+    );
   });
 
   group('jpeg_encoder_test.dart', () {

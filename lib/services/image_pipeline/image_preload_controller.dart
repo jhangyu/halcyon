@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi' show Finalizable;
 import 'dart:math' as math;
 
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
@@ -8,6 +9,7 @@ import 'package:flutter/painting.dart';
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dart_image_loader.dart' show resetSidebarWalkMemo;
+import 'decoded_rgba_image_provider.dart' show OrientedFullRes;
 import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart'
     show bumpHalcyonDecodePoolGeneration, setHalcyonDecodePoolWidth;
@@ -51,6 +53,35 @@ Future<Uint8List> _encodeJpegNative(
     width: width,
     height: height,
     quality: quality,
+  );
+}
+
+/// Production binding for [PointerPayloadEncoder] (R2b, gc-remediation
+/// 2026-09-06): the WP3/WP3b pointer entry, wired end-to-end so a
+/// native-backed identity-path decode skips the `TransferableTypedData.
+/// fromList` copy [_encodeJpegNative] pays. [keepAlive] arrives as `Object?`
+/// (the `PointerPayloadEncoder` typedef, `payload_reencoder.dart`, is
+/// decoder-package-agnostic by design -- E-WP3b); ceyx's entry point wants a
+/// `Finalizable` specifically, which is exactly what `DecodedRgba.
+/// nativeKeepAlive` holds in production (the `DngImage` handle,
+/// `dng_decode_service.dart`), and every value handed here at runtime IS
+/// one whenever `nativeAddress` was non-zero (photo_source.dart's
+/// `encodePhase` only sets both together). A stray non-Finalizable value
+/// would mean that invariant broke upstream, so this is a deliberate hard
+/// cast, not a silent `is` fallback.
+Future<Uint8List> _encodeJpegFromNativeRgba({
+  required int nativeAddress,
+  required int width,
+  required int height,
+  required int quality,
+  Object? keepAlive,
+}) {
+  return CeyxEncodeService().encodeJpegFromNativeRgba(
+    rgbaAddress: nativeAddress,
+    width: width,
+    height: height,
+    quality: quality,
+    keepAlive: keepAlive as Finalizable?,
   );
 }
 
@@ -128,6 +159,7 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
+    PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
     FrameHook? scheduleFrameCallback,
@@ -150,6 +182,7 @@ class ImagePreloadController {
          loader: imageLoader,
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
+         pointerPayloadEncoder: pointerPayloadEncoder,
          compositeGate: compositeGate,
        ),
        _stageWidths = StageWidths.derive(decodeLaneWidth),
@@ -330,6 +363,35 @@ class ImagePreloadController {
 
   @visibleForTesting
   int get debugEncodeStageRunningCount => _encodeStage.runningCount;
+
+  /// WP4 (docs/logs/2026-09-06/gc-remediation-plan.md Task 5): count of
+  /// full-res records whose ~96MB `rgba` readback was dropped early because
+  /// the encode that was its only consumer had already returned. Exposed so a
+  /// test fails if the double-hold (rgba retained through publish on the
+  /// rotated path) ever comes back.
+  @visibleForTesting
+  int debugFullResBytesReleasedEarly = 0;
+
+  /// The rotated path's `rgba` has exactly ONE consumer -- the encoder that
+  /// just returned. `publishPiggybackFullRes` reads `fullRes.rgba` only on
+  /// its `supplied == null` branch (tier_two_scheduler.dart, the branch
+  /// guarded by `if (supplied != null) { image = supplied; } else { ... }`),
+  /// i.e. only when `image` is null. Holding the ~96MB readback through the
+  /// pacer/idle-publish wait between here and publish is the union lifetime
+  /// the lifetime lens F2 measured; dropping the reference here is the whole
+  /// fix.
+  OrientedFullRes _shrinkAfterEncode(OrientedFullRes fullRes) {
+    if (fullRes.image == null) {
+      return fullRes; // identity path: rgba IS the publish input
+    }
+    debugFullResBytesReleasedEarly++;
+    return (
+      rgba: Uint8List(0),
+      width: fullRes.width,
+      height: fullRes.height,
+      image: fullRes.image,
+    );
+  }
 
   /// Decodes currently OCCUPYING a lane slot. Exposed so a test can establish
   /// "the lane is busy" as a precondition instead of assuming it: an entry the
@@ -1817,7 +1879,23 @@ class ImagePreloadController {
     // release below; releasing against a stale epoch is then a no-op instead of
     // an over-release (BUG 2026-09-03, TC-886).
     try {
-      final outcome = await _encodeStage.run(() => _source.encodePhase(decode));
+      final rawOutcome = await _encodeStage.run(
+        () => _source.encodePhase(decode),
+      );
+      // WP4: the encode above is `fullRes.rgba`'s only consumer on the
+      // rotated path (see `_shrinkAfterEncode`'s doc). Shrinking here, before
+      // `_completeOutcome`/the piggyback publish, is what stops the ~96MB
+      // readback from surviving the pacer/idle-publish wait.
+      final outcome = rawOutcome.fullRes == null
+          ? rawOutcome
+          : (
+              payload: rawOutcome.payload,
+              observedCost: rawOutcome.observedCost,
+              deferred: rawOutcome.deferred,
+              exifOrientation: rawOutcome.exifOrientation,
+              fullRes: _shrinkAfterEncode(rawOutcome.fullRes!),
+              failureCode: rawOutcome.failureCode,
+            );
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'

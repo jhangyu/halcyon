@@ -79,6 +79,13 @@ Future<DecodedRgba> decodeDngFull(String path) async {
     rgba: image.rgbaData,
     width: image.width,
     height: image.height,
+    // R2b (gc-remediation): `image.nativeAddress` is 0 on the legacy
+    // TransferableTypedData arm (`DngDecoderService().decodeOnWorker`), so
+    // `nativeKeepAlive` is harmless to set unconditionally -- a zero address
+    // makes every downstream pointer-path gate refuse regardless of what
+    // this field holds.
+    nativeAddress: image.nativeAddress,
+    nativeKeepAlive: image,
   );
 }
 
