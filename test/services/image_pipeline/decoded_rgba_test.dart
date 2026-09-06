@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:ceyx/ceyx.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
+import 'package:halcyon_flutter/perf/perf_log.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/exif_orientation.dart';
@@ -361,6 +362,41 @@ void main() {
           await full.image!.toByteData(format: ui.ImageByteFormat.rawRgba);
       expect(full.rgba, orderedEquals(data!.buffer.asUint8List()));
       full.image!.dispose();
+    });
+
+    // TC-1085 -- probe 1 (jank-rootcause-analysis.md §6). `req_end` reports
+    // `exifOrientation=null` for every RAW item by construction, so this line
+    // is the only place the log can tell a rotated item (which pays a GPU pass
+    // plus two full-frame on-isolate copies) from an identity one.
+    test('orient probe records the real orientation and whether it rotates',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('orient-probe');
+      final logPath = '${dir.path}/perf.log';
+      try {
+        PerfLog.init(logPath);
+        await decodedRgbaToOrientedFullRes(_sourceShort(), exifOrientation: 1);
+        final rotated = await decodedRgbaToOrientedFullRes(
+          _sourceShort(),
+          exifOrientation: 6,
+        );
+        rotated.image!.dispose();
+        await PerfLog.flush();
+
+        final orient = File(logPath)
+            .readAsStringSync()
+            .split('\n')
+            .where((l) => l.contains('orient|'))
+            .toList();
+        expect(orient, hasLength(2));
+        expect(orient[0], contains('exif=1'));
+        expect(orient[0], contains('rotated=false'));
+        expect(orient[1], contains('exif=6'));
+        expect(orient[1], contains('rotated=true'));
+        expect(orient[1], contains('bytes=${2 * 3 * 4}'));
+      } finally {
+        PerfLog.enabled = false;
+        await dir.delete(recursive: true);
+      }
     });
 
     // TC-824c -- the handle is handed out live, not already disposed.
@@ -1151,6 +1187,106 @@ void main() {
         expect(SupportedPhotoFormats.preferredLoadExtensions,
             ['.jpg', '.jpeg', '.heic', '.heif', '.webp', '.avif', '.jxl', '.png']);
       });
+    });
+  });
+
+  group('decoded_rgba_residual_orientation_test.dart', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    /// A 2x3 opaque frame whose decoder already applied orientation
+    /// [appliedOrientation].
+    DecodedRgba nativelyOriented(int appliedOrientation) {
+      final bytes = Uint8List(2 * 3 * 4);
+      for (var p = 0; p < 6; p++) {
+        bytes[p * 4] = 10 + p * 20;
+        bytes[p * 4 + 3] = 0xFF;
+      }
+      return DecodedRgba(
+        rgba: bytes,
+        width: 2,
+        height: 3,
+        appliedOrientation: appliedOrientation,
+      );
+    }
+
+    // TC-1086 -- AC-7.1: declared == applied means the residual is identity,
+    // so the short-circuit runs and the native buffer is kept, not copied.
+    test('declared 6 + applied 6 short-circuits and keeps the native buffer',
+        () async {
+      final src = nativelyOriented(6);
+      final full =
+          await decodedRgbaToOrientedFullRes(src, exifOrientation: 6);
+      expect(full.image, isNull);
+      expect(identical(full.rgba, src.rgba), isTrue);
+    });
+
+    // TC-1087 -- AC-7.2: the legacy arm (decoder applied nothing) is
+    // untouched -- a GPU pass still runs and a handle comes back.
+    test('declared 6 + applied 1 still runs the GPU pass', () async {
+      final src = nativelyOriented(1);
+      final full =
+          await decodedRgbaToOrientedFullRes(src, exifOrientation: 6);
+      expect(full.image, isNotNull);
+      full.image!.dispose();
+    });
+
+    // TC-1088 -- AC-7.5, seen RED before the change (verified manually by
+    // reverting the residual call in decodedRgbaToOrientedFullRes: this test
+    // failed with 1 materialize| event instead of 0). A natively-oriented RAW
+    // frame must never hit ui.decodeImageFromPixels for the full-res frame.
+    test('a natively-oriented frame emits zero materialize| events', () async {
+      final dir = await Directory.systemTemp.createTemp('residual-probe');
+      final logPath = '${dir.path}/perf.log';
+      try {
+        PerfLog.init(logPath);
+        final full = await decodedRgbaToOrientedFullRes(
+          nativelyOriented(6),
+          exifOrientation: 6,
+        );
+        full.image?.dispose();
+        await PerfLog.flush();
+
+        final materializeLines = File(logPath)
+            .readAsStringSync()
+            .split('\n')
+            .where((l) => l.contains('materialize|'))
+            .toList();
+        expect(materializeLines, isEmpty);
+      } finally {
+        PerfLog.enabled = false;
+        await dir.delete(recursive: true);
+      }
+    });
+
+    // TC-1089 -- AC-7.4 companion: the orient| probe line now carries
+    // applied= and residual=, appended after the frozen exif=/rotated=/bytes=
+    // fields; script-level parsing is exercised separately by
+    // analyze_perf.py's own test (a synthetic log with both shapes).
+    test('orient probe appends applied= and residual=, existing fields frozen',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('orient-fields');
+      final logPath = '${dir.path}/perf.log';
+      try {
+        PerfLog.init(logPath);
+        await decodedRgbaToOrientedFullRes(
+          nativelyOriented(6),
+          exifOrientation: 6,
+        );
+        await PerfLog.flush();
+
+        final line = File(logPath)
+            .readAsStringSync()
+            .split('\n')
+            .firstWhere((l) => l.contains('orient|'));
+        expect(line, contains('exif=6'));
+        expect(line, contains('applied=6'));
+        expect(line, contains('residual=1'));
+        expect(line, contains('rotated=false'));
+        expect(line, contains('bytes=${2 * 3 * 4}'));
+      } finally {
+        PerfLog.enabled = false;
+        await dir.delete(recursive: true);
+      }
     });
   });
 

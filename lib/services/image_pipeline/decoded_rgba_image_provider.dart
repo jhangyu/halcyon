@@ -32,13 +32,17 @@ Future<ui.Image> decodedRgbaToImage(
   // below: a slow or never-granted slot must not be able to leave a ~50MB
   // `ui.Image` parked with no owner. AC7: an identity orientation composites
   // nothing, so it buys nothing.
-  if (!_ExifTransform.forOrientation(exifOrientation).isIdentity) {
+  final residual = residualExifOrientation(
+    declared: exifOrientation,
+    applied: rgba.appliedOrientation,
+  );
+  if (!_ExifTransform.forOrientation(residual).isIdentity) {
     await gate();
   }
   final raw = await _imageFromPixels(rgba);
   late final ui.Image oriented;
   try {
-    oriented = await applyExifOrientation(raw, exifOrientation);
+    oriented = await applyExifOrientation(raw, residual);
   } catch (_) {
     raw.dispose();
     rethrow;
@@ -149,7 +153,12 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
   CompositeGate gate = immediateCompositeGate,
 }) async {
   _assertDecodedBufferLength(decoded);
-  final transform = _ExifTransform.forOrientation(exifOrientation);
+  final transform = _ExifTransform.forOrientation(
+    residualExifOrientation(
+      declared: exifOrientation,
+      applied: decoded.appliedOrientation,
+    ),
+  );
 
   // SHORT-CIRCUIT. With an identity transform and no downscale to apply, the
   // old code uploaded ~50MB to the GPU, drew nothing new, and read ~50MB back
@@ -255,7 +264,33 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   CompositeGate gate = immediateCompositeGate,
 }) async {
   _assertDecodedBufferLength(decoded);
-  final transform = _ExifTransform.forOrientation(exifOrientation);
+  final residual = residualExifOrientation(
+    declared: exifOrientation,
+    applied: decoded.appliedOrientation,
+  );
+  final transform = _ExifTransform.forOrientation(residual);
+
+  // PROBE 1 (jank-rootcause-analysis.md §6): the REAL EXIF orientation and
+  // whether it forces a GPU pass. `req_end`'s `exifOrientation=` is null on
+  // every RAW item by construction (photo_source.dart's decode arm reports
+  // "nothing to carry forward", not "no rotation"), so the log could not tell
+  // a rotated item from an identity one -- which is exactly the split that
+  // decides whether this item pays two full-frame on-isolate copies. Logged
+  // here because this is the single place that knows both facts.
+  //
+  // `applied=`/`residual=` (Task 7, native-rotation-spec.md §1.4): appended
+  // fields, existing field names/meanings frozen. `rotated` still means "a
+  // GPU pass will run" -- now decided by the RESIDUAL, not the declared
+  // value, so a natively-oriented RAW frame correctly reports `rotated=false`.
+  if (PerfLog.enabled) {
+    PerfLog.log(
+      'orient|exif=$exifOrientation'
+      '|applied=${decoded.appliedOrientation}'
+      '|residual=$residual'
+      '|rotated=${!transform.isIdentity}'
+      '|bytes=${decoded.rgba.lengthInBytes}',
+    );
+  }
 
   // Same short-circuit as decodedRgbaToPixelPayload's: nothing to rotate and
   // nothing to scale means there is nothing for the GPU to do.
