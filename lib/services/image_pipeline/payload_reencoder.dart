@@ -9,12 +9,43 @@ import 'photo_payload.dart';
 /// Injected rather than called directly so the pipeline can be unit-tested
 /// without spawning an isolate, mirroring the `DngFullDecoder` seam. The
 /// production binding is `encodeJpegFromRgba` (`jpeg_encoder.dart`).
+///
+/// Erratum E-WP3b (gc-remediation R2, 2026-09-06): the plan's original design
+/// widened this typedef with two extra OPTIONAL named parameters
+/// (`nativeAddress`, `keepAlive`), on the claim that every existing test
+/// closure would "keep compiling unchanged". That claim is false for Dart's
+/// function-type subtyping: a function type that declares an optional named
+/// parameter still requires an assigned closure to declare that same
+/// parameter (proof: `Enc e = fakeOld;` where `fakeOld` lacks the extra param
+/// is a compile error, not a silent no-op) -- this typedef is left
+/// BYTE-IDENTICAL, and the pointer path is a wholly separate, additional
+/// encoder typedef instead (see [PointerPayloadEncoder]).
 typedef PayloadEncoder =
     Future<Uint8List> Function(
       Uint8List rgba, {
       required int width,
       required int height,
       required int quality,
+    });
+
+/// The pointer-based sibling of [PayloadEncoder] (WP3, gc-remediation R2):
+/// encodes an RGBA8 frame that already lives in native memory, without the
+/// Dart-heap copy [PayloadEncoder] requires. Mirrors ceyx's
+/// `encodeJpegFromNativeRgba` (`../ceyx/plugin/lib/src/encode_service.dart`,
+/// landed eec995b).
+///
+/// [keepAlive] must be kept reachable by the caller for the duration of the
+/// returned future -- typically the `DecodedRgba`/`DngImage` handle owning
+/// the native buffer -- so the VM's `NativeFinalizer` cannot free the buffer
+/// mid-encode. `reencodePayload` itself only forwards this value; it does not
+/// retain it beyond the awaited call.
+typedef PointerPayloadEncoder =
+    Future<Uint8List> Function({
+      required int nativeAddress,
+      required int width,
+      required int height,
+      required int quality,
+      Object? keepAlive,
     });
 
 /// q70 -- what EVERY retained payload is encoded at, RAW and JPG alike.
@@ -84,6 +115,16 @@ Future<SourcePayload> reencodePayload({
   required Future<SourcePayload> Function() fallback,
   required ({Uint8List rgba, int width, int height})? fullRes,
   int quality = kReencodeJpegQuality,
+  /// WP3/E-WP3b (gc-remediation R2). Both default to the "not available"
+  /// state so every EXISTING caller (`photo_source.dart`,
+  /// `payload_normalizer.dart`, and every test in this suite) is byte-for-byte
+  /// unchanged: [pointerEncoder] null or [nativeAddress] == 0 means this
+  /// function behaves exactly as it did before WP3, using [encoder] on
+  /// [fullRes].rgba. Only a caller that supplies BOTH a non-null
+  /// [pointerEncoder] and a non-zero [nativeAddress] takes the pointer path.
+  PointerPayloadEncoder? pointerEncoder,
+  int nativeAddress = 0,
+  Object? keepAlive,
 }) async {
   if (fullRes == null) {
     // Nothing to encode. Deliberately NOT falling back to encoding the
@@ -118,13 +159,22 @@ Future<SourcePayload> reencodePayload({
     PerfLog.log('reencode.submit|id=$reencodeId');
   }
   final reencodeStartUs = PerfLog.enabled ? PerfLog.us : 0;
+  final usePointer = pointerEncoder != null && nativeAddress != 0;
   try {
-    jpeg = await encoder(
-      fullRes.rgba,
-      width: fullRes.width,
-      height: fullRes.height,
-      quality: quality,
-    );
+    jpeg = usePointer
+        ? await pointerEncoder(
+            nativeAddress: nativeAddress,
+            width: fullRes.width,
+            height: fullRes.height,
+            quality: quality,
+            keepAlive: keepAlive,
+          )
+        : await encoder(
+            fullRes.rgba,
+            width: fullRes.width,
+            height: fullRes.height,
+            quality: quality,
+          );
   } catch (_) {
     if (PerfLog.enabled) {
       PerfLog.log(
