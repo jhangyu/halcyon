@@ -45,6 +45,7 @@ void main() {
       final previewResultCache = <String, NativeImageResult>{};
 
       setUpAll(() async {
+        if (!samplePhotosAvailable) return;
         if (previewCacheWarmed) return;
         for (final f in dngs()) {
           previewCache[f.path] =
