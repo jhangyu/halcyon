@@ -313,6 +313,42 @@ class TestAutoReleaseWiring(unittest.TestCase):
                       "release.yml must expose a real publish path for the gate")
 
 
+class TestNoTestExecutionInCI(unittest.TestCase):
+    """CLAUDE.md (2026-08-31 decree): "CI is compile-only ... Functional
+    tests ... are NOT run in CI." No argv list literal anywhere under
+    scripts/ci/ (or scripts/ci.py) may invoke `flutter test` or `dart test` --
+    the ONLY sanctioned checks CI may run are dependency resolution
+    (`pub get`) and static analysis (`analyze`). This mechanizes the rule
+    the 2026-08-31 rewrite stated in prose but never enforced: verify()
+    ran `flutter test -j 1` from day one (phases.py, "All three ALWAYS
+    run") despite the standing decree, because nothing here checked for it.
+    """
+
+    # Matches a `[...]`-literal argv containing an executable name
+    # ("flutter"/"dart") immediately followed by the literal "test" as the
+    # next element, e.g. ["flutter", "test", "-j", "1"] or ('dart', 'test').
+    # Scans RAW text (not `_code_only_lines`, which blanks string-literal
+    # contents to spaces -- exactly what this check needs to inspect) and
+    # skips comment-only lines the same way TestNoPipeGrep does.
+    PATTERN = re.compile(r"""['"](?:flutter|dart)['"]\s*,\s*['"]test['"]""")
+
+    def test_no_test_execution_in_ci(self):
+        offenders = []
+        for path in _iter_ci_python_files():
+            text = path.read_text(encoding="utf-8")
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if line.strip().startswith("#"):
+                    continue
+                if self.PATTERN.search(line):
+                    offenders.append(f"{path}:{lineno}: {line.strip()}")
+        self.assertEqual(
+            offenders,
+            [],
+            "flutter/dart test execution found in CI argv (CLAUDE.md "
+            "2026-08-31 compile-only decree violation):\n" + "\n".join(offenders),
+        )
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6
