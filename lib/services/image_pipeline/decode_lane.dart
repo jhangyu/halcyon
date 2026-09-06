@@ -1,5 +1,24 @@
 import 'dart:async';
 
+import 'lane_priority.dart';
+
+// PHASE 4 (2026-09-06): the priority BASES no longer live here.
+//
+// They moved to `lane_priority.dart`, which owns the whole band table and the
+// classifier that maps a piece of work onto it -- see that file's library doc
+// for the band order and for why the full-res band sits between navigation
+// and sidebar work (user ruling, contract override S4). This lane is now a
+// pure min-priority queue: it orders by the number it is handed and has no
+// opinion about where that number came from.
+//
+// The two historical names are re-exported rather than deleted because the
+// sidebar ordering tests (TC-963/TC-964) assert RELATIVE order through those
+// symbols, and rebasing must not require rewriting the tests that prove the
+// rebasing preserved order. Their VALUES changed with the new band table;
+// nothing in `lib/` computes a priority from them any more.
+export 'lane_priority.dart'
+    show kFullResPriorityBase, kSidebarPayloadPriorityBase;
+
 /// What a lane task is FOR. Part of the lane key, so payload production and a
 /// full-resolution upgrade for the same item are two distinct entries.
 ///
@@ -19,27 +38,6 @@ enum LaneTaskKind {
 
 typedef LaneKey = (LaneTaskKind kind, String id);
 
-/// Priority base for [LaneTaskKind.fullRes] work.
-///
-/// User ruling (open question 4, unchanged by the 2026-08-26 unification): the
-/// blank slots the user can SEE go first. Any payload production pending on the
-/// lane therefore outranks every full-resolution upgrade, whatever their
-/// distances; within each class the near-to-far rank decides.
-const int kFullResPriorityBase = 1000;
-
-/// Priority base for payload production requested by the SIDEBAR.
-///
-/// USER RULING 2026-08-30 (contract D5): scrolling fills the payload cache, so
-/// the sidebar may now ask for payloads. It asks LAST: navigation payloads are
-/// 0-based, full-resolution upgrades are [kFullResPriorityBase], and a blank
-/// sidebar tile is a smaller incompleteness than the main image still being at
-/// window resolution -- and every row the user is about to SELECT is covered
-/// by the waiter path instead, which costs nothing.
-///
-/// Deliberately NOT a new [LaneTaskKind]: the key stays `(payload, id)`, so a
-/// navigation enqueue for the same item REPLACES this entry's priority and
-/// promotes it, instead of decoding the same file twice under two keys.
-const int kSidebarPayloadPriorityBase = 2000;
 
 /// THE ONE place an expensive (real RAW) decode may run.
 ///
@@ -219,8 +217,9 @@ class _LaneTask {
 /// +5 (2026-08-26 ruling): forward before backward at equal absolute distance,
 /// because browsing is overwhelmingly forwards -- the same asymmetry the
 /// retention window (-3..+5) already encodes.
-int laneRankFor(int signedDistance) {
-  final d = signedDistance.abs();
-  if (d == 0) return 0;
-  return signedDistance > 0 ? 2 * d - 1 : 2 * d;
-}
+/// PHASE 4: the implementation moved to `lane_priority.dart`
+/// ([laneRankForDistance]) so that every input to a lane priority is decided
+/// in one file. This alias stays for the call sites that only need the rank
+/// itself (the tier-1 ImageCache submit rank, the perf log), which are not
+/// lane priorities at all.
+int laneRankFor(int signedDistance) => laneRankForDistance(signedDistance);

@@ -23,6 +23,7 @@ import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
 import 'sidebar_thumbnail_controller.dart';
 import 'decode_lane.dart';
+import 'lane_priority.dart';
 import 'encode_stage.dart';
 import 'inflight_bytes_budget.dart';
 import 'publication_pacer.dart';
@@ -1548,7 +1549,10 @@ class ImagePreloadController {
     }
     _decodeLane.enqueue(
       (LaneTaskKind.payload, id),
-      priority: laneRankFor(distance),
+      // PHASE 4: P1 for the selected slot, P2 for the rest of the window --
+      // one classifier call instead of this file's own arithmetic. The rank
+      // WITHIN P2 is still the user-ruled near-to-far walk.
+      priority: navigationPriorityFor(distance),
       // `distance` is captured at enqueue time and becomes stale after
       // navigation. This is harmless: a navigation re-enqueue REPLACES this
       // body with a fresh distance, so stale distance only survives when the

@@ -12,6 +12,7 @@ import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'prefetch_scheduler.dart';
 import 'decode_lane.dart';
+import 'lane_priority.dart';
 import 'tier_two_registry.dart';
 
 /// Produces and retains an item's payload if it is not retained already --
@@ -580,7 +581,10 @@ class TierTwoScheduler {
   ) {
     _lane.enqueue(
       (LaneTaskKind.fullRes, item.id),
-      priority: kFullResPriorityBase + laneRankFor(distance),
+      // PHASE 4: the full-res band, from the one classifier. Its position --
+      // after ALL payload production, before ALL sidebar work -- is a user
+      // ruling (contract override S4), not a refactor choice.
+      priority: fullResPriorityFor(distance),
       body: () async {
         if (!_windowIds.contains(item.id)) return;
         if (!identical(_currentPayloadFor(item.id), payload)) return;

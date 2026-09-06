@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../models/photo_item.dart';
 import 'decode_lane.dart';
+import 'lane_priority.dart';
 import 'derive_queue.dart';
 import 'image_preload_controller.dart' show thumbnailPrefetchMargin;
 import 'photo_payload.dart';
@@ -295,8 +296,10 @@ class SidebarThumbnailController {
     }
   }
 
-  /// Distance from the visible viewport used to rank rows WITHIN the
-  /// sidebar's own priority class (added to [kSidebarPayloadPriorityBase]).
+  /// Distance from the visible viewport used to rank rows within the DERIVE
+  /// queue (PHASE 4: the LANE takes its ranking from [sidebarPriorityFor]
+  /// instead; this single-band total order is still what the derive queue
+  /// wants).
   ///
   /// Two-part, fixed 2026-09-06 (contract D1): a row inside the visible range
   /// `[safeStart, safeEnd]` ranks by distance from the visible CENTER; a
@@ -333,21 +336,28 @@ class SidebarThumbnailController {
 
   /// Asks the lane to produce [item]'s payload on the SIDEBAR's behalf.
   ///
-  /// [rowDistance] is the row's [_rowDistance] result, so rows closer to the
-  /// visible center (and, among margin rows, closer to the visible edge) are
-  /// produced first within the sidebar's own priority class.
+  /// [priority] comes from [sidebarPriorityFor] (PHASE 4): visible rows land
+  /// in the P3 band ranked by distance from the visible centre, margin rows in
+  /// the P4 band ranked by distance from the nearest visible edge.
+  ///
+  /// D1's synthetic `marginDistanceBase` offset is no longer what separates
+  /// the two classes ON THE LANE -- the band boundary is, and unlike the
+  /// offset it cannot be out-run by a tall viewport. The offset survives in
+  /// [_rowDistance] because the DERIVE queue is a different queue with a
+  /// single band, where a within-sidebar total order is exactly what is
+  /// wanted.
   ///
   /// The body re-checks the retention union when its TURN comes, not when it
   /// is queued (invariant I4): a row scrolled past before its turn does no
   /// work at all. Nothing is cancellable mid-body -- no FFI decode is -- so
   /// "cancellation" here is exactly pending-entry replacement plus this
   /// re-check, the same shape the controller's `_enqueueSerialLoad` uses.
-  void _enqueueSidebarPayload(PhotoItem item, {required int rowDistance}) {
+  void _enqueueSidebarPayload(PhotoItem item, {required int priority}) {
     final id = item.id;
     _enqueuedIds.add(id);
     _decodeLane.enqueue(
       (LaneTaskKind.payload, id),
-      priority: kSidebarPayloadPriorityBase + rowDistance,
+      priority: priority,
       body: () async {
         if (!_retentionIds().contains(id)) return;
         if (_hasPayload(id)) return;
@@ -495,6 +505,15 @@ class SidebarThumbnailController {
         // RULE 3 -- (re-)enqueue at this sweep's priority, UNLESS the key is
         // currently pending at a NAVIGATION priority (< kSidebarPayloadPriorityBase).
         //
+        // PHASE 4 note: this comparison still separates exactly the two cases
+        // it always did, on the new band table. The lane key here is
+        // (payload, id), and the ONLY producers of that key are navigation
+        // (P1/P2, < 2000) and the sidebar (P3/P4, >= 3000); full-res work uses
+        // a different key entirely, so it can never be the pending entry this
+        // reads. Getting this wrong re-opens G-027 in the silent direction --
+        // demoting the item the user is looking at -- which is why both
+        // directions are asserted by test rather than argued here.
+        //
         // This replaces the old plain `isPending` guard, whose sole purpose
         // (G-027: never demote a navigation entry from rank 0 to 2000+) is
         // preserved here by checking the pending priority's VALUE rather than
@@ -508,11 +527,10 @@ class SidebarThumbnailController {
         // it at the range that first requested it.
         final key = (LaneTaskKind.payload, id);
         final pendingPriority = _decodeLane.pendingPriorityOf(key);
-        if (pendingPriority == null ||
-            pendingPriority >= kSidebarPayloadPriorityBase) {
+        if (pendingPriority == null || isSidebarPriority(pendingPriority)) {
           _enqueueSidebarPayload(
             item,
-            rowDistance: _rowDistance(
+            priority: sidebarPriorityFor(
               index: index,
               safeStart: safeStart,
               safeEnd: safeEnd,
