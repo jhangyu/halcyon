@@ -243,10 +243,10 @@ def rotation_acceptance(events):
                 reencode_submit_bytes[int(kv["bytes"])] += 1
         elif name == "reencode.copy":
             copy_n += 1
-        elif name == "materialize" and "bytes" in kv:
+        elif name == "materialize":
             if kv.get("src") == "fullres":
                 fullres_tagged_n += 1
-            else:
+            elif "bytes" in kv:
                 materialize_bytes[int(kv["bytes"])] += 1
         elif name == "orient":
             orient_n += 1
@@ -265,13 +265,27 @@ def rotation_acceptance(events):
         min(n, reencode_submit_bytes.get(b, 0))
         for b, n in materialize_bytes.items()
     )
+    # Fix cycle 2 (re-review): with NO reencode.submit| lines in the capture
+    # at all (e.g. every reencode attempt was skipped/failed, or the capture
+    # window ends before any submit), `smallest_submit` is undefined and the
+    # size-relative fallback above has nothing to compare against -- an
+    # untagged full-res materialize again reads 0. ABSOLUTE_FULLRES_FLOOR is
+    # a size no legitimate non-full-res materialize can reach: the largest
+    # tier-1 window-res buffer is bounded by the 2800px long-edge cap
+    # (image_preload_controller.dart), so even a worst-case 1:1 aspect frame
+    # tops out at 2800*2800*4 bytes; sidebar thumbnails (200px) are two
+    # orders of magnitude smaller still. Any untagged materialize above that
+    # floor is counted as full-frame regardless of whether any submit exists.
+    ABSOLUTE_FULLRES_FLOOR = 2800 * 2800 * 4  # 31,360,000 bytes
+    smallest_submit = min(reencode_submit_bytes) if reencode_submit_bytes else None
     unmatched_candidates = 0
-    if reencode_submit_bytes:
-        smallest_submit = min(reencode_submit_bytes)
-        for b, n in materialize_bytes.items():
-            leftover = n - min(n, reencode_submit_bytes.get(b, 0))
-            if leftover > 0 and b >= smallest_submit:
-                unmatched_candidates += leftover
+    for b, n in materialize_bytes.items():
+        leftover = n - min(n, reencode_submit_bytes.get(b, 0))
+        if leftover <= 0:
+            continue
+        if (smallest_submit is not None and b >= smallest_submit) or \
+                b > ABSOLUTE_FULLRES_FLOOR:
+            unmatched_candidates += leftover
 
     full_frame_materialize = (
         fullres_tagged_n + joined_untagged + unmatched_candidates
@@ -783,6 +797,18 @@ PERF|3000|reencode.submit|id=1|path=pointer|bytes=50000000
 PERF|1000100|nav|id=b
 """
 
+# Fix cycle 2 (re-review): the zero-submit shape -- NO reencode.submit| line
+# at all in the capture, so `smallest_submit` is undefined and the size-
+# relative fallback above has nothing to compare against. Under the fix-
+# cycle-1-only logic this again silently reads full_frame_materialize=0 (a
+# false PASS, since rotated_true=1 here too). Only the ABSOLUTE_FULLRES_FLOOR
+# guard (bytes > 2800*2800*4 = 31,360,000) can catch this shape.
+ROTATION_LOG_ADVERSARIAL_NOSUBMIT = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -969,6 +995,29 @@ def selftest(tmpdir="."):
         assert r["full_frame_materialize_unmatched"] == 1, r  # caught here
         assert r["full_frame_materialize"] == 1, r
         assert r["verdict"] == "FAIL", r  # was silently PASS before the fix
+
+        # Fix cycle 2: zero-submit shape -- no reencode.submit| line at all,
+        # so the smallest_submit fallback has nothing to compare against.
+        # Only the ABSOLUTE_FULLRES_FLOOR guard catches this; without it,
+        # this fixture would read full_frame_materialize=0 (false PASS).
+        p = write(ROTATION_LOG_ADVERSARIAL_NOSUBMIT, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 0, r
+        assert r["full_frame_materialize_joined"] == 0, r
+        assert r["full_frame_materialize_unmatched"] == 1, r  # floor-caught
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # was silently PASS before the fix
+
+        # A genuinely small (thumbnail-scale) untagged materialize with no
+        # submits at all must NOT be swept up by the absolute floor.
+        small_nosubmit = ROTATION_LOG_ADVERSARIAL_NOSUBMIT.replace(
+            "bytes=96962304|dur_us=107800", "bytes=160000|dur_us=500")
+        p = write(small_nosubmit, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_unmatched"] == 0, r
+        assert r["full_frame_materialize"] == 0, r
 
         # `src=fullres` tagged materialize (fix cycle 1 primary signal): exact
         # count, no byte-size inference needed, and must NOT be double-counted
