@@ -18,8 +18,13 @@ class PayloadClaim {
 
   final String id;
 
-  /// The registry generation this claim was acquired in. A claim from an older
-  /// generation survived a [PayloadClaimRegistry.clear] and is inert.
+  /// The registry generation this claim was acquired in.
+  ///
+  /// DIAGNOSTIC ONLY -- nothing reads it to make a decision. Staleness is
+  /// decided by OBJECT IDENTITY (see [PayloadClaimRegistry.release]), which is
+  /// strictly stronger: it also catches a hand-off and re-acquire inside a
+  /// single generation, which a generation compare cannot see. Kept because it
+  /// tells a debugger which folder-load a stranded claim came from.
   final int generation;
 
   PayloadClaimOwner get owner => _owner;
@@ -34,12 +39,32 @@ class PayloadClaim {
 /// Replaces the bare `Set<String> _loadingKeys`: same membership at every
 /// instant, plus an owner tag and an assertion at every hand-off.
 ///
-/// ENFORCEMENT IS ASSERT-ONLY. Every guard here compiles out of release
-/// builds, so this class introduces no production behaviour change. Flutter
-/// runs tests in debug mode, which is what makes those assertions load-bearing
-/// in `flutter test`. A runtime throw would be worse than the bug it reports:
-/// the release sites live inside `unawaited` continuations, where a throw is an
-/// unhandled async error rather than a caught one.
+/// TWO KINDS OF GUARD LIVE HERE, and only one of them is assert-only.
+///
+///  1. OWNER ASSERTIONS are debug-only. `assert` compiles out of release
+///     builds, so every "wrong owner" / "transfer of nothing" check is a
+///     development-time protocol alarm and nothing more. Flutter runs tests in
+///     debug mode, which is what makes them load-bearing in `flutter test`. A
+///     runtime throw would be worse than the bug it reports: these sites live
+///     inside `unawaited` continuations, where a throw is an unhandled async
+///     error rather than a caught one.
+///
+///  2. THE IDENTITY GUARDS RUN IN RELEASE and DO change behaviour versus the
+///     raw `Set<String>` this replaced. Every mutating verb ([transfer],
+///     [handOffToLane], [release]) accepts the [PayloadClaim] its caller was
+///     handed and refuses to touch the map when the id is now held by a
+///     different claim object. That refusal is the point, not an accident: the
+///     bare set matched on id alone, so a continuation that outlived a
+///     [clear] (or a lane hand-off and re-acquire) would delete or re-tag a
+///     fresh producer's live claim and admit the second producer this class
+///     exists to prevent. The guards are cheap, they only ever turn a
+///     would-be corruption into a no-op, and they never manufacture a
+///     mutation the caller did not ask for.
+///
+/// So: this class is NOT "zero production behaviour change". It is "no change
+/// except refusing stale mutations", which is the fix. Callers with no
+/// suspension point between acquiring and mutating may omit the claim and get
+/// the old id-only matching.
 class PayloadClaimRegistry {
   final Map<String, PayloadClaim> _claims = <String, PayloadClaim>{};
 
@@ -86,24 +111,33 @@ class PayloadClaimRegistry {
   }
 
   /// Moves the claim for [id] from [from] to [to] without releasing it.
+  ///
+  /// Pass [claim] for the same reason [release] wants it: a caller that
+  /// crossed an await can arrive to find the id re-claimed by somebody else,
+  /// and re-tagging a stranger's live claim is the same theft as releasing it.
   void transfer(
     String id, {
     required PayloadClaimOwner from,
     required PayloadClaimOwner to,
+    PayloadClaim? claim,
   }) {
-    final claim = _claims[id];
+    final held = _claims[id];
+    if (claim != null && !identical(held, claim)) {
+      // STALE: the id belongs to a different claim now. Mutate nothing.
+      return;
+    }
     assert(
-      claim != null,
+      held != null,
       'TRANSFER OF NOTHING: $id has no claim; $from tried to hand it to $to.',
     );
     assert(
-      claim == null || claim.owner == from,
-      'WRONG OWNER: $id is owned by ${claim.owner}, not $from '
+      held == null || held.owner == from,
+      'WRONG OWNER: $id is owned by ${held.owner}, not $from '
       '(attempted transfer to $to).',
     );
-    if (claim == null) return;
-    claim._owner = to;
-    claim._transferCount++;
+    if (held == null) return;
+    held._owner = to;
+    held._transferCount++;
   }
 
   /// The lane hand-off: asserts ownership, then DROPS the claim.
@@ -112,15 +146,28 @@ class PayloadClaimRegistry {
   /// `_ensurePayload` for this same id, and a claim still held at that moment
   /// would send it down the in-flight early-resolve branch: it parks nothing,
   /// produces nothing, and the item strands on a permanent spinner.
-  void handOffToLane(String id, {required PayloadClaimOwner from}) {
-    final claim = _claims[id];
+  /// Pass [claim] for the same reason [release] wants it, and with more at
+  /// stake: this method DELETES the map entry, so a stale caller arriving
+  /// after a `clear()` and a fresh `acquire` would drop an innocent producer's
+  /// live claim AND arm the awaiting-lane set for an id no lane body is coming
+  /// for -- which then miscounts the next producer as a duplicate.
+  void handOffToLane(
+    String id, {
+    required PayloadClaimOwner from,
+    PayloadClaim? claim,
+  }) {
+    final held = _claims[id];
+    if (claim != null && !identical(held, claim)) {
+      // STALE: not our claim any more. Remove nothing, arm nothing.
+      return;
+    }
     assert(
-      claim != null,
+      held != null,
       'HAND-OFF OF NOTHING: $id has no claim to hand to the lane.',
     );
     assert(
-      claim == null || claim.owner == from,
-      'WRONG OWNER: $id is owned by ${claim.owner}, not $from '
+      held == null || held.owner == from,
+      'WRONG OWNER: $id is owned by ${held.owner}, not $from '
       '(attempted lane hand-off).',
     );
     _claims.remove(id);
@@ -134,18 +181,39 @@ class PayloadClaimRegistry {
   ///
   /// Absence is TOLERATED, never asserted: `_finishOffLane` is unawaited by
   /// design and can outlive a `reset()`/`dispose()` that cleared the registry.
-  /// Same shape as `InflightBytesBudget`'s epoch (BUG 2026-09-03, TC-886) --
-  /// a stale release is a no-op, not an over-release.
-  bool release(String id, {required PayloadClaimOwner by}) {
-    final claim = _claims[id];
-    if (claim == null) return false;
-    if (claim.generation != _generation) {
-      _claims.remove(id);
+  /// Same INTENT as `InflightBytesBudget`'s epoch (BUG 2026-09-03, TC-886) --
+  /// a stale release is a no-op, not an over-release -- but the mechanism is
+  /// object identity, not a monotonic counter. Identity is strictly stronger
+  /// here: it also catches a hand-off and re-acquire that happens inside one
+  /// generation, which no epoch compare can see.
+  ///
+  /// THE RELEASER CARRIES ITS OWN CLAIM. Pass the [PayloadClaim] this releaser
+  /// was handed by [acquire] or [transfer] and a release is matched by object
+  /// identity, so a continuation that outlived a [clear] (or a lane hand-off
+  /// and re-acquire) finds the id re-claimed by SOMEBODY ELSE and does nothing
+  /// at all. Without it this method has only the id and the owner tag to go
+  /// on, and those repeat across generations: a stale `offLaneEncode` release
+  /// arriving after a folder switch would trip the wrong-owner assert against
+  /// an innocent new producer AND delete that producer's live claim, letting a
+  /// second producer in. That is a real behaviour change in a class whose
+  /// whole promise is that it makes none, which is why every controller
+  /// releaser passes [claim].
+  ///
+  /// Omitting [claim] keeps the old id+owner matching and is fine for callers
+  /// with no suspension point between acquire and release (the registry's own
+  /// unit tests).
+  bool release(String id, {required PayloadClaimOwner by, PayloadClaim? claim}) {
+    final held = _claims[id];
+    if (held == null) return false;
+    if (claim != null && !identical(held, claim)) {
+      // STALE. Note what is NOT done here: the live claim is left alone and no
+      // assertion fires. Removing it would be the over-release this tolerance
+      // exists to prevent.
       return false;
     }
     assert(
-      claim.owner == by,
-      'WRONG OWNER: $id is owned by ${claim.owner}; $by tried to release it. '
+      held.owner == by,
+      'WRONG OWNER: $id is owned by ${held.owner}; $by tried to release it. '
       'Releasing another party\'s claim lets a second producer start while the '
       'first is still working.',
     );
