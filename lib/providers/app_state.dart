@@ -1317,6 +1317,16 @@ class AppState extends ChangeNotifier {
       all = const [null];
     }
     if (generation != _exifGeneration) return;
+    // Guards the same race documented on `_initPrefs` (:399) and
+    // `resolveExportCapabilities` (:549): this method awaits the EXIF reader,
+    // and a short-lived AppState (a test, or a view torn down mid-read) may
+    // already be disposed by the time that resolves -- `notifyListeners()` on
+    // a disposed ChangeNotifier throws. `dispose()` cancels the debounce
+    // timer, but cancelling does nothing once the timer has ALREADY fired and
+    // this method is suspended on the await above, and `dispose()` does not
+    // bump `_exifGeneration`, so the generation check above does not cover it
+    // either. TC-1058; this is what made TC-542 flaky under full-suite load.
+    if (_disposed) return;
     _exifCache[id] = all.isEmpty ? null : all.first;
     // Exactly one notify on landing: the selection moved once, the caption
     // appears once.

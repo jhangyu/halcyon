@@ -1059,8 +1059,13 @@ void main() {
           final controller = ImagePreloadController(
             imageLoader: _rawLoaderPriority,
             dngDecoder: (path) async {
-              // Gated forever: every window slot stays PENDING, so the merged
-              // pending order is fully observable.
+              // Gated forever, so nothing the lane admits ever finishes and
+              // the merged pending order stays observable. NOTE what this
+              // does NOT buy on its own: "pending" means "queued and not yet
+              // STARTED" (decode_lane.dart:120), and "a key already IN FLIGHT
+              // is not pending" (decode_lane.dart:136-138), so the one task
+              // the width-1 lane admits is by definition not pending. See the
+              // lane pre-occupation below.
               await gate.future;
               return _tinyPriority();
             },
@@ -1075,6 +1080,34 @@ void main() {
           addTearDown(controller.dispose);
           controller.updateTargetSize(800, 600);
           final items = photoItems(40, extension: 'arw');
+
+          // ANCHOR THE OBSERVATION POINT (2026-09-06, task #12). Before this,
+          // the walk below raced the lane: with width 1 exactly one task is
+          // admitted and, once admitted, it is no longer PENDING. The tier-2
+          // catch-up `fullRes` task and slot 0's own `payload` task both
+          // compete for that single slot, and whichever reaches the pump first
+          // holds it forever (the gate never opens until the end). Normally
+          // the catch-up task won and slot 0 stayed pending; under full-suite
+          // load slot 0 won, its pending priority went null, and this test
+          // failed on "slot 0 must be pending" while its ORDER assertions were
+          // perfectly intact -- slot 0 was admitted and in flight, not lost or
+          // demoted (measured: 8/40 iterations under load on this tree, 2/40
+          // at base c3bca18; evidence in docs/logs/2026-09-06/tc984-rootcause.txt).
+          //
+          // Fix: occupy the single lane slot with a decode for an item FAR
+          // outside the window under test. Its body blocks on the same gate
+          // forever, so no slot of the real window can be admitted and "every
+          // window slot stays PENDING" becomes a structural fact rather than a
+          // race. The priorities the walk asserts are unchanged by this.
+          await controller.preloadImages(
+            items: items,
+            selectedItemId: items[35].id,
+            notifyLoaded: () {},
+          );
+          await until(
+            () => controller.debugDecodeLaneRunningCount > 0,
+            reason: 'the out-of-window decode to occupy the single lane slot',
+          );
 
           await controller.preloadImages(
             items: items,
