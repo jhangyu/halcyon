@@ -23,6 +23,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/payload_claim.dart';
 
 import '../../support/preload_fixtures.dart';
 
@@ -230,7 +231,7 @@ void main() {
         'bridge discovery call via imageLoader, one lane decodePhaseExpensive '
         'call via dngDecoder). A reproducible duplicate would show >=3 for '
         'some depth: either a second imageLoader call for the same path '
-        '(impossible while `_loadingKeys` still holds the id through the '
+        '(impossible while the production claim still holds the id through the '
         'entire `decodePhase` await -- see image_preload_controller.dart '
         '`_ensurePayload`\'s claim-then-probe ordering, BUG 2026-09-03 fix), '
         'or a second dngDecoder call from a second lane task body for the '
@@ -251,4 +252,147 @@ void main() {
       );
     },
   );
+
+  // P3 Task 3 -- AC2's fallback guard, per the lead's binding ruling of
+  // 2026-09-06: the probe above returned NOT-REPRODUCIBLE through the public
+  // seams, so AC2 is satisfied by an assertion guard instead of a RED repro.
+  //
+  // This is the mistake site A6 (`_ensurePayload`'s `finally`) would make if
+  // `handedOff` were ever false on the stage-boundary path: the producer
+  // releasing a claim that now belongs to the off-lane encode continuation.
+  // The controller-seam red proof for it is recorded in
+  // docs/logs/2026-09-06/p3-claim-redproof.txt (site A7's `by:` mutated to
+  // the wrong owner, observed failing, reverted).
+  test('TC-1035 releasing a claim owned by another party trips the assertion', () {
+    final registry = PayloadClaimRegistry();
+    registry.acquire('x');
+    registry.transfer(
+      'x',
+      from: PayloadClaimOwner.producer,
+      to: PayloadClaimOwner.offLaneEncode,
+    );
+    expect(
+      () => registry.release('x', by: PayloadClaimOwner.producer),
+      throwsA(isA<AssertionError>()),
+    );
+    // The claim is still held by its real owner, and that owner can release it.
+    expect(registry.ownerOf('x'), PayloadClaimOwner.offLaneEncode);
+    expect(registry.release('x', by: PayloadClaimOwner.offLaneEncode), isTrue);
+    expect(registry.isHeld('x'), isFalse);
+  });
+
+  // P3 Task 3 review fix S1 -- the releaser carries its own epoch.
+  //
+  // Before this fix `release` had only the id and the owner tag to match on,
+  // and both repeat across generations. A `_finishOffLane` continuation that
+  // outlived a `reset()` would therefore find the id re-claimed by a fresh
+  // producer, trip the wrong-owner assert against that innocent producer, AND
+  // delete its live claim -- admitting the second producer the whole class
+  // exists to prevent. Proven red-capable: see the RED PROOF entry for TC-1036
+  // in docs/logs/2026-09-06/p3-claim-redproof.txt.
+  test('TC-1036 a stale release leaves the current holder untouched', () {
+    final registry = PayloadClaimRegistry();
+
+    // The off-lane continuation's claim, taken before the folder switch.
+    final staleClaim = registry.acquire('a');
+    registry.transfer(
+      'a',
+      from: PayloadClaimOwner.producer,
+      to: PayloadClaimOwner.offLaneEncode,
+    );
+
+    // Folder switch, then a brand-new producer takes the SAME id.
+    registry.clear();
+    final freshClaim = registry.acquire('a');
+    expect(registry.ownerOf('a'), PayloadClaimOwner.producer);
+
+    // The continuation finally lands. It must do nothing at all: no assert
+    // (its owner tag disagrees with the fresh holder's) and no removal.
+    expect(
+      registry.release(
+        'a',
+        by: PayloadClaimOwner.offLaneEncode,
+        claim: staleClaim,
+      ),
+      isFalse,
+      reason: 'a stale release reports that it released nothing',
+    );
+    expect(
+      registry.isHeld('a'),
+      isTrue,
+      reason: 'the fresh producer still holds its claim -- no theft',
+    );
+    expect(registry.ownerOf('a'), PayloadClaimOwner.producer);
+
+    // ...and the rightful owner can still release normally afterwards.
+    expect(
+      registry.release('a', by: PayloadClaimOwner.producer, claim: freshClaim),
+      isTrue,
+    );
+    expect(registry.isHeld('a'), isFalse);
+  });
+
+  // P3 Task 3 review fix S4 -- the same identity guard on the two OTHER
+  // mutating verbs. `handOffToLane` is the worse of the pair because it
+  // DELETES the map entry: a stale caller would drop an innocent producer's
+  // live claim and then arm the awaiting-lane set for an id no lane body is
+  // coming for, which miscounts the next producer as a duplicate. Proven
+  // red-capable: see the RED PROOF entry for TC-1037 in
+  // docs/logs/2026-09-06/p3-claim-redproof.txt.
+  test('TC-1037 a stale handOffToLane leaves the current holder untouched', () {
+    final registry = PayloadClaimRegistry();
+    registry.debugResetCounters();
+
+    final staleClaim = registry.acquire('a');
+
+    // Folder switch, then a brand-new producer takes the SAME id.
+    registry.clear();
+    final freshClaim = registry.acquire('a');
+
+    // The stale producer's hand-off finally lands. It must mutate nothing.
+    registry.handOffToLane(
+      'a',
+      from: PayloadClaimOwner.producer,
+      claim: staleClaim,
+    );
+    expect(
+      registry.isHeld('a'),
+      isTrue,
+      reason: 'the fresh producer still holds its claim -- no theft',
+    );
+    expect(
+      registry.debugIsAwaitingLane('a'),
+      isFalse,
+      reason: 'no lane body is coming for this id; arming would miscount the '
+          'next producer as a duplicate',
+    );
+
+    // The fresh producer is unharmed and still counted as nobody's duplicate.
+    expect(
+      registry.release('a', by: PayloadClaimOwner.producer, claim: freshClaim),
+      isTrue,
+    );
+    expect(registry.debugDuplicateProducerCount, 0);
+  });
+
+  // Same shape for `transfer`: re-tagging a stranger's live claim is the same
+  // theft as releasing it, just quieter.
+  test('TC-1037b a stale transfer does not re-tag the current holder', () {
+    final registry = PayloadClaimRegistry();
+    final staleClaim = registry.acquire('a');
+    registry.clear();
+    registry.acquire('a');
+
+    registry.transfer(
+      'a',
+      from: PayloadClaimOwner.producer,
+      to: PayloadClaimOwner.offLaneEncode,
+      claim: staleClaim,
+    );
+    expect(
+      registry.ownerOf('a'),
+      PayloadClaimOwner.producer,
+      reason: 'the fresh claim keeps its own owner tag',
+    );
+  });
 }
