@@ -224,29 +224,26 @@ class _DarkroomColumnState extends State<DarkroomColumn>
                   child: Padding(
                     padding: const EdgeInsets.all(kDarkroomGridPadding),
                     child: RepaintBoundary(
-                      child: ListenableBuilder(
-                        listenable: strip.revision,
-                        builder: (context, _) => GridView.builder(
-                          key: const ValueKey<String>('darkroom-grid'),
-                          controller: _scrollController,
-                          itemCount: items.length,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: _columns,
-                            mainAxisSpacing: kDarkroomGridSpacing,
-                            crossAxisSpacing: kDarkroomGridSpacing,
-                            childAspectRatio: kDarkroomChipAspect,
-                          ),
-                          itemBuilder: (context, index) {
-                            noteBuiltIndex(index);
-                            return _buildChip(
-                              context,
-                              items[index],
-                              strip,
-                              palette,
-                            );
-                          },
+                      child: GridView.builder(
+                        key: const ValueKey<String>('darkroom-grid'),
+                        controller: _scrollController,
+                        itemCount: items.length,
+                        gridDelegate:
+                            SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _columns,
+                          mainAxisSpacing: kDarkroomGridSpacing,
+                          crossAxisSpacing: kDarkroomGridSpacing,
+                          childAspectRatio: kDarkroomChipAspect,
                         ),
+                        itemBuilder: (context, index) {
+                          noteBuiltIndex(index);
+                          return _buildChip(
+                            context,
+                            items[index],
+                            strip,
+                            palette,
+                          );
+                        },
                       ),
                     ),
                   ),

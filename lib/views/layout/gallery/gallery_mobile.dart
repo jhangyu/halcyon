@@ -241,69 +241,66 @@ class _GalleryMobileSurfaceState extends State<GalleryMobileSurface>
       padding: const EdgeInsets.symmetric(horizontal: 14),
       alignment: Alignment.center,
       child: RepaintBoundary(
-        child: ListenableBuilder(
-          listenable: strip.revision,
-          builder: (context, _) => ListView.builder(
-            controller: _stripController,
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-          noteBuiltIndex(index);
-          final item = items[index];
-          final selected = item.id == strip.selectedId;
-          final width = selected
-              ? kGalleryMobileChipWidthSelected
-              : kGalleryMobileChipWidth;
-          final height = selected
-              ? kGalleryMobileChipHeightSelected
-              : kGalleryMobileChipHeight;
-          return Padding(
-            padding: const EdgeInsets.only(right: 6),
-            // Center: a horizontal ListView hands its children TIGHT cross-
-            // axis constraints (the strip's own 92px height), which would
-            // otherwise stretch the chip's Container past its own explicit
-            // height (the "selected chip renders at 92 instead of 62" bug).
-            // Center relaxes that to a loose upper bound, so the chip's own
-            // height wins.
-            child: Center(
-              child: GestureDetector(
-                key: ValueKey<String>('gallery-mobile-chip-tap-${item.id}'),
-                onTap: () => strip.onSelect(item.id),
-                child: Container(
-                  key: ValueKey<String>('gallery-mobile-chip-${item.id}'),
-                  width: width,
-                  height: height,
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: selected ? colors.primary : colors.outlineVariant,
-                      width: selected ? 2 : 1,
-                    ),
+        child: ListView.builder(
+          controller: _stripController,
+          scrollDirection: Axis.horizontal,
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+        noteBuiltIndex(index);
+        final item = items[index];
+        final selected = item.id == strip.selectedId;
+        final width = selected
+            ? kGalleryMobileChipWidthSelected
+            : kGalleryMobileChipWidth;
+        final height = selected
+            ? kGalleryMobileChipHeightSelected
+            : kGalleryMobileChipHeight;
+        return Padding(
+          padding: const EdgeInsets.only(right: 6),
+          // Center: a horizontal ListView hands its children TIGHT cross-
+          // axis constraints (the strip's own 92px height), which would
+          // otherwise stretch the chip's Container past its own explicit
+          // height (the "selected chip renders at 92 instead of 62" bug).
+          // Center relaxes that to a loose upper bound, so the chip's own
+          // height wins.
+          child: Center(
+            child: GestureDetector(
+              key: ValueKey<String>('gallery-mobile-chip-tap-${item.id}'),
+              onTap: () => strip.onSelect(item.id),
+              child: Container(
+                key: ValueKey<String>('gallery-mobile-chip-${item.id}'),
+                width: width,
+                height: height,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: selected ? colors.primary : colors.outlineVariant,
+                    width: selected ? 2 : 1,
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: kGalleryMobileChipDecodeWidth,
-                      height: kGalleryMobileChipDecodeWidth * 2 / 3,
-                      child: StripTile(
-                        strip: strip,
-                        id: item.id,
-                        builder: (context, payload) => PhotoThumbnail(
-                          payload: payload,
-                          width: kGalleryMobileChipDecodeWidth,
-                          height: kGalleryMobileChipDecodeWidth * 2 / 3,
-                          borderRadius: 0,
-                        ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  clipBehavior: Clip.hardEdge,
+                  child: SizedBox(
+                    width: kGalleryMobileChipDecodeWidth,
+                    height: kGalleryMobileChipDecodeWidth * 2 / 3,
+                    child: StripTile(
+                      strip: strip,
+                      id: item.id,
+                      builder: (context, payload) => PhotoThumbnail(
+                        payload: payload,
+                        width: kGalleryMobileChipDecodeWidth,
+                        height: kGalleryMobileChipDecodeWidth * 2 / 3,
+                        borderRadius: 0,
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          );
-            },
           ),
+        );
+          },
         ),
       ),
     );

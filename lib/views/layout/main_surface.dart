@@ -46,7 +46,6 @@ class PhotoStripModel {
     required this.payloadFor,
     this.stateFor = _absentPayloadStateFor,
     required this.onVisibleRange,
-    required this.revision,
   });
 
   final List<PhotoItem> items;
@@ -55,23 +54,19 @@ class PhotoStripModel {
   final void Function(String id) onSelect;
   final SourcePayload? Function(String id) payloadFor;
 
-  /// PHASE 5: ONE ROW'S readiness. Defaults to [_absentPayloadStateFor], a
-  /// constant listenable that never fires: a strip built without it (the theme
-  /// widget tests, which supply their payloads directly) keeps exactly its old
-  /// behaviour and repaints through [revision]. Production always passes
-  /// `AppState.payloadStateFor`. A tile wraps itself in a
-  /// [ValueListenableBuilder] on its own id, so a landing repaints that tile
-  /// and no other -- [revision] is the strip-wide fallback it replaces.
+  /// PHASE 5: ONE ROW'S readiness. A tile wraps itself in a
+  /// [ValueListenableBuilder] on its own id (see [StripTile]), so a landing
+  /// repaints that tile and no other. This REPLACED a strip-wide `revision`
+  /// Listenable that rebuilt every row on every tile landing.
+  ///
+  /// Defaults to [_absentPayloadStateFor], a constant listenable that never
+  /// fires, so a theme widget test that supplies its payloads directly needs
+  /// no pipeline. Production always passes `AppState.payloadStateFor`.
   final ValueListenable<PayloadState> Function(String id) stateFor;
 
   /// AD-014 contract: the strip reports the PURE visible index range once per
   /// frame; prefetch margin is the controller's business, not the view's.
   final void Function(int firstIndex, int lastIndex) onVisibleRange;
-
-  /// Fires when a sidebar tile has landed and nothing else has changed. A
-  /// theme listens to THIS around its strip, so a thumbnail landing repaints
-  /// the strip without rebuilding the viewer.
-  final Listenable revision;
 }
 
 /// The never-firing default for [PhotoStripModel.stateFor]. One shared
@@ -85,9 +80,8 @@ ValueListenable<PayloadState> _absentPayloadStateFor(String id) =>
 
 /// PHASE 5: one strip row, rebuilt when THAT row's payload state changes.
 ///
-/// Every theme's tile builder wraps its chip in this instead of relying on the
-/// strip-wide [PhotoStripModel.revision] rebuild, so a landing for one row
-/// cannot repaint 40 others. It hands the builder the row's PAYLOAD (read back
+/// Every theme's tile builder wraps its chip in this instead of rebuilding the
+/// whole strip, so a landing for one row cannot repaint 40 others. It hands the builder the row's PAYLOAD (read back
 /// through the model at build time), never the state object: what a tile paints
 /// is still decided by the pipeline's own accessor.
 class StripTile extends StatelessWidget {

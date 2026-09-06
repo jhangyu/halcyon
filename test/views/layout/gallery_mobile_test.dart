@@ -31,7 +31,6 @@ MainSurface _surfaceWith({
   viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
   statusOverlay: const SizedBox.shrink(),
   strip: PhotoStripModel(
-    revision: ValueNotifier<int>(0),
     items: items,
     selectedId: selectedId,
     recycleMode: false,
@@ -262,7 +261,6 @@ void main() {
       viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
-        revision: ValueNotifier<int>(0),
         items: const [],
         selectedId: null,
         recycleMode: false,

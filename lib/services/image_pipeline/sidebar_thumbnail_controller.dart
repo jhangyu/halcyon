@@ -51,10 +51,11 @@ class SidebarThumbnailController {
   final VoidCallback _republishEvictionPriority;
 
   /// PHASE 5: reports the id whose TILE was just written, so the controller
-  /// can wake that row's own listener instead of the whole strip. Optional so
-  /// every existing test construction still compiles; when it is null this
-  /// class behaves exactly as it did (the global [_notify] is still called
-  /// either way in this commit).
+  /// wakes that row's own listener. Since commit B this is the ONLY per-tile
+  /// repaint signal in production -- the strip-wide `thumbnailsRevision` it
+  /// replaced is gone. Optional so the sidebar's own unit tests can construct
+  /// this class without a controller; [_notify] then remains the only report,
+  /// which is what those tests observe.
   final void Function(String id)? _onTileLanded;
 
   // A SUM TYPE, not bytes: the JPG / embedded-preview path stores the encoded
@@ -292,9 +293,10 @@ class SidebarThumbnailController {
         return false;
       }
       _cache[id] = derived;
-      // PHASE 5: per-row first, then the global repaint. Order matters only
-      // in that a listener woken by the global callback must already be able
-      // to read the tile -- and it can, because the write above is done.
+      // PHASE 5: the per-row wake. `notifyLoaded`/`_notify` below is now only
+      // ever non-null in the sidebar's own unit tests (production passes
+      // nothing since commit B); the tile write above precedes both, so any
+      // listener woken by either can already read the tile.
       _onTileLanded?.call(id);
       (notifyLoaded ?? _notify)?.call();
       return true;
@@ -418,7 +420,7 @@ class SidebarThumbnailController {
     required List<PhotoItem> items,
     required int startIdx,
     required int endIdx,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) async {
     if (items.isEmpty) return;
 

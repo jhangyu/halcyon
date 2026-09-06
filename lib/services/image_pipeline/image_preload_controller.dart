@@ -1966,11 +1966,15 @@ class ImagePreloadController {
   /// Forwards to [SidebarThumbnailController.preloadThumbnails], which owns
   /// the whole sweep -- see there for the ordering rationale and for what the
   /// returned Future does and does not promise.
+  /// [notifyLoaded] is OPTIONAL since Phase 5 commit B: production passes
+  /// nothing, because a landed tile wakes its own row through [stateFor]. It
+  /// survives for the sidebar's own unit tests, which use it to observe a
+  /// sweep without building a controller-level listener.
   Future<void> preloadThumbnails({
     required List<PhotoItem> items,
     required int startIdx,
     required int endIdx,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) => _sidebar.preloadThumbnails(
     items: items,
     startIdx: startIdx,

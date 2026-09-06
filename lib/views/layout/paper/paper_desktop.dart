@@ -500,27 +500,24 @@ class _PaperColumnState extends State<_PaperColumn>
   Widget _buildFilmstrip(BuildContext context, PhotoStripModel strip) {
     final items = strip.items;
     return RepaintBoundary(
-      child: ListenableBuilder(
-        listenable: strip.revision,
-        builder: (context, _) => GridView.builder(
-          key: const ValueKey<String>('paper-grid'),
-          controller: _scrollController,
-          padding: EdgeInsets.all(paperGridPaddingFor(widget.width)),
-          itemCount: items.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: paperColumnsFor(widget.width),
-            mainAxisSpacing: kPaperStripGap,
-            crossAxisSpacing: kPaperStripGap,
-            childAspectRatio: paperChipAspectFor(widget.width),
-          ),
-          itemBuilder: (context, index) {
-            // itemBuilder-driven visibility (AD-011/AD-014 red line): the
-            // visible range is reported from what was actually built, never
-            // from a scroll listener or offset arithmetic.
-            noteBuiltIndex(index);
-            return _PaperChip(item: items[index], strip: strip);
-          },
+      child: GridView.builder(
+        key: const ValueKey<String>('paper-grid'),
+        controller: _scrollController,
+        padding: EdgeInsets.all(paperGridPaddingFor(widget.width)),
+        itemCount: items.length,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: paperColumnsFor(widget.width),
+          mainAxisSpacing: kPaperStripGap,
+          crossAxisSpacing: kPaperStripGap,
+          childAspectRatio: paperChipAspectFor(widget.width),
         ),
+        itemBuilder: (context, index) {
+          // itemBuilder-driven visibility (AD-011/AD-014 red line): the
+          // visible range is reported from what was actually built, never
+          // from a scroll listener or offset arithmetic.
+          noteBuiltIndex(index);
+          return _PaperChip(item: items[index], strip: strip);
+        },
       ),
     );
   }

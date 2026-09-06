@@ -43,7 +43,6 @@ MainSurface _surface(
     onSelect: (_) {},
     payloadFor: (_) => _payload(),
     onVisibleRange: onVisibleRange,
-    revision: ValueNotifier<int>(0),
   ),
   identity: null,
   actions: PhotoActions(

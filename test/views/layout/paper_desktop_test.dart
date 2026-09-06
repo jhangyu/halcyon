@@ -22,7 +22,6 @@ MainSurface _emptySurface() => MainSurface(
       viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
-        revision: ValueNotifier<int>(0),
         items: const [],
         selectedId: null,
         recycleMode: false,
@@ -59,7 +58,6 @@ MainSurface _loadedSurface(int count) => MainSurface(
       viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
-        revision: ValueNotifier<int>(0),
         items: [
           for (var i = 0; i < count; i++)
             PhotoItem(id: 'p$i', files: [File('src/p$i.jpg')]),
@@ -291,7 +289,6 @@ void main() {
       viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
-        revision: ValueNotifier<int>(0),
         items: const [],
         selectedId: null,
         recycleMode: false,

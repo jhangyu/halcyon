@@ -45,7 +45,6 @@ Future<void> pumpColumn(
     ),
     statusOverlay: const SizedBox.shrink(),
     strip: PhotoStripModel(
-      revision: ValueNotifier<int>(0),
       items: items,
       selectedId: selectedId,
       recycleMode: recycleMode,
@@ -303,7 +302,6 @@ void main() {
                   ),
                   statusOverlay: const SizedBox.shrink(),
                   strip: PhotoStripModel(
-                    revision: ValueNotifier<int>(0),
                     items: [for (final id in ['n0', 'n1', 'n2']) _item(id)],
                     selectedId: null,
                     recycleMode: false,
@@ -434,7 +432,6 @@ void main() {
       ),
       statusOverlay: const SizedBox.shrink(),
       strip: PhotoStripModel(
-        revision: ValueNotifier<int>(0),
         items: const [],
         selectedId: null,
         recycleMode: false,

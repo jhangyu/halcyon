@@ -133,90 +133,87 @@ class DarkroomMobileSurface extends StatelessWidget {
           const SizedBox(height: 9),
           Expanded(
             child: RepaintBoundary(
-              child: ListenableBuilder(
-                listenable: strip.revision,
-                builder: (context, _) => ListView.builder(
-                  key: const ValueKey<String>('darkroom-mobile-tiles'),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: strip.items.length,
-                  itemBuilder: (context, index) {
-                final item = strip.items[index];
-                final isSelected = item.id == strip.selectedId;
-                final width = isSelected ? 78.0 : 66.0;
-                final height = isSelected ? 52.0 : 44.0;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  // A horizontal ListView tightens its cross-axis (height)
-                  // constraint to the viewport's full cross extent — so the
-                  // tile's explicit height would silently be overridden to
-                  // fill the strip instead of drawing at 44/52px. `Align`
-                  // is what lets a child size itself BELOW a tight incoming
-                  // constraint (it centers its child at the child's own
-                  // requested size rather than forcing the child to fill).
-                  child: Align(
-                    alignment: Alignment.center,
-                    child: GestureDetector(
+              child: ListView.builder(
+                key: const ValueKey<String>('darkroom-mobile-tiles'),
+                scrollDirection: Axis.horizontal,
+                itemCount: strip.items.length,
+                itemBuilder: (context, index) {
+              final item = strip.items[index];
+              final isSelected = item.id == strip.selectedId;
+              final width = isSelected ? 78.0 : 66.0;
+              final height = isSelected ? 52.0 : 44.0;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                // A horizontal ListView tightens its cross-axis (height)
+                // constraint to the viewport's full cross extent — so the
+                // tile's explicit height would silently be overridden to
+                // fill the strip instead of drawing at 44/52px. `Align`
+                // is what lets a child size itself BELOW a tight incoming
+                // constraint (it centers its child at the child's own
+                // requested size rather than forcing the child to fill).
+                child: Align(
+                  alignment: Alignment.center,
+                  child: GestureDetector(
+                    key: ValueKey<String>(
+                      'darkroom-mobile-tile-tap-${item.id}',
+                    ),
+                    onTap: () => strip.onSelect(item.id),
+                    child: Container(
                       key: ValueKey<String>(
-                        'darkroom-mobile-tile-tap-${item.id}',
+                        'darkroom-mobile-tile-${item.id}',
                       ),
-                      onTap: () => strip.onSelect(item.id),
-                      child: Container(
-                        key: ValueKey<String>(
-                          'darkroom-mobile-tile-${item.id}',
-                        ),
-                        width: width,
-                        height: height,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(3),
-                          border: isSelected
-                              ? Border.all(color: colors.primary, width: 1)
-                              : null,
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ColorFiltered(
-                              colorFilter: isSelected
-                                  ? const ColorFilter.mode(
-                                      Colors.transparent,
-                                      BlendMode.multiply,
-                                    )
-                                  : ColorFilter.matrix(_desaturateDim),
-                              child: StripTile(
-                                strip: strip,
-                                id: item.id,
-                                builder: (context, payload) => PhotoThumbnail(
-                                  payload: payload,
-                                  width: 200,
-                                  height: 200 / (3 / 2),
-                                  borderRadius: 0,
+                      width: width,
+                      height: height,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(3),
+                        border: isSelected
+                            ? Border.all(color: colors.primary, width: 1)
+                            : null,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ColorFiltered(
+                            colorFilter: isSelected
+                                ? const ColorFilter.mode(
+                                    Colors.transparent,
+                                    BlendMode.multiply,
+                                  )
+                                : ColorFilter.matrix(_desaturateDim),
+                            child: StripTile(
+                              strip: strip,
+                              id: item.id,
+                              builder: (context, payload) => PhotoThumbnail(
+                                payload: payload,
+                                width: 200,
+                                height: 200 / (3 / 2),
+                                borderRadius: 0,
+                              ),
+                            ),
+                          ),
+                          if (item.status != PhotoStatus.unmarked)
+                            Positioned(
+                              right: 3,
+                              top: 3,
+                              child: Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: item.status == PhotoStatus.starred
+                                      ? palette.star
+                                      : colors.error,
+                                  shape: BoxShape.circle,
                                 ),
                               ),
                             ),
-                            if (item.status != PhotoStatus.unmarked)
-                              Positioned(
-                                right: 3,
-                                top: 3,
-                                child: Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: item.status == PhotoStatus.starred
-                                        ? palette.star
-                                        : colors.error,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
                   ),
-                );
-                  },
                 ),
+              );
+                },
               ),
             ),
           ),

@@ -110,7 +110,6 @@ class _MainScreenState extends State<MainScreen> {
           payloadFor: state.thumbnailPayloadFor,
           stateFor: state.payloadStateFor,
           onVisibleRange: state.preloadThumbnails,
-          revision: state.thumbnailsRevision,
         ),
         identity: item == null
             ? null

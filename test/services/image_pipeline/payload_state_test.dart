@@ -380,7 +380,6 @@ void main() {
         payloadFor: (id) => payloads[id],
         stateFor: (id) => id == 'A' ? stateA : stateB,
         onVisibleRange: (_, _) {},
-        revision: ValueNotifier<int>(0),
       );
 
       Widget tile(String id) => StripTile(

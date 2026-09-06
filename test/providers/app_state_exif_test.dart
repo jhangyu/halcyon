@@ -264,7 +264,7 @@ class _SilentPreload extends ImagePreloadController {
     required List<PhotoItem> items,
     required int startIdx,
     required int endIdx,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) async {}
 }
 
