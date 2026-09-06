@@ -55,8 +55,8 @@ void main() {
       () async {
         final bytes = _buildSonyChain(
           ifd2Candidate: const _InterchangeCandidate(
-            width: 7008,
-            height: 4672,
+            width: 2900,
+            height: 1936,
           ),
         );
         final path = await write(bytes, 'ifd2_only.arw');
@@ -70,8 +70,8 @@ void main() {
           isNotNull,
           reason: 'IFD2, reachable only via the nextIFD chain, must be seen',
         );
-        expect(full!.width, 7008);
-        expect(full.height, 4672);
+        expect(full!.width, 2900);
+        expect(full.height, 1936);
       },
     );
 
@@ -120,8 +120,8 @@ void main() {
         final bytes = _buildSonyChain(
           ifd0Preview: const _InterchangeCandidate(width: 640, height: 424),
           ifd2Candidate: const _InterchangeCandidate(
-            width: 7008,
-            height: 4672,
+            width: 2900,
+            height: 1936,
           ),
         );
         final path = await write(bytes, 'both_candidates.arw');
@@ -131,8 +131,8 @@ void main() {
           longEdge: null,
         );
         expect(full, isNotNull);
-        expect(full!.width, 7008);
-        expect(full.height, 4672);
+        expect(full!.width, 2900);
+        expect(full.height, 1936);
 
         // Sidebar-sized request should find the smaller IFD0 preview.
         final sidebar = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
@@ -177,8 +177,8 @@ void main() {
       () async {
         final bytes = _buildSonyChain(
           ifd2Candidate: const _InterchangeCandidate(
-            width: 7008,
-            height: 4672,
+            width: 2900,
+            height: 1936,
             corruptOffset: true,
           ),
         );
@@ -245,10 +245,16 @@ void main() {
         // (docs/logs/2026-09-02/repro-experiment.md §1), so the transient-read
         // fix has to be exercised on THIS branch -- the nextIFD chain walk plus
         // JPEGInterchangeFormat -- not only on the Adobe SubIFD/strip layout
-        // the shared synthetic generator models. The candidate size is the one
-        // h2 measured on every file in that folder.
+        // the shared synthetic generator models. The candidate size was
+        // originally h2's real-file measurement (7008x4672); shrunk to
+        // 2900x1936 for the 2026-09-06 test-speedup campaign (root cause:
+        // _syntheticJpeg does a real per-pixel fill + JPEG encode at whatever
+        // size is requested, and 7008x4672 = ~32.7MP was needlessly full-res
+        // for a structural IFD-chain test) -- 2900 still clears the 2800
+        // minLongEdge floor with the same comfortable margin the original
+        // value did, so the threshold-effect guarantee below is unchanged.
         final bytes = _buildSonyChain(
-          ifd2Candidate: const _InterchangeCandidate(width: 7008, height: 4672),
+          ifd2Candidate: const _InterchangeCandidate(width: 2900, height: 1936),
         );
         final path = await write(bytes, 'ifd2_short_read.arw');
 
@@ -258,7 +264,7 @@ void main() {
           body: () => DngEmbeddedJpegExtractor.probeEmbeddedJpeg(
             path,
             longEdge: null,
-            // The production preview floor, passed unchanged: 7008 clears it
+            // The production preview floor, passed unchanged: 2900 clears it
             // comfortably, so this case cannot be mistaken for a threshold
             // effect (AD-033 untouched).
             minLongEdge: 2800,
@@ -271,7 +277,7 @@ void main() {
           reason: 'a short read of the interchange strip is an I/O fault, not '
               'evidence that the ARW has no usable preview',
         );
-        expect(run.value.jpeg!.width, 7008);
+        expect(run.value.jpeg!.width, 2900);
         expect(run.value.malformed, isFalse);
         expect(run.opens, greaterThan(1), reason: 'the retry must re-open');
       },
@@ -293,14 +299,26 @@ class _InterchangeCandidate {
   final bool corruptOffset;
 }
 
+// Perf note (test-speedup campaign, 2026-09-06): several tests reuse the
+// same (width, height) pair (e.g. 2900x1936 for the IFD2 full-res candidate).
+// No test in this file asserts on specific pixel values -- only decoded
+// width/height and marker bytes -- so caching the encode by size avoids
+// redundant per-pixel fill + JPEG encode work across cases.
+final Map<String, Uint8List> _syntheticJpegCache = {};
+
 Uint8List _syntheticJpeg(int width, int height) {
+  final key = '${width}x$height';
+  final cached = _syntheticJpegCache[key];
+  if (cached != null) return cached;
   final image = img.Image(width: width, height: height);
   for (var y = 0; y < height; y++) {
     for (var x = 0; x < width; x++) {
       image.setPixelRgb(x, y, (x * 7) & 0xFF, (y * 11) & 0xFF, (x + y) & 0xFF);
     }
   }
-  return img.encodeJpg(image, quality: 85);
+  final encoded = img.encodeJpg(image, quality: 85);
+  _syntheticJpegCache[key] = encoded;
+  return encoded;
 }
 
 class _W {

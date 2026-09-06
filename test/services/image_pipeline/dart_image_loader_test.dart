@@ -20,6 +20,27 @@ void main() {
       .where((f) => f.path.toLowerCase().endsWith('.dng'))
       .toList();
 
+  // Several tests below independently loop over every real sample DNG and
+  // call `extractFullSizeEmbeddedJpegFromFile` purely to classify each file
+  // as "has an embedded preview" or not, before separately exercising the
+  // real behaviour under test (`dartImageLoad`). That classification is
+  // read-only and file-content-derived, so it is hoisted here into a single
+  // setUpAll pass shared by every test, instead of each test re-walking and
+  // re-reading every multi-MB sample DNG from disk on its own.
+  final previewCache = <String, Uint8List?>{};
+  var previewCacheWarmed = false;
+
+  setUpAll(() async {
+    if (previewCacheWarmed) return;
+    for (final f in dngs()) {
+      previewCache[f.path] =
+          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
+        f.path,
+      );
+    }
+    previewCacheWarmed = true;
+  });
+
   // AC3: `NativeImageResult` still has exactly three variants (AD-010/AD-011).
   // The switch is exhaustive over the sealed class WITHOUT a default clause,
   // so adding a fourth variant makes this file stop compiling — the assertion
@@ -67,8 +88,7 @@ void main() {
   test('preview-bearing DNGs return exactly the extractor bytes', () async {
     var covered = 0;
     for (final f in dngs()) {
-      final expected =
-          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+      final expected = previewCache[f.path];
       if (expected == null) continue;
       covered++;
       final result = await dartImageLoad(
@@ -90,10 +110,7 @@ void main() {
     () async {
       var covered = 0;
       for (final f in dngs()) {
-        final full =
-            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
-              f.path,
-            );
+        final full = previewCache[f.path];
         if (full != null) continue;
         covered++;
         final result = await dartImageLoad(
@@ -147,8 +164,7 @@ void main() {
     addTempDirTeardown(dir);
     var hits = 0, misses = 0;
     for (final f in dngs()) {
-      final full =
-          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+      final full = previewCache[f.path];
       final asCr2 = File('${dir.path}/${f.uri.pathSegments.last}.cr2');
       await f.copy(asCr2.path);
       final result = await dartImageLoad(
@@ -174,8 +190,7 @@ void main() {
     addTempDirTeardown(dir);
     var hits = 0, misses = 0;
     for (final f in dngs()) {
-      final full =
-          await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(f.path);
+      final full = previewCache[f.path];
       final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
       await f.copy(asArw.path);
       final result = await dartImageLoad(
@@ -488,10 +503,7 @@ void main() {
         'valid-miss path did not regress', () async {
       var covered = 0;
       for (final f in dngs()) {
-        final full =
-            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
-              f.path,
-            );
+        final full = previewCache[f.path];
         if (full != null) continue;
         covered++;
         final result = await dartImageLoad(
@@ -516,10 +528,7 @@ void main() {
         'NeedsRawDecode with declaredPreviewsUnreadable false', () async {
       var covered = 0;
       for (final f in dngs()) {
-        final full =
-            await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
-              f.path,
-            );
+        final full = previewCache[f.path];
         if (full != null) continue;
         covered++;
         final result = await dartImageLoad(

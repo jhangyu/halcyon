@@ -126,8 +126,9 @@ void main() {
 
   Future<void> pumpTierTwoDebounce() async {
     // tierTwoNavigationDebounce is 250ms; give the sequential tier-2 queue
-    // room to actually run the decode/upgrade it schedules.
-    await Future<void>.delayed(const Duration(milliseconds: 600));
+    // room to actually run the decode/upgrade it schedules, plus margin for
+    // the real (but small) PNG encode/decode this file's fakes perform.
+    await Future<void>.delayed(const Duration(milliseconds: 320));
   }
 
   setUp(clearImageCacheSetUp);

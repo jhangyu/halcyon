@@ -22,6 +22,22 @@ import '../../support/synthetic_dng.dart';
 void main() {
   final sampleDir = sampleDngDir;
 
+  // Perf note (test-speedup campaign, 2026-09-06): a handful of cases below
+  // read a real sample's raw bytes directly (rather than going through
+  // extractFullSizeEmbeddedJpegFromFile, which does its own internal file
+  // read as part of the coverage it's testing -- that path is deliberately
+  // left untouched here). Where the SAME sample is also read directly by a
+  // second case (e.g. for readDngOrientation / a truncation test), share one
+  // disk read instead of paying it twice.
+  final Map<String, Uint8List> directReadCache = {};
+  Future<Uint8List> readSampleOnce(String path) async {
+    final cached = directReadCache[path];
+    if (cached != null) return cached;
+    final bytes = await File(path).readAsBytes();
+    directReadCache[path] = bytes;
+    return bytes;
+  }
+
   test('sample directory exists with at least one DNG', () {
     expect(
       sampleDir.existsSync(),
@@ -105,7 +121,7 @@ void main() {
     'orientation tag: sample with EXIF orientation 6 is read and injected',
     () async {
       final path = '${sampleDir.path}/2026-08-07-17-52-54.dng';
-      final data = await File(path).readAsBytes();
+      final data = await readSampleOnce(path);
       final orientation = await DngEmbeddedJpegExtractor.readDngOrientation(
         data,
       );
@@ -166,7 +182,7 @@ void main() {
       'a real DNG truncated mid-file (IFD offsets now point past EOF)',
       () async {
         final path = '${sampleDir.path}/2026-02-15-19-37-38.dng';
-        final full = await File(path).readAsBytes();
+        final full = await readSampleOnce(path);
         final truncated = Uint8List.sublistView(full, 0, full.length ~/ 4);
         expect(
           await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
@@ -1123,6 +1139,18 @@ Uint8List buildSyntheticPanasonic({
   return out;
 }
 
+// Perf note (test-speedup campaign, 2026-09-06): the three "real pixel data"
+// corruption modes below (none/offsetPastEof/countPastEof) only differ in the
+// IFD offset/count metadata written elsewhere in buildSyntheticPanasonic --
+// the encoded JPEG payload bytes for a given (width, height) are identical no
+// matter which of those three modes is requested, and no test in this file
+// asserts on specific pixel values (only decoded width/height and marker
+// bytes). Caching the encode by (width, height) avoids re-running the
+// per-pixel fill + img.encodeJpg for every test that happens to reuse a
+// common size (3000x2000 / 640x480 recur across ~a dozen cases in the
+// "Panasonic container" group).
+final Map<String, Uint8List> _panasonicPayloadCache = {};
+
 /// The bytes a blob should contain, honouring its corruption mode.
 Uint8List _panasonicPayload(PanasonicBlob blob) {
   switch (blob.corruption) {
@@ -1136,6 +1164,9 @@ Uint8List _panasonicPayload(PanasonicBlob blob) {
     case PanasonicCorruption.none:
     case PanasonicCorruption.offsetPastEof:
     case PanasonicCorruption.countPastEof:
+      final key = '${blob.width}x${blob.height}';
+      final cached = _panasonicPayloadCache[key];
+      if (cached != null) return cached;
       final image = img.Image(width: blob.width, height: blob.height);
       for (var y = 0; y < blob.height; y++) {
         for (var x = 0; x < blob.width; x++) {
@@ -1148,6 +1179,8 @@ Uint8List _panasonicPayload(PanasonicBlob blob) {
           );
         }
       }
-      return img.encodeJpg(image, quality: 85);
+      final encoded = img.encodeJpg(image, quality: 85);
+      _panasonicPayloadCache[key] = encoded;
+      return encoded;
   }
 }

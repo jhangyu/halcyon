@@ -172,7 +172,14 @@ void main() {
         // the button has no enclosing scrollable, i.e. if the marks were
         // merely clipped away rather than made reachable.
         await tester.ensureVisible(find.byIcon(Icons.folder_open));
-        await tester.pumpAndSettle();
+        // `ensureVisible`'s scroll animation must fully complete before the
+        // tap below, or the button may still be mid-scroll and the tap
+        // coordinate stale. A bounded frame-step sequence stands in for
+        // `pumpAndSettle()` here (default scroll curve settles well within
+        // 300ms of 16ms frames).
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
         await tester.tap(find.byIcon(Icons.folder_open));
         await tester.pump();
         expect(opened, 1, reason: 'Open Folder must be pressable at $height');

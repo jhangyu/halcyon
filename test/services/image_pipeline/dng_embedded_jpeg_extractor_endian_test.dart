@@ -31,10 +31,23 @@ void main() {
     });
   });
 
-  Future<({String little, String big})> writePair() async {
+  // Perf note (test-speedup campaign, 2026-09-06): every call to writePair()
+  // below builds and disk-writes the SAME two DNG containers (same
+  // candidates/orientation, both II and MM) -- confirmed deterministic by
+  // this file's own "is deterministic" test above. Several read-only tests
+  // (the "II build is readable" sanity check and the whole "MM equals II"
+  // group) share one build+write in a suite-scoped setUpAll instead of
+  // repeating the (candidate-image JPEG encode + file write) work per test.
+  // A dedicated persistent-tmp directory is used (not the per-test `tmp`
+  // above, which is torn down after each test) so the cached files survive
+  // the whole suite.
+  late Directory sharedTmp;
+  late ({String little, String big}) sharedPair;
+
+  Future<({String little, String big})> buildPair(Directory dir) async {
     final little = await writeSyntheticDng(
       buildSyntheticDng(candidates: candidates, orientation: orientation),
-      dir: tmp,
+      dir: dir,
       name: 'little.dng',
     );
     final big = await writeSyntheticDng(
@@ -43,11 +56,22 @@ void main() {
         orientation: orientation,
         bigEndian: true,
       ),
-      dir: tmp,
+      dir: dir,
       name: 'big.dng',
     );
     return (little: little, big: big);
   }
+
+  setUpAll(() async {
+    sharedTmp = await Directory.systemTemp.createTemp('halcyon_endian_shared_');
+    sharedPair = await buildPair(sharedTmp);
+  });
+
+  tearDownAll(() async {
+    if (await sharedTmp.exists()) await sharedTmp.delete(recursive: true);
+  });
+
+  Future<({String little, String big})> writePair() async => sharedPair;
 
   group('synthetic_dng helper', () {
     test('is deterministic: identical arguments give identical bytes', () {

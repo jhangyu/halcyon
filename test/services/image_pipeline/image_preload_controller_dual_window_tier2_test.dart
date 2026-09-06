@@ -221,7 +221,7 @@ void main() {
           selectedItemId: pixelItems[idx].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await Future<void>.delayed(const Duration(milliseconds: 280));
       }
       await until(
         () =>
@@ -292,13 +292,13 @@ void main() {
           selectedItemId: boundaryItems[targetIndex].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await Future<void>.delayed(const Duration(milliseconds: 280));
         await boundary.preloadImages(
           items: boundaryItems,
           selectedItemId: boundaryItems[pixelSelected].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await Future<void>.delayed(const Duration(milliseconds: 280));
 
         final id = boundaryItems[targetIndex].id;
         expect(
@@ -503,7 +503,7 @@ void main() {
         selectedItemId: items[11].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       expect(
         controller.debugTierTwoKeyIds.contains(items[8].id),
         isFalse,
@@ -587,7 +587,7 @@ void main() {
         selectedItemId: items[11].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       expect(controller.payloadFor(items[8].id), isNotNull);
 
       // Re-enter at distance -1 (select item 9, window [8,12]): the catch-up
@@ -604,7 +604,7 @@ void main() {
       );
       // Give the failed attempt's bookkeeping a moment to settle before
       // asserting the negative (no tier-2, no permanent miss).
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(
         controller.hasFailed(items[8].id),
         isFalse,
@@ -626,13 +626,13 @@ void main() {
         selectedItemId: items[9].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       await controller.preloadImages(
         items: items,
         selectedItemId: items[10].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       expect(
         targetCalls(),
         2,

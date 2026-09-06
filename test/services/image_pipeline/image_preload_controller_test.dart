@@ -524,8 +524,9 @@ void main() {
 
         // Still not ready comfortably inside the debounce window. If the
         // debounce were removed, the tiny PNG decodes near-instantly and
-        // this would already be true.
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        // this would already be true. 20ms is well under the 250ms debounce
+        // (matches the burst-spacing value used elsewhere in this file).
+        await Future<void>.delayed(const Duration(milliseconds: 20));
         expect(controller.isFullSizeReady(items[2].id), isFalse);
 
         // After the debounce elapses, tier-2 has landed. Poll the real
@@ -746,7 +747,9 @@ void main() {
         for (final idx in [6, 7, 8, 9, 10, 9, 8, 7, 6, 5]) {
           await go(idx);
         }
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // 280ms: 30ms of margin over the 250ms tierTwoNavigationDebounce
+        // constant, enough for the fake (near-instant) decode to also land.
+        await Future<void>.delayed(const Duration(milliseconds: 280));
 
         final currentBytes = controller.imageBytesFor(items[5].id)!;
         expect(
@@ -1035,7 +1038,9 @@ void main() {
         selectedItemId: items[5].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      // 280ms: 30ms of margin over the 250ms debounce for a near-instant
+      // fake decode to also land, proving the negative (no re-source).
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       expect(
         decodeCalls.length,
         kRetentionBefore + kRetentionAfter + 1,
@@ -1086,7 +1091,9 @@ void main() {
         selectedItemId: items[7].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      // 280ms: margin over the 250ms debounce for the negative assertion
+      // below (payload must survive, proven by identity).
+      await Future<void>.delayed(const Duration(milliseconds: 280));
       expect(
         identical(controller.payloadFor(items[5].id), retained),
         isTrue,
@@ -1318,13 +1325,15 @@ void main() {
       final landed = controller.payloadFor(items[8].id);
 
       // Several more passes with item 8 still inside the retention window.
+      // 280ms: margin over the 250ms debounce for the negative assertion
+      // below (no re-request).
       for (final idx in [8, 9, 8]) {
         await controller.preloadImages(
           items: items,
           selectedItemId: items[idx].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await Future<void>.delayed(const Duration(milliseconds: 280));
       }
 
       expect(
@@ -1459,7 +1468,9 @@ void main() {
           selectedItemId: items[5].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // 280ms: margin over the 250ms debounce for the negative assertion
+        // below (no retry of the failing decode).
+        await Future<void>.delayed(const Duration(milliseconds: 280));
         expect(
           targetDecodeCalls(),
           1,
