@@ -198,30 +198,37 @@ def rotation_acceptance(events):
 
     `materialize|` has FOUR producers in this codebase (decoded_rgba_image_
     provider.dart's full-res route, sidebar_thumbnail_codec.dart, raw_pixels_
-    image.dart's tier-1 route, and tier_two_scheduler.dart's piggyback route)
-    and none of them tag which call site emitted the line -- the shape is
-    identical (`materialize|id=...|bytes=...|dur_us=...`) everywhere. This is
-    NOT `pool.materialize|`, a wholly separate event already consumed by
-    stall_attribution() above; conflating the two would silently corrupt both
-    readings.
+    image.dart's tier-1 route, and tier_two_scheduler.dart's piggyback route).
+    This is NOT `pool.materialize|`, a wholly separate event already consumed
+    by stall_attribution() above; conflating the two would silently corrupt
+    both readings.
 
-    The mechanical split used here: `reencode.submit|` only ever fires on the
-    full-resolution buffer that feeds the re-encoder (payload_reencoder.dart),
-    on both the byte and pointer arms, and its `bytes=` is the same pixel
-    buffer's byte length as any `materialize|` that had to run to produce that
-    buffer. A `materialize|` line is therefore counted as "full-frame" if its
-    `bytes=` value also occurs among this capture's `reencode.submit|` lines
-    -- matched as a multiset (Counter min) so a same-sized thumbnail/tier-1
-    coincidence cannot inflate the count past the number of reencode calls
-    that could plausibly have produced it. Thumbnails (<=200px long edge) and
-    tier-1 window-res buffers (<=2800px long edge) are orders of magnitude
-    smaller than a full-resolution RAW frame, so in practice this is an exact
-    match, not a heuristic collision.
+    PRIMARY (fix cycle 1, round-2 review counterexample): the full-res call
+    site (decoded_rgba_image_provider.dart's `decodedRgbaToOrientedFullRes`)
+    now appends `|src=fullres` -- an exact, unambiguous tag. Count those
+    directly. The three other producers never emit `src=` at all.
+
+    FALLBACK, for logs captured before that tag existed (or any future
+    untagged full-res producer): a `materialize|` line with no `src=` is
+    still counted as "full-frame" if its `bytes=` also occurs among this
+    capture's `reencode.submit|` lines (multiset match via Counter min) --
+    `reencode.submit|` only ever fires on the full-resolution buffer that
+    feeds the re-encoder, on both the byte and pointer arms. BUT that join
+    silently reads zero when a full-res materialize ran and the reencode was
+    then skipped or failed (the round-2 counterexample) -- a materialize with
+    no matching submit is invisible to it. To close that hole, any leftover
+    untagged materialize whose `bytes=` is >= the smallest `reencode.submit|`
+    bytes seen in this same capture (i.e. at least as big as a KNOWN full-res
+    buffer, so it cannot be a thumbnail or tier-1 window-res decode) is also
+    counted, as an "unmatched full-frame candidate" -- surfaced separately in
+    the report so a reader can see WHY the clause is nonzero even without an
+    exact byte match.
     """
     reencode_submit_bytes = Counter()
     submit_path = Counter()
     copy_n = 0
-    materialize_bytes = Counter()
+    materialize_bytes = Counter()          # untagged (no src=) materialize
+    fullres_tagged_n = 0                   # src=fullres materialize
     rotated_true = 0
     orient_n = 0
     applied_mismatch = 0
@@ -237,7 +244,10 @@ def rotation_acceptance(events):
         elif name == "reencode.copy":
             copy_n += 1
         elif name == "materialize" and "bytes" in kv:
-            materialize_bytes[int(kv["bytes"])] += 1
+            if kv.get("src") == "fullres":
+                fullres_tagged_n += 1
+            else:
+                materialize_bytes[int(kv["bytes"])] += 1
         elif name == "orient":
             orient_n += 1
             if kv.get("rotated") == "true":
@@ -251,9 +261,20 @@ def rotation_acceptance(events):
         elif name == "orient.degraded":
             degraded_n += 1
 
-    full_frame_materialize = sum(
+    joined_untagged = sum(
         min(n, reencode_submit_bytes.get(b, 0))
         for b, n in materialize_bytes.items()
+    )
+    unmatched_candidates = 0
+    if reencode_submit_bytes:
+        smallest_submit = min(reencode_submit_bytes)
+        for b, n in materialize_bytes.items():
+            leftover = n - min(n, reencode_submit_bytes.get(b, 0))
+            if leftover > 0 and b >= smallest_submit:
+                unmatched_candidates += leftover
+
+    full_frame_materialize = (
+        fullres_tagged_n + joined_untagged + unmatched_candidates
     )
 
     byte_n = submit_path.get("byte", 0)
@@ -271,6 +292,9 @@ def rotation_acceptance(events):
         "reencode_submit_byte": byte_n,
         "reencode_submit_pointer": pointer_n,
         "full_frame_materialize": full_frame_materialize,
+        "full_frame_materialize_tagged": fullres_tagged_n,
+        "full_frame_materialize_joined": joined_untagged,
+        "full_frame_materialize_unmatched": unmatched_candidates,
         "reencode_copy": copy_n,
         "orient_rotated_true": rotated_true,
         "orient_n": orient_n,
@@ -292,7 +316,15 @@ def print_rotation_report(r):
     print(f"   verdict: {r['verdict']}")
     print(f"   reencode.submit|path=byte:  {r['reencode_submit_byte']}")
     print(f"   reencode.submit|path=pointer: {r['reencode_submit_pointer']}")
-    print(f"   full-frame materialize|:    {r['full_frame_materialize']}")
+    print(f"   full-frame materialize|:    {r['full_frame_materialize']} "
+          f"(tagged src=fullres: {r['full_frame_materialize_tagged']}, "
+          f"bytes-joined: {r['full_frame_materialize_joined']}, "
+          f"unmatched candidates: {r['full_frame_materialize_unmatched']})")
+    if r["full_frame_materialize_unmatched"] > 0:
+        print("   NOTE: unmatched candidates are untagged materialize| lines "
+              "as big as this capture's smallest reencode.submit| buffer "
+              "with no exact byte match -- likely a full-res materialize "
+              "whose reencode was skipped or failed after it ran.")
     print(f"   reencode.copy|:             {r['reencode_copy']}")
     print(f"   orient|rotated=true:        {r['orient_rotated_true']} "
           f"(of {r['orient_n']} orient| lines)")
@@ -733,6 +765,24 @@ PERF|3000|reencode.submit|id=1|path=pointer|bytes=96962304
 PERF|1000100|nav|id=b
 """
 
+# Round-2 review counterexample (fix cycle 1): a natively-oriented item whose
+# residual is identity (rotated=true is the DECLARED-vs-nothing flag here,
+# see the reviewer's log verbatim) still pays a full-res `ui.decodeImageFromP
+# ixels` (107.8ms) BEFORE the pointer path decides the reencode.submit| bytes
+# it ends up shipping are smaller (50_000_000, e.g. a downstream crop/fallback
+# thunk) -- so the materialize's bytes=96962304 never appears among this
+# capture's reencode.submit| bytes. Under the OLD bytes-join-only logic this
+# read full_frame_materialize=0 (a false PASS); the materialize is untagged
+# (no src=fullres, simulating a log captured before that tag existed) so the
+# fix must catch it via the unmatched-candidate fallback (96962304 >=
+# smallest submit bytes 50_000_000).
+ROTATION_LOG_ADVERSARIAL_SKIP = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=50000000
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -904,6 +954,41 @@ def selftest(tmpdir="."):
         assert r["orient_new_shape_n"] == 0, r  # no applied=/residual= fields
         assert r["orient_applied_exif_mismatch"] == 0, r
         assert r["orient_residual_non1"] == 0, r
+
+        # Round-2 review counterexample (fix cycle 1): materialize's bytes
+        # never appear among reencode.submit bytes -> the old bytes-join-only
+        # logic would have read full_frame_materialize=0 (a false PASS, since
+        # rotated_true=1 and byte/copy are both 0 here). The unmatched-
+        # candidate fallback must catch it: RED (would-be PASS) -> GREEN
+        # (correctly FAIL) under the fixed logic.
+        p = write(ROTATION_LOG_ADVERSARIAL_SKIP, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 0, r    # no src= tag
+        assert r["full_frame_materialize_joined"] == 0, r    # bytes don't match
+        assert r["full_frame_materialize_unmatched"] == 1, r  # caught here
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # was silently PASS before the fix
+
+        # `src=fullres` tagged materialize (fix cycle 1 primary signal): exact
+        # count, no byte-size inference needed, and must NOT be double-counted
+        # by the bytes-join/unmatched fallback (its bytes also happen to match
+        # a same-session reencode.submit| line here, on purpose).
+        ROTATION_LOG_TAGGED = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800|src=fullres
+PERF|3000|reencode.submit|id=1|path=byte|bytes=96962304
+PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304
+PERF|1000100|nav|id=b
+"""
+        p = write(ROTATION_LOG_TAGGED, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 1, r
+        assert r["full_frame_materialize_joined"] == 0, r    # not double-counted
+        assert r["full_frame_materialize_unmatched"] == 0, r
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # byte-arm + copy also nonzero here
 
         # No relevant lines at all -> clean "no data", no crash.
         p = write("PERF|1000|nav|id=a\nPERF|1000100|nav|id=b\n", ".log")
