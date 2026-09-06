@@ -291,6 +291,61 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   }
 }
 
+/// Window-resolution pixels derived from an ALREADY-ORIENTED GPU image.
+///
+/// BORROWS [oriented]: this function never disposes it. The caller's
+/// ownership contract for [OrientedFullRes.image] (see that typedef's doc,
+/// `:238-242`) is unchanged -- disposal stays the caller's job.
+///
+/// This exists so the window-resolution payload can be derived from the
+/// full-resolution oriented image the caller already produced (and is
+/// keeping), instead of re-materializing the decoded buffer a second time.
+Future<PixelPayload> pixelPayloadFromOrientedImage(
+  ui.Image oriented, {
+  required int longEdge,
+  CompositeGate gate = immediateCompositeGate,
+}) async {
+  final longestEdge = math.max(oriented.width, oriented.height);
+  // Never upscale: mirrors the rule in decodedRgbaToPixelPayload (`:187-195`).
+  final scale = longEdge <= 0 || longestEdge <= longEdge
+      ? 1.0
+      : longEdge / longestEdge;
+
+  if (scale == 1.0) {
+    // Identity buys nothing (AC7, `:32-37`): no draw pass, no gate.
+    final data = await oriented.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) {
+      throw StateError('could not read back the oriented RAW frame');
+    }
+    return PixelPayload(
+      rgba: data.buffer.asUint8List(),
+      width: oriented.width,
+      height: oriented.height,
+    );
+  }
+
+  // A GPU pass IS going to run: paced before the draw, same ownership reason
+  // as the other entry points in this file.
+  await gate();
+
+  const identity = _ExifTransform(0, false);
+  ui.Image? scaled;
+  try {
+    scaled = await _applyTransform(oriented, identity, scale);
+    final data = await scaled.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) {
+      throw StateError('could not read back the scaled RAW frame');
+    }
+    return PixelPayload(
+      rgba: data.buffer.asUint8List(),
+      width: scaled.width,
+      height: scaled.height,
+    );
+  } finally {
+    scaled?.dispose();
+  }
+}
+
 Future<ui.Image> _applyTransform(
   ui.Image src,
   _ExifTransform t, [
