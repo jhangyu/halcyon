@@ -354,4 +354,69 @@ void main() {
       },
     );
   });
+
+  group('DeriveQueue width plumbing', () {
+    test('TC-1022: constructor width reaches the queue', () {
+      final controller = SidebarThumbnailController(
+        peekPayload: (_) => null,
+        hasPayload: (_) => false,
+        isPreviewPermanentMiss: (_) => false,
+        decodeLane: DecodeLane(width: 1),
+        ensurePayload: (_) async {},
+        retentionIds: () => <String>{},
+        republishEvictionPriority: () {},
+        deriveQueueWidth: 4,
+      );
+      expect(controller.debugDeriveQueue.width, 4);
+    });
+
+    test(
+      'TC-1023: setDeriveQueueWidth re-pushes; narrowing never pre-empts',
+      () async {
+        final controller = SidebarThumbnailController(
+          peekPayload: (_) => null,
+          hasPayload: (_) => false,
+          isPreviewPermanentMiss: (_) => false,
+          decodeLane: DecodeLane(width: 1),
+          ensurePayload: (_) async {},
+          retentionIds: () => <String>{},
+          republishEvictionPriority: () {},
+          deriveQueueWidth: 3,
+        );
+        final queue = controller.debugDeriveQueue;
+        expect(queue.width, 3);
+
+        // Occupy all three slots with bodies that will not finish yet.
+        final gates = <Completer<void>>[
+          Completer<void>(),
+          Completer<void>(),
+          Completer<void>(),
+        ];
+        for (var i = 0; i < 3; i++) {
+          unawaited(queue.submit(i, () => gates[i].future));
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(queue.runningCount, 3, reason: 'all three slots occupied');
+
+        // Narrow while they run: no cancellation, count is unchanged.
+        controller.setDeriveQueueWidth(1);
+        expect(queue.width, 1);
+        expect(
+          queue.runningCount,
+          3,
+          reason: 'narrowing never pre-empts a running body',
+        );
+
+        for (final gate in gates) {
+          gate.complete();
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(queue.runningCount, 0);
+
+        // Below-1 clamps to 1 in the queue's own setter, not here.
+        controller.setDeriveQueueWidth(0);
+        expect(queue.width, 1);
+      },
+    );
+  });
 }

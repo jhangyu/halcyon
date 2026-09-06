@@ -8,6 +8,7 @@ import 'lane_priority.dart';
 import 'derive_queue.dart';
 import 'image_preload_controller.dart' show thumbnailPrefetchMargin;
 import 'photo_payload.dart';
+import 'stage_widths.dart' show kSecondaryStageWidth;
 import 'thumbnail_derivation.dart';
 
 /// Everything the sidebar thumbnail strip owns.
@@ -33,6 +34,7 @@ class SidebarThumbnailController {
     required Set<String> Function() retentionIds,
     required VoidCallback republishEvictionPriority,
     void Function(String id)? onTileLanded,
+    int deriveQueueWidth = kSecondaryStageWidth,
   }) : _onTileLanded = onTileLanded,
        _peekPayload = peekPayload,
        _hasPayload = hasPayload,
@@ -40,6 +42,7 @@ class SidebarThumbnailController {
        _decodeLane = decodeLane,
        _ensurePayload = ensurePayload,
        _retentionIds = retentionIds,
+       _deriveQueue = DeriveQueue(width: deriveQueueWidth),
        _republishEvictionPriority = republishEvictionPriority;
 
   final SourcePayload? Function(String id) _peekPayload;
@@ -136,7 +139,11 @@ class SidebarThumbnailController {
   // before a margin landing even if the margin one arrived first. The SWEEP
   // path (`preloadThumbnails` RULE 1) is untouched -- it is already
   // sequential and keeps its inline await (D5 rule 1, §8-D2).
-  final DeriveQueue _deriveQueue = DeriveQueue(width: 2);
+  //
+  // P2: the width is no longer a literal here. It is derived with every other
+  // stage width by `StageWidths.derive` and pushed by the controller that owns
+  // this unit, so no stage can hold a private opinion about pipeline width.
+  final DeriveQueue _deriveQueue;
 
   // This sweep's row distance per id, from [_rowDistance] -- the SAME
   // distance function `_enqueueSidebarPayload` uses for lane priority, reused
@@ -175,6 +182,13 @@ class SidebarThumbnailController {
   /// what would run next without racing the queue's own microtask pump.
   @visibleForTesting
   DeriveQueue get debugDeriveQueue => _deriveQueue;
+
+  /// Live width change, pushed from [ImagePreloadController._applyStageWidths].
+  ///
+  /// No clamp here on purpose: [DeriveQueue.width]'s setter clamps below 1 and
+  /// [StageWidths.derive] clamped the configured value once at the source.
+  /// NARROWING never pre-empts -- see [DeriveQueue.width].
+  void setDeriveQueueWidth(int width) => _deriveQueue.width = width;
 
   /// Test-only: this sweep's row distance for [id], or null if [id] was not
   /// part of the latest sweep's order.
