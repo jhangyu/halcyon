@@ -186,6 +186,131 @@ def stall_attribution(events, window_us=10_000):
     }
 
 
+def rotation_acceptance(events):
+    """AC-9.1 (native-rotation-spec.md sec 6.3): the four-clause verdict from
+    ONE capture, no baseline comparison.
+
+    Four raw counts feed the verdict:
+      - reencode.submit|path=byte   (and path=pointer, kept for context)
+      - full-frame `materialize|` events
+      - reencode.copy| lines
+      - orient|rotated=true lines
+
+    `materialize|` has FOUR producers in this codebase (decoded_rgba_image_
+    provider.dart's full-res route, sidebar_thumbnail_codec.dart, raw_pixels_
+    image.dart's tier-1 route, and tier_two_scheduler.dart's piggyback route)
+    and none of them tag which call site emitted the line -- the shape is
+    identical (`materialize|id=...|bytes=...|dur_us=...`) everywhere. This is
+    NOT `pool.materialize|`, a wholly separate event already consumed by
+    stall_attribution() above; conflating the two would silently corrupt both
+    readings.
+
+    The mechanical split used here: `reencode.submit|` only ever fires on the
+    full-resolution buffer that feeds the re-encoder (payload_reencoder.dart),
+    on both the byte and pointer arms, and its `bytes=` is the same pixel
+    buffer's byte length as any `materialize|` that had to run to produce that
+    buffer. A `materialize|` line is therefore counted as "full-frame" if its
+    `bytes=` value also occurs among this capture's `reencode.submit|` lines
+    -- matched as a multiset (Counter min) so a same-sized thumbnail/tier-1
+    coincidence cannot inflate the count past the number of reencode calls
+    that could plausibly have produced it. Thumbnails (<=200px long edge) and
+    tier-1 window-res buffers (<=2800px long edge) are orders of magnitude
+    smaller than a full-resolution RAW frame, so in practice this is an exact
+    match, not a heuristic collision.
+    """
+    reencode_submit_bytes = Counter()
+    submit_path = Counter()
+    copy_n = 0
+    materialize_bytes = Counter()
+    rotated_true = 0
+    orient_n = 0
+    applied_mismatch = 0
+    residual_non1 = 0
+    orient_shape_new = 0
+    degraded_n = 0
+
+    for _, name, kv in events:
+        if name == "reencode.submit":
+            submit_path[kv.get("path", "?")] += 1
+            if "bytes" in kv:
+                reencode_submit_bytes[int(kv["bytes"])] += 1
+        elif name == "reencode.copy":
+            copy_n += 1
+        elif name == "materialize" and "bytes" in kv:
+            materialize_bytes[int(kv["bytes"])] += 1
+        elif name == "orient":
+            orient_n += 1
+            if kv.get("rotated") == "true":
+                rotated_true += 1
+            if "applied" in kv and "exif" in kv:
+                orient_shape_new += 1
+                if kv["applied"] != kv["exif"]:
+                    applied_mismatch += 1
+            if "residual" in kv and kv["residual"] != "1":
+                residual_non1 += 1
+        elif name == "orient.degraded":
+            degraded_n += 1
+
+    full_frame_materialize = sum(
+        min(n, reencode_submit_bytes.get(b, 0))
+        for b, n in materialize_bytes.items()
+    )
+
+    byte_n = submit_path.get("byte", 0)
+    pointer_n = submit_path.get("pointer", 0)
+
+    if rotated_true == 0:
+        verdict = "VOID"
+    elif byte_n == 0 and full_frame_materialize == 0 and copy_n == 0:
+        verdict = "PASS"
+    else:
+        verdict = "FAIL"
+
+    return {
+        "verdict": verdict,
+        "reencode_submit_byte": byte_n,
+        "reencode_submit_pointer": pointer_n,
+        "full_frame_materialize": full_frame_materialize,
+        "reencode_copy": copy_n,
+        "orient_rotated_true": rotated_true,
+        "orient_n": orient_n,
+        "orient_new_shape_n": orient_shape_new,
+        "orient_applied_exif_mismatch": applied_mismatch,
+        "orient_residual_non1": residual_non1,
+        "orient_degraded_n": degraded_n,
+    }
+
+
+def print_rotation_report(r):
+    print("\n== AC-9.1 native-rotation acceptance")
+    if r["orient_n"] == 0 and r["reencode_submit_byte"] == 0 and \
+            r["reencode_submit_pointer"] == 0 and r["reencode_copy"] == 0:
+        print("   no orient|/reencode.*| lines in this log -- capture "
+              "predates the instrumentation or the rotation code path never "
+              "ran; nothing to gate.")
+        return
+    print(f"   verdict: {r['verdict']}")
+    print(f"   reencode.submit|path=byte:  {r['reencode_submit_byte']}")
+    print(f"   reencode.submit|path=pointer: {r['reencode_submit_pointer']}")
+    print(f"   full-frame materialize|:    {r['full_frame_materialize']}")
+    print(f"   reencode.copy|:             {r['reencode_copy']}")
+    print(f"   orient|rotated=true:        {r['orient_rotated_true']} "
+          f"(of {r['orient_n']} orient| lines)")
+    if r["verdict"] == "VOID":
+        print("   VOID (AC-9.2): orient|rotated=true == 0 -- this capture "
+              "had no rotated photos and must be retaken.")
+    print("-- recorded, not gating (AC-9.3):")
+    if r["orient_new_shape_n"] == 0:
+        print("   old-shape orient| lines only (no applied=/residual= "
+              "fields) -- mismatch/residual counts unavailable.")
+    else:
+        print(f"   orient|applied= != orient|exif=: "
+              f"{r['orient_applied_exif_mismatch']} of {r['orient_new_shape_n']}")
+        print(f"   orient|residual= != 1: {r['orient_residual_non1']} of "
+              f"{r['orient_new_shape_n']}")
+    print(f"   orient.degraded| lines: {r['orient_degraded_n']}")
+
+
 def decode_windows(events):
     """Pair req_start/req_end by id -> sorted [(start_us, end_us)]."""
     open_reqs, wins = {}, []
@@ -252,6 +377,7 @@ def summarise_log(path):
         "hist": hist,
         "stall": stall_analysis(events, span_s),
         "stall_attr": stall_attribution(events),
+        "rotation": rotation_acceptance(events),
         "overrun_n": len(overruns),
         "overrun_p50": _quantiles(totals)[0],
         "overrun_p90": _quantiles(totals)[1],
@@ -359,6 +485,7 @@ def print_log_report(summary, other=None):
                   f"(gap {gap:+d} us{mat}) {verdict}")
         if len(attr["rows"]) > 12:
             print(f"   ... {len(attr['rows']) - 12} more attributed stalls")
+        print_rotation_report(s["rotation"])
 
 
 # ------------------------------------------------------------- sample text ---
@@ -554,6 +681,58 @@ PERF|260000|materialize|id=7|bytes=96962304|dur_us=200000|iso=main
 PERF|1000100|nav|id=b
 """
 
+# AC-9.1 fixtures. `PASS_LOG` is the shape a landed fix should produce: two
+# natively-oriented items take the pointer path with residual=1 (rotated=
+# false -- the common case once native orientation lands, see AC-7.5), plus
+# one item that still reports `rotated=true` -- covering AC-9.1's 4th-clause
+# guard -- yet also lands on the pointer arm with zero materialize/copy (the
+# instrument must recognise this as a clean PASS regardless of how a given
+# ceyx build produces that combination; that decoder-level question is out of
+# this script's scope).
+ROTATION_LOG_PASS = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=false|bytes=96962304
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=96962304
+PERF|4000|reencode.end|id=1|dur_us=9000|bytes=500000
+PERF|5000|orient|exif=1|applied=1|residual=1|rotated=false|bytes=44236800
+PERF|6000|reencode.submit|id=2|path=pointer|bytes=44236800
+PERF|7000|reencode.end|id=2|dur_us=8000|bytes=400000
+PERF|8000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=50000000
+PERF|9000|reencode.submit|id=3|path=pointer|bytes=50000000
+PERF|9500|reencode.end|id=3|dur_us=9000|bytes=450000
+PERF|1000100|nav|id=b
+"""
+
+# `RED_LOG` reproduces the pre-fix baseline shape (capture_225634): a rotated
+# item takes the byte arm, pays a full-frame materialize (bytes match the
+# reencode.submit bytes) and a copy. A same-sized thumbnail materialize is
+# included as a negative control: its bytes (12000) never appear in any
+# reencode.submit line, so it must NOT be counted as full-frame.
+ROTATION_LOG_RED = """PERF|1000|nav|id=a
+PERF|1500|materialize|id=9|bytes=12000|dur_us=500
+PERF|2000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|3000|reencode.submit|id=1|path=byte|bytes=96962304
+PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304
+PERF|4000|reencode.end|id=1|dur_us=118400|bytes=500000
+PERF|1000100|nav|id=b
+"""
+
+# No rotated photos in the workload at all -> VOID per AC-9.2, even though
+# the three zero-clauses would otherwise read as a (meaningless) PASS.
+ROTATION_LOG_VOID = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=1|applied=1|residual=1|rotated=false|bytes=44236800
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=44236800
+PERF|1000100|nav|id=b
+"""
+
+# Old-shape orient| lines (pre-Task-7: no applied=/residual=) must not crash
+# the parser and must still drive the pass/fail clauses off `rotated=`.
+ROTATION_LOG_OLDSHAPE = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|rotated=true|bytes=96962304
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=96962304
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -663,6 +842,75 @@ def selftest(tmpdir="."):
         # Self time of FlushTasks = 40 - (30 + 10) = 0.
         ft = "fml::MessageLoopImpl::FlushTasks(fml::FlushType)  (in FlutterMacOS)"
         assert self_by[ft] == 0, self_by[ft]
+
+        p = write(ROTATION_LOG_PASS, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "PASS", r
+        assert r["reencode_submit_byte"] == 0, r
+        assert r["full_frame_materialize"] == 0, r
+        assert r["reencode_copy"] == 0, r
+        assert r["orient_rotated_true"] == 1, r  # the 4th-clause guard item
+
+        p = write(ROTATION_LOG_RED, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "FAIL", r
+        assert r["reencode_submit_byte"] == 1, r
+        assert r["full_frame_materialize"] == 1, r  # NOT the 12000-byte thumbnail
+        assert r["reencode_copy"] == 1, r
+        assert r["orient_rotated_true"] == 1, r
+        assert r["orient_applied_exif_mismatch"] == 1, r  # applied=1 != exif=6
+        assert r["orient_residual_non1"] == 1, r  # residual=6
+
+        # Red proof per clause: take the RED fixture (already FAIL) and flip
+        # ONE clause at a time toward the PASS fixture's shape; verdict must
+        # stay FAIL until ALL three zero-clauses are satisfied and the guard
+        # clause is non-zero. Demonstrates each clause actually gates.
+        no_byte = ROTATION_LOG_RED.replace("path=byte", "path=pointer")
+        p = write(no_byte, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["reencode_submit_byte"] == 0, r
+        assert r["verdict"] == "FAIL", r  # copy/materialize still nonzero
+
+        no_copy = no_byte.replace(
+            "PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304\n", "")
+        p = write(no_copy, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["reencode_copy"] == 0, r
+        assert r["verdict"] == "FAIL", r  # materialize still nonzero
+
+        no_materialize = no_copy.replace(
+            "PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800\n", "")
+        p = write(no_materialize, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize"] == 0, r
+        assert r["verdict"] == "PASS", r  # all three zero-clauses now hold,
+        # and orient|rotated=true==1 satisfies the guard.
+        assert r["orient_rotated_true"] == 1, r
+
+        p = write(ROTATION_LOG_VOID, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "VOID", r  # AC-9.2: rotated=true == 0
+
+        p = write(ROTATION_LOG_OLDSHAPE, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "PASS", r
+        assert r["orient_new_shape_n"] == 0, r  # no applied=/residual= fields
+        assert r["orient_applied_exif_mismatch"] == 0, r
+        assert r["orient_residual_non1"] == 0, r
+
+        # No relevant lines at all -> clean "no data", no crash.
+        p = write("PERF|1000|nav|id=a\nPERF|1000100|nav|id=b\n", ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "VOID", r  # rotated_true == 0 by construction
+        assert r["orient_n"] == 0, r
 
         try:
             parse_log(write("not a perf log\n", ".log"))
