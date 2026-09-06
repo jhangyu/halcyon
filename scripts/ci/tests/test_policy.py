@@ -75,9 +75,13 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # --ceyx-release latest` and checked by `--ceyx-release verify` (green
 # control RC=0, then a deliberate one-byte digest edit seen to refuse the
 # fetch, then restored byte-identical from a cp backup). Tag plus the
-# artifacts.lock digest (91c66ad0 -> 4f75eab4) and all five decoder entries
-# moved (the release adds ceyx_decode_into_buffer_oriented to every decoder
-# asset, verified per-asset by symbol dump-to-file). This guard fired exactly
+# artifacts.lock digest (91c66ad0 -> 4f75eab4) and NINE archive digests
+# moved: all five decoder entries (the release adds
+# ceyx_decode_into_buffer_oriented to every decoder asset, verified
+# per-asset by symbol dump-to-file) plus heif-dist-windows,
+# libjxl-dist-linux/windows and libwebp-dist-windows — a tag push
+# implicitly rebuilds the third-party dists too, same phenomenon the
+# v0.1.15 entry recorded. This guard fired exactly
 # as designed on the campaign branch -- it is the ledger entry that moves,
 # never the test. Recomputed with the SAME CRLF-normalizing method
 # test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
