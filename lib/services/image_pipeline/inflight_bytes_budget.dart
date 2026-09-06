@@ -44,6 +44,40 @@ class InflightBytesBudget {
   int get inFlightBytes => _inFlight;
   int get waitingCount => _waiting.length;
 
+  /// Non-blocking admission. Returns the epoch on success, null when [bytes]
+  /// does not fit right now.
+  ///
+  /// Exists so the ONE dispatcher (`DecodeLane`) can take the byte resource and
+  /// the lane slot TOGETHER, all-or-nothing, at dispatch. A task therefore
+  /// never holds one resource while waiting for the other, which is the
+  /// hold-and-wait condition the old post-decode acquire avoided by giving up
+  /// on bounding transient bytes at all
+  /// (`image_preload_controller.dart`'s former `_finishOffLane` note).
+  ///
+  /// Head-of-queue fairness is shared with [acquire]: a non-empty waiter queue
+  /// refuses a try-admission, so a stream of try-callers cannot starve a parked
+  /// blocking waiter.
+  int? tryAcquire(int bytes) {
+    final want = bytes < 0 ? 0 : bytes;
+    if (_waiting.isNotEmpty || !_fits(want)) return null;
+    _inFlight += want;
+    return _epoch;
+  }
+
+  /// Corrects an admission from its pre-decode ESTIMATE to the real frame size.
+  ///
+  /// Never blocks and never refuses: the bytes already exist by the time this
+  /// is called. A no-op against a stale [epoch] -- same rule as [release]
+  /// (TC-886). A downward correction admits parked waiters, exactly as a
+  /// release does.
+  void adjust(int from, int to, {required int epoch}) {
+    if (epoch != _epoch) return;
+    final delta = (to < 0 ? 0 : to) - (from < 0 ? 0 : from);
+    _inFlight += delta;
+    if (_inFlight < 0) _inFlight = 0;
+    if (delta < 0) _admit();
+  }
+
   /// Completes when [bytes] fits, or immediately when nothing is in flight.
   ///
   /// The empty-budget escape hatch is load-bearing: a single frame larger than
@@ -92,6 +126,15 @@ class InflightBytesBudget {
     }
   }
 
+  /// The `_inFlight == 0` clause is the EXPLICIT OVERSIZE-SINGLE-ITEM
+  /// ADMISSION rule, not a general escape hatch: a single frame larger than the
+  /// whole budget is admitted when nothing else is in flight, and never
+  /// otherwise, because the release that would make room could only come from
+  /// itself. It is retained deliberately (user ruling 2a, 2026-09-06) and its
+  /// BEHAVIOUR is unchanged; only this comment names it. With the budget now
+  /// derived by `inflightByteBudgetFor` it is an exceptional path rather than,
+  /// as under the old quarter-of-the-payload-budget derivation, the path every
+  /// single admission took.
   bool _fits(int bytes) => _inFlight == 0 || _inFlight + bytes <= _maxBytes;
 
   void _admit() {

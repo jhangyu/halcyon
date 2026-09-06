@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'inflight_bytes_budget.dart';
 import 'lane_priority.dart';
 
 // PHASE 4 (2026-09-06): the priority BASES no longer live here.
@@ -68,14 +69,35 @@ typedef LaneKey = (LaneTaskKind kind, String id);
 ///     owner instead of being duplicated into the queue.
 ///
 /// A failing task never wedges any runner: every body is run inside a guard.
+///
+/// UNIFIED ADMISSION (WP2, 2026-09-06). When an [InflightBytesBudget] is
+/// supplied this lane is also the ONE admission point for transient full-frame
+/// BYTES: a task takes its lane slot and its bytes TOGETHER, all-or-nothing,
+/// at dispatch. It therefore never holds one resource while waiting for the
+/// other -- Coffman condition 2 is removed by construction, which is what the
+/// old post-decode `acquire` avoided by not bounding decode-time bytes at all.
+/// A task whose bytes do not fit stays in `_pending` holding NOTHING, and the
+/// next release re-pumps.
 class DecodeLane {
-  DecodeLane({int width = 1}) : _width = width < 1 ? 1 : width;
+  DecodeLane({int width = 1, InflightBytesBudget? budget})
+      : _width = width < 1 ? 1 : width,
+        _budget = budget;
 
   final Map<LaneKey, _LaneTask> _pending = {};
+  final InflightBytesBudget? _budget;
+  final Map<LaneKey, _Admission> _admitted = {};
   int _running = 0;
   bool _pumpScheduled = false;
   int _seq = 0;
   int _width;
+
+  /// How many dispatch attempts were refused by the BYTE budget rather than by
+  /// the lane width. Test seam for the deadlock regression (TC-1044): it is the
+  /// only way to tell "the gate refused an admission and the queue still
+  /// drained" from "the gate never engaged". Not `@visibleForTesting`: the
+  /// controller re-exposes it as `debugByteBlockedPumps`, same shape as its
+  /// other debug counters.
+  int debugByteBlockedPumps = 0;
 
   /// How many task bodies may execute at once.
   int get width => _width;
@@ -114,25 +136,67 @@ class DecodeLane {
   /// navigation events from queueing nine copies of the same decode. A key
   /// already IN FLIGHT is not pending, so a re-enqueue of it is a new entry --
   /// its body's own cache/in-flight re-checks make that a cheap no-op.
+  ///
+  /// [estimatedBytes] is what this task is expected to hold in flight (0 for a
+  /// task that allocates no full frame -- charging those would make the gate
+  /// refuse work it does not bound). It is only an ESTIMATE: the real size is
+  /// unknown until the decode returns, and [adjustAdmission] reconciles it.
+  /// A re-enqueue that REPLACES a pending entry also replaces its estimate --
+  /// nothing has been charged yet, because a pending entry holds no resources.
   void enqueue(
     LaneKey key, {
     required int priority,
     required Future<void> Function() body,
+    int estimatedBytes = 0,
   }) {
     final existing = _pending[key];
     if (existing != null) {
       existing.priority = priority;
       existing.seq = ++_seq;
       existing.body = body;
+      existing.estimatedBytes = estimatedBytes;
     } else {
       _pending[key] = _LaneTask(
         key: key,
         priority: priority,
         seq: ++_seq,
         body: body,
+        estimatedBytes: estimatedBytes,
       );
     }
     _schedulePump();
+  }
+
+  /// Corrects [key]'s admission from its pre-decode estimate to the real size,
+  /// once the decode has produced the frame. No-op when [key] holds no
+  /// admission (no budget wired, or the admission was already transferred).
+  void adjustAdmission(LaneKey key, {required int to}) {
+    final admission = _admitted[key];
+    final budget = _budget;
+    if (admission == null || budget == null) return;
+    budget.adjust(admission.bytes, to, epoch: admission.epoch);
+    admission.bytes = to < 0 ? 0 : to;
+    _schedulePump();
+  }
+
+  /// Hands [key]'s byte admission to a holder that OUTLIVES the lane body.
+  ///
+  /// The off-lane encode continuation keeps the full-res frame alive after the
+  /// lane slot is freed, so releasing at lane-body end would leave
+  /// encode-width x one frame of live bytes uncharged (lead ruling C2, option
+  /// (b), 2026-09-06). Once transferred, `_runOne`'s `finally` releases
+  /// nothing; the new holder must call [releaseAdmission] exactly once.
+  LaneAdmission? takeAdmission(LaneKey key) {
+    final admission = _admitted.remove(key);
+    if (admission == null) return null;
+    return LaneAdmission._(admission.bytes, admission.epoch);
+  }
+
+  /// Releases an admission taken by [takeAdmission] and re-pumps: the released
+  /// bytes may be exactly what a byte-blocked pending task was waiting for.
+  void releaseAdmission(LaneAdmission admission) {
+    _budget?.release(admission.bytes, epoch: admission.epoch);
+    if (_pending.isNotEmpty) _schedulePump();
   }
 
   /// Starts the pump on a MICROTASK, never synchronously inside [enqueue].
@@ -148,8 +212,13 @@ class DecodeLane {
     _pumpScheduled = true;
     scheduleMicrotask(() {
       _pumpScheduled = false;
+      // Two dispatch points exist (here, and `_runOne`'s own loop), so BOTH go
+      // through `_takeNextAdmitted` -- the byte resource must be taken with the
+      // slot wherever a body starts, not only where a runner is created.
       while (_running < _width && _pending.isNotEmpty) {
-        unawaited(_runOne());
+        final task = _takeNextAdmitted();
+        if (task == null) break; // byte-blocked: hold nothing, wait for a release
+        unawaited(_runOne(task));
       }
     });
   }
@@ -159,13 +228,40 @@ class DecodeLane {
   /// completion instead. Used by `reset()`/`dispose()`.
   void clearPending() => _pending.clear();
 
-  Future<void> _runOne() async {
+  /// Drops every PENDING (not yet dispatched) task whose key [keep] rejects,
+  /// running [onDropped] for each so the caller can release whatever the
+  /// dropped body would have resolved (parked notify callbacks).
+  ///
+  /// Operates on `_pending` ONLY (N2). A dispatched task is already out of
+  /// that map -- it holds a lane slot and/or a byte admission -- so this can
+  /// never drop work that holds either resource, and it never calls
+  /// `_budget.release`: a pending entry was never charged, so releasing would
+  /// under-count `_inFlight`.
+  int prunePending(
+    bool Function(LaneKey key) keep, {
+    void Function(LaneKey key)? onDropped,
+  }) {
+    final toDrop = <LaneKey>[];
+    for (final key in _pending.keys) {
+      if (!keep(key)) toDrop.add(key);
+    }
+    for (final key in toDrop) {
+      _pending.remove(key);
+      onDropped?.call(key);
+    }
+    return toDrop.length;
+  }
+
+  /// The "queue roster" a pruning test asserts before/after a window move.
+  /// Not `@visibleForTesting`: the controller re-exposes it under that
+  /// annotation, same pattern as [debugByteBlockedPumps].
+  List<LaneKey> get debugPendingKeys => _pending.keys.toList();
+
+  Future<void> _runOne(_LaneTask first) async {
     _running++;
+    var next = first;
     try {
-      // `_running <= _width` retires surplus runners after a width reduction:
-      // never mid-body (no FFI decode is cancellable), only between bodies.
-      while (_pending.isNotEmpty && _running <= _width) {
-        final next = _takeNext();
+      while (true) {
         try {
           await next.body();
         } catch (_) {
@@ -173,16 +269,57 @@ class DecodeLane {
           // session. Real failures are recorded by the body's own owner
           // (permanent misses, full-res failure memos); this only keeps the
           // lane runnable.
+        } finally {
+          // Both resources are given back here, unless the byte admission was
+          // TRANSFERRED to a holder that outlives this body (the off-lane
+          // encode -- see [takeAdmission]). Releasing bytes re-pumps, because a
+          // pending task may have been refused for exactly these bytes; without
+          // that restart the queue would stall forever once the last runner
+          // exits.
+          _releaseAdmissionFor(next.key);
         }
+        // `_running <= _width` retires surplus runners after a width reduction:
+        // never mid-body (no FFI decode is cancellable), only between bodies.
+        if (_pending.isEmpty || _running > _width) break;
+        final following = _takeNextAdmitted();
+        if (following == null) break; // byte-blocked: retire, do not spin
+        next = following;
       }
     } finally {
       _running--;
     }
   }
 
+  /// Takes the highest-priority pending task AND its bytes, or nothing at all.
+  ///
+  /// Returning null is NOT a wait: the task stays pending and holds neither
+  /// resource, so no cycle can form between the two.
+  _LaneTask? _takeNextAdmitted() {
+    final best = _peekNext();
+    if (best == null) return null;
+    final budget = _budget;
+    if (budget != null) {
+      final epoch = budget.tryAcquire(best.estimatedBytes);
+      if (epoch == null) {
+        debugByteBlockedPumps++;
+        return null;
+      }
+      _admitted[best.key] = _Admission(best.estimatedBytes, epoch);
+    }
+    _pending.remove(best.key);
+    return best;
+  }
+
+  void _releaseAdmissionFor(LaneKey key) {
+    final admission = _admitted.remove(key);
+    if (admission == null) return;
+    _budget?.release(admission.bytes, epoch: admission.epoch);
+    if (_pending.isNotEmpty) _schedulePump();
+  }
+
   // ponytail: O(n) scan is fine — pending is bounded by window size (~9) +
   // full-res upgrades; switch to a heap if that ever grows.
-  _LaneTask _takeNext() {
+  _LaneTask? _peekNext() {
     _LaneTask? best;
     for (final task in _pending.values) {
       if (best == null ||
@@ -191,9 +328,24 @@ class DecodeLane {
         best = task;
       }
     }
-    _pending.remove(best!.key);
     return best;
   }
+}
+
+/// A byte admission that has left the lane's own bookkeeping, handed to a
+/// holder whose lifetime outlives the lane body ([DecodeLane.takeAdmission]).
+/// Carries its epoch, so a release landing after a `clear()` is a no-op rather
+/// than an over-release (TC-886 rule).
+class LaneAdmission {
+  const LaneAdmission._(this.bytes, this.epoch);
+  final int bytes;
+  final int epoch;
+}
+
+class _Admission {
+  _Admission(this.bytes, this.epoch);
+  int bytes;
+  final int epoch;
 }
 
 class _LaneTask {
@@ -202,12 +354,14 @@ class _LaneTask {
     required this.priority,
     required this.seq,
     required this.body,
+    required this.estimatedBytes,
   });
 
   final LaneKey key;
   int priority;
   int seq;
   Future<void> Function() body;
+  int estimatedBytes;
 }
 
 /// The lane rank for an item [signedDistance] slots away from the selection.

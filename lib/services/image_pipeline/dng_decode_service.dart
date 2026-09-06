@@ -10,9 +10,18 @@ import 'dng_decode_contract.dart';
 /// What changed and what did NOT:
 /// * changed — one dylib load per WORKER for the process lifetime, instead of
 ///   one per decode, and no isolate spawn on the browse path after warmup;
-/// * unchanged — the seam's signature, the `TransferableTypedData` return
-///   path, and the "any throw ⇒ fall back to the old path" contract. Every
-///   existing fake decoder in the test suite is untouched by this file.
+/// * changed (H2-A) — the pool arm's decode payload crosses the isolate
+///   boundary as a native POINTER plus dimensions, not as a
+///   `TransferableTypedData` copy. `image.rgbaData` is therefore a zero-copy
+///   view over native memory whose lifetime is bound to that typed list by a
+///   `NativeFinalizer` inside ceyx's pool; the ~97MB never enters the Dart
+///   heap. Nothing here changes: the length check and [DecodedRgba]
+///   construction below are backing-store-agnostic. The LEGACY arm at :57-58
+///   still returns `TransferableTypedData`-materialised bytes — it is the A/B
+///   control and is deliberately left alone;
+/// * unchanged — the seam's signature and the "any throw ⇒ fall back to the
+///   old path" contract. Every existing fake decoder in the test suite is
+///   untouched by this file.
 ///
 /// Kept production-clean: no dylib-preload workaround, no dev-only path
 /// hacks. The dylib lands in `<App>.app/Contents/Frameworks/` because
@@ -70,6 +79,17 @@ Future<DecodedRgba> decodeDngFull(String path) async {
     rgba: image.rgbaData,
     width: image.width,
     height: image.height,
+    // R2b (gc-remediation): `image.nativeAddress` is 0 on the legacy
+    // TransferableTypedData arm (`DngDecoderService().decodeOnWorker`), so
+    // `nativeKeepAlive` is harmless to set unconditionally -- a zero address
+    // makes every downstream pointer-path gate refuse regardless of what
+    // this field holds.
+    nativeAddress: image.nativeAddress,
+    nativeKeepAlive: image,
+    // WP6 (gc-remediation): end-of-consumption pool return. Safe on BOTH arms
+    // -- `DngImage.releaseToPool` is idempotent and a documented no-op when no
+    // pooled buffer backs this image, which is exactly the legacy arm's case.
+    releaseNative: image.releaseToPool,
   );
 }
 

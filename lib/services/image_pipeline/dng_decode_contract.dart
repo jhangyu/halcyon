@@ -14,6 +14,9 @@ class DecodedRgba {
     required this.rgba,
     required this.width,
     required this.height,
+    this.nativeAddress = 0,
+    this.nativeKeepAlive,
+    this.releaseNative,
   });
 
   /// RGBA8 interleaved, length == width * height * 4.
@@ -22,6 +25,37 @@ class DecodedRgba {
   /// Already cropped to DefaultCropSize by the decoder; do not crop again.
   final int width;
   final int height;
+
+  /// WP3/R2b (gc-remediation, 2026-09-06). The address of the native buffer
+  /// [rgba] views, or 0 when [rgba] is Dart-heap-owned (the legacy arm, and
+  /// every existing fake decoder in the test suite -- both default this to
+  /// 0, so every existing construction is unaffected). Mirrors
+  /// `DngImage.nativeAddress` (ceyx, landed eec995b): non-zero only on the
+  /// pointer-transfer decode path.
+  final int nativeAddress;
+
+  /// The object that must stay reachable for as long as [nativeAddress] is
+  /// used (typically the `DngImage` ceyx handed back) -- the native buffer's
+  /// lifetime is tied to it via a `NativeFinalizer`, and this repo does not
+  /// import `dart:ffi`'s `Finalizable` here to keep this class decoder-
+  /// package-agnostic (class dartdoc above: "no package import"). Null
+  /// whenever [nativeAddress] is 0.
+  final Object? nativeKeepAlive;
+
+  /// WP6 (gc-remediation, 2026-09-06). Returns this frame's native buffer to
+  /// `CeyxNativeBufferPool` at end-of-consumption; typically
+  /// `DngImage.releaseToPool` (idempotent on the ceyx side). Null means
+  /// "nothing to release", NEVER "leak": every Dart-heap-backed decode and
+  /// every fake decoder in the test suite leaves it null, and the pool's own
+  /// `NativeFinalizer` is the safety net for the buffers nobody releases
+  /// explicitly.
+  ///
+  /// The single call site is `_finishOffLane`'s `finally`
+  /// (image_preload_controller.dart), guarded by the aliasing rule: it fires
+  /// only when the published payload is an [EncodedPayload], because a
+  /// retained `PixelPayload` IS this buffer (the identity short-circuit in
+  /// `decodedRgbaToOrientedFullRes`).
+  final void Function()? releaseNative;
 }
 
 /// Decodes a DNG that carries no embedded full-size JPEG preview.

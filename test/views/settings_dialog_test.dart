@@ -23,6 +23,15 @@ Future<void> _useDialogSizedSurface(WidgetTester tester) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
+/// Bounded stand-in for `pumpAndSettle()`: enough frames to clear a dialog
+/// open/close route transition without polling for full animation rest.
+Future<void> _settle(WidgetTester tester) async {
+  await tester.pump();
+  for (var i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
 Future<void> pumpDialog(WidgetTester tester, AppState state) async {
   await _useDialogSizedSurface(tester);
   await tester.pumpWidget(
@@ -58,7 +67,7 @@ Future<void> pumpDialogViaShowDialog(WidgetTester tester, AppState state) async 
   );
   await tester.pump();
   await tester.tap(find.text('open'));
-  await tester.pumpAndSettle();
+  await _settle(tester);
 }
 
 void main() {
@@ -392,7 +401,7 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('settingsCancel')));
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     expect(state.decodeLaneWidth, openingLaneWidth);
     expect(state.exportJpegQuality, openingQuality);
@@ -407,7 +416,7 @@ void main() {
     context(tester).read<AppState>().setDecodeLaneWidth(openingLaneWidth + 1);
     await tester.pump();
     await tester.tap(find.byKey(const Key('settingsDone')));
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     expect(state.decodeLaneWidth, openingLaneWidth + 1);
   });

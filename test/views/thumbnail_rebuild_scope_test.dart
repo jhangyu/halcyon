@@ -6,6 +6,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/preload_fixtures.dart';
 
@@ -82,6 +83,11 @@ void main() {
   testWidgets('a thumbnail landing rebuilds the strip tile, not the viewer', (
     tester,
   ) async {
+    // Guard against AppState's fire-and-forget async _initPrefs racing this
+    // test's FakeAsync window and throwing MissingPluginException when it
+    // hits the real (unmocked) shared_preferences platform channel — same
+    // idiom as app_state_test.dart's setUp.
+    SharedPreferences.setMockInitialValues({});
     final state = AppState();
     addTearDown(state.dispose);
 

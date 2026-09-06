@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi' show Finalizable;
 import 'dart:math' as math;
 
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
@@ -8,11 +9,14 @@ import 'package:flutter/painting.dart';
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import 'dart_image_loader.dart' show resetSidebarWalkMemo;
+import 'decoded_rgba_image_provider.dart' show OrientedFullRes;
 import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart'
     show bumpHalcyonDecodePoolGeneration, setHalcyonDecodePoolWidth;
+import 'frame_bytes.dart';
 import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
+import 'payload_claim.dart';
 import 'payload_reencoder.dart';
 import 'payload_state.dart';
 import 'photo_payload.dart';
@@ -23,6 +27,7 @@ import 'raw_full_res_image.dart';
 import 'raw_pixels_image.dart';
 import 'retention_policy.dart';
 import 'sidebar_thumbnail_controller.dart';
+import 'stage_widths.dart';
 import 'decode_lane.dart';
 import 'lane_priority.dart';
 import 'encode_stage.dart';
@@ -48,6 +53,35 @@ Future<Uint8List> _encodeJpegNative(
     width: width,
     height: height,
     quality: quality,
+  );
+}
+
+/// Production binding for [PointerPayloadEncoder] (R2b, gc-remediation
+/// 2026-09-06): the WP3/WP3b pointer entry, wired end-to-end so a
+/// native-backed identity-path decode skips the `TransferableTypedData.
+/// fromList` copy [_encodeJpegNative] pays. [keepAlive] arrives as `Object?`
+/// (the `PointerPayloadEncoder` typedef, `payload_reencoder.dart`, is
+/// decoder-package-agnostic by design -- E-WP3b); ceyx's entry point wants a
+/// `Finalizable` specifically, which is exactly what `DecodedRgba.
+/// nativeKeepAlive` holds in production (the `DngImage` handle,
+/// `dng_decode_service.dart`), and every value handed here at runtime IS
+/// one whenever `nativeAddress` was non-zero (photo_source.dart's
+/// `encodePhase` only sets both together). A stray non-Finalizable value
+/// would mean that invariant broke upstream, so this is a deliberate hard
+/// cast, not a silent `is` fallback.
+Future<Uint8List> _encodeJpegFromNativeRgba({
+  required int nativeAddress,
+  required int width,
+  required int height,
+  required int quality,
+  Object? keepAlive,
+}) {
+  return CeyxEncodeService().encodeJpegFromNativeRgba(
+    rgbaAddress: nativeAddress,
+    width: width,
+    height: height,
+    quality: quality,
+    keepAlive: keepAlive as Finalizable?,
   );
 }
 
@@ -79,6 +113,24 @@ ImageProvider fullSizeProviderFor(Uint8List bytes) => MemoryImage(bytes);
 /// expensive full-frame decodes for images the user only passed through.
 const Duration tierTwoNavigationDebounce = Duration(milliseconds: 250);
 
+/// How long a notifier survives after a view last asked for it, even once its
+/// id has left the retention union.
+///
+/// Sized to the sidebar's scroll debounce: a row built during that window has
+/// called `stateFor` but its id is not in the sidebar's wanted set yet (the set
+/// is rewritten only inside the timer), so a navigation-side sweep in the same
+/// window used to dispose a notifier a live row was already holding --
+/// silently, since every later `_markStage` for a missing id early-returns.
+/// Deliberately NOT the sidebar's own constant: this bounds NOTIFIER LIFETIME,
+/// not scroll settling, and the two must be free to move apart.
+///
+/// The notifier map's bound therefore becomes "retention union + ids touched
+/// within this grace", which is still finite: a deferred id is collected by the
+/// NEXT sweep after its grace expires, and sweeps run from both contributors to
+/// the union. No new timer is introduced -- a second lifetime authority is
+/// exactly what this map does not need.
+const Duration kPayloadStateDisposalGrace = Duration(milliseconds: 100);
+
 /// Rows of sidebar thumbnails fetched (and kept cached) beyond each edge of
 /// the visible range. See [ImagePreloadController.preloadThumbnails].
 const int thumbnailPrefetchMargin = 20;
@@ -107,16 +159,21 @@ class ImagePreloadController {
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
+    PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
-    int encodeStageWidth = 2,
     FrameHook? scheduleFrameCallback,
     int publicationsPerFrame = 1,
     int? inflightByteBudget,
     CompositeGate compositeGate = immediateCompositeGate,
-  }) : _retention = retention,
+    // Test-only seam (test-speedup campaign 2026-09-06): lets tests shrink
+    // the production 250ms tier-2 quiet period instead of waiting it out in
+    // real time. Production callers must not pass this.
+    Duration navigationDebounce = tierTwoNavigationDebounce,
+  }) : _navigationDebounce = navigationDebounce,
+       _retention = retention,
        _inflight = InflightBytesBudget(
-         maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
+         maxBytes: inflightByteBudget ?? inflightByteBudgetFor(retention),
        ),
        _frameHook = scheduleFrameCallback,
        _publicationsPerFrame = publicationsPerFrame,
@@ -125,17 +182,39 @@ class ImagePreloadController {
          loader: imageLoader,
          dngDecoder: dngDecoder,
          payloadEncoder: payloadEncoder,
+         pointerPayloadEncoder: pointerPayloadEncoder,
          compositeGate: compositeGate,
        ),
-       _decodeLane = DecodeLane(width: decodeLaneWidth),
-       _encodeStage = EncodeStage(width: encodeStageWidth),
-       _cache = PhotoPayloadCache(byteBudget: retention.payloadByteBudget) {
-    // Push the width the lane was BUILT with, not just later changes: until
-    // the stored preference hydrates and calls [setDecodeLaneWidth], the lane
-    // and the pool would otherwise disagree (lane = this constructor's value,
-    // pool = its own construction default), and any decode admitted in that
-    // window is bounded by the wrong number.
-    _applyLaneWidth(decodeLaneWidth);
+       _stageWidths = StageWidths.derive(decodeLaneWidth),
+       _decodeLaneWidthAtBuild = decodeLaneWidth,
+       // Same derivation as `_stageWidths` above -- recomputed rather than
+       // read off it because an initialiser list cannot read `this`. The
+       // constructor body's `_applyStageWidths` re-pushes it anyway; building
+       // it at the derived width just means it is never briefly wrong.
+       _encodeStage = EncodeStage(
+         width: StageWidths.derive(decodeLaneWidth).encode,
+       ) {
+    // WP2 (2026-09-06): the lane is the ONE admission point for BOTH the slot
+    // and the transient full-frame BYTES, so it is handed the very same
+    // [InflightBytesBudget] object `_inflight` names -- built in the body
+    // rather than the initialiser list only because an initialiser cannot read
+    // another field. The lane does no byte accounting of its own, so
+    // `debugInflightBytes` still observes every charge.
+    _decodeLane = DecodeLane(
+      width: _decodeLaneWidthAtBuild,
+      budget: _inflight,
+    );
+    // Push the widths the stages were BUILT with, not just later changes:
+    // until the stored preference hydrates and calls [setDecodeLaneWidth], the
+    // lane and the pool would otherwise disagree (lane = this constructor's
+    // value, pool = its own construction default), and any decode admitted in
+    // that window is bounded by the wrong number.
+    //
+    // `pushSidebar: false` because [_sidebar] is `late final` and its closures
+    // capture `this`: touching it here would force it into existence during
+    // construction. It is born at the right width instead, from
+    // `deriveQueueWidth: _stageWidths.derive` in its own initialiser.
+    _applyStageWidths(_stageWidths, pushSidebar: false);
   }
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -145,6 +224,9 @@ class ImagePreloadController {
   /// [setRetention] (the user's memory-tier setting), publicly read-only.
   RetentionPolicy _retention;
   RetentionPolicy get retention => _retention;
+
+  /// See the constructor's test-only seam note; wired into [_tierTwoScheduler].
+  final Duration _navigationDebounce;
 
   /// Re-tunes retention at runtime (the user's memory-tier setting).
   ///
@@ -157,14 +239,20 @@ class ImagePreloadController {
     if (policy == _retention) return;
     _retention = policy;
     _cache.setByteBudget(policy.payloadByteBudget);
-    _inflight.maxBytes = policy.payloadByteBudget ~/ 4;
+    _inflight.maxBytes = inflightByteBudgetFor(policy);
   }
 
   @visibleForTesting
   int get debugPayloadCacheByteBudget => _cache.byteBudget;
 
   final PhotoSource _source;
-  final PhotoPayloadCache _cache;
+
+  /// `late final` for the same reason [_sidebar] is: the eviction callback is
+  /// an instance method, so this cannot be built in the initialiser list.
+  late final PhotoPayloadCache _cache = PhotoPayloadCache(
+    byteBudget: _retention.payloadByteBudget,
+    onEvicted: _onPayloadEvicted,
+  );
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
   /// THE ONE lane every expensive (real RAW) decode runs on, shared by payload
@@ -172,29 +260,63 @@ class ImagePreloadController {
   /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most [width]
   /// RAW decodes in flight" a property of the pipeline rather than of one
   /// scheduler (2026-08-26 ruling, width generalised 2026-08-30).
-  final DecodeLane _decodeLane;
+  late final DecodeLane _decodeLane;
+
+  /// The width the lane is BUILT at, parked by the initialiser list so the
+  /// constructor body can build the lane with `_inflight` (see there).
+  final int _decodeLaneWidthAtBuild;
 
   /// Read through to the lane, never a shadow field: the controller and the
   /// lane can then never disagree (same reasoning as [AppState.retentionPolicy]).
   int get decodeLaneWidth => _decodeLane.width;
 
-  /// Live setting change from the settings page. Values below 1 clamp to 1.
+  /// Every stage width in this controller, derived from the one configured
+  /// number. Read-through, never a shadow copy of the stages' own fields.
+  StageWidths get stageWidths => _stageWidths;
+  StageWidths _stageWidths;
+
+  /// Live setting change from the settings page. Values below 1 clamp to 1,
+  /// once, inside [StageWidths.derive]. There is no upper clamp here: the
+  /// ceiling on the user's setting belongs to `AppState`, where the
+  /// preference is read (lead ruling 2026-09-06, TC-966).
   ///
-  /// P2: the same number also sizes the persistent decode worker pool, so the
-  /// lane's ordering bound and the pool's admission bound can never disagree.
+  /// P2: the number the user sets is the ONE input every stage width derives
+  /// from -- lane, native pool, encode stage and the sidebar derive queue.
   /// The lane still owns near-to-far ORDER (the pool is FIFO and knows nothing
   /// about the selected index); the pool owns worker lifetime and the dylib.
-  void setDecodeLaneWidth(int width) => _applyLaneWidth(width);
+  void setDecodeLaneWidth(int width) =>
+      _applyStageWidths(StageWidths.derive(width));
 
-  /// The single write path for lane width: sets the lane (clamping happens
-  /// exactly once, inside [DecodeLane.width]'s setter) and pushes the same,
-  /// already-clamped value read back off the lane to the native pool. Both
-  /// the constructor and [setDecodeLaneWidth] route through here so the lane
-  /// and the pool can never see two different numbers.
-  void _applyLaneWidth(int width) {
-    _decodeLane.width = width;
+  /// THE single write path for every stage width.
+  ///
+  /// The pool is pushed the value read back OFF THE LANE rather than the
+  /// argument, so the "clamped exactly once, in the lane's setter" property
+  /// the pool relied on before P2 is unchanged.
+  ///
+  /// There is deliberately NO equality guard: TC-938/TC-966
+  /// (`decode_pool_wiring_test.dart`) pin push-on-EVERY-call as the pool's
+  /// contract -- `pushed.last` after any `setDecodeLaneWidth` must be that
+  /// call's clamped width, which a "skip the redundant push" short-circuit
+  /// turns into a stale read (or, on the first call, no element at all).
+  /// Suppressing pushes would also be a behaviour change at default widths,
+  /// which P2 forbids. The two added pushes are idempotent setters, so
+  /// pushing unconditionally costs nothing.
+  ///
+  /// [pushSidebar] exists only so the constructor's call does not force the
+  /// `late final` [_sidebar] into existence.
+  void _applyStageWidths(StageWidths widths, {bool pushSidebar = true}) {
+    _stageWidths = widths;
+    _decodeLane.width = widths.decodeLane;
     decodePoolWidthSink(_decodeLane.width);
+    _encodeStage.width = widths.encode;
+    if (pushSidebar) _sidebar.setDeriveQueueWidth(widths.derive);
   }
+
+  @visibleForTesting
+  int get debugEncodeStageWidth => _encodeStage.width;
+
+  @visibleForTesting
+  int get debugDeriveQueueWidth => _sidebar.deriveQueueWidth;
 
   /// Seam for the process-wide pool-width push. Overridable so a test can
   /// observe the push without constructing a real pool.
@@ -229,6 +351,7 @@ class ImagePreloadController {
     retentionIds: () => _retentionIds,
     republishEvictionPriority: _republishEvictionPriority,
     onTileLanded: _markThumbnailReady,
+    deriveQueueWidth: _stageWidths.derive,
   );
 
   /// The JPEG re-encode's own bounded stage. Deliberately NOT the [DecodeLane]:
@@ -240,6 +363,39 @@ class ImagePreloadController {
 
   @visibleForTesting
   int get debugEncodeStageRunningCount => _encodeStage.runningCount;
+
+  /// WP4 (docs/logs/2026-09-06/gc-remediation-plan.md Task 5): count of
+  /// full-res records whose ~96MB `rgba` readback was dropped early because
+  /// the encode that was its only consumer had already returned. Exposed so a
+  /// test fails if the double-hold (rgba retained through publish on the
+  /// rotated path) ever comes back.
+  @visibleForTesting
+  int debugFullResBytesReleasedEarly = 0;
+
+  /// The rotated path's `rgba` has exactly ONE consumer -- the encoder that
+  /// just returned. `publishPiggybackFullRes` reads `fullRes.rgba` only on
+  /// its `supplied == null` branch (tier_two_scheduler.dart, the branch
+  /// guarded by `if (supplied != null) { image = supplied; } else { ... }`),
+  /// i.e. only when `image` is null. Holding the ~96MB readback through the
+  /// pacer/idle-publish wait between here and publish is the union lifetime
+  /// the lifetime lens F2 measured; dropping the reference here is the whole
+  /// fix.
+  OrientedFullRes _shrinkAfterEncode(OrientedFullRes fullRes) {
+    if (fullRes.image == null) {
+      return fullRes; // identity path: rgba IS the publish input
+    }
+    debugFullResBytesReleasedEarly++;
+    return (
+      rgba: Uint8List(0),
+      width: fullRes.width,
+      height: fullRes.height,
+      image: fullRes.image,
+      // WP6: the handle must survive the shrink -- `_finishOffLane`'s release
+      // site reads `decode.fullRes`, but a dropped field here would still be a
+      // silent divergence between the two records.
+      releaseNative: fullRes.releaseNative,
+    );
+  }
 
   /// Decodes currently OCCUPYING a lane slot. Exposed so a test can establish
   /// "the lane is busy" as a precondition instead of assuming it: an entry the
@@ -304,6 +460,12 @@ class ImagePreloadController {
   @visibleForTesting
   int get debugInflightBytes => _inflight.inFlightBytes;
 
+  /// How many lane dispatch attempts the BYTE budget refused (WP2). Zero means
+  /// the gate never engaged, which is what distinguishes "the queue drained
+  /// because the budget was never binding" from "the budget refused work and
+  /// the queue still drained" in the deadlock regression.
+  int get debugByteBlockedPumps => _decodeLane.debugByteBlockedPumps;
+
   @visibleForTesting
   Set<String> get debugThumbPermanentMisses => _sidebar.permanentMisses;
 
@@ -315,6 +477,11 @@ class ImagePreloadController {
   @visibleForTesting
   int? debugLanePendingPriorityFor(String id) =>
       _decodeLane.pendingPriorityOf((LaneTaskKind.payload, id));
+
+  /// The lane's queue roster (WP7): the "queue before/after a window move"
+  /// the pruning ACs assert against.
+  @visibleForTesting
+  List<LaneKey> get debugPendingKeys => _decodeLane.debugPendingKeys;
 
   /// Count of content-probe (file IO) calls launched by [_probeWindowItem],
   /// i.e. once per window slot per navigation pass that reaches the probe
@@ -338,8 +505,13 @@ class ImagePreloadController {
   int get debugCatchUpEnqueueCount =>
       _tierTwoScheduler.debugCatchUpEnqueueCount;
 
-  /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
-  final Set<String> _loadingKeys = {};
+  /// Detail-path (tier-1/tier-2) production claims, keyed by BARE photo id.
+  ///
+  /// Same membership at every instant as the bare `Set<String>` of in-flight
+  /// ids it replaces; the addition is an owner tag and an assertion at each
+  /// hand-off. Thumbnail loads live in the sidebar's own set and deliberately
+  /// do not appear here.
+  final PayloadClaimRegistry _claims = PayloadClaimRegistry();
 
   // ---------------------------------------------------------------------------
   // PHASE 5 -- per-item payload state.
@@ -363,6 +535,24 @@ class ImagePreloadController {
   // survives the removal.
   int _payloadStateDisposeCount = 0;
 
+  /// When each id was last handed to a view through [stateFor]. Entries are
+  /// dropped with their notifier, so this map is bounded by [_payloadStates].
+  final Map<String, DateTime> _payloadStateTouchedAt = {};
+
+  int _payloadStateDeferredCount = 0;
+
+  /// How many notifiers the last sweep kept alive purely because of
+  /// [kPayloadStateDisposalGrace].
+  @visibleForTesting
+  int get debugPayloadStateDeferredCount => _payloadStateDeferredCount;
+
+  /// Seam for the grace period's clock, same shape as [decodePoolWidthSink]:
+  /// a test can advance time without a faked engine clock (FakeAsync plus a
+  /// real engine future hangs forever, so it is not an option here).
+  /// Production code never assigns it.
+  @visibleForTesting
+  static DateTime Function() payloadStateClock = DateTime.now;
+
   /// [id]'s payload readiness, for a view to listen to instead of rebuilding
   /// on the app-wide notification.
   ///
@@ -373,10 +563,15 @@ class ImagePreloadController {
   /// this class's two factories (plan risk R1).
   ValueListenable<PayloadState> stateFor(String id) => _notifierFor(id);
 
-  PayloadStateNotifier _notifierFor(String id) => _payloadStates.putIfAbsent(
-    id,
-    () => PayloadStateNotifier(_derivedStateFor(id)),
-  );
+  PayloadStateNotifier _notifierFor(String id) {
+    // Stamped on every call, creation and re-read alike: a re-read is equally
+    // the signal that a live view is holding this id.
+    _payloadStateTouchedAt[id] = payloadStateClock();
+    return _payloadStates.putIfAbsent(
+      id,
+      () => PayloadStateNotifier(_derivedStateFor(id)),
+    );
+  }
 
   /// The truth as of right now, read off the same containers the getters use.
   /// A notifier is born with this rather than with `absent` so a widget that
@@ -398,7 +593,7 @@ class ImagePreloadController {
         thumbnailReady: thumbnailReady,
       );
     }
-    if (_loadingKeys.contains(id)) {
+    if (_claims.isHeld(id)) {
       return PayloadState(
         stage: PayloadStage.decoding,
         thumbnailReady: thumbnailReady,
@@ -424,6 +619,26 @@ class ImagePreloadController {
       return;
     }
     notifier.trySetValue(current.copyWith(stage: stage));
+  }
+
+  /// The ONE place a stage may move BACKWARDS.
+  ///
+  /// [PhotoPayloadCache] evicts under byte pressure without asking whether the
+  /// id is still retained, so an item inside the window can lose its payload
+  /// while a view is watching it. [_markStage] is forward-only by design (a
+  /// landing must never be un-landed by a late arrival), which is why the
+  /// demotion cannot go through it: instead this recomputes the item's state
+  /// from the same containers a notifier born right now would read, so the
+  /// observable state stays a FUNCTION of the containers rather than a second
+  /// opinion. A permanently-missing item is untouched -- `failed` is terminal
+  /// until `reset()`, which [_derivedStateFor] already encodes.
+  ///
+  /// Runs synchronously inside `_cache.put`, i.e. inside a landing: it touches
+  /// [_payloadStates] only and never calls back into the cache's mutating API.
+  void _onPayloadEvicted(String id) {
+    final notifier = _payloadStates[id];
+    if (notifier == null) return;
+    notifier.trySetValue(_derivedStateFor(id));
   }
 
   /// The sidebar wrote a derived tile for [id]. A separate axis from the stage
@@ -470,10 +685,24 @@ class ImagePreloadController {
   void _sweepPayloadStates() {
     if (_payloadStates.isEmpty) return;
     final keep = _retentionIds;
+    final now = payloadStateClock();
+    _payloadStateDeferredCount = 0;
     _payloadStates.removeWhere((id, notifier) {
       if (keep.contains(id)) return false;
+      // A row that asked for this state moments ago is live even though the
+      // sidebar's wanted set has not caught up yet (the set is rewritten only
+      // inside its 100ms debounce). Disposing here is the orphan bug; the NEXT
+      // sweep after the grace expires collects it, and sweeps run from both
+      // contributors to the union, so nothing is kept indefinitely.
+      final touchedAt = _payloadStateTouchedAt[id];
+      if (touchedAt != null &&
+          now.difference(touchedAt) < kPayloadStateDisposalGrace) {
+        _payloadStateDeferredCount++;
+        return false;
+      }
       notifier.dispose();
       _payloadStateDisposeCount++;
+      _payloadStateTouchedAt.remove(id);
       return true;
     });
   }
@@ -484,6 +713,9 @@ class ImagePreloadController {
       _payloadStateDisposeCount++;
     }
     _payloadStates.clear();
+    // A folder reload destroys everything: the grace period does not apply.
+    _payloadStateTouchedAt.clear();
+    _payloadStateDeferredCount = 0;
   }
 
   /// Live per-item notifiers. The no-leak acceptance condition asserts this
@@ -592,7 +824,7 @@ class ImagePreloadController {
     ensurePayload: _ensurePayload,
     dngDecoder: () => _source.dngDecoder,
     exifOrientationFor: (id) => _exifOrientations[id],
-    navigationDebounce: tierTwoNavigationDebounce,
+    navigationDebounce: _navigationDebounce,
     compositeGate: _compositeGate,
     // Contract deliverable 2: tier-2 full-resolution publishes now go
     // through the SAME pacer instance as tier-1 registrations, not a second
@@ -657,6 +889,38 @@ class ImagePreloadController {
   /// session" by a failure that had nothing to do with it.
   int _folderGeneration = 0;
 
+  /// Monotonic, bumped by every window move (WP7). A decode that started
+  /// under an older value has its downstream stages (encode + publish)
+  /// skipped once it returns, if the item is also no longer in the retention
+  /// window -- a SECOND gate alongside the folder gate in
+  /// [_completeOutcome], not a widening of it (that one guards the
+  /// permanent-miss latch and must keep its exact "different folder"
+  /// meaning).
+  int _windowGeneration = 0;
+
+  /// Test seam for [_windowGeneration].
+  @visibleForTesting
+  int get debugWindowGeneration => _windowGeneration;
+
+  /// How many in-flight decodes had their downstream stages (encode +
+  /// publish) skipped because the window moved past them (WP7).
+  @visibleForTesting
+  int debugCancelledDownstreamCount = 0;
+
+  /// How many still-pending (not yet dispatched) lane entries were dropped by
+  /// a window move (WP7).
+  @visibleForTesting
+  int debugPrunedQueuedCount = 0;
+
+  /// `debugDisposed` read directly off the `ui.Image` handle the MOST
+  /// RECENT downstream-skip (WP7, N3) disposed, or `null` if no skip has run
+  /// yet. Pins the dispose call itself (mutation-probe verified 2026-09-06):
+  /// asserting only "no publish"/"encoder not called" stays green even if
+  /// the `dispose()` call is deleted, since a skip publishes nothing either
+  /// way.
+  @visibleForTesting
+  bool? debugLastSkippedImageDisposed;
+
   int get _longEdge {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
@@ -678,7 +942,7 @@ class ImagePreloadController {
   /// Whether the DETAIL path currently has [id] in flight. Thumbnail loads
   /// live in a separate set and deliberately do not answer true here.
   @visibleForTesting
-  bool isLoadingForTest(String id) => _loadingKeys.contains(id);
+  bool isLoadingForTest(String id) => _claims.isHeld(id);
 
   /// Encoded bytes for [id], or null when the item is not byte-backed (a RAW
   /// item retains pixels instead) or nothing is retained.
@@ -800,7 +1064,7 @@ class ImagePreloadController {
     // [stateFor] builds a fresh one from the (now empty) containers.
     _disposeAllPayloadStates();
     _sidebar.reset();
-    _loadingKeys.clear();
+    _claims.clear();
     _pendingPreviewNotifies.clear();
     _navRetentionIds = {};
     _navPriorityIds = [];
@@ -962,7 +1226,7 @@ class ImagePreloadController {
   Future<void> preloadImages({
     required List<PhotoItem> items,
     required String selectedItemId,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) async {
     if (items.isEmpty) return;
     final intent = _pendingIntent ??= _PendingIntent();
@@ -1022,6 +1286,18 @@ class ImagePreloadController {
     for (final id in _cache.retainOnly(_retentionIds)) {
       _tierTwo.evict(id);
     }
+    // WP7: bump the window-move generation and drop every still-queued
+    // (not yet dispatched) payload task for an id that just left the window.
+    // The lane body's own `_retentionIds` refusal (below, at dispatch time)
+    // already prevented the DECODE; this removes the entry, its closure and
+    // its pump cycle instead of letting it drain through a refusal, and
+    // flushes any parked `notifyLoaded` the removed body would have fired
+    // (the refusal path does that today; a removed body cannot).
+    _windowGeneration++;
+    debugPrunedQueuedCount += _decodeLane.prunePending(
+      (key) => key.$1 != LaneTaskKind.payload || _retentionIds.contains(key.$2),
+      onDropped: (key) => _flushPendingNotifies(key.$2),
+    );
     // The tier-2 id set moves NOW, not when the debounce fires: a serial decode
     // can land at any moment and its piggyback publish needs a truthful answer
     // to "is this item in the full-size window" (see
@@ -1031,7 +1307,7 @@ class ImagePreloadController {
     _selectedId = selectedItemId;
 
     // PERF-INSTRUMENTATION
-    final wasInFlight = _loadingKeys.contains(selectedItemId);
+    final wasInFlight = _claims.isHeld(selectedItemId);
     final wasCached = _cache.contains(selectedItemId);
     PerfLog.log(
       'preload.priority.begin|$selectedItemId'
@@ -1245,7 +1521,7 @@ class ImagePreloadController {
       return true;
     }
 
-    if (_loadingKeys.contains(id)) {
+    if (_claims.isHeld(id)) {
       // Someone else's load for this item is already in flight (queued by a
       // previous pass, or the caller selected an item that is mid-window-load).
       // Register to be notified when it lands instead of dropping the callback,
@@ -1366,16 +1642,24 @@ class ImagePreloadController {
     // [_completeOutcome] -- see [_folderGeneration] for why this is not
     // `_previewGeneration`.
     final loadGeneration = _folderGeneration;
+    // WP7: this load's window-move generation, captured alongside
+    // [loadGeneration] and re-checked in [_finishOffLane] after the decode
+    // returns.
+    final windowGeneration = _windowGeneration;
 
     // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
-    // `_earlyResolve` above read `_loadingKeys`; taking the claim after the
+    // `_earlyResolve` above read `_claims`; taking the claim after the
     // `classify` await below left a suspension point between check and claim,
     // so two entrants for the same id both passed the check and both bought a
     // source load -- and the second `_cache.put` replaced the payload object,
     // orphaning the tier-1 ImageCache key (which is bytes identity). Every
     // exit below removes it again: the expensive-route hand-off, the probe's
     // catch, and the `finally`.
-    _loadingKeys.add(id);
+    // The claim OBJECT is kept, not just the id: every release below hands it
+    // back, so a release that outlived a `reset()` (or a lane hand-off and
+    // re-acquire) is matched by identity and becomes a genuine no-op instead of
+    // stealing whoever holds the id now. See [PayloadClaimRegistry.release].
+    final claim = _claims.acquire(id);
     // PHASE 5: the claim IS the "decoding" event -- the same instant that
     // makes every other caller park instead of producing.
     _markStage(id, PayloadStage.decoding);
@@ -1399,9 +1683,9 @@ class ImagePreloadController {
     } catch (_) {
       // The claim is now taken BEFORE this await, and this await is outside
       // the `try/finally` below, so a probe that throws would strand the id
-      // in `_loadingKeys` forever -- every later caller would park on a load
+      // in `_claims` forever -- every later caller would park on a load
       // that will never land. Error propagation is unchanged.
-      _loadingKeys.remove(id);
+      _claims.release(id, by: PayloadClaimOwner.producer, claim: claim);
       rethrow;
     }
     final cost = probed.cost;
@@ -1424,14 +1708,18 @@ class ImagePreloadController {
       // `_earlyResolve` in-flight branch -- it would park its callback and
       // produce nothing, i.e. a permanent spinner. Production of this payload
       // now belongs to the lane task, which takes its own claim.
-      _loadingKeys.remove(id);
+      _claims.handOffToLane(
+        id,
+        from: PayloadClaimOwner.producer,
+        claim: claim,
+      );
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
       return;
     }
 
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
-    // Set when the encode is handed to [_finishOffLane]: the `_loadingKeys`
-    // claim then belongs to that continuation, not to this `finally`.
+    // Set when the encode is handed to [_finishOffLane]: the production claim
+    // then belongs to that continuation, not to this `finally`.
     var handedOff = false;
     try {
       // Only the lane's own task body may run a real RAW decode. Everywhere
@@ -1490,34 +1778,62 @@ class ImagePreloadController {
               longEdge: loadLongEdge,
               allowExpensive: canDoExpensive,
             );
+      // WP2: the estimate becomes the fact. The lane admitted this task on
+      // `kNominalFullFrameBytes`; `decode.fullRes` is what it turned out to be
+      // actually holding, and a cheap item holds no frame and settles to 0.
+      // No-op off the lane, where nothing was admitted.
+      _decodeLane.adjustAdmission(
+        (LaneTaskKind.payload, id),
+        to: decode.fullRes?.rgba.lengthInBytes ?? 0,
+      );
       // PERF-INSTRUMENTATION (D1 AC3 markers + gap #5): request end + decode
       // phase result, now carrying the payload classification round-2
       // needs to pick between H1/H2 (EncodedPayload path) vs H4
-      // (PixelPayload/RAW path). `pixels != null` marks a real RAW/full
-      // decode ran; otherwise this was an embedded-preview/bitmap byte
-      // handoff (dart_image_loader).
-      final payloadKind = decode.pixels != null
+      // (PixelPayload/RAW path). `rawDecodeRan` marks a real RAW/full decode
+      // ran (WP1 2026-09-06: it records exactly what the old `pixels != null`
+      // recorded, now that the window-res payload is built lazily); otherwise
+      // this was an embedded-preview/bitmap byte handoff (dart_image_loader).
+      final payloadKind = decode.rawDecodeRan
           ? 'Pixel'
           : (decode.encodedPayload != null ? 'Encoded' : 'none');
       PerfLog.log(
         'req_end|id=$id|dur=${PerfLog.us - tCh}'
-        '|rawDecode=${decode.pixels != null}'
+        '|rawDecode=${decode.rawDecodeRan}'
         '|payloadKind=$payloadKind'
-        '|bytes=${decode.encodedPayload?.byteCost ?? decode.pixels?.byteCost ?? -1}'
+        '|bytes=${decode.encodedPayload?.byteCost ?? decode.fullRes?.rgba.lengthInBytes ?? -1}'
         '|cost=${decode.observedCost}'
         '|exifOrientation=${decode.exifOrientation}',
       );
       PerfLog.log(
-        'decode|id=$id|rawDecode=${decode.pixels != null}'
+        'decode|id=$id|rawDecode=${decode.rawDecodeRan}'
         '|dur=${PerfLog.us - tCh}',
       );
 
       // THE STAGE BOUNDARY. A real decode ran and an encode is owed, and this
       // call IS the lane's task body -- so return now and let the encode run
-      // on its own stage. The lane slot is freed here; the `_loadingKeys`
+      // on its own stage. The lane slot is freed here; the production
       // claim is NOT (see [_finishOffLane]).
-      if (onSerialLane && decode.pixels != null) {
+      if (onSerialLane && decode.rawDecodeRan) {
+        // The claim moves with the work: `_finishOffLane`'s `finally` is the
+        // only thing that releases it from here. Transferred BEFORE the
+        // `unawaited` below, because that continuation can begin before this
+        // method returns -- and `handedOff` is set only AFTER the transfer, so
+        // that a throw from `transfer` cannot leave the flag true with the
+        // claim still owned by the producer (nobody would then release it).
+        _claims.transfer(
+          id,
+          from: PayloadClaimOwner.producer,
+          to: PayloadClaimOwner.offLaneEncode,
+          claim: claim,
+        );
         handedOff = true;
+        // The BYTE admission moves with the work too, for the same reason the
+        // claim does: the full-res frame stays alive for the whole off-lane
+        // encode, so releasing it at lane-body return would leave
+        // encode-width x one frame of live bytes uncharged (lead ruling C2,
+        // erratum E-WP2-C2). Taken BEFORE the `unawaited` below so the lane's
+        // `finally` can no longer find it.
+        final admission = _decodeLane.takeAdmission((LaneTaskKind.payload, id));
         unawaited(
           _finishOffLane(
             item,
@@ -1526,6 +1842,9 @@ class ImagePreloadController {
             notifyLoaded: notifyLoaded,
             loadLongEdge: loadLongEdge,
             loadGeneration: loadGeneration,
+            windowGeneration: windowGeneration,
+            admission: admission,
+            claim: claim,
           ),
         );
         return;
@@ -1541,7 +1860,7 @@ class ImagePreloadController {
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
         '|isSelected=${id == _selectedId}',
       );
-      // A deferred outcome hands both the work and the `_loadingKeys` claim to
+      // A deferred outcome hands both the work and the production claim to
       // the lane; the `finally` below must not take the claim back off it.
       if (await _completeOutcome(
         item,
@@ -1549,6 +1868,7 @@ class ImagePreloadController {
         distance: distance,
         notifyLoaded: notifyLoaded,
         onSerialLane: onSerialLane,
+        claim: claim,
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
       )) {
@@ -1573,7 +1893,9 @@ class ImagePreloadController {
       // NOT released on the hand-off path: production of this payload now
       // belongs to [_finishOffLane], and a released claim would let a second
       // producer decode the same file while the first is still encoding.
-      if (!handedOff) _loadingKeys.remove(id);
+      if (!handedOff) {
+        _claims.release(id, by: PayloadClaimOwner.producer, claim: claim);
+      }
     }
   }
 
@@ -1583,7 +1905,7 @@ class ImagePreloadController {
   /// encode no longer blocks the next decode. Two things must therefore be
   /// true here and are:
   ///
-  ///   * `_loadingKeys` still holds [item]'s id -- released only in this
+  ///   * the production claim still holds [item]'s id -- released only in this
   ///     method's `finally`. Releasing it at lane-body return would let a
   ///     second producer start a duplicate decode while this encode runs.
   ///   * nothing is unawaited-and-unguarded: this future has no caller, so a
@@ -1597,23 +1919,79 @@ class ImagePreloadController {
     required VoidCallback? notifyLoaded,
     required int loadLongEdge,
     required int loadGeneration,
+    required int windowGeneration,
+    required PayloadClaim claim,
+    required LaneAdmission? admission,
   }) async {
     final id = item.id;
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
-    // Sized from what this decode is actually holding. Acquired AFTER the
-    // decode, never before: a pre-decode acquire would put a second admission
-    // gate in front of [DecodeLane] and the two could deadlock against each
-    // other's width.
-    final bytes =
-        decode.fullRes?.rgba.lengthInBytes ?? decode.pixels?.byteCost ?? 0;
-    // The epoch this admission belongs to. This continuation is unawaited by
-    // design, so `dispose()`/`reset()` -> `InflightBytesBudget.clear()` can run
-    // between the acquire and the release below; releasing against a stale
-    // epoch is then a no-op instead of an over-release (BUG 2026-09-03,
-    // TC-886).
-    final budgetEpoch = await _inflight.acquire(bytes);
+    // WP2 (2026-09-06): the bytes are NOT acquired here any more. They were
+    // admitted BEFORE the decode, together with the lane slot, by the one
+    // dispatcher -- so nothing ever holds a slot while waiting for bytes, which
+    // is the hold-and-wait cycle the old post-decode acquire dodged by not
+    // bounding decode-time bytes at all. [admission] is that charge, handed
+    // over at the stage boundary; this method now only has to give it back.
+    //
+    // The epoch it carries is why a late release is safe: this continuation is
+    // unawaited by design, so `dispose()`/`reset()` ->
+    // `InflightBytesBudget.clear()` can land between the admission and the
+    // release below; releasing against a stale epoch is then a no-op instead of
+    // an over-release (BUG 2026-09-03, TC-886).
+    //
+    // WP6: the payload `_completeOutcome` settled on, captured here because the
+    // `finally`'s pool-return guard needs it. Left null on the catch path and
+    // on the WP7 cancellation return, so the guard reads "no EncodedPayload was
+    // published" and does not release. NOT threaded through
+    // `_completeOutcome`'s signature: that method is also on WP7's and WP8's
+    // paths and the value is already in scope one line above the call.
+    SourcePayload? published;
     try {
-      final outcome = await _encodeStage.run(() => _source.encodePhase(decode));
+      // WP7, SECOND gate (N3): the window moved past this id while its
+      // decode was in flight (no FFI decode is cancellable, so the decode
+      // itself already ran) and it has not come back into the retention
+      // window since. Skip the encode and the publish, dispose the frame
+      // (N3 -- otherwise a ~50MB handle leaks per cancelled item), and flush
+      // any parked spinner. This is deliberately NOT a widening of the
+      // folder gate in [_completeOutcome], which guards a different
+      // invariant (the permanent-miss latch) and must keep its exact
+      // "different folder" meaning.
+      //
+      // `return` from inside this `try` so the `finally` below still runs
+      // and performs the resource release exactly as on every other path
+      // (admission release, claim release) -- WP7 adds no release line and
+      // calls no release function.
+      if (windowGeneration != _windowGeneration && !_retentionIds.contains(id)) {
+        final skippedImage = decode.fullRes?.image;
+        skippedImage?.dispose();
+        // Test seam pinning N3 itself, not merely that this branch ran: reads
+        // the REAL `ui.Image.debugDisposed` back off the handle this branch
+        // just disposed, so a mutation that deletes the `dispose()` call
+        // (leaving everything else) is still caught (mutation-probe verified
+        // 2026-09-06 -- the proxy assertions "no publish, encoder not
+        // called" stayed green with the dispose line deleted; this does not).
+        debugLastSkippedImageDisposed = skippedImage?.debugDisposed ?? true;
+        _flushPendingNotifies(id);
+        debugCancelledDownstreamCount++;
+        return;
+      }
+      final rawOutcome = await _encodeStage.run(
+        () => _source.encodePhase(decode),
+      );
+      // WP4: the encode above is `fullRes.rgba`'s only consumer on the
+      // rotated path (see `_shrinkAfterEncode`'s doc). Shrinking here, before
+      // `_completeOutcome`/the piggyback publish, is what stops the ~96MB
+      // readback from surviving the pacer/idle-publish wait.
+      final outcome = rawOutcome.fullRes == null
+          ? rawOutcome
+          : (
+              payload: rawOutcome.payload,
+              observedCost: rawOutcome.observedCost,
+              deferred: rawOutcome.deferred,
+              exifOrientation: rawOutcome.exifOrientation,
+              fullRes: _shrinkAfterEncode(rawOutcome.fullRes!),
+              failureCode: rawOutcome.failureCode,
+            );
+      published = outcome.payload;
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
@@ -1629,6 +2007,7 @@ class ImagePreloadController {
         onSerialLane: true,
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
+        claim: claim,
       );
     } catch (_) {
       // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
@@ -1641,9 +2020,30 @@ class ImagePreloadController {
       }
     } finally {
       // Released exactly once, after [_completeOutcome] has either retained or
-      // dropped the payload -- the buffers are only out of flight then.
-      _inflight.release(bytes, epoch: budgetEpoch);
-      _loadingKeys.remove(id);
+      // dropped the payload -- the buffers are only out of flight then. The
+      // release also re-pumps the lane, since these bytes may be exactly what a
+      // byte-blocked pending decode was refused for.
+      //
+      // WP6. ORDER IS LOAD-BEARING (plan N1): reclaim native bytes BEFORE
+      // telling the budget they are free, so no admission is granted against
+      // capacity the pool has not actually reclaimed. No `await` may be
+      // introduced between these two statements.
+      //
+      // ALIASING GUARD: the identity short-circuit returns `decoded.rgba`
+      // ITSELF as the payload's buffer (decoded_rgba_image_provider.dart, the
+      // `image: null` literal), so a RETAINED `PixelPayload` IS this native
+      // buffer. Returning it to the pool would hand live, displayed pixels to
+      // the next decode. On that branch ownership transfers to the cache
+      // instead and ceyx's NativeFinalizer safety net reclaims it later.
+      if (published is EncodedPayload) decode.fullRes?.releaseNative?.call();
+      if (admission != null) _decodeLane.releaseAdmission(admission);
+      // [claim] plays the role `budgetEpoch` plays for the byte budget on the
+      // line above, though it matches by object identity rather than by
+      // counter. This future is unawaited and can outlive the `reset()` that
+      // cleared the registry; passing the claim back makes that late release a
+      // no-op instead of an assertion failure against -- and a theft of -- a
+      // fresh producer's claim on the same id.
+      _claims.release(id, by: PayloadClaimOwner.offLaneEncode, claim: claim);
     }
   }
 
@@ -1658,7 +2058,7 @@ class ImagePreloadController {
   /// used to be (the encode), which is exactly why none of them may be
   /// weakened or hoisted (G-023).
   /// Returns true when this call handed [item] to the [DecodeLane] AND handed
-  /// the `_loadingKeys` claim over with it (the deferred route below). The
+  /// the production claim over with it (the deferred route below). The
   /// caller must then NOT release that claim in its own `finally`.
   Future<bool> _completeOutcome(
     PhotoItem item, {
@@ -1668,6 +2068,7 @@ class ImagePreloadController {
     required bool onSerialLane,
     required int loadLongEdge,
     required int loadGeneration,
+    required PayloadClaim claim,
   }) async {
     final id = item.id;
 
@@ -1798,7 +2199,11 @@ class ImagePreloadController {
       // order. Ownership of the claim moves to the lane task with the work;
       // the caller learns that from this method's return value and leaves it
       // alone.
-      _loadingKeys.remove(id);
+      _claims.handOffToLane(
+        id,
+        from: PayloadClaimOwner.producer,
+        claim: claim,
+      );
       handedToLane = true;
       _enqueueSerialLoad(item, distance: distance, notifyLoaded: notifyLoaded);
     }
@@ -1878,6 +2283,10 @@ class ImagePreloadController {
       // one classifier call instead of this file's own arithmetic. The rank
       // WITHIN P2 is still the user-ruled near-to-far walk.
       priority: navigationPriorityFor(distance),
+      // WP2: the PRE-DECODE estimate. The real size is unknown until the decode
+      // returns; `_ensurePayload` reconciles it to `fullRes.rgba.lengthInBytes`
+      // (0 for a cheap item, which holds no full frame) the moment it does.
+      estimatedBytes: kNominalFullFrameBytes,
       // `distance` is captured at enqueue time and becomes stale after
       // navigation. This is harmless: a navigation re-enqueue REPLACES this
       // body with a fresh distance, so stale distance only survives when the
@@ -1885,6 +2294,16 @@ class ImagePreloadController {
       // of `distance` inside the body is _ensurePayload's deferred
       // re-enqueue rank, which the next navigation pass overwrites anyway.
       body: () async {
+        // FIRST, ahead of every exit path. The claim was dropped at the
+        // hand-off (see [PayloadClaimRegistry.handOffToLane]); this call closes
+        // the awaiting-lane record. It must not sit behind the retention
+        // early-return below: an item that fell out of the window between
+        // enqueue and its turn would leave its id armed in the awaiting-lane
+        // set forever, and the NEXT legitimate producer for that id would then
+        // be miscounted as a duplicate -- silently corrupting
+        // [debugDuplicateProducerCount], which is the only signal the probe
+        // verdict and TC-1035 rest on. It gates nothing.
+        _claims.assumeFromLane(id);
         if (!_retentionIds.contains(id)) {
           // Out of the window by the time its turn came: no decode, no bridge
           // call. Release any parked callbacks so they do not accumulate
@@ -2074,6 +2493,9 @@ class ImagePreloadController {
       exempt: exempt,
       stillValid: () =>
           _navRetentionIds.contains(id) && identical(_cache.peek(id), payload),
+      // R3-WP8 (plan Step 9.4): tier-1 registration cost is the payload's own
+      // byteCost (SourcePayload.byteCost).
+      byteCost: payload.byteCost,
       publish: () => _publishTierOneRegistration(id, provider),
       // Nothing is held: a skipped registration degrades to an on-demand decode
       // at display time, which is already this path's documented fallback when

@@ -225,11 +225,20 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
 /// hand the ImageCache a frame that is already on the GPU instead of
 /// re-uploading [rgba] -- the old code read that frame back and then uploaded
 /// the very same pixels again one call later.
+/// [releaseNative] (WP6, erratum E-WP4-1) is how [rgba]'s native buffer goes
+/// back to `CeyxNativeBufferPool`, or null when no pooled buffer backs this
+/// decode (every Dart-heap decode and every test fake). Null means "nothing to
+/// release", NEVER "leak" -- the pool's `NativeFinalizer` is the safety net.
+/// It rides on THIS record rather than on `DecodedRgba` because the single
+/// release site, `_finishOffLane`'s `finally`, can reach `decode.fullRes` and
+/// nothing else decode-scoped; `DecodedRgba` is not retained past
+/// `decodePhase`.
 typedef OrientedFullRes = ({
   Uint8List rgba,
   int width,
   int height,
   ui.Image? image,
+  void Function()? releaseNative,
 });
 
 /// Reduces a freshly decoded RAW frame to FULL-RESOLUTION oriented RGBA,
@@ -261,6 +270,9 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: decoded.width,
       height: decoded.height,
       image: null,
+      // The buffer handed out here IS `decoded.rgba` -- the aliasing case the
+      // release guard in `_finishOffLane` exists for.
+      releaseNative: decoded.releaseNative,
     );
   }
 
@@ -283,11 +295,69 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: oriented.width,
       height: oriented.height,
       image: oriented,
+      // `rgba` here is a FRESH readback buffer, so nothing aliases the native
+      // one -- but the handle still has to travel to the single release site.
+      releaseNative: decoded.releaseNative,
     );
   } catch (_) {
     // A failure must not leak the handle the caller never received.
     oriented.dispose();
     rethrow;
+  }
+}
+
+/// Window-resolution pixels derived from an ALREADY-ORIENTED GPU image.
+///
+/// BORROWS [oriented]: this function never disposes it. The caller's
+/// ownership contract for [OrientedFullRes.image] (see that typedef's doc,
+/// `:238-242`) is unchanged -- disposal stays the caller's job.
+///
+/// This exists so the window-resolution payload can be derived from the
+/// full-resolution oriented image the caller already produced (and is
+/// keeping), instead of re-materializing the decoded buffer a second time.
+Future<PixelPayload> pixelPayloadFromOrientedImage(
+  ui.Image oriented, {
+  required int longEdge,
+  CompositeGate gate = immediateCompositeGate,
+}) async {
+  final longestEdge = math.max(oriented.width, oriented.height);
+  // Never upscale: mirrors the rule in decodedRgbaToPixelPayload (`:187-195`).
+  final scale = longEdge <= 0 || longestEdge <= longEdge
+      ? 1.0
+      : longEdge / longestEdge;
+
+  if (scale == 1.0) {
+    // Identity buys nothing (AC7, `:32-37`): no draw pass, no gate.
+    final data = await oriented.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) {
+      throw StateError('could not read back the oriented RAW frame');
+    }
+    return PixelPayload(
+      rgba: data.buffer.asUint8List(),
+      width: oriented.width,
+      height: oriented.height,
+    );
+  }
+
+  // A GPU pass IS going to run: paced before the draw, same ownership reason
+  // as the other entry points in this file.
+  await gate();
+
+  const identity = _ExifTransform(0, false);
+  ui.Image? scaled;
+  try {
+    scaled = await _applyTransform(oriented, identity, scale);
+    final data = await scaled.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) {
+      throw StateError('could not read back the scaled RAW frame');
+    }
+    return PixelPayload(
+      rgba: data.buffer.asUint8List(),
+      width: scaled.width,
+      height: scaled.height,
+    );
+  } finally {
+    scaled?.dispose();
   }
 }
 

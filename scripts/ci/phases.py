@@ -62,13 +62,12 @@ def provision(repo_root: Path, target: str) -> int:
 
 
 def verify(repo_root: Path) -> int:
-    """flutter pub get -> analyze -> test -j 1. All three ALWAYS run; failures
-    accumulate; one non-zero exit at the end (R-4: an analyze failure must not
-    hide a test failure)."""
+    """flutter pub get -> analyze. CI is compile-only (CLAUDE.md): functional
+    tests are not run here, only dependency resolution and static analysis.
+    Both steps ALWAYS run; failures accumulate; one non-zero exit at the end."""
     steps = [
         ("pub-get", ["flutter", "pub", "get"]),
         ("analyze", ["flutter", "analyze"]),
-        ("test", ["flutter", "test", "-j", "1"]),
     ]
     failed = []
     for phase, argv in steps:

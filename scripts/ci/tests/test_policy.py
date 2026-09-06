@@ -59,9 +59,20 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # (arm64 EBFE23E9 -> C1B5E36C, x86_64 76615796 -> 25CAA76D). Recomputed with
 # the SAME CRLF-normalizing method test_pin_file_untouched itself uses (see
 # that test's body), never transcribed by hand.
+#
+# 2026-09-06 (gc-remediation-r5 WP9, ceyx v0.1.16 release; PR #4): refreshed to
+# the tag v0.1.16 pin -- tag plus all 9 archive digests re-derived, written by
+# `python3 scripts/build_apps.py --ceyx-release latest` and checked by
+# `--ceyx-release verify` (9/9 entries re-downloaded and re-extracted). The
+# artifacts.lock digest moved too (3e8dd8e6 -> 91c66ad0), and the decoder
+# member changed in all five decoder entries. This guard fired exactly as
+# designed on PR #4 -- it is the ledger entry that moves, never the test.
+# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
+# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
+# transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "3d017c061542cd68c13cbb794874ac27eca69cfcad357c97a70a378664f02311"
+    "37532d6963e5bdaab39f89dabb02bd3438ea2c3a98dcca09e5216e1a556dff7b"
 )
 
 
@@ -300,6 +311,42 @@ class TestAutoReleaseWiring(unittest.TestCase):
                       "the dispatch path has no tag in github.ref; tag_name must be explicit")
         self.assertIn("inputs.publish", text,
                       "release.yml must expose a real publish path for the gate")
+
+
+class TestNoTestExecutionInCI(unittest.TestCase):
+    """CLAUDE.md (2026-08-31 decree): "CI is compile-only ... Functional
+    tests ... are NOT run in CI." No argv list literal anywhere under
+    scripts/ci/ (or scripts/ci.py) may invoke `flutter test` or `dart test` --
+    the ONLY sanctioned checks CI may run are dependency resolution
+    (`pub get`) and static analysis (`analyze`). This mechanizes the rule
+    the 2026-08-31 rewrite stated in prose but never enforced: verify()
+    ran `flutter test -j 1` from day one (phases.py, "All three ALWAYS
+    run") despite the standing decree, because nothing here checked for it.
+    """
+
+    # Matches a `[...]`-literal argv containing an executable name
+    # ("flutter"/"dart") immediately followed by the literal "test" as the
+    # next element, e.g. ["flutter", "test", "-j", "1"] or ('dart', 'test').
+    # Scans RAW text (not `_code_only_lines`, which blanks string-literal
+    # contents to spaces -- exactly what this check needs to inspect) and
+    # skips comment-only lines the same way TestNoPipeGrep does.
+    PATTERN = re.compile(r"""['"](?:flutter|dart)['"]\s*,\s*['"]test['"]""")
+
+    def test_no_test_execution_in_ci(self):
+        offenders = []
+        for path in _iter_ci_python_files():
+            text = path.read_text(encoding="utf-8")
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if line.strip().startswith("#"):
+                    continue
+                if self.PATTERN.search(line):
+                    offenders.append(f"{path}:{lineno}: {line.strip()}")
+        self.assertEqual(
+            offenders,
+            [],
+            "flutter/dart test execution found in CI argv (CLAUDE.md "
+            "2026-08-31 compile-only decree violation):\n" + "\n".join(offenders),
+        )
 
 
 class TestPinFileUntouched(unittest.TestCase):

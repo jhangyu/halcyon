@@ -206,7 +206,11 @@ Future<SourcePayload> normalizeEncodedPayload({
     final decoded = await decode(encoded);
     final result = await reencodePayload(
       encoder: encoder,
-      fallback: fallback,
+      // WP1 made this parameter a thunk. Normalisation's fallback is a value
+      // that already exists (the original bytes, allocated above), so the
+      // thunk just hands the SAME object back -- which is what keeps the
+      // `identical(result, fallback)` degradation check below working.
+      fallback: () async => fallback,
       fullRes: decoded,
       quality: quality,
     );

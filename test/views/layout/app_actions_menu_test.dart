@@ -18,6 +18,15 @@ import 'package:halcyon_flutter/views/settings_dialog.dart';
 
 import '../../support/temp_dirs.dart';
 
+/// Bounded stand-in for `pumpAndSettle()`: enough frames to clear the popup
+/// menu's open animation without polling for full animation rest.
+Future<void> _settle(WidgetTester tester) async {
+  await tester.pump();
+  for (var i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
 /// White-box checks on the overflow menu that was extracted from the old
 /// per-list sidebar widget (T4). The interactive value-routing tests
 /// (TC-055, the export path) live in this file too, against the
@@ -266,7 +275,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     final icons = tester.widgetList<Icon>(
       find.descendant(
@@ -317,7 +326,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     final palette = GalleryPalette.of(
       tester.element(find.text('Copy Starred…')),
@@ -341,7 +350,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     final danger = tester.widget<Text>(find.text('Delete Trashed'));
     final errorColor = Theme.of(

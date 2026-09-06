@@ -676,16 +676,18 @@ void main() {
       img.encodeTiff(img.Image(width: 60, height: 40)),
     );
 
-    // 3000x2000 forces the resize; the fake decoder stands in for the
+    // 2100x1400 (long edge > 2048, same 3:2 aspect as the original fixture)
+    // forces the resize while keeping the RGBA buffer well under the
+    // production-resolution size; the fake decoder stands in for the
     // dispatching decoder so the test never loads a real dylib.
-    final rgba = Uint8List(3000 * 2000 * 4);
+    final rgba = Uint8List(2100 * 1400 * 4);
     for (var i = 3; i < rgba.length; i += 4) {
       rgba[i] = 255; // opaque
     }
     final jpeg = await PhotoExportService.exportBytesFor(
       path,
       decoder: (p) async =>
-          DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+          DecodedRgba(rgba: rgba, width: 2100, height: 1400),
     );
 
     expect(jpeg, isNotNull);
@@ -725,12 +727,15 @@ void main() {
     test('TC-473 a non-default stop (480) resizes to that long edge, not '
         '2048', () async {
       final path = await tiffFixture('scan480');
-      final rgba = await rgbaFixture(3000, 2000);
+      // 600x400 (long edge > 480, same 3:2 aspect as production sizes) is
+      // enough to force the resize-to-480 path without paying for a
+      // production-resolution buffer.
+      final rgba = await rgbaFixture(600, 400);
 
       final jpeg = await PhotoExportService.exportBytesFor(
         path,
         decoder: (p) async =>
-            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+            DecodedRgba(rgba: rgba, width: 600, height: 400),
         longEdge: 480,
       );
 
@@ -745,25 +750,32 @@ void main() {
     test('TC-474 the Original sentinel (0) skips resizing entirely: a '
         'source larger than every named stop comes out unresized', () async {
       final path = await tiffFixture('scanOriginal');
-      final rgba = await rgbaFixture(5000, 3000);
+      // 2200x1320 keeps the same 5:3 aspect as the original fixture and its
+      // long edge (2200) still exceeds every named stop (largest is 2048),
+      // so this still proves the Original sentinel skips resizing for a
+      // source larger than every stop, without the cost of a 5000x3000
+      // buffer.
+      final rgba = await rgbaFixture(2200, 1320);
 
       final jpeg = await PhotoExportService.exportBytesFor(
         path,
         decoder: (p) async =>
-            DecodedRgba(rgba: rgba, width: 5000, height: 3000),
+            DecodedRgba(rgba: rgba, width: 2200, height: 1320),
         longEdge: kOriginalExportLongEdge,
       );
 
       expect(jpeg, isNotNull);
       final out = img.decodeJpg(jpeg!)!;
-      expect(out.width, 5000);
-      expect(out.height, 3000);
+      expect(out.width, 2200);
+      expect(out.height, 1320);
     });
 
     test('TC-475 PhotoExportService.exportStarred reads longEdge at call '
         'time via the default fetch (no fetchBytes injected)', () async {
       final path = await tiffFixture('scanServiceLevel');
-      final rgba = await rgbaFixture(3000, 2000);
+      // 900x600 (long edge > 720, same 3:2 aspect) is enough to force the
+      // resize-to-720 path without a production-resolution buffer.
+      final rgba = await rgbaFixture(900, 600);
 
       final destDir = Directory(p.join(tempDir.path, 'out'));
       await destDir.create();
@@ -777,7 +789,7 @@ void main() {
 
       final service = PhotoExportService(
         decoder: (p) async =>
-            DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+            DecodedRgba(rgba: rgba, width: 900, height: 600),
       );
       service.longEdge = 720;
       final outcome = await service.exportStarred(items, destDir);
@@ -836,7 +848,9 @@ void main() {
         File(path)
             .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
 
-        final rgba = Uint8List(3000 * 2000 * 4);
+        // 600x400 (long edge > 480, same 3:2 aspect) still forces the
+        // resize-to-480 path without a production-resolution buffer.
+        final rgba = Uint8List(600 * 400 * 4);
         for (var i = 3; i < rgba.length; i += 4) {
           rgba[i] = 255;
         }
@@ -844,7 +858,7 @@ void main() {
         final webp = await PhotoExportService.exportBytesFor(
           path,
           decoder: (p) async =>
-              DecodedRgba(rgba: rgba, width: 3000, height: 2000),
+              DecodedRgba(rgba: rgba, width: 600, height: 400),
           longEdge: 480,
           filetype: ExportFiletype.webpLossy,
           stillEncode: fakeWebpEncode,
