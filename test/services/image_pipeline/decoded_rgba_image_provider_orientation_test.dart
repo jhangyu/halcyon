@@ -14,9 +14,9 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 /// Written to the SPEC's declared API (§1.2), not to T1's code -- the
 /// independent-verifier discipline the ticket brief requires.
 ///
-/// TC-999 / TC-1000 (grepped for collision against the whole tree, incl.
+/// TC-1002 / TC-1003 (grepped for collision against the whole tree, incl.
 /// untracked, at paste time; highest prior in docs/sop/unit_test.md was
-/// TC-997, and this file's sibling TC-998/998b are the other T2 test file).
+/// TC-997, and this file's sibling TC-1001/1001b are the other T2 test file).
 ///
 /// Marker fixture and `_expected` table borrowed verbatim from
 /// decoded_rgba_image_provider_test.dart (same file, same convention) so a
@@ -128,7 +128,7 @@ Future<PixelPayload> newShapePixels(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('TC-999: OLD vs NEW shape, byte-equal at scale 1.0, all 8 orientations', () {
+  group('TC-1002: OLD vs NEW shape, byte-equal at scale 1.0, all 8 orientations', () {
     for (final orientation in _expected.keys) {
       test('orientation $orientation', () async {
         final oldPayload = await decodedRgbaToPixelPayload(
@@ -159,7 +159,7 @@ void main() {
     }
   });
 
-  group('TC-1000: downscale arm (dimensions + corner placement, not byte-exactness)', () {
+  group('TC-1003: downscale arm (dimensions + corner placement, not byte-exactness)', () {
     // Same 2x3 marker layout, each marker inflated to a uniform 2x2 block so
     // a 0.5x downscale collapses each block back to one pixel of its own
     // marker -- same recipe as decoded_rgba_image_provider_test.dart's

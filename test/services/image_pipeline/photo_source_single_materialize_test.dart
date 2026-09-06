@@ -19,7 +19,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 /// `testSink` fires BEFORE the `PerfLog.enabled` gate, so no file I/O or
 /// `PerfLog.init` is needed to observe emitted lines.
 ///
-/// TC-998 (grepped for collision against the whole tree, incl. untracked,
+/// TC-1001 (grepped for collision against the whole tree, incl. untracked,
 /// at paste time -- highest prior in docs/sop/unit_test.md was TC-997).
 ///
 /// PRE-REGISTRATION / expected RED (before T1 landed): the pre-change
@@ -53,7 +53,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 /// lines), the suite run, and the swap `cp`-restored from a backup
 /// immediately after -- `git status --porcelain` confirmed a clean restore
 /// (byte-identical `diff -q` against the pre-swap backup) before this file
-/// was finalized. Both TC-998 and TC-998b went RED exactly as predicted:
+/// was finalized. Both TC-1001 and TC-1001b went RED exactly as predicted:
 /// two `materialize|` events sharing the same `id=` (the SAME
 /// `decoded.rgba` buffer materialized twice). Full run, with the
 /// prediction written above the output, filed at
@@ -98,7 +98,7 @@ void main() {
       .map((l) => RegExp(r'id=(-?\d+)').firstMatch(l)!.group(1)!)
       .toList();
 
-  // TC-998
+  // TC-1001
   test(
     'decodePhase: non-identity orientation materializes the decoded buffer '
     'exactly once (single materialize|, no repeated id)',
@@ -132,7 +132,7 @@ void main() {
     },
   );
 
-  // TC-998b (twin assertion for decodePhaseExpensive, per plan T2 step 3)
+  // TC-1001b (twin assertion for decodePhaseExpensive, per plan T2 step 3)
   test(
     'decodePhaseExpensive: non-identity orientation materializes the '
     'decoded buffer exactly once (single materialize|, no repeated id)',
