@@ -72,9 +72,19 @@ void main() {
     final hasSamples = samplePhotosAvailable;
     final noPreviewDng = File('${dngDir.path}/IMG_20251112_092839.dng');
 
+    // PHASE 3 TIGHTENING (plan §3 Phase 3 acceptance bullet 1). Before
+    // Phase 3 this group pinned an ASYMMETRY: an expensive selected item was
+    // enqueued and left in flight, but a cheap one decoded inline inside the
+    // awaited segment, so `await preloadImages` implied "cheap selection is
+    // cached". Phase 3 removed the selected-item await, so both arms now
+    // assert the same, stronger property: preloadImages returns without
+    // having waited for ANY production, and the payload lands afterwards
+    // through the notify path. Both arms are red-proved by ONE mutation --
+    // restoring `await _ensurePayload(items[currentIndex], ...)` at the top
+    // of preloadImages -- recorded in docs/logs/2026-09-06/phase3-redproof.txt.
     test(
-      'TC-973a: expensive selected item — preloadImages completes while the '
-      'lane still has the payload task pending',
+      'TC-973a: expensive selected item — preloadImages completes before the '
+      'decode is even issued, and the decode still starts on the lane',
       () async {
         if (!hasSamples) {
           markTestSkipped('no sample DNGs available on this host');
@@ -111,17 +121,21 @@ void main() {
           notifyLoaded: () {},
         );
 
-        // The lane's pending-queue accessor (`debugLanePendingPriorityFor`)
-        // only reflects QUEUED tasks: by the time `await preloadImages`
-        // returns control, the lane's microtask pump has typically already
-        // dequeued the one task (width 1) into "running", so a queue-only
-        // check would be a false negative. The decode-started flag plus
-        // "still not cached" is the mechanically equivalent, timing-robust
-        // proof that preloadImages returned WITHOUT waiting for the decode.
+        // TIGHTENED. It used to be enough that the decode had STARTED by the
+        // time preloadImages returned (it awaited the selected item's probe
+        // and lane enqueue). Since Phase 3 the pass issues and returns on the
+        // same turn of the event loop, before the selected item's real file
+        // probe can have resolved -- so the decode has NOT started yet at
+        // return. This is the assertion the red-proof mutation flips: restore
+        // the selected-item await and the probe+enqueue completes first,
+        // making `decodeStarted.isCompleted` true here.
         expect(
           decodeStarted.isCompleted,
-          isTrue,
-          reason: 'the expensive decode must have been kicked off',
+          isFalse,
+          reason:
+              'Phase 3: issuing is synchronous -- preloadImages returns '
+              'before the selected item\'s probe has even resolved, so no '
+              'decode can have started',
         );
         expect(
           controller.imageBytesFor(selectedId),
@@ -130,13 +144,27 @@ void main() {
               'the payload has not landed -- preloadImages did not await '
               'the decode',
         );
+
+        // ...but the work WAS issued: the selected item reaches the lane on
+        // its own and its decode starts without a second navigation event.
+        // Dropping the await must not drop the work.
+        await until(
+          () => decodeStarted.isCompleted,
+          reason: 'the expensive decode to be kicked off by the lane',
+        );
+        expect(
+          controller.imageBytesFor(selectedId),
+          isNull,
+          reason: 'the decode never completes: the payload is still in flight',
+        );
       },
     );
 
     test(
-      'TC-973b: cheap selected item — preloadImages does not complete '
-      'before its payload is cached',
+      'TC-973b: cheap selected item — preloadImages completes with the '
+      'payload still in flight, and the payload still lands',
       () async {
+        var notified = 0;
         final cheap = ImagePreloadController(
           scheduleFrameCallback: _microtaskFrame,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
@@ -152,16 +180,32 @@ void main() {
         await cheap.preloadImages(
           items: items,
           selectedItemId: selectedId,
-          notifyLoaded: () {},
+          notifyLoaded: () => notified++,
         );
 
+        // INVERTED by Phase 3 (was `isNotNull`: a cheap selected item used to
+        // decode INLINE inside the awaited segment of preloadImages). The
+        // whole point of the phase is that it no longer does.
+        expect(
+          cheap.imageBytesFor(selectedId),
+          isNull,
+          reason:
+              'Phase 3: a cheap selected item is issued, not awaited, so its '
+              'payload is still in flight when preloadImages returns',
+        );
+
+        // The payload still LANDS, and the caller learns about it through the
+        // notify path -- deliberately observed via `notifyLoaded`, not by
+        // re-awaiting preloadImages, because the callback is now the only
+        // signal a caller has (plan §3 Phase 3 acceptance bullet 1).
+        await until(
+          () => notified > 0,
+          reason: 'the selected item\'s notifyLoaded to fire',
+        );
         expect(
           cheap.imageBytesFor(selectedId),
           isNotNull,
-          reason:
-              'a cheap selected item decodes INLINE inside the awaited '
-              'segment of preloadImages, so by the time it returns the '
-              'payload is already cached',
+          reason: 'the payload landed after the pass returned',
         );
       },
     );
@@ -199,11 +243,24 @@ void main() {
         // produces N landings with a callback. This is the pin's
         // cardinality claim: one call = one callback, never zero, never
         // more than one, for the item that call selected.
+        // SETTLE ADDED BY PHASE 3 (instrument repair, not a loosening): the
+        // callback used to have fired by the time `await preloadImages`
+        // returned, because the selected item decoded inside the awaited
+        // segment. Issuing is synchronous now, so each selection's callback
+        // arrives after its pass returns. The CARDINALITY claim below is
+        // unchanged -- and waiting for exactly `expected` here makes an extra
+        // callback still visible to the final assertion.
+        var expected = 0;
         for (final item in selections) {
+          expected++;
           await controller.preloadImages(
             items: items,
             selectedItemId: item.id,
             notifyLoaded: () => notifyCount++,
+          );
+          await until(
+            () => notifyCount >= expected,
+            reason: 'selection ${item.id} to land and notify',
           );
         }
 
@@ -219,19 +276,17 @@ void main() {
     );
   });
 
-  group('B4 — probe barrier', () {
-    final dngDir = sampleDngDir;
-    final hasSamples = samplePhotosAvailable;
-    final noPreviewDng = File('${dngDir.path}/IMG_20251112_092839.dng');
-
+  // PHASE 3 INVERSION (plan §3 Phase 3 acceptance bullet 2). This group used
+  // to pin the barrier itself: `await Future.wait(probeFutures)` held tier-1
+  // precache and tier-2 arming behind EVERY window item's probe, so one
+  // unresolved probe froze the whole pass (plan §8-D1 identifies that barrier
+  // as the larger of the two stalls). Phase 3 removed it, so the same fixture
+  // now pins the opposite: one stuck probe stalls nothing but its own slot.
+  group('B4 — probe barrier removed', () {
     test(
-      'TC-975: no window item reaches the decode lane while one window '
-      "item's probe is still unresolved",
+      'TC-975: one unresolved window probe does not hold up the pass, the '
+      'lane, or the tier-2 debounce',
       () async {
-        if (!hasSamples) {
-          markTestSkipped('no sample DNGs available on this host');
-          return;
-        }
         // A FIFO with no writer: opening it for read genuinely never
         // resolves (real OS blocking semantics), which is a stronger and
         // more honest "probe that never resolves" than any fake seam --
@@ -256,58 +311,82 @@ void main() {
         // never-deleted temp dir for the remainder of this test PROCESS is
         // the smaller and more honest cost.
 
-        // Every OTHER window item is a real, EXPENSIVE (no-embedded-preview)
-        // DNG whose decode never completes -- so IF the barrier is dropped
-        // and one of them is routed onto the lane once its own (fast, real)
-        // probe resolves, it becomes visible as a pending lane task and
-        // stays that way (nothing here ever finishes a decode).
+        // Every OTHER window item is an ordinary cheap item, so the pass has
+        // real work to finish while the FIFO slot's probe stays stuck
+        // forever. Tier-2 is the load-bearing observation: it is armed on the
+        // synchronous tail of the pass and its 250ms debounce fires into a
+        // real full-size decode, which the barrier used to make unreachable.
         final controller = ImagePreloadController(
           scheduleFrameCallback: _microtaskFrame,
-          imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-            fail('no embedded preview: loader must not be asked for pixels');
-          },
-          dngDecoder: (path) async => Completer<DecodedRgba>().future,
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+          dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
         );
         addTearDown(controller.dispose);
         controller.updateTargetSize(800, 600);
 
-        // Selected item (index 0) plus 4 other expensive DNGs, plus one
-        // window item (farthest, distance 5) whose file is the never-
-        // resolving FIFO instead of a real photo.
+        // Selected item (index 0) plus 4 ordinary items, plus one window item
+        // (farthest, distance 5) whose file is the never-resolving FIFO
+        // instead of a real photo.
+        final cheapItems = paddedItems(6, extension: 'jpg');
         final items = List<PhotoItem>.generate(6, (i) {
-          final id = 'FIFO_${i.toString().padLeft(2, '0')}';
           if (i == 5) {
-            return PhotoItem(id: id, files: [File(fifoPath)]);
+            return PhotoItem(id: 'FIFO_05', files: [File(fifoPath)]);
           }
-          return PhotoItem(id: id, files: [noPreviewDng]);
+          return cheapItems[i];
         });
 
-        // Deliberately unawaited: with the probe barrier intact, this
-        // Future itself never completes (it awaits Future.wait over every
-        // window probe, including the stuck one). If a future phase drops
-        // the barrier, this call resolves quickly instead.
+        // Deliberately unawaited AND observed for completion: with the probe
+        // barrier intact this future never completes (it awaited
+        // Future.wait over every window probe, including the stuck one).
+        // Phase 3 removed the barrier, so it resolves on this turn of the
+        // event loop -- and the `until` below is the assertion that fails,
+        // by its own `fail()`, if the barrier ever comes back.
+        var passCompleted = false;
         unawaited(
-          controller.preloadImages(
-            items: items,
-            selectedItemId: items[0].id,
-            notifyLoaded: () {},
-          ),
+          controller
+              .preloadImages(
+                items: items,
+                selectedItemId: items[0].id,
+                notifyLoaded: () {},
+              )
+              .then((_) => passCompleted = true),
         );
 
-        // Give every OTHER (real) probe and the tier-2 debounce (250ms) time
-        // to have fired if the barrier were not in place.
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await until(
+          () => passCompleted,
+          reason:
+              'preloadImages to complete despite one window item whose probe '
+              'never resolves (the FIFO item)',
+        );
 
-        for (final item in items.sublist(1)) {
-          expect(
-            controller.debugLanePendingPriorityFor(item.id),
-            isNull,
-            reason:
-                '${item.id}: no window item beyond the selected one may '
-                'reach the lane while the probe barrier still has one '
-                'unresolved probe (the FIFO item)',
-          );
-        }
+        // INVERTED: the other window items DO reach production now. Each
+        // routes on its own probe's completion instead of waiting for the set.
+        await until(
+          () => items
+              .sublist(1, 5)
+              .every((item) => controller.imageBytesFor(item.id) != null),
+          reason:
+              'every non-stuck window item to be produced while the FIFO '
+              "item's probe is still unresolved",
+        );
+
+        // The tier-2 debounce was ARMED on the pass's synchronous tail and
+        // fired: under the barrier it was never even armed.
+        await until(
+          () => controller.debugTierTwoKeyIds.contains(items[0].id),
+          reason:
+              'the tier-2 debounce to be armed and to fire for the selected '
+              'item despite the unresolved probe',
+        );
+
+        // The stuck slot itself is the ONLY casualty: it never reaches the
+        // lane, because its own probe is what is blocked.
+        expect(
+          controller.imageBytesFor('FIFO_05'),
+          isNull,
+          reason: 'the stuck slot alone stays unproduced',
+        );
       },
     );
   });

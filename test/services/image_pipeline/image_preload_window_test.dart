@@ -128,6 +128,13 @@ void main() {
         selectedItemId: photos[selected].id,
         notifyLoaded: () {},
       );
+      // PHASE 3 settle: the pass returns once the window is ISSUED, so the
+      // tier-1 entries it produces (now landing-driven) exist a few event-loop
+      // turns later. What is asserted below is unchanged.
+      await until(
+        () => controllerWindowFilled(controller, photos, selected),
+        reason: 'the whole cheap window to land',
+      );
 
       // Derived from the retention constants, never hand-written: if the
       // retention window ever moves, this test must move with it rather than
@@ -162,6 +169,11 @@ void main() {
         selectedItemId: photos[5].id,
         notifyLoaded: () {},
       );
+      // PHASE 3 settle (see TC-095). Assertions below unchanged.
+      await until(
+        () => controllerWindowFilled(controller, photos, 5),
+        reason: 'the whole cheap window to land',
+      );
 
       // The two extreme slots named by AC2's killer: -3 is index 2, +5 is
       // index 10. Both are exactly ON the boundary, which is where an
@@ -185,6 +197,12 @@ void main() {
         items: photos,
         selectedItemId: photos[6].id,
         notifyLoaded: () {},
+      );
+      // PHASE 3 settle: index 11 enters the window with this pass and must be
+      // given time to land before the residency assertions below.
+      await until(
+        () => controllerWindowFilled(controller, photos, 6),
+        reason: 'the window at the new selection to land',
       );
       expect(
         controller.payloadFor(photos[2].id),
@@ -372,18 +390,28 @@ void main() {
       selectedItemId: jpgs[5].id,
       notifyLoaded: () {},
     );
-    // The window pass runs 8 items in parallel (9 minus the selected item
-    // which was loaded as a priority load and is a cache hit on the second
-    // pass). With a 10ms delay in the loader, all 8 should be in flight
-    // concurrently. This exact bound catches a regression from full
-    // parallelism to partial (e.g. accidental serial batching).
+    // PHASE 3: the loads no longer start inside the awaited segment, so the
+    // peak has to be observed after the window has actually landed.
+    await until(
+      () => controllerWindowFilled(cheap, jpgs, 5),
+      reason: 'the whole cheap window to land',
+      pollInterval: const Duration(milliseconds: 5),
+    );
+    // The window pass runs all NINE items in parallel. This was 8 before
+    // Phase 3 (9 minus the selected item, which had its own awaited priority
+    // load and was therefore a cache hit by the time the window pass reached
+    // it); the selected item is now issued through the same path as every
+    // other slot, so it overlaps with them. A TIGHTENING: 9 demands strictly
+    // more overlap than 8, and the bound is still exact, so it still catches
+    // a regression from full parallelism to partial (e.g. accidental serial
+    // batching).
     expect(
       cheapMaxInFlight,
-      equals(8),
+      equals(9),
       reason:
-          'cheap payload acquisition across -3..+5 must overlap fully: all 8 '
-          'non-selected window items should be in flight concurrently; the '
-          'ruling changed the expensive lane only',
+          'cheap payload acquisition across -3..+5 must overlap fully: all 9 '
+          'window items should be in flight concurrently; the ruling changed '
+          'the expensive lane only',
     );
   });
 

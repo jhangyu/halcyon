@@ -111,6 +111,13 @@ void main() {
         selectedItemId: 'IMG_0005',
         notifyLoaded: () {},
       );
+      // PHASE 3 settle (settle-only instrument repair): preloadImages returns
+      // once the window is issued, so the window's payloads land a few
+      // event-loop turns later. Every assertion here is unchanged.
+      await until(
+        () => controller.imageBytesFor('IMG_0002') != null,
+        reason: 'the -3 slot to land',
+      );
       expect(controller.imageBytesFor('IMG_0002'), isNotNull);
 
       await controller.preloadImages(
@@ -118,14 +125,30 @@ void main() {
         selectedItemId: 'IMG_0011',
         notifyLoaded: () {},
       );
+      await until(
+        () => controller.imageBytesFor('IMG_0011') != null,
+        reason: 'the new selection to land',
+      );
 
       expect(controller.imageBytesFor('IMG_0002'), isNull);
       expect(controller.imageBytesFor('IMG_0011'), isNotNull);
     },
   );
 
+  // PHASE 3 (2026-09-06) RE-EXPRESSION, not a deletion. This test used to
+  // assert `expect(requestOrder, [selectedPath])`: the selected CHEAP item's
+  // loader request was issued strictly alone, before any other slot. That was
+  // a consequence of the `await _ensurePayload(items[currentIndex], ...)`
+  // Phase 3 removes -- all nine slots are now issued in one synchronous burst
+  // and their content probes resolve in arbitrary order, so no settle can
+  // restore it. The INTENT ("the selected item is the most urgent work")
+  // survives; its mechanism moved from await-ordering to lane priority, so it
+  // is re-expressed below in priority form for an EXPENSIVE selection, which
+  // is where lane order is actually decided. The concurrency assertions are
+  // unchanged.
   test(
-    'preloadImages loads the selected item first, then the rest of the window concurrently',
+    'preloadImages dispatches the whole window concurrently, and an expensive '
+    'selection outranks every other window slot on the lane',
     () async {
       final requestOrder = <String>[];
       final completers = <String, Completer<NativeImageResult>>{};
@@ -160,24 +183,7 @@ void main() {
         notifyLoaded: () {},
       );
 
-      // Wait for the selected item's load to actually be requested — reaching
-      // the loader crosses an awaited async content probe, so a fixed turn
-      // count races on a slow runner. The selected-first invariant guarantees
-      // NOTHING else is requested until we complete this load below, so once
-      // the request list is non-empty it holds exactly [selectedPath].
-      await pumpUntil(
-        () => requestOrder.isNotEmpty,
-        reason: 'the selected item to be requested first',
-      );
-      expect(requestOrder, [selectedPath]);
-
-      // Completing the selected item's load lets the controller move on to
-      // dispatching the rest of the window.
-      completers[selectedPath]!.complete(
-        NativeImageBytes(Uint8List.fromList([1])),
-      );
-
-      // All remaining window items must have been requested already, proving
+      // All window items must have been requested already, proving
       // they were dispatched concurrently rather than one at a time. Poll for
       // the full set rather than a fixed number of turns: each window item is
       // dispatched through its own awaited probe.
@@ -191,16 +197,87 @@ void main() {
         expect(completers.containsKey(path), isTrue);
       }
 
-      for (final path in remainingPaths) {
+      for (final path in windowPaths) {
         completers[path]!.complete(
           NativeImageBytes(Uint8List.fromList([path.hashCode & 0xFF])),
         );
       }
 
       await preloadFuture;
+      // PHASE 3 settle: preloadFuture completes once the window is ISSUED.
+      await until(
+        () => [
+          for (var i = 2; i <= 10; i++) items[i].id,
+        ].every((id) => controller.imageBytesFor(id) != null),
+        reason: 'the whole window to land',
+      );
 
       for (var i = 2; i <= 10; i++) {
         expect(controller.imageBytesFor(items[i].id), isNotNull);
+      }
+
+      // THE RE-EXPRESSED SELECTED-FIRST CLAIM. For expensive items the lane
+      // decides the order, and it orders by the priority it is handed, never
+      // by enqueue or arrival order (plan risk R8) -- so this is asserted on
+      // `debugLanePendingPriorityFor`, not on `requestOrder`.
+      final startedPaths = <String>[];
+      final expensive = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async {
+          startedPaths.add(path);
+          // Never completes: the lane's one slot stays occupied, so every
+          // other window slot is observable as PENDING with its rank.
+          return Completer<DecodedRgba>().future;
+        },
+      );
+      addTearDown(expensive.dispose);
+      expensive.updateTargetSize(10, 10);
+      final raws = List.generate(14, (index) {
+        final id = 'RAW_${index.toString().padLeft(4, '0')}';
+        return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
+      });
+      await expensive.preloadImages(
+        items: raws,
+        selectedItemId: raws[5].id,
+        notifyLoaded: () {},
+      );
+      final otherWindowIds = [
+        for (var i = 2; i <= 10; i++)
+          if (i != 5) raws[i].id,
+      ];
+      await until(
+        () => otherWindowIds.every(
+          (id) => expensive.debugLanePendingPriorityFor(id) != null,
+        ),
+        reason: 'the whole expensive window to reach the lane',
+      );
+
+      // The selected item's own entry is either still QUEUED (then its rank
+      // must be the lowest) or already DEQUEUED into the lane's single slot
+      // (then it outranked everything by definition -- and the decoder proves
+      // it really is the one running, so a null here can never mean "never
+      // enqueued").
+      final selectedPending = expensive.debugLanePendingPriorityFor(raws[5].id);
+      if (selectedPending == null) {
+        expect(
+          startedPaths,
+          [raws[5].files.single.path],
+          reason:
+              'the selected item left the queue because it is the one '
+              'running, not because it was never enqueued',
+        );
+      }
+      final selectedRank = selectedPending ?? -1;
+      for (final id in otherWindowIds) {
+        expect(
+          selectedRank < expensive.debugLanePendingPriorityFor(id)!,
+          isTrue,
+          reason:
+              '$id outranks or ties the selected item: the selection must be '
+              'the most urgent work on the lane',
+        );
       }
     },
   );
@@ -727,6 +804,14 @@ void main() {
           notifyLoaded: () {},
         );
 
+        // PHASE 3 settle (settle-only instrument repair): the pass returns
+        // once the window is issued. Still well inside the 250ms tier-2
+        // debounce, so the pre-insertion below still wins the race it is
+        // designed to win. Assertions unchanged.
+        await until(
+          () => controller.imageBytesFor(items[5].id) != null,
+          reason: 'the selected payload to land',
+        );
         final bytes = controller.imageBytesFor(items[5].id)!;
         final tierTwoKey = await fullSizeProviderFor(
           bytes,
@@ -1469,6 +1554,11 @@ void main() {
           notifyLoaded: () {},
         );
 
+        // PHASE 3 settle (settle-only instrument repair). Assertions unchanged.
+        await until(
+          () => controller.imageBytesFor(items[5].id) != null,
+          reason: 'the selected byte-backed payload to land',
+        );
         expect(controller.imageBytesFor(items[5].id), isNotNull);
         // FORCED TRANSLATION (frozen table A-C1): decodedImageFor is deleted.
         // Same claim, same strength -- this item did NOT go down the pixel

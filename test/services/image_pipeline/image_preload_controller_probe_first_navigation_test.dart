@@ -411,6 +411,14 @@ void main() {
       selectedItemId: cheapItems[8].id,
       notifyLoaded: () {},
     );
+    // PHASE 3 settle (settle-only instrument repair): preloadImages returns
+    // once the window is issued, so the selected item's payload lands a few
+    // event-loop turns later. The bytes-identity property asserted below is
+    // unchanged -- only the instant at which the reference is taken moves.
+    await until(
+      () => cheapController.payloadFor(cheapItems[8].id) != null,
+      reason: 'the cheap selected payload to land',
+    );
     final cheapFirst = cheapController.payloadFor(cheapItems[8].id);
     for (final idx in [9, 10, 9, 8]) {
       await cheapController.preloadImages(
@@ -438,6 +446,12 @@ void main() {
       items: jpgs,
       selectedItemId: jpgs[8].id,
       notifyLoaded: () {},
+    );
+    // PHASE 3 settle (see the cheap arm above); the identity assertion at the
+    // end of this test is unchanged.
+    await until(
+      () => jpgController.imageBytesFor(jpgs[8].id) != null,
+      reason: 'the JPEG selected payload to land',
     );
     final before = jpgController.imageBytesFor(jpgs[8].id);
     for (final idx in [9, 10, 9, 8]) {

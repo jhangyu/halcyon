@@ -10,6 +10,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
+import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
 
 /// M2: source-selection was moved from an inline check in
@@ -89,6 +90,13 @@ void main() {
         notifyLoaded: () {},
       );
 
+      // PHASE 3 settle (settle-only instrument repair): preloadImages returns
+      // once the window is issued, so the payload lands a few event-loop turns
+      // later. Assertions unchanged.
+      await until(
+        () => controller.imageBytesFor('dng-1') != null,
+        reason: 'the recovered payload to land',
+      );
       final gotBytes = controller.imageBytesFor('dng-1');
       expect(gotBytes, isNotNull);
       expect(gotBytes, equals(expectedBytes));
@@ -195,6 +203,11 @@ void main() {
         notifyLoaded: () {},
       );
 
+      // PHASE 3 settle (see above). Assertions unchanged.
+      await until(
+        () => controller.imageBytesFor('jpg-1') != null,
+        reason: 'the recovered payload to land',
+      );
       expect(controller.imageBytesFor('jpg-1'), equals(expectedBytes));
       expect(controller.hasFailed('jpg-1'), isFalse);
     },
@@ -233,6 +246,14 @@ void main() {
         notifyLoaded: () {},
       );
 
+      // PHASE 3 settle: the permanent-miss latch is now recorded after the
+      // pass returns, so wait for the LATCH (not for a payload -- there never
+      // is one here). Both assertions are unchanged, and the isNull one is
+      // strictly harder to satisfy after this wait than before it.
+      await until(
+        () => controller.hasFailed('jpg-2'),
+        reason: 'the permanent-miss latch to be recorded',
+      );
       expect(controller.imageBytesFor('jpg-2'), isNull);
       expect(controller.hasFailed('jpg-2'), isTrue);
     },

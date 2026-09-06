@@ -728,30 +728,25 @@ class ImagePreloadController {
     _selectedId = selectedItemId;
 
     // PERF-INSTRUMENTATION
-    final tPrio = PerfLog.us;
     final wasInFlight = _loadingKeys.contains(selectedItemId);
     final wasCached = _cache.contains(selectedItemId);
     PerfLog.log(
       'preload.priority.begin|$selectedItemId'
       '|cached=$wasCached|inFlight=$wasInFlight',
     );
-    await _ensurePayload(
-      items[currentIndex],
-      distance: 0,
-      notifyLoaded: notifyLoaded,
-    );
-    // PERF-INSTRUMENTATION
-    PerfLog.log(
-      'preload.priority.end|$selectedItemId|dur=${PerfLog.us - tPrio}'
-      '|nowCached=${_cache.contains(selectedItemId)}',
-    );
-
-    // Stale resume: a newer selection (or a folder reload) already owns the
-    // scheduling state. The payload this pass produced is kept -- it is either
-    // in the new retention window or was refused by the window check inside
-    // _ensurePayload -- but nothing from here on may touch state that now
-    // belongs to a different generation.
-    if (generation != _previewGeneration) return;
+    // PHASE 3: the selected item has NO awaited pass of its own any more. It
+    // is issued below at distance 0 -- first in near-to-far order, therefore
+    // first onto the lane and at the lowest (best) rank -- through the same
+    // probe-then-route path every other slot uses, carrying `notifyLoaded`.
+    // The `await _ensurePayload(items[currentIndex], ...)` that used to stand
+    // here made the WHOLE pass wait for a cheap selection's decode+encode
+    // (plan §8-D1: an expensive one never waited, it enqueues and returns), so
+    // tier-1 precache and the tier-2 arming below sat behind it for no reason.
+    //
+    // The `generation != _previewGeneration` guard that used to follow it went
+    // with it -- guards are only removed together with the await they guarded
+    // (plan risk R4). Every surviving await keeps its guard: the per-slot one
+    // moved into [_issueWindowItem], and `_folderGeneration` is untouched.
 
     final startIdx = (currentIndex - retention.before).clamp(
       0,
@@ -794,50 +789,39 @@ class ImagePreloadController {
     // here, order-independent), then route them -- including every serial
     // lane enqueue -- synchronously in ONE burst in near-to-far order below,
     // so the lane always sees the ruled start order regardless of width.
-    final probeFutures =
-        <
-          Future<
-            ({
-              PhotoItem item,
-              int distance,
-              VoidCallback? notifyLoaded,
-              ProbeResult probe,
-            })?
-          >
-        >[];
+    // PHASE 3: the two barriers this loop used to raise -- `Future.wait` over
+    // every window probe, then `Future.wait` over every routed load -- are
+    // gone. Each slot is issued as its own unawaited probe-then-route chain
+    // ([_issueWindowItem]); the pass itself contains no await from here to its
+    // end, so tier-1 precache and tier-2 arming below happen on THIS turn of
+    // the event loop rather than after every window item's file IO.
+    //
+    // The near-to-far walk survives and still decides the rank each slot is
+    // enqueued with (`laneRankFor(distance)` inside `_enqueueSerialLoad`).
+    // That rank -- not this loop's completion order -- is what the lane sorts
+    // by, which is why removing the barrier does not re-open the round-1
+    // IO-jitter defect (plan risk R8).
     for (final i in nearToFarOrder) {
-      probeFutures.add(_probeWindowItem(items[i], distance: i - currentIndex));
-    }
-    final probeResults = await Future.wait(probeFutures);
-
-    // Phase 2: route every probed item, in the same near-to-far order the
-    // loop above walked. `_ensurePayload` performs its serial-lane enqueue
-    // (if the probe says expensive) SYNCHRONOUSLY before its first await
-    // when handed a `precomputedProbe`, so this loop's iteration order IS
-    // the lane's start order -- restoring the property width 1 got for free
-    // from serialisation alone.
-    final pendingLoads = <Future<void>>[];
-    for (final result in probeResults) {
-      if (result == null) continue;
-      pendingLoads.add(
-        _ensurePayload(
-          result.item,
-          distance: result.distance,
-          notifyLoaded: result.notifyLoaded,
-          precomputedProbe: result.probe,
+      unawaited(
+        _issueWindowItem(
+          items[i],
+          distance: i - currentIndex,
+          // The selected slot carries the caller's repaint callback; every
+          // other slot notifies through the payload-landing path.
+          notifyLoaded: i == currentIndex ? notifyLoaded : null,
+          generation: generation,
         ),
       );
     }
-    await Future.wait(pendingLoads);
     PerfLog.log('preload.window.end|$selectedItemId'); // PERF-INSTRUMENTATION
 
-    // Same check, after the window's awaits. This is the load-bearing one:
-    // TierTwoScheduler.schedule CANCELS the debounce timer before rescheduling,
-    // so a stale resume here does not merely add work for an abandoned
-    // window -- it takes the full-size decode away from the item the user is
-    // actually looking at.
-    if (generation != _previewGeneration) return;
-
+    // No generation check here any more, and deliberately so: there is no
+    // await between `++_previewGeneration` at the top of this method and this
+    // line, so `generation == _previewGeneration` holds unconditionally. A
+    // check that cannot fail is worse than no check -- it reads as protection
+    // that is not there. TierTwoScheduler.schedule still CANCELS its debounce
+    // before re-arming, so a later pass overwrites this arming rather than
+    // racing it.
     _precacheTierOneWindow(items, currentIndex);
     _tierTwoScheduler.schedule(items, currentIndex, notifyLoaded);
   }
@@ -983,9 +967,20 @@ class ImagePreloadController {
       ProbeResult probe,
     })?
   >
-  _probeWindowItem(PhotoItem item, {required int distance}) async {
+  _probeWindowItem(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback? notifyLoaded,
+  }) async {
     final id = item.id;
-    if (_earlyResolve(id, null)) return null;
+    // [notifyLoaded] is non-null only for the SELECTED slot. Since Phase 3 the
+    // selected item has no separate awaited pass of its own -- it is issued
+    // through this very path at distance 0 -- so its callback must travel with
+    // it from here, including through the fast paths [_earlyResolve] owns
+    // (cached / permanent miss / already in flight). Passing `null` here would
+    // strand the preview's spinner whenever the selection was already in
+    // flight from a previous pass.
+    if (_earlyResolve(id, notifyLoaded)) return null;
     final file = item.bestFileToLoad;
     if (file == null) return null;
     final probed = await _scheduler.classify(
@@ -993,7 +988,53 @@ class ImagePreloadController {
       file.path,
       longEdge: _longEdge,
     );
-    return (item: item, distance: distance, notifyLoaded: null, probe: probed);
+    return (
+      item: item,
+      distance: distance,
+      notifyLoaded: notifyLoaded,
+      probe: probed,
+    );
+  }
+
+  /// Issue ONE window slot: probe it, then route it. Phase 3 replaced the
+  /// two-barrier pass (`await Future.wait(probeFutures)` then
+  /// `await Future.wait(pendingLoads)`) with one of these per slot, launched
+  /// unawaited in near-to-far order. The pass therefore no longer waits for
+  /// the SET of probes before arming tier-1 precache and tier-2 -- each
+  /// probe's completion routes its own item and nobody else's.
+  ///
+  /// Ordering is NOT delegated to arrival order: `_ensurePayload` performs its
+  /// serial-lane enqueue synchronously when handed a `precomputedProbe`, and
+  /// that enqueue carries `laneRankFor(distance)`. The lane is a min-priority
+  /// queue, so IO jitter can change which slot is enqueued first but not which
+  /// pending slot runs next (plan risk R8 -- the property is asserted on
+  /// `debugLanePendingPriorityFor`, never on enqueue order).
+  ///
+  /// [generation] is the issuing pass's `_previewGeneration`. It is re-checked
+  /// after the probe's await for exactly the reason the removed barrier's
+  /// check existed: a newer selection (or a folder reload, via [reset]) owns
+  /// the scheduling state by then. `_folderGeneration` is a different counter
+  /// with a different job and is checked where it always was, inside
+  /// [_completeOutcome].
+  Future<void> _issueWindowItem(
+    PhotoItem item, {
+    required int distance,
+    required VoidCallback? notifyLoaded,
+    required int generation,
+  }) async {
+    final probed = await _probeWindowItem(
+      item,
+      distance: distance,
+      notifyLoaded: notifyLoaded,
+    );
+    if (probed == null) return;
+    if (generation != _previewGeneration) return;
+    await _ensurePayload(
+      probed.item,
+      distance: probed.distance,
+      notifyLoaded: probed.notifyLoaded,
+      precomputedProbe: probed.probe,
+    );
   }
 
   Future<void> _ensurePayload(
@@ -1365,16 +1406,26 @@ class ImagePreloadController {
       // Whoever produced it, the sidebar's waiters get their tile from THIS
       // payload -- never from a second decode of their own (D5 decision 2).
       _sidebar.onPayloadLanded(id, payload);
-      if (onSerialLane) {
-        // A serially landed payload gets its tier-1 ImageCache entry HERE,
-        // not on "the next navigation pass": when the user has stopped
-        // navigating there is no next pass, and the item would sit retained
-        // with nothing decoded for it -- the very stall this ruling exists
-        // to remove. Cheap items keep taking the batched route in
-        // [_precacheTierOneWindow], which runs microseconds after their
-        // parallel loads land anyway.
-        _precacheTierOneFor(id, payload, distance: distance);
-      }
+      // A landed payload gets its tier-1 ImageCache entry HERE, not on "the
+      // next navigation pass": when the user has stopped navigating there is
+      // no next pass, and the item would sit retained with nothing decoded
+      // for it -- the very stall the 2026-08-26 ruling exists to remove.
+      //
+      // PHASE 3 made this unconditional. It used to be `if (onSerialLane)`,
+      // on the grounds that a CHEAP item's parallel load landed before
+      // [_precacheTierOneWindow] ran "microseconds later" at the tail of the
+      // window pass's awaits. Those awaits are gone: the batched sweep now
+      // runs synchronously, i.e. BEFORE any cheap load of this pass has
+      // landed, so the batched route no longer covers cheap items on the pass
+      // that produced them. This call is the landing-driven replacement.
+      // [_precacheTierOneWindow] is kept for what only it does -- decoding
+      // slots that were already retained when the pass started, and evicting
+      // tier-1 keys that left the window.
+      //
+      // Idempotent by construction: [_decodeIntoImageCache] is keyed on the
+      // payload's bytes identity, so the batched sweep meeting the same
+      // payload again is an ImageCache hit, not a second decode (pin B1).
+      _precacheTierOneFor(id, payload, distance: distance);
     } else if (!outcome.deferred) {
       // Every source failed, including the legacy fallback. Mark it so the
       // view can say "unreadable" instead of spinning forever, and so no

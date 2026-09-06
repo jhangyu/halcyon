@@ -19,6 +19,8 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 
+import '../../support/preload_fixtures.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -84,6 +86,14 @@ void main() {
             'second entrant parks instead of buying a second source load',
       );
 
+      // PHASE 3 settle (settle-only instrument repair): awaiting the two
+      // preloadImages futures no longer implies the load has landed -- the
+      // pass returns once the window is issued. The single-load and
+      // no-replacement assertions around this line are unchanged.
+      await until(
+        () => controller.payloadFor(selected.id) != null,
+        reason: 'the contended payload to land',
+      );
       final landed = controller.payloadFor(selected.id);
       expect(landed, isNotNull);
 
