@@ -228,6 +228,35 @@ class DecodeLane {
   /// completion instead. Used by `reset()`/`dispose()`.
   void clearPending() => _pending.clear();
 
+  /// Drops every PENDING (not yet dispatched) task whose key [keep] rejects,
+  /// running [onDropped] for each so the caller can release whatever the
+  /// dropped body would have resolved (parked notify callbacks).
+  ///
+  /// Operates on `_pending` ONLY (N2). A dispatched task is already out of
+  /// that map -- it holds a lane slot and/or a byte admission -- so this can
+  /// never drop work that holds either resource, and it never calls
+  /// `_budget.release`: a pending entry was never charged, so releasing would
+  /// under-count `_inFlight`.
+  int prunePending(
+    bool Function(LaneKey key) keep, {
+    void Function(LaneKey key)? onDropped,
+  }) {
+    final toDrop = <LaneKey>[];
+    for (final key in _pending.keys) {
+      if (!keep(key)) toDrop.add(key);
+    }
+    for (final key in toDrop) {
+      _pending.remove(key);
+      onDropped?.call(key);
+    }
+    return toDrop.length;
+  }
+
+  /// The "queue roster" a pruning test asserts before/after a window move.
+  /// Not `@visibleForTesting`: the controller re-exposes it under that
+  /// annotation, same pattern as [debugByteBlockedPumps].
+  List<LaneKey> get debugPendingKeys => _pending.keys.toList();
+
   Future<void> _runOne(_LaneTask first) async {
     _running++;
     var next = first;

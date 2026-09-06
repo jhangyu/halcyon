@@ -474,6 +474,11 @@ class ImagePreloadController {
   int? debugLanePendingPriorityFor(String id) =>
       _decodeLane.pendingPriorityOf((LaneTaskKind.payload, id));
 
+  /// The lane's queue roster (WP7): the "queue before/after a window move"
+  /// the pruning ACs assert against.
+  @visibleForTesting
+  List<LaneKey> get debugPendingKeys => _decodeLane.debugPendingKeys;
+
   /// Count of content-probe (file IO) calls launched by [_probeWindowItem],
   /// i.e. once per window slot per navigation pass that reaches the probe
   /// (fast-path resolutions in [_earlyResolve] do not count). Phase 6's real
@@ -880,6 +885,38 @@ class ImagePreloadController {
   /// session" by a failure that had nothing to do with it.
   int _folderGeneration = 0;
 
+  /// Monotonic, bumped by every window move (WP7). A decode that started
+  /// under an older value has its downstream stages (encode + publish)
+  /// skipped once it returns, if the item is also no longer in the retention
+  /// window -- a SECOND gate alongside the folder gate in
+  /// [_completeOutcome], not a widening of it (that one guards the
+  /// permanent-miss latch and must keep its exact "different folder"
+  /// meaning).
+  int _windowGeneration = 0;
+
+  /// Test seam for [_windowGeneration].
+  @visibleForTesting
+  int get debugWindowGeneration => _windowGeneration;
+
+  /// How many in-flight decodes had their downstream stages (encode +
+  /// publish) skipped because the window moved past them (WP7).
+  @visibleForTesting
+  int debugCancelledDownstreamCount = 0;
+
+  /// How many still-pending (not yet dispatched) lane entries were dropped by
+  /// a window move (WP7).
+  @visibleForTesting
+  int debugPrunedQueuedCount = 0;
+
+  /// `debugDisposed` read directly off the `ui.Image` handle the MOST
+  /// RECENT downstream-skip (WP7, N3) disposed, or `null` if no skip has run
+  /// yet. Pins the dispose call itself (mutation-probe verified 2026-09-06):
+  /// asserting only "no publish"/"encoder not called" stays green even if
+  /// the `dispose()` call is deleted, since a skip publishes nothing either
+  /// way.
+  @visibleForTesting
+  bool? debugLastSkippedImageDisposed;
+
   int get _longEdge {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
@@ -1245,6 +1282,18 @@ class ImagePreloadController {
     for (final id in _cache.retainOnly(_retentionIds)) {
       _tierTwo.evict(id);
     }
+    // WP7: bump the window-move generation and drop every still-queued
+    // (not yet dispatched) payload task for an id that just left the window.
+    // The lane body's own `_retentionIds` refusal (below, at dispatch time)
+    // already prevented the DECODE; this removes the entry, its closure and
+    // its pump cycle instead of letting it drain through a refusal, and
+    // flushes any parked `notifyLoaded` the removed body would have fired
+    // (the refusal path does that today; a removed body cannot).
+    _windowGeneration++;
+    debugPrunedQueuedCount += _decodeLane.prunePending(
+      (key) => key.$1 != LaneTaskKind.payload || _retentionIds.contains(key.$2),
+      onDropped: (key) => _flushPendingNotifies(key.$2),
+    );
     // The tier-2 id set moves NOW, not when the debounce fires: a serial decode
     // can land at any moment and its piggyback publish needs a truthful answer
     // to "is this item in the full-size window" (see
@@ -1589,6 +1638,10 @@ class ImagePreloadController {
     // [_completeOutcome] -- see [_folderGeneration] for why this is not
     // `_previewGeneration`.
     final loadGeneration = _folderGeneration;
+    // WP7: this load's window-move generation, captured alongside
+    // [loadGeneration] and re-checked in [_finishOffLane] after the decode
+    // returns.
+    final windowGeneration = _windowGeneration;
 
     // THE CLAIM, taken here and not after the probe (verdict 2026-08-30 fix A).
     // `_earlyResolve` above read `_claims`; taking the claim after the
@@ -1785,6 +1838,7 @@ class ImagePreloadController {
             notifyLoaded: notifyLoaded,
             loadLongEdge: loadLongEdge,
             loadGeneration: loadGeneration,
+            windowGeneration: windowGeneration,
             admission: admission,
             claim: claim,
           ),
@@ -1861,6 +1915,7 @@ class ImagePreloadController {
     required VoidCallback? notifyLoaded,
     required int loadLongEdge,
     required int loadGeneration,
+    required int windowGeneration,
     required PayloadClaim claim,
     required LaneAdmission? admission,
   }) async {
@@ -1879,6 +1934,34 @@ class ImagePreloadController {
     // release below; releasing against a stale epoch is then a no-op instead of
     // an over-release (BUG 2026-09-03, TC-886).
     try {
+      // WP7, SECOND gate (N3): the window moved past this id while its
+      // decode was in flight (no FFI decode is cancellable, so the decode
+      // itself already ran) and it has not come back into the retention
+      // window since. Skip the encode and the publish, dispose the frame
+      // (N3 -- otherwise a ~50MB handle leaks per cancelled item), and flush
+      // any parked spinner. This is deliberately NOT a widening of the
+      // folder gate in [_completeOutcome], which guards a different
+      // invariant (the permanent-miss latch) and must keep its exact
+      // "different folder" meaning.
+      //
+      // `return` from inside this `try` so the `finally` below still runs
+      // and performs the resource release exactly as on every other path
+      // (admission release, claim release) -- WP7 adds no release line and
+      // calls no release function.
+      if (windowGeneration != _windowGeneration && !_retentionIds.contains(id)) {
+        final skippedImage = decode.fullRes?.image;
+        skippedImage?.dispose();
+        // Test seam pinning N3 itself, not merely that this branch ran: reads
+        // the REAL `ui.Image.debugDisposed` back off the handle this branch
+        // just disposed, so a mutation that deletes the `dispose()` call
+        // (leaving everything else) is still caught (mutation-probe verified
+        // 2026-09-06 -- the proxy assertions "no publish, encoder not
+        // called" stayed green with the dispose line deleted; this does not).
+        debugLastSkippedImageDisposed = skippedImage?.debugDisposed ?? true;
+        _flushPendingNotifies(id);
+        debugCancelledDownstreamCount++;
+        return;
+      }
       final rawOutcome = await _encodeStage.run(
         () => _source.encodePhase(decode),
       );
@@ -2384,6 +2467,9 @@ class ImagePreloadController {
       exempt: exempt,
       stillValid: () =>
           _navRetentionIds.contains(id) && identical(_cache.peek(id), payload),
+      // R3-WP8 (plan Step 9.4): tier-1 registration cost is the payload's own
+      // byteCost (SourcePayload.byteCost).
+      byteCost: payload.byteCost,
       publish: () => _publishTierOneRegistration(id, provider),
       // Nothing is held: a skipped registration degrades to an on-demand decode
       // at display time, which is already this path's documented fallback when
