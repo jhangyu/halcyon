@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -10,6 +11,7 @@ import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provi
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
@@ -995,5 +997,94 @@ void main() {
       // undecodable input. Both are acceptable; throwing is not.
       expect(derived == null || derived is EncodedPayload, isTrue);
     });
+  });
+
+  group('jpeg_encoder_pool_test.dart', () {
+    // Plan Task 6 (WP5): the sidebar used to spawn one `Isolate.run` per tile
+    // encode (170 spawns/20.8s, allocation lens site #5). This group pins the
+    // spawn-count bound (AC6.1), byte-identical output vs the pre-change
+    // `Isolate.run` implementation (AC6.2, positive control), and the
+    // catch-path passthrough that depends on this encoder (AC6.3).
+    tearDown(() => disposeJpegEncoderPool());
+
+    Uint8List goldenRgba() =>
+        base64Decode(
+          'xn6m/36w5/+B5JT/a5s9/0vfMv/7dIP/4rYA//uuOf9UvH7/9tXf/70yLP/f9PX/fCKK/xzw'
+          '+//hRRj/h+tx/wHdVv+/odf/MZrE/97Nrf9WeOL/coRz/w+fMP9Hl6n/Z0Eu/2b0z/+Hflz/'
+          'WQVl/6pCOv+IDuv/PCRI/1mS4f/qSAb/Vq7H/xM89P97fB3/0t6S/4VwY/+hNGD/2L0Z/zxR'
+          '3v9Ur7//VTaM/y8R1f83rer/rojb/2UveP9b9lH/2r62/wLXt/95yyT/mKaN/8wQQv/jOFP/'
+          'GnWQ/3Yeif+O7o7/Xwav/9lavP+ZGkX/j2Wa/x9ey/8/Zqj/NhXB/w==',
+        );
+
+    // AC6.2 golden bytes: `img.encodeJpg` at quality 70 for the 8x8 input
+    // above, captured against the UNCHANGED (pre-pool) `Isolate.run`
+    // implementation. This is the mandatory positive control (plan Step
+    // 6.2) -- it is asserted to still pass after the pool swap, proving the
+    // pool produces byte-identical output.
+    Uint8List goldenJpeg() =>
+        base64Decode(
+          '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8l'
+          'JCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9PjsBCgsLDg0OHBAQHDsoIig7Ozs7'
+          'Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7O//AABEIAAgA'
+          'CAMBEQACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMF'
+          'BQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYn'
+          'KCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SV'
+          'lpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz'
+          '9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncA'
+          'AQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3'
+          'ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqi'
+          'o6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/'
+          '2gAMAwEAAhEDEQA/AFudTuIZx5s8dt5LRhiqh8gYEnRuMFDgY/v8nJrSWFjVhy8qm2l3TbVm'
+          'rNx2emumttFbWacWqbndrdKWib6LTTmb3bTaXxXVo2//2Q==',
+        );
+
+    // AC6.2
+    test(
+      'the pooled encoder is byte-identical to the pre-pool Isolate.run '
+      'result for a fixed 8x8 input',
+      () async {
+        final out = await encodeJpegFromRgba(
+          goldenRgba(),
+          width: 8,
+          height: 8,
+          quality: kDisplayJpegQuality,
+        );
+        expect(out, orderedEquals(goldenJpeg()));
+      },
+    );
+
+    // AC6.1
+    test('sidebar tile encodes reuse workers', () async {
+      final before = debugJpegEncoderSpawnCount;
+      final rgba = Uint8List(8 * 8 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 0xFF;
+      }
+      for (var i = 0; i < 10; i++) {
+        await encodeJpegFromRgba(rgba, width: 8, height: 8, quality: 70);
+      }
+      final spawned = debugJpegEncoderSpawnCount - before;
+      expect(
+        spawned,
+        lessThanOrEqualTo(2),
+        reason: 'pool width is 2; spawns must not exceed it after warmup',
+      );
+      expect(
+        spawned,
+        lessThan(10),
+        reason: '10 encodes must not cost 10 spawns (the per-tile-spawn bug)',
+      );
+    });
+
+    // AC6.3
+    test(
+      'sidebarCacheBytes still returns the original bytes for undecodable '
+      'input with the pooled encoder installed',
+      () async {
+        final junk = Uint8List.fromList(List.generate(4096, (i) => i % 256));
+        final out = await sidebarCacheBytes(junk, reencodeThreshold: 1024);
+        expect(out, same(junk));
+      },
+    );
   });
 }
