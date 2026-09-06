@@ -151,10 +151,18 @@ B1 severity downgraded (the shipped DLL's colour output was compared against
    never executed must not report success. Unchanged here.
 S1 accepted: HALIDE_SHA256 pins every asset this script can fetch; verified
    after download and before extraction; a mismatch quarantines the file.
-PL-6: macOS builds arm64 only (MACOS_DEFAULT_ARCH). Intel is parked because the
-   prebuilt decoder dylib is arm64-only, so a universal app's x86_64 slice
-   links without the native decoder - ld only WARNS about that, which is how it
-   went unnoticed. verify_macos_slices() now fails the build instead.
+PL-6: macOS DEFAULTS to arm64 (MACOS_DEFAULT_ARCH). Intel was parked when the
+   prebuilt decoder dylib was arm64-only, so a universal app's x86_64 slice
+   linked without the native decoder - ld only WARNS about that, which is how
+   it went unnoticed. verify_macos_slices() fails the build instead.
+   SUPERSEDED 2026-09-06: the ceyx release now publishes separate macos-arm64
+   and macos-x86_64 assets, both pinned by digest, so `--macos-arch x86_64` is
+   supported and Intel is no longer parked. `universal` still is: there is no
+   fat archive to fetch, so fetch_target_for() rejects it instead of guessing.
+   The same round closed the inverse hazard - a fetch was due only when the
+   destination was ABSENT, never when the WRONG ARCHITECTURE was present, so an
+   x86_64 build against a staged arm64 dylib succeeded with a mere warning.
+   verify_placed_macos_arch() now hard-fails that before the build starts.
 """
 import argparse
 import hashlib
@@ -232,12 +240,32 @@ HALIDE_SHA256 = {
     "x86-64-windows": "4efec94b7c8958b1ae0125a73245a148e4c98dbb54f2678bc34c6abe36ee899a",
 }
 
-# The user parked Intel/x86_64 macOS support (PL-6): the prebuilt decoder dylib
-# is arm64-only, so a universal app links its x86_64 slice without the native
-# decoder. Forwarded to xcodebuild via FLUTTER_XCODE_ARCHS, which flutter_tools
-# passes straight through (flutter_tools/lib/src/macos/build_macos.dart:258 ->
+# Default only, no longer a restriction. PL-6 parked Intel because the single
+# prebuilt decoder dylib was arm64-only; since the ceyx v0.1.8 pin the release
+# publishes SEPARATE macos-arm64 and macos-x86_64 assets, so `--macos-arch
+# x86_64` is a supported, digest-verified build (see CEYX_FETCH_SPECS). arm64
+# stays the default because that is what this project ships and what CI's
+# Apple-silicon runner builds. `universal` remains unsupported: there is no fat
+# release archive, and fetch_target_for() rejects it rather than guess an arch.
+#
+# RUNTIME FLOOR, and it differs by architecture: the bundled six-dylib native
+# stack requires macOS 15 on Apple silicon and macOS 14 on Intel (measured from
+# the dylibs' own LC_BUILD_VERSION load commands; see the MINIMUM-OS section in
+# scripts/ceyx_release_pin.json). Halcyon's own declared application minimum is
+# macOS 11 (macos/Runner/Configs/AppInfo.xcconfig, Info.plist
+# LSMinimumSystemVersion). That gap is REAL and deliberately left open here: by
+# standing user ruling the native stack's requirements and the application's
+# declared minimum are not to be conflated, and nothing in this file changes
+# the app minimum.
+#
+# Forwarded to xcodebuild via FLUTTER_XCODE_ARCHS, which flutter_tools passes
+# straight through (flutter_tools/lib/src/macos/build_macos.dart:258 ->
 # ios/xcodeproj.dart:442). No file under macos/ needs to change.
 MACOS_DEFAULT_ARCH = "arm64"
+
+# Records which architecture build/macos was last built for, so switching arch
+# can invalidate it (enforce_macos_arch_stamp).
+MACOS_ARCH_STAMP = ".halcyon-macos-arch"
 
 # JDK search order copied verbatim from scripts/build.sh:87-89.
 MACOS_JDK_CANDIDATES = [
@@ -2426,6 +2454,83 @@ def verify_macos_slices(app_bundle, layout, args):
         )
 
 
+def verify_placed_macos_arch(layout, args):
+    """Hard gate, run on EVERY macOS build: the decoder already staged in the
+    ceyx checkout must be the architecture this build asked for.
+
+    Why this is separate from the post-fetch architecture check in
+    build_target(): a fetch is due only when a destination file is ABSENT
+    (ceyx_fetch_is_due), never when a file of the WRONG ARCHITECTURE is
+    present. So `--macos-arch x86_64` against an already-staged arm64 dylib
+    used to skip the fetch, skip the post-fetch check (which lives inside
+    `if fetch_due:`), build an x86_64 app around an arm64 decoder, and exit 0
+    - the only complaint being verify_macos_slices()'s warn() after the fact.
+    That ships an Intel app whose RAW decoder cannot load on any Intel Mac.
+
+    This is not an exotic corruption: CEYX_FETCH_SPECS places macos-arm64 and
+    macos-x86_64 into the SAME directory (plugin/macos/Libraries), so "the
+    other architecture is staged" is the normal state right after building the
+    other arch. Hence a hard fail rather than a warning."""
+    if args.macos_arch == "universal":
+        return  # unreachable today: fetch_target_for() rejects universal first.
+    spec = NATIVE_SPECS["macos"]
+    dylib = layout.decoder / spec["dest"] / spec["artifact"]
+    if not dylib.exists():
+        return  # a missing library is a different failure, reported elsewhere.
+    slices = lipo_slices(dylib)
+    if slices is None:
+        fail(
+            f"could not determine the architecture of the staged {dylib} "
+            "(lipo failed or produced no usable output) - refusing to build on "
+            "an unverified architecture.",
+            hints=[f"Run `lipo -info {dylib}` directly to see the error.",
+                   "Re-place the library with --fetch-native."],
+        )
+    if slices != {args.macos_arch}:
+        fail(
+            f"the staged decoder is {' '.join(sorted(slices))} but this build "
+            f"targets {args.macos_arch}: {dylib}",
+            hints=["Pass --fetch-native to replace it with the pinned "
+                   f"macos-{args.macos_arch} release asset.",
+                   "Both architectures are placed into the same directory, so "
+                   "the previous build's architecture is still staged here.",
+                   "Without this check the build would succeed and ship an "
+                   f"app whose decoder cannot load on {args.macos_arch}."],
+        )
+    ok(f"staged decoder architecture matches the build: "
+       f"{' '.join(sorted(slices))}")
+
+
+def enforce_macos_arch_stamp(layout, args):
+    """Wipe the macOS build directory when the requested architecture differs
+    from the one it was last built for.
+
+    Xcode keys its incremental state on the build directory, not on ARCHS, so
+    an arm64 tree reused for an x86_64 build can carry stale products through.
+    Deliberate trade-off (team-lead ruling, 2026-09-06): the two architectures
+    therefore cannot coexist on disk. The alternative was redirecting SYMROOT
+    per arch, which also moves the path `flutter build macos` expects to find
+    its OWN products at - a real risk to the working arm64 path for a
+    cosmetic gain. CI legs each build on a fresh runner, so they never see
+    this; it exists for local arch-switching."""
+    if args.macos_arch == "universal":
+        return
+    build_dir = layout.halcyon / "build" / "macos"
+    stamp = layout.halcyon / "build" / MACOS_ARCH_STAMP
+    previous = None
+    if stamp.exists():
+        try:
+            previous = stamp.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            previous = None
+    if build_dir.exists() and previous is not None and previous != args.macos_arch:
+        step(f"architecture changed ({previous} -> {args.macos_arch}) - "
+             f"removing {build_dir} so no stale {previous} product survives")
+        shutil.rmtree(build_dir, ignore_errors=True)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(args.macos_arch + "\n", encoding="utf-8")
+
+
 def verify_macos_heif_rpaths(app_bundle):
     """Mechanically prove spec section 7.2's DYNAMIC-linking decision shipped.
 
@@ -2724,9 +2829,18 @@ def build_target(target, layout, mode, args):
             ok("native library already present - skipping the native build "
                "(pass --native always to force a rebuild).")
 
+    if target == "macos":
+        # Unconditional, and deliberately AFTER both the fetch and the local
+        # native build: whatever produced the staged dylib, it is the file the
+        # Flutter build is about to embed, so it is the file that must match.
+        verify_placed_macos_arch(layout, args)
+
     if args.skip_flutter_build:
         phase("Phase 2: skipped (--skip-flutter-build)")
         return
+
+    if target == "macos":
+        enforce_macos_arch_stamp(layout, args)
 
     build_flutter(target, layout, mode, args, placed_native)
 
@@ -2837,9 +2951,14 @@ def make_parser():
                    help="Exit 2 if any warning was raised.")
     p.add_argument("--macos-arch", choices=["arm64", "x86_64", "universal"],
                    default=MACOS_DEFAULT_ARCH,
-                   help=f"macOS architecture (default: {MACOS_DEFAULT_ARCH}). Intel/universal is "
-                        "parked: the prebuilt decoder dylib is arm64-only, so a universal app's "
-                        "x86_64 slice links without native RAW decode.")
+                   help=f"macOS architecture (default: {MACOS_DEFAULT_ARCH}). x86_64 (Intel) is "
+                        "supported and cross-compiles from an Apple-silicon host; it consumes the "
+                        "pinned macos-x86_64 ceyx asset, so pass --fetch-native when the other "
+                        "architecture's dylib is already staged (both are placed into the same "
+                        "directory, and a mismatch is now a hard failure). 'universal' is NOT "
+                        "supported: the release publishes no fat archive, so there is no asset to "
+                        "fetch and the build is refused rather than silently linking an x86_64 "
+                        "slice with no native RAW decoder.")
     p.add_argument("--print-halide-pins", action="store_true",
                    help="Print the pinned Halide sha256 table and exit.")
     p.add_argument("--ios-codesign", action="store_true",
