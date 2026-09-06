@@ -45,4 +45,29 @@ void main() {
     expect(controller.decodeLaneWidth, 1);
     expect(pushed, [1, 5, 1]);
   });
+
+  test(
+    'TC-966: setDecodeLaneWidth clamps exactly once for every requested '
+    'width, and the sink sees the same clamped value as decodeLaneWidth',
+    () {
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            const NativeImageFailure('UNUSED', 'width wiring only'),
+        decodeLaneWidth: 1,
+      );
+      addTearDown(controller.dispose);
+      pushed.clear();
+
+      for (final k in <int>[0, 1, 5, 9]) {
+        controller.setDecodeLaneWidth(k);
+        final expected = k < 1 ? 1 : k;
+        expect(controller.decodeLaneWidth, expected);
+        expect(
+          pushed.last,
+          controller.decodeLaneWidth,
+          reason: 'clamping applied once, not twice',
+        );
+      }
+    },
+  );
 }

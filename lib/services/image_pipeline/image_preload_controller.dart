@@ -133,7 +133,7 @@ class ImagePreloadController {
     // and the pool would otherwise disagree (lane = this constructor's value,
     // pool = its own construction default), and any decode admitted in that
     // window is bounded by the wrong number.
-    decodePoolWidthSink(_decodeLane.width);
+    _applyLaneWidth(decodeLaneWidth);
   }
 
   /// How far retention reaches and how many bytes it may hold. Sized from
@@ -182,7 +182,14 @@ class ImagePreloadController {
   /// lane's ordering bound and the pool's admission bound can never disagree.
   /// The lane still owns near-to-far ORDER (the pool is FIFO and knows nothing
   /// about the selected index); the pool owns worker lifetime and the dylib.
-  void setDecodeLaneWidth(int width) {
+  void setDecodeLaneWidth(int width) => _applyLaneWidth(width);
+
+  /// The single write path for lane width: sets the lane (clamping happens
+  /// exactly once, inside [DecodeLane.width]'s setter) and pushes the same,
+  /// already-clamped value read back off the lane to the native pool. Both
+  /// the constructor and [setDecodeLaneWidth] route through here so the lane
+  /// and the pool can never see two different numbers.
+  void _applyLaneWidth(int width) {
     _decodeLane.width = width;
     decodePoolWidthSink(_decodeLane.width);
   }
