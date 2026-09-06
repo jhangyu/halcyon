@@ -127,6 +127,13 @@ class AppState extends ChangeNotifier {
     ImagePreloadController? preloadController,
     NativeImageLoad? imageLoader,
     DngFullDecoder? dngDecoder,
+    // Task 8 (native-rotation-spec, round 3): mirrors [dngDecoder]'s own
+    // wiring rule exactly -- no production default is baked in HERE. The
+    // composition root (main.dart) is responsible for passing
+    // `halcyonOrientingFullDecoder` alongside `halcyonFullDecoder`; leaving
+    // this null keeps every existing caller of this constructor (tests
+    // included) byte-identical until that root chooses to inject one.
+    DngOrientingFullDecoder? orientingDngDecoder,
     PhotoExportService? exportService,
     ExifBatchReader? exifReader,
     RetentionPolicy retention = const RetentionPolicy.floor(),
@@ -150,6 +157,7 @@ class AppState extends ChangeNotifier {
           // permanent miss (M6 U-12) -- there is no legacy channel path
           // left to fall back to.
           dngDecoder: dngDecoder,
+          orientingDngDecoder: orientingDngDecoder,
           // No sidebar decoder: USER RULING 2026-08-30 (contract D5) makes
           // the sidebar a CONSUMER of the shared q70 payload. The sized
           // 200px route it used to own is deleted -- measured NOT FASTER
