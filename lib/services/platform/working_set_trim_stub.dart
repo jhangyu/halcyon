@@ -34,6 +34,10 @@ class WorkingSetTrim {
   @visibleForTesting
   static int debugTrimAttempts = 0;
 
+  /// Surface parity with the real implementation (see its dartdoc). Nothing
+  /// here ever trims, so the flag changes no behaviour on this target.
+  static bool suppressed = false;
+
   static bool get isSupported => false;
 
   static void request() {}
@@ -48,5 +52,6 @@ class WorkingSetTrim {
     debugRequestCalls = 0;
     debugTrimNowCalls = 0;
     debugTrimAttempts = 0;
+    suppressed = false;
   }
 }
