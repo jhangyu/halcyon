@@ -70,9 +70,25 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
 # itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
 # transcribed by hand.
+# 2026-09-07 (native-rotation campaign, ceyx v0.1.17 release): refreshed to
+# the tag v0.1.17 pin -- written by `python3 scripts/build_apps.py
+# --ceyx-release latest` and checked by `--ceyx-release verify` (green
+# control RC=0, then a deliberate one-byte digest edit seen to refuse the
+# fetch, then restored byte-identical from a cp backup). Tag plus the
+# artifacts.lock digest (91c66ad0 -> 4f75eab4) and NINE archive digests
+# moved: all five decoder entries (the release adds
+# ceyx_decode_into_buffer_oriented to every decoder asset, verified
+# per-asset by symbol dump-to-file) plus heif-dist-windows,
+# libjxl-dist-linux/windows and libwebp-dist-windows — a tag push
+# implicitly rebuilds the third-party dists too, same phenomenon the
+# v0.1.15 entry recorded. This guard fired exactly
+# as designed on the campaign branch -- it is the ledger entry that moves,
+# never the test. Recomputed with the SAME CRLF-normalizing method
+# test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
+# sha256), never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "37532d6963e5bdaab39f89dabb02bd3438ea2c3a98dcca09e5216e1a556dff7b"
+    "86f1cf8f0164092567d04b020ff97915f880bce9f17c42eb00bb58648b0ad08b"
 )
 
 

@@ -155,26 +155,55 @@ Future<SourcePayload> reencodePayload({
   // for the lifetime of this one call, unique enough to pair submit with
   // end, and free to compute (an int read, not an allocation).
   final reencodeId = PerfLog.enabled ? identityHashCode(fullRes.rgba) : 0;
+  final usePointer = pointerEncoder != null && nativeAddress != 0;
+  // PROBE 2 (jank-rootcause-analysis.md §6): which encode arm this item took.
+  // `byte` means the caller handed us a Dart-heap buffer, which the byte
+  // encoder must copy with `TransferableTypedData.fromList` ON THIS ISOLATE
+  // before it can ship it to a worker; `pointer` skips that copy entirely.
+  // Until this tag existed the split had to be inferred from the ratio of
+  // `pool.materialize|type=encode` lines to decodes.
   if (PerfLog.enabled) {
-    PerfLog.log('reencode.submit|id=$reencodeId');
+    PerfLog.log(
+      'reencode.submit|id=$reencodeId'
+      '|path=${usePointer ? "pointer" : "byte"}'
+      '|bytes=${fullRes.rgba.lengthInBytes}',
+    );
   }
   final reencodeStartUs = PerfLog.enabled ? PerfLog.us : 0;
-  final usePointer = pointerEncoder != null && nativeAddress != 0;
   try {
-    jpeg = usePointer
-        ? await pointerEncoder(
-            nativeAddress: nativeAddress,
-            width: fullRes.width,
-            height: fullRes.height,
-            quality: quality,
-            keepAlive: keepAlive,
-          )
-        : await encoder(
-            fullRes.rgba,
-            width: fullRes.width,
-            height: fullRes.height,
-            quality: quality,
-          );
+    if (usePointer) {
+      jpeg = await pointerEncoder(
+        nativeAddress: nativeAddress,
+        width: fullRes.width,
+        height: fullRes.height,
+        quality: quality,
+        keepAlive: keepAlive,
+      );
+    } else {
+      // PROBE 3 (jank-rootcause-analysis.md §6). The byte encoder's
+      // `TransferableTypedData.fromList` copy runs SYNCHRONOUSLY on the
+      // calling isolate, before the encoder's first `await` (ceyx
+      // `encode_service.dart` `_encode`: the copy precedes the `Isolate.run`).
+      // So the wall time of the un-awaited call IS that copy, and separating
+      // it from the awaited total is what tells an on-isolate block apart from
+      // worker time. Deliberately NOT awaited on this line -- awaiting here
+      // would measure the whole encode and defeat the probe.
+      final copyStartUs = PerfLog.enabled ? PerfLog.us : 0;
+      final pending = encoder(
+        fullRes.rgba,
+        width: fullRes.width,
+        height: fullRes.height,
+        quality: quality,
+      );
+      if (PerfLog.enabled) {
+        PerfLog.log(
+          'reencode.copy|id=$reencodeId'
+          '|dur_us=${PerfLog.us - copyStartUs}'
+          '|bytes=${fullRes.rgba.lengthInBytes}',
+        );
+      }
+      jpeg = await pending;
+    }
   } catch (_) {
     if (PerfLog.enabled) {
       PerfLog.log(

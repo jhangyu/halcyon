@@ -77,6 +77,7 @@ Future<void> main() async {
   // ImagePreloadController.
   final appState = AppState(
     dngDecoder: halcyonFullDecoder,
+    orientingDngDecoder: halcyonOrientingFullDecoder,
     retention: retention,
   ); // PERF-INSTRUMENTATION
   // PERF-INSTRUMENTATION (P0, docs/logs/2026-09-05/pool-round-contract.md

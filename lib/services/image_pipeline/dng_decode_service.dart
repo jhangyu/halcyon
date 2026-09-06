@@ -98,25 +98,61 @@ Future<DecodedRgba> decodeDngFull(String path) async {
 /// `image_preload_controller.dart`.
 const DngFullDecoder halcyonDngFullDecoder = decodeDngFull;
 
-/// Task 8 (native-rotation-spec) production binding for
-/// [DngOrientingFullDecoder]. The pinned ceyx package in this tree today has
-/// NO oriented decode entry (that arrives with spec Tasks 3-5's pin bump) --
-/// so THIS ROUND it is a thin pass-through: run today's unoriented decode and
-/// report `appliedOrientation: 1`, exactly like every existing fake decoder
-/// default. Halcyon applies the whole declared orientation via the residual
-/// (`residualExifOrientation`), so behaviour is byte-identical to the
-/// `dngDecoder`-only path -- this only exists so `PhotoSource` has a seam to
-/// call, wired end-to-end, ready for the oriented pool entry to drop in here
-/// once the pin is bumped.
+/// Task 8 (native-rotation-spec, round 3) production binding for
+/// [DngOrientingFullDecoder]. The pinned ceyx package now carries the pool's
+/// `decode(path, exifOrientation: ...)` entry (Tasks 3-4, committed) and
+/// self-reports what it actually applied on [DngImage.appliedOrientation] --
+/// this function is a plain pass-through of that report, not a decision
+/// point: Halcyon never assumes "I asked for orientation, therefore it
+/// happened" (spec §1.4). The mapping degrades exactly like every other arm
+/// in this file:
 ///
-/// ponytail: one function, no branching on decodeIntoBufferOrientedAvailable
-/// yet -- there is nothing to branch on until Task 5 lands. Add the guarded
-/// lookup then, not before (referencing a not-yet-existing ceyx symbol here
-/// would break the build today).
+/// * **legacy arm** (`kDecodePoolEnabled == false`) has no oriented decode at
+///   all -- it calls the existing unoriented worker-isolate path and reports
+///   `appliedOrientation: 1`, so the host applies the FULL declared
+///   orientation via the residual, byte-identical to today.
+/// * **pool arm with an old dylib** -- `CeyxDecodePool.decode` still accepts
+///   `exifOrientation` (it is a Dart-side parameter, always present since
+///   Task 4), but the ceyx service's own self-verifying consistency check
+///   (`dng_decoder_service.dart:selfVerifiedAppliedOrientation`) reports
+///   `appliedOrientation: 1` whenever the native call could not have applied
+///   it (missing symbol, or a transposing request whose returned extent did
+///   not swap). Nothing here needs to re-check that: [DngImage] already did.
+/// * **pool arm with the new dylib** -- `appliedOrientation` mirrors what the
+///   decoder actually did, and the residual collapses to identity for the RAW
+///   route (spec §1.4), which is what lets `photo_source.dart:615`'s
+///   `usePointer` gate flip to true with zero edits to that line.
 Future<DecodedRgba> decodeDngFullOriented(
   String path, {
   required int exifOrientation,
-}) => decodeDngFull(path);
+}) async {
+  ensureHalcyonDecodePoolConfigured();
+  final image = kDecodePoolEnabled
+      ? await CeyxDecodePool.shared.decode(path, exifOrientation: exifOrientation)
+      // LEGACY ARM: no oriented decode entry exists on this path at all --
+      // reachable only through the `HALCYON_DECODE_POOL` kill-switch define,
+      // same as decodeDngFull's own legacy arm above.
+      : await DngDecoderService().decodeOnWorker(path);
+
+  final expectedLength = image.width * image.height * 4;
+  if (image.rgbaData.length != expectedLength) {
+    throw StateError(
+      'ceyx returned rgbaData.length=${image.rgbaData.length} '
+      'but width*height*4=$expectedLength (width=${image.width}, '
+      'height=${image.height})',
+    );
+  }
+
+  return DecodedRgba(
+    rgba: image.rgbaData,
+    width: image.width,
+    height: image.height,
+    nativeAddress: image.nativeAddress,
+    nativeKeepAlive: image,
+    releaseNative: image.releaseToPool,
+    appliedOrientation: image.appliedOrientation,
+  );
+}
 
 const DngOrientingFullDecoder halcyonOrientingDngFullDecoder =
     decodeDngFullOriented;

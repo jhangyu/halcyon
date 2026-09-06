@@ -103,7 +103,7 @@ bool _sampledOpaque(Uint8List rgba) {
   return true;
 }
 
-Future<ui.Image> _imageFromPixels(DecodedRgba decoded) {
+Future<ui.Image> _imageFromPixels(DecodedRgba decoded, {String? src}) {
   _assertDecodedBufferLength(decoded);
   final completer = Completer<ui.Image>();
   // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
@@ -124,7 +124,15 @@ Future<ui.Image> _imageFromPixels(DecodedRgba decoded) {
         PerfLog.log(
           'materialize|id=$materializeId'
           '|bytes=${decoded.rgba.lengthInBytes}'
-          '|dur_us=${PerfLog.us - materializeStartUs}',
+          '|dur_us=${PerfLog.us - materializeStartUs}'
+          // `src=` (native-rotation-spec.md AC-9.1 fix cycle 1): APPEND-ONLY
+          // field, existing fields/order frozen. Only the full-res call site
+          // (decodedRgbaToOrientedFullRes) passes `src: 'fullres'` -- this is
+          // the tag that lets scripts/analyze_perf.py's AC-9.1 gate count a
+          // full-frame materialize directly instead of inferring it from a
+          // downstream reencode.submit| line, which is silently absent when
+          // the reencode is skipped/fails after materialize already ran.
+          '${src != null ? '|src=$src' : ''}',
         );
       }
       completer.complete(image);
@@ -313,7 +321,7 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
 
   await gate();
 
-  final raw = await _imageFromPixels(decoded);
+  final raw = await _imageFromPixels(decoded, src: 'fullres');
   ui.Image oriented;
   try {
     oriented = await _applyTransform(raw, transform);

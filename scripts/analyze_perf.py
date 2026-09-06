@@ -106,9 +106,23 @@ def stall_attribution(events, window_us=10_000):
       - candidate-GC: a landing is adjacent but the measured materialize was
         too small to explain the stall -> the blockage is elsewhere in the
         landing (heap admission / GC pause being the prime suspect);
-      - unattributed: no landing within `window_us` after the stall line.
+      - unattributed: nothing overlaps or follows the stall.
     NOTE: `decode.ffi`'s own dur_us is WORKER wall time, never counted as
     on-main cost.
+
+    OVERLAP vs ADJACENCY (jank-rootcause-analysis.md §6 probe 4). The original
+    rule was adjacency only: a landing had to appear within `window_us` AFTER
+    the stall line, and the landing list held `pool.materialize`/`decode.ffi`
+    but NOT `materialize`. Both halves of that were wrong for the dominant
+    cost. `materialize` (`ui.decodeImageFromPixels`, the ~92MB engine-buffer
+    copy plus GPU upload) runs 100-258ms in real captures, so its line lands
+    far outside any 10ms post-window, and the stalls it causes happen DURING
+    it, not before it. Excluding it reported 78 of 104 stalls as
+    "unattributed" in capture_222859 -- the analyser's blind spot reading as a
+    finding about GC. An event with a measured duration is therefore now
+    matched by INTERVAL OVERLAP (`end - dur_us` .. `end` against the stall's
+    own `ms` window); zero-duration adjacency is kept only for `decode.ffi`,
+    which has no on-main interval to overlap with.
     """
     stalls = [(us, int(kv["ms"])) for us, name, kv in events
               if name == "stall" and "ms" in kv]
@@ -120,18 +134,38 @@ def stall_attribution(events, window_us=10_000):
             stalls = [(b_us, max(0, b - a))
                       for (_, a), (b_us, b) in zip(stalls, stalls[1:])]
     landings = [(us, name, kv) for us, name, kv in events
-                if name in ("pool.materialize", "decode.ffi")]
+                if name in ("materialize", "pool.materialize", "decode.ffi")]
     rows, explained, gc_cand, unattributed = [], 0, 0, 0
     explained_ms, gc_ms = 0, 0
     for sus, ms in stalls:
-        near = [(us - sus, name, kv) for us, name, kv in landings
-                if 0 <= us - sus <= window_us]
+        # The stall itself spans [sus - ms, sus]: the probe reports drift it has
+        # ALREADY observed, so the blockage precedes the line.
+        s_start = sus - ms * 1000
+        near = []
+        for us, name, kv in landings:
+            if name == "decode.ffi":
+                # Worker wall time; only its landing instant is on-main.
+                if 0 <= us - sus <= window_us:
+                    near.append((0, us - sus, name, kv, None))
+                continue
+            dur = int(kv.get("dur_us", 0))
+            # Overlap of [us - dur, us] with [s_start, sus], in microseconds.
+            overlap = min(us, sus) - max(us - dur, s_start)
+            if overlap > 0:
+                near.append((-overlap, us - sus, name, kv, dur))
+            elif 0 <= us - sus <= window_us:
+                near.append((0, us - sus, name, kv, dur))
         if not near:
             unattributed += 1
             continue
-        gap, name, kv = min(near)
-        mat_us = int(kv["dur_us"]) if name == "pool.materialize" else None
-        if mat_us is not None and mat_us >= ms * 500:  # >=50% of stall
+        # Best = largest overlap; ties (adjacency-only matches) fall back to the
+        # nearest landing, which is what the original rule picked.
+        neg_overlap, gap, name, kv, mat_us = min(near, key=lambda r: (r[0], r[1]))
+        covered_us = -neg_overlap
+        # >=50% of the stall accounted for, by overlap where there is one and by
+        # the raw duration where the match was adjacency-only.
+        share_us = covered_us or (mat_us or 0)
+        if share_us >= ms * 500:
             explained += 1
             explained_ms += ms
             verdict = "materialize-explained"
@@ -150,6 +184,177 @@ def stall_attribution(events, window_us=10_000):
         "has_materialize": any(n == "pool.materialize" for _, n, _ in landings),
         "rows": rows,
     }
+
+
+def rotation_acceptance(events):
+    """AC-9.1 (native-rotation-spec.md sec 6.3): the four-clause verdict from
+    ONE capture, no baseline comparison.
+
+    Four raw counts feed the verdict:
+      - reencode.submit|path=byte   (and path=pointer, kept for context)
+      - full-frame `materialize|` events
+      - reencode.copy| lines
+      - orient|rotated=true lines
+
+    `materialize|` has FOUR producers in this codebase (decoded_rgba_image_
+    provider.dart's full-res route, sidebar_thumbnail_codec.dart, raw_pixels_
+    image.dart's tier-1 route, and tier_two_scheduler.dart's piggyback route).
+    This is NOT `pool.materialize|`, a wholly separate event already consumed
+    by stall_attribution() above; conflating the two would silently corrupt
+    both readings.
+
+    PRIMARY (fix cycle 1, round-2 review counterexample): the full-res call
+    site (decoded_rgba_image_provider.dart's `decodedRgbaToOrientedFullRes`)
+    now appends `|src=fullres` -- an exact, unambiguous tag. Count those
+    directly. The three other producers never emit `src=` at all.
+
+    FALLBACK, for logs captured before that tag existed (or any future
+    untagged full-res producer): a `materialize|` line with no `src=` is
+    still counted as "full-frame" if its `bytes=` also occurs among this
+    capture's `reencode.submit|` lines (multiset match via Counter min) --
+    `reencode.submit|` only ever fires on the full-resolution buffer that
+    feeds the re-encoder, on both the byte and pointer arms. BUT that join
+    silently reads zero when a full-res materialize ran and the reencode was
+    then skipped or failed (the round-2 counterexample) -- a materialize with
+    no matching submit is invisible to it. To close that hole, any leftover
+    untagged materialize whose `bytes=` is >= the smallest `reencode.submit|`
+    bytes seen in this same capture (i.e. at least as big as a KNOWN full-res
+    buffer, so it cannot be a thumbnail or tier-1 window-res decode) is also
+    counted, as an "unmatched full-frame candidate" -- surfaced separately in
+    the report so a reader can see WHY the clause is nonzero even without an
+    exact byte match.
+    """
+    reencode_submit_bytes = Counter()
+    submit_path = Counter()
+    copy_n = 0
+    materialize_bytes = Counter()          # untagged (no src=) materialize
+    fullres_tagged_n = 0                   # src=fullres materialize
+    rotated_true = 0
+    orient_n = 0
+    applied_mismatch = 0
+    residual_non1 = 0
+    orient_shape_new = 0
+    degraded_n = 0
+
+    for _, name, kv in events:
+        if name == "reencode.submit":
+            submit_path[kv.get("path", "?")] += 1
+            if "bytes" in kv:
+                reencode_submit_bytes[int(kv["bytes"])] += 1
+        elif name == "reencode.copy":
+            copy_n += 1
+        elif name == "materialize":
+            if kv.get("src") == "fullres":
+                fullres_tagged_n += 1
+            elif "bytes" in kv:
+                materialize_bytes[int(kv["bytes"])] += 1
+        elif name == "orient":
+            orient_n += 1
+            if kv.get("rotated") == "true":
+                rotated_true += 1
+            if "applied" in kv and "exif" in kv:
+                orient_shape_new += 1
+                if kv["applied"] != kv["exif"]:
+                    applied_mismatch += 1
+            if "residual" in kv and kv["residual"] != "1":
+                residual_non1 += 1
+        elif name == "orient.degraded":
+            degraded_n += 1
+
+    joined_untagged = sum(
+        min(n, reencode_submit_bytes.get(b, 0))
+        for b, n in materialize_bytes.items()
+    )
+    # Fix cycle 2 (re-review): with NO reencode.submit| lines in the capture
+    # at all (e.g. every reencode attempt was skipped/failed, or the capture
+    # window ends before any submit), `smallest_submit` is undefined and the
+    # size-relative fallback above has nothing to compare against -- an
+    # untagged full-res materialize again reads 0. ABSOLUTE_FULLRES_FLOOR is
+    # a size no legitimate non-full-res materialize can reach: the largest
+    # tier-1 window-res buffer is bounded by the 2800px long-edge cap
+    # (image_preload_controller.dart), so even a worst-case 1:1 aspect frame
+    # tops out at 2800*2800*4 bytes; sidebar thumbnails (200px) are two
+    # orders of magnitude smaller still. Any untagged materialize above that
+    # floor is counted as full-frame regardless of whether any submit exists.
+    ABSOLUTE_FULLRES_FLOOR = 2800 * 2800 * 4  # 31,360,000 bytes
+    smallest_submit = min(reencode_submit_bytes) if reencode_submit_bytes else None
+    unmatched_candidates = 0
+    for b, n in materialize_bytes.items():
+        leftover = n - min(n, reencode_submit_bytes.get(b, 0))
+        if leftover <= 0:
+            continue
+        if (smallest_submit is not None and b >= smallest_submit) or \
+                b > ABSOLUTE_FULLRES_FLOOR:
+            unmatched_candidates += leftover
+
+    full_frame_materialize = (
+        fullres_tagged_n + joined_untagged + unmatched_candidates
+    )
+
+    byte_n = submit_path.get("byte", 0)
+    pointer_n = submit_path.get("pointer", 0)
+
+    if rotated_true == 0:
+        verdict = "VOID"
+    elif byte_n == 0 and full_frame_materialize == 0 and copy_n == 0:
+        verdict = "PASS"
+    else:
+        verdict = "FAIL"
+
+    return {
+        "verdict": verdict,
+        "reencode_submit_byte": byte_n,
+        "reencode_submit_pointer": pointer_n,
+        "full_frame_materialize": full_frame_materialize,
+        "full_frame_materialize_tagged": fullres_tagged_n,
+        "full_frame_materialize_joined": joined_untagged,
+        "full_frame_materialize_unmatched": unmatched_candidates,
+        "reencode_copy": copy_n,
+        "orient_rotated_true": rotated_true,
+        "orient_n": orient_n,
+        "orient_new_shape_n": orient_shape_new,
+        "orient_applied_exif_mismatch": applied_mismatch,
+        "orient_residual_non1": residual_non1,
+        "orient_degraded_n": degraded_n,
+    }
+
+
+def print_rotation_report(r):
+    print("\n== AC-9.1 native-rotation acceptance")
+    if r["orient_n"] == 0 and r["reencode_submit_byte"] == 0 and \
+            r["reencode_submit_pointer"] == 0 and r["reencode_copy"] == 0:
+        print("   no orient|/reencode.*| lines in this log -- capture "
+              "predates the instrumentation or the rotation code path never "
+              "ran; nothing to gate.")
+        return
+    print(f"   verdict: {r['verdict']}")
+    print(f"   reencode.submit|path=byte:  {r['reencode_submit_byte']}")
+    print(f"   reencode.submit|path=pointer: {r['reencode_submit_pointer']}")
+    print(f"   full-frame materialize|:    {r['full_frame_materialize']} "
+          f"(tagged src=fullres: {r['full_frame_materialize_tagged']}, "
+          f"bytes-joined: {r['full_frame_materialize_joined']}, "
+          f"unmatched candidates: {r['full_frame_materialize_unmatched']})")
+    if r["full_frame_materialize_unmatched"] > 0:
+        print("   NOTE: unmatched candidates are untagged materialize| lines "
+              "as big as this capture's smallest reencode.submit| buffer "
+              "with no exact byte match -- likely a full-res materialize "
+              "whose reencode was skipped or failed after it ran.")
+    print(f"   reencode.copy|:             {r['reencode_copy']}")
+    print(f"   orient|rotated=true:        {r['orient_rotated_true']} "
+          f"(of {r['orient_n']} orient| lines)")
+    if r["verdict"] == "VOID":
+        print("   VOID (AC-9.2): orient|rotated=true == 0 -- this capture "
+              "had no rotated photos and must be retaken.")
+    print("-- recorded, not gating (AC-9.3):")
+    if r["orient_new_shape_n"] == 0:
+        print("   old-shape orient| lines only (no applied=/residual= "
+              "fields) -- mismatch/residual counts unavailable.")
+    else:
+        print(f"   orient|applied= != orient|exif=: "
+              f"{r['orient_applied_exif_mismatch']} of {r['orient_new_shape_n']}")
+        print(f"   orient|residual= != 1: {r['orient_residual_non1']} of "
+              f"{r['orient_new_shape_n']}")
+    print(f"   orient.degraded| lines: {r['orient_degraded_n']}")
 
 
 def decode_windows(events):
@@ -218,6 +423,7 @@ def summarise_log(path):
         "hist": hist,
         "stall": stall_analysis(events, span_s),
         "stall_attr": stall_attribution(events),
+        "rotation": rotation_acceptance(events),
         "overrun_n": len(overruns),
         "overrun_p50": _quantiles(totals)[0],
         "overrun_p90": _quantiles(totals)[1],
@@ -318,10 +524,14 @@ def print_log_report(summary, other=None):
               f"unattributed: {attr['unattributed']}")
         for sus, ms, name, gap, mat_us, verdict in attr["rows"][:12]:
             mat = f" materialize_us={mat_us}" if mat_us is not None else ""
+            # `gap` is the landing line's offset from the stall line and is
+            # NEGATIVE whenever the match was an overlap by an event still
+            # running when the stall was reported.
             print(f"   stall {ms:>4} ms at {sus/1e6:>7.3f}s -> {name} "
-                  f"(+{gap} us{mat}) {verdict}")
+                  f"(gap {gap:+d} us{mat}) {verdict}")
         if len(attr["rows"]) > 12:
             print(f"   ... {len(attr['rows']) - 12} more attributed stalls")
+        print_rotation_report(s["rotation"])
 
 
 # ------------------------------------------------------------- sample text ---
@@ -507,6 +717,98 @@ PERF|70000|stall|ms=10
 PERF|1000100|nav|id=b
 """
 
+# Probe 4: the case the old adjacency rule could not see. The stall spans
+# 100..200ms and the `materialize` that caused it does not LOG until 260ms --
+# 60ms past even a generous post-window -- but its interval (260-200=60ms ..
+# 260ms) covers the stall completely.
+LOG_FIXTURE_OVERLAP = """PERF|1000|nav|id=a
+PERF|200000|stall|ms=100
+PERF|260000|materialize|id=7|bytes=96962304|dur_us=200000|iso=main
+PERF|1000100|nav|id=b
+"""
+
+# AC-9.1 fixtures. `PASS_LOG` is the shape a landed fix should produce: two
+# natively-oriented items take the pointer path with residual=1 (rotated=
+# false -- the common case once native orientation lands, see AC-7.5), plus
+# one item that still reports `rotated=true` -- covering AC-9.1's 4th-clause
+# guard -- yet also lands on the pointer arm with zero materialize/copy (the
+# instrument must recognise this as a clean PASS regardless of how a given
+# ceyx build produces that combination; that decoder-level question is out of
+# this script's scope).
+ROTATION_LOG_PASS = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=false|bytes=96962304
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=96962304
+PERF|4000|reencode.end|id=1|dur_us=9000|bytes=500000
+PERF|5000|orient|exif=1|applied=1|residual=1|rotated=false|bytes=44236800
+PERF|6000|reencode.submit|id=2|path=pointer|bytes=44236800
+PERF|7000|reencode.end|id=2|dur_us=8000|bytes=400000
+PERF|8000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=50000000
+PERF|9000|reencode.submit|id=3|path=pointer|bytes=50000000
+PERF|9500|reencode.end|id=3|dur_us=9000|bytes=450000
+PERF|1000100|nav|id=b
+"""
+
+# `RED_LOG` reproduces the pre-fix baseline shape (capture_225634): a rotated
+# item takes the byte arm, pays a full-frame materialize (bytes match the
+# reencode.submit bytes) and a copy. A same-sized thumbnail materialize is
+# included as a negative control: its bytes (12000) never appear in any
+# reencode.submit line, so it must NOT be counted as full-frame.
+ROTATION_LOG_RED = """PERF|1000|nav|id=a
+PERF|1500|materialize|id=9|bytes=12000|dur_us=500
+PERF|2000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|3000|reencode.submit|id=1|path=byte|bytes=96962304
+PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304
+PERF|4000|reencode.end|id=1|dur_us=118400|bytes=500000
+PERF|1000100|nav|id=b
+"""
+
+# No rotated photos in the workload at all -> VOID per AC-9.2, even though
+# the three zero-clauses would otherwise read as a (meaningless) PASS.
+ROTATION_LOG_VOID = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=1|applied=1|residual=1|rotated=false|bytes=44236800
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=44236800
+PERF|1000100|nav|id=b
+"""
+
+# Old-shape orient| lines (pre-Task-7: no applied=/residual=) must not crash
+# the parser and must still drive the pass/fail clauses off `rotated=`.
+ROTATION_LOG_OLDSHAPE = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|rotated=true|bytes=96962304
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=96962304
+PERF|1000100|nav|id=b
+"""
+
+# Round-2 review counterexample (fix cycle 1): a natively-oriented item whose
+# residual is identity (rotated=true is the DECLARED-vs-nothing flag here,
+# see the reviewer's log verbatim) still pays a full-res `ui.decodeImageFromP
+# ixels` (107.8ms) BEFORE the pointer path decides the reencode.submit| bytes
+# it ends up shipping are smaller (50_000_000, e.g. a downstream crop/fallback
+# thunk) -- so the materialize's bytes=96962304 never appears among this
+# capture's reencode.submit| bytes. Under the OLD bytes-join-only logic this
+# read full_frame_materialize=0 (a false PASS); the materialize is untagged
+# (no src=fullres, simulating a log captured before that tag existed) so the
+# fix must catch it via the unmatched-candidate fallback (96962304 >=
+# smallest submit bytes 50_000_000).
+ROTATION_LOG_ADVERSARIAL_SKIP = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|3000|reencode.submit|id=1|path=pointer|bytes=50000000
+PERF|1000100|nav|id=b
+"""
+
+# Fix cycle 2 (re-review): the zero-submit shape -- NO reencode.submit| line
+# at all in the capture, so `smallest_submit` is undefined and the size-
+# relative fallback above has nothing to compare against. Under the fix-
+# cycle-1-only logic this again silently reads full_frame_materialize=0 (a
+# false PASS, since rotated_true=1 here too). Only the ABSOLUTE_FULLRES_FLOOR
+# guard (bytes > 2800*2800*4 = 31,360,000) can catch this shape.
+ROTATION_LOG_ADVERSARIAL_NOSUBMIT = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=6|residual=1|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -588,6 +890,16 @@ def selftest(tmpdir="."):
         assert verdicts == ["materialize-explained", "candidate-GC",
                             "candidate-GC"], verdicts
 
+        p = write(LOG_FIXTURE_OVERLAP, ".log")
+        paths.append(p)
+        o = summarise_log(p)["stall_attr"]
+        # Adjacency alone would call this unattributed (the line is 60ms after
+        # the stall); interval overlap attributes it to the materialize.
+        assert o["n"] == 1, o
+        assert o["unattributed"] == 0, o
+        assert o["explained"] == 1 and o["explained_ms"] == 100, o
+        assert o["rows"][0][2] == "materialize", o["rows"]
+
         p = write(SAMPLE_FIXTURE, ".txt")
         paths.append(p)
         threads = parse_sample(p)
@@ -606,6 +918,133 @@ def selftest(tmpdir="."):
         # Self time of FlushTasks = 40 - (30 + 10) = 0.
         ft = "fml::MessageLoopImpl::FlushTasks(fml::FlushType)  (in FlutterMacOS)"
         assert self_by[ft] == 0, self_by[ft]
+
+        p = write(ROTATION_LOG_PASS, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "PASS", r
+        assert r["reencode_submit_byte"] == 0, r
+        assert r["full_frame_materialize"] == 0, r
+        assert r["reencode_copy"] == 0, r
+        assert r["orient_rotated_true"] == 1, r  # the 4th-clause guard item
+
+        p = write(ROTATION_LOG_RED, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "FAIL", r
+        assert r["reencode_submit_byte"] == 1, r
+        assert r["full_frame_materialize"] == 1, r  # NOT the 12000-byte thumbnail
+        assert r["reencode_copy"] == 1, r
+        assert r["orient_rotated_true"] == 1, r
+        assert r["orient_applied_exif_mismatch"] == 1, r  # applied=1 != exif=6
+        assert r["orient_residual_non1"] == 1, r  # residual=6
+
+        # Red proof per clause: take the RED fixture (already FAIL) and flip
+        # ONE clause at a time toward the PASS fixture's shape; verdict must
+        # stay FAIL until ALL three zero-clauses are satisfied and the guard
+        # clause is non-zero. Demonstrates each clause actually gates.
+        no_byte = ROTATION_LOG_RED.replace("path=byte", "path=pointer")
+        p = write(no_byte, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["reencode_submit_byte"] == 0, r
+        assert r["verdict"] == "FAIL", r  # copy/materialize still nonzero
+
+        no_copy = no_byte.replace(
+            "PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304\n", "")
+        p = write(no_copy, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["reencode_copy"] == 0, r
+        assert r["verdict"] == "FAIL", r  # materialize still nonzero
+
+        no_materialize = no_copy.replace(
+            "PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800\n", "")
+        p = write(no_materialize, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize"] == 0, r
+        assert r["verdict"] == "PASS", r  # all three zero-clauses now hold,
+        # and orient|rotated=true==1 satisfies the guard.
+        assert r["orient_rotated_true"] == 1, r
+
+        p = write(ROTATION_LOG_VOID, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "VOID", r  # AC-9.2: rotated=true == 0
+
+        p = write(ROTATION_LOG_OLDSHAPE, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "PASS", r
+        assert r["orient_new_shape_n"] == 0, r  # no applied=/residual= fields
+        assert r["orient_applied_exif_mismatch"] == 0, r
+        assert r["orient_residual_non1"] == 0, r
+
+        # Round-2 review counterexample (fix cycle 1): materialize's bytes
+        # never appear among reencode.submit bytes -> the old bytes-join-only
+        # logic would have read full_frame_materialize=0 (a false PASS, since
+        # rotated_true=1 and byte/copy are both 0 here). The unmatched-
+        # candidate fallback must catch it: RED (would-be PASS) -> GREEN
+        # (correctly FAIL) under the fixed logic.
+        p = write(ROTATION_LOG_ADVERSARIAL_SKIP, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 0, r    # no src= tag
+        assert r["full_frame_materialize_joined"] == 0, r    # bytes don't match
+        assert r["full_frame_materialize_unmatched"] == 1, r  # caught here
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # was silently PASS before the fix
+
+        # Fix cycle 2: zero-submit shape -- no reencode.submit| line at all,
+        # so the smallest_submit fallback has nothing to compare against.
+        # Only the ABSOLUTE_FULLRES_FLOOR guard catches this; without it,
+        # this fixture would read full_frame_materialize=0 (false PASS).
+        p = write(ROTATION_LOG_ADVERSARIAL_NOSUBMIT, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 0, r
+        assert r["full_frame_materialize_joined"] == 0, r
+        assert r["full_frame_materialize_unmatched"] == 1, r  # floor-caught
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # was silently PASS before the fix
+
+        # A genuinely small (thumbnail-scale) untagged materialize with no
+        # submits at all must NOT be swept up by the absolute floor.
+        small_nosubmit = ROTATION_LOG_ADVERSARIAL_NOSUBMIT.replace(
+            "bytes=96962304|dur_us=107800", "bytes=160000|dur_us=500")
+        p = write(small_nosubmit, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_unmatched"] == 0, r
+        assert r["full_frame_materialize"] == 0, r
+
+        # `src=fullres` tagged materialize (fix cycle 1 primary signal): exact
+        # count, no byte-size inference needed, and must NOT be double-counted
+        # by the bytes-join/unmatched fallback (its bytes also happen to match
+        # a same-session reencode.submit| line here, on purpose).
+        ROTATION_LOG_TAGGED = """PERF|1000|nav|id=a
+PERF|2000|orient|exif=6|applied=1|residual=6|rotated=true|bytes=96962304
+PERF|2500|materialize|id=1|bytes=96962304|dur_us=107800|src=fullres
+PERF|3000|reencode.submit|id=1|path=byte|bytes=96962304
+PERF|3200|reencode.copy|id=1|dur_us=10600|bytes=96962304
+PERF|1000100|nav|id=b
+"""
+        p = write(ROTATION_LOG_TAGGED, ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["full_frame_materialize_tagged"] == 1, r
+        assert r["full_frame_materialize_joined"] == 0, r    # not double-counted
+        assert r["full_frame_materialize_unmatched"] == 0, r
+        assert r["full_frame_materialize"] == 1, r
+        assert r["verdict"] == "FAIL", r  # byte-arm + copy also nonzero here
+
+        # No relevant lines at all -> clean "no data", no crash.
+        p = write("PERF|1000|nav|id=a\nPERF|1000100|nav|id=b\n", ".log")
+        paths.append(p)
+        r = summarise_log(p)["rotation"]
+        assert r["verdict"] == "VOID", r  # rotated_true == 0 by construction
+        assert r["orient_n"] == 0, r
 
         try:
             parse_log(write("not a perf log\n", ".log"))
