@@ -183,11 +183,15 @@ class DarkroomMobileSurface extends StatelessWidget {
                                       BlendMode.multiply,
                                     )
                                   : ColorFilter.matrix(_desaturateDim),
-                              child: PhotoThumbnail(
-                                payload: strip.payloadFor(item.id),
-                                width: 200,
-                                height: 200 / (3 / 2),
-                                borderRadius: 0,
+                              child: StripTile(
+                                strip: strip,
+                                id: item.id,
+                                builder: (context, payload) => PhotoThumbnail(
+                                  payload: payload,
+                                  width: 200,
+                                  height: 200 / (3 / 2),
+                                  borderRadius: 0,
+                                ),
                               ),
                             ),
                             if (item.status != PhotoStatus.unmarked)

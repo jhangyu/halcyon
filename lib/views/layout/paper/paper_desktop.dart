@@ -620,11 +620,15 @@ class _PaperChip extends StatelessWidget {
                 child: SizedBox(
                   width: 200,
                   height: 200 / kPaperChipAspect,
-                  child: PhotoThumbnail(
-                    payload: strip.payloadFor(item.id),
-                    width: 200,
-                    height: 200 / kPaperChipAspect,
-                    borderRadius: 0,
+                  child: StripTile(
+                    strip: strip,
+                    id: item.id,
+                    builder: (context, payload) => PhotoThumbnail(
+                      payload: payload,
+                      width: 200,
+                      height: 200 / kPaperChipAspect,
+                      borderRadius: 0,
+                    ),
                   ),
                 ),
               ),

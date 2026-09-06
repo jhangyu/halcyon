@@ -108,6 +108,7 @@ class _MainScreenState extends State<MainScreen> {
           recycleMode: state.recycleMode,
           onSelect: state.selectItem,
           payloadFor: state.thumbnailPayloadFor,
+          stateFor: state.payloadStateFor,
           onVisibleRange: state.preloadThumbnails,
           revision: state.thumbnailsRevision,
         ),

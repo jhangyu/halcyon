@@ -14,6 +14,7 @@ import 'dng_decode_service.dart'
 import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
 import 'payload_reencoder.dart';
+import 'payload_state.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
 import 'photo_source.dart';
@@ -227,6 +228,7 @@ class ImagePreloadController {
     ),
     retentionIds: () => _retentionIds,
     republishEvictionPriority: _republishEvictionPriority,
+    onTileLanded: _markThumbnailReady,
   );
 
   /// The JPEG re-encode's own bounded stage. Deliberately NOT the [DecodeLane]:
@@ -310,6 +312,163 @@ class ImagePreloadController {
   /// Detail-path (tier-1/tier-2) loads in flight, keyed by BARE photo id.
   final Set<String> _loadingKeys = {};
 
+  // ---------------------------------------------------------------------------
+  // PHASE 5 -- per-item payload state.
+  //
+  // One [PayloadStateNotifier] per id a view has asked about, NEVER one per id
+  // in the folder: entries are created on demand by [stateFor] and disposed by
+  // the retention sweep ([_sweepPayloadStates]), so the map's size is bounded
+  // by the retention union rather than by the folder (plan risk R7).
+  //
+  // This is a NOTIFICATION channel, not a second source of truth: every write
+  // below sits at a site that already had a landing (`_cache.put`, the
+  // permanent-miss latch, the claim). [_derivedStateFor] recomputes the value
+  // from the same containers, so a notifier created after the fact can never
+  // disagree with the cache.
+  // ---------------------------------------------------------------------------
+  final Map<String, PayloadStateNotifier> _payloadStates = {};
+
+  // Every notifier this controller has disposed, ever. The acceptance
+  // condition "every notifier removed from the map has had dispose() called"
+  // is asserted as `disposeCount == removals`, which needs a sink that
+  // survives the removal.
+  int _payloadStateDisposeCount = 0;
+
+  /// [id]'s payload readiness, for a view to listen to instead of rebuilding
+  /// on the app-wide notification.
+  ///
+  /// Created on demand and re-created after eviction, so a caller that keeps
+  /// listening across a retention sweep sees a disposed (silent) notifier and
+  /// the NEXT read returns a fresh one at [PayloadStage.absent] -- never a
+  /// throw. Views receive STATE only; providers are still built exclusively by
+  /// this class's two factories (plan risk R1).
+  ValueListenable<PayloadState> stateFor(String id) => _notifierFor(id);
+
+  PayloadStateNotifier _notifierFor(String id) => _payloadStates.putIfAbsent(
+    id,
+    () => PayloadStateNotifier(_derivedStateFor(id)),
+  );
+
+  /// The truth as of right now, read off the same containers the getters use.
+  /// A notifier is born with this rather than with `absent` so a widget that
+  /// starts listening to an item that landed BEFORE it was built paints the
+  /// photo instead of a spinner.
+  PayloadState _derivedStateFor(String id) {
+    final thumbnailReady = _sidebar.thumbnailPayloadFor(id) != null;
+    if (_permanentMisses.contains(id)) {
+      return PayloadState(
+        stage: PayloadStage.failed,
+        thumbnailReady: thumbnailReady,
+      );
+    }
+    if (_cache.contains(id)) {
+      return PayloadState(
+        stage: _tierTwo.isReady(id)
+            ? PayloadStage.tierTwoReady
+            : PayloadStage.tierOneReady,
+        thumbnailReady: thumbnailReady,
+      );
+    }
+    if (_loadingKeys.contains(id)) {
+      return PayloadState(
+        stage: PayloadStage.decoding,
+        thumbnailReady: thumbnailReady,
+      );
+    }
+    return PayloadState(
+      stage: PayloadStage.absent,
+      thumbnailReady: thumbnailReady,
+    );
+  }
+
+  /// Moves [id] FORWARD to [stage]. Never backwards, and never out of
+  /// [PayloadStage.failed] -- only [reset] (which disposes every notifier)
+  /// clears that. A no-op when no view has asked about [id]: the state is
+  /// derived on first [stateFor] anyway, so materialising a notifier here
+  /// would grow the map for items nobody is watching.
+  void _markStage(String id, PayloadStage stage) {
+    final notifier = _payloadStates[id];
+    if (notifier == null) return;
+    final current = notifier.value;
+    if (current.stage == PayloadStage.failed) return;
+    if (stage != PayloadStage.failed && stage.index <= current.stage.index) {
+      return;
+    }
+    notifier.trySetValue(current.copyWith(stage: stage));
+  }
+
+  /// The sidebar wrote a derived tile for [id]. A separate axis from the stage
+  /// ladder -- see [PayloadState.thumbnailReady].
+  void _markThumbnailReady(String id) {
+    final notifier = _payloadStates[id];
+    if (notifier == null) return;
+    notifier.trySetValue(notifier.value.copyWith(thumbnailReady: true));
+  }
+
+  /// Promotes every watched id whose tier-2 entry has become resident.
+  ///
+  /// A sweep rather than a per-id call because the tier-2 landing callbacks
+  /// live in [TierTwoScheduler], which carries ONE callback for the whole
+  /// window and does not name the id it just published. The readiness answer
+  /// itself is still [TierTwoRegistry]'s ([isFullSizeReady]) -- this reads it,
+  /// it does not re-derive it. Bounded by the notifier map, i.e. by the
+  /// retention union.
+  void _refreshTierTwoStates() {
+    if (_payloadStates.isEmpty) return;
+    for (final id in _payloadStates.keys) {
+      if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
+    }
+  }
+
+  /// Wraps a landing callback so tier-2 publications reach the per-item
+  /// notifiers as well. Calls [notify] exactly once, so notification
+  /// cardinality (pin B3) is unchanged.
+  VoidCallback _withTierTwoStates(VoidCallback notify) {
+    return () {
+      _refreshTierTwoStates();
+      notify();
+    };
+  }
+
+  /// Disposes and drops every notifier whose id has left the retention union.
+  ///
+  /// THE lifetime rule (plan risk R7): notifiers are disposed here and nowhere
+  /// else on the steady-state path, so a widget listening to an id inside the
+  /// union can never meet a disposed notifier. Called from
+  /// [_republishEvictionPriority], which both contributors to the union (the
+  /// navigation pass and the sidebar sweep) already call whenever their half
+  /// changes.
+  void _sweepPayloadStates() {
+    if (_payloadStates.isEmpty) return;
+    final keep = _retentionIds;
+    _payloadStates.removeWhere((id, notifier) {
+      if (keep.contains(id)) return false;
+      notifier.dispose();
+      _payloadStateDisposeCount++;
+      return true;
+    });
+  }
+
+  void _disposeAllPayloadStates() {
+    for (final notifier in _payloadStates.values) {
+      notifier.dispose();
+      _payloadStateDisposeCount++;
+    }
+    _payloadStates.clear();
+  }
+
+  /// Live per-item notifiers. The no-leak acceptance condition asserts this
+  /// against the retention union plus the sidebar's wanted set.
+  @visibleForTesting
+  int get debugPayloadStateCount => _payloadStates.length;
+
+  /// Total notifiers disposed by this controller (the dispose-count sink).
+  @visibleForTesting
+  int get debugPayloadStateDisposeCount => _payloadStateDisposeCount;
+
+  @visibleForTesting
+  PayloadState debugPayloadStateFor(String id) => _notifierFor(id).value;
+
   // Callbacks from callers who selected an item while its load was already in
   // flight (started by a previous preload pass). Flushed once the in-flight
   // load completes so the UI never strands on a permanent spinner.
@@ -365,6 +524,11 @@ class ImagePreloadController {
 
   void _republishEvictionPriority() {
     _cache.setEvictionPriority(_evictionPriorityOrder());
+    // PHASE 5: the union just changed, and this is the ONE place both of its
+    // contributors report a change from. Notifier lifetime is therefore tied
+    // to exactly the set this line publishes, not to a second opinion about
+    // what is retained.
+    _sweepPayloadStates();
   }
 
   // Tier-1 (window-resolution) decode precache bookkeeping.
@@ -597,6 +761,10 @@ class ImagePreloadController {
 
   void reset() {
     _cache.clear();
+    // PHASE 5: a folder reload is the ONLY thing that clears a `failed`
+    // state, and it clears it by ending the notifier's life -- the next
+    // [stateFor] builds a fresh one from the (now empty) containers.
+    _disposeAllPayloadStates();
     _sidebar.reset();
     _loadingKeys.clear();
     _pendingPreviewNotifies.clear();
@@ -641,6 +809,7 @@ class ImagePreloadController {
     // Same reason as [reset]: an unawaited in-flight load must not write into
     // the maps cleared below.
     _folderGeneration++;
+    _disposeAllPayloadStates();
     _sidebar.dispose();
     _decodeLane.clearPending();
     _encodeStage.clear();
@@ -827,7 +996,15 @@ class ImagePreloadController {
     // before re-arming, so a later pass overwrites this arming rather than
     // racing it.
     _precacheTierOneWindow(items, currentIndex);
-    _tierTwoScheduler.schedule(items, currentIndex, notifyLoaded);
+    // PHASE 5: the scheduler's landing callback also refreshes the per-item
+    // notifiers. `notifyLoaded` itself is still called exactly once per
+    // landing (pin B3) -- the wrapper adds a read of the tier-2 registry, not
+    // a second notification.
+    _tierTwoScheduler.schedule(
+      items,
+      currentIndex,
+      _withTierTwoStates(notifyLoaded),
+    );
   }
 
   /// The id the current pass selected. Read by the pacer's exempt-claim
@@ -1068,6 +1245,9 @@ class ImagePreloadController {
     // exit below removes it again: the expensive-route hand-off, the probe's
     // catch, and the `finally`.
     _loadingKeys.add(id);
+    // PHASE 5: the claim IS the "decoding" event -- the same instant that
+    // makes every other caller park instead of producing.
+    _markStage(id, PayloadStage.decoding);
 
     // CONTENT PROBE FIRST, for every item at every distance (user Amendment 3
     // clause 2). The probe is what decides the LANE, so anything it does not
@@ -1402,6 +1582,10 @@ class ImagePreloadController {
         return false;
       }
       _cache.put(id, payload);
+      // PHASE 5: the per-item twin of the `notifyLoaded?.call()` below. It
+      // sits at the cache write, not next to the callback, because EVERY
+      // landing writes here while only the selected slot carries a callback.
+      _markStage(id, PayloadStage.tierOneReady);
       // PERF-INSTRUMENTATION (D1 AC3 marker): payload publish.
       PerfLog.log(
         'publish|id=$id|bytes=${payload.byteCost}'
@@ -1436,6 +1620,8 @@ class ImagePreloadController {
       // later pass asks again. This is the load-bearing edge of design §3.4:
       // the ONLY new stranding risk in M3 is a failure that nobody records.
       _permanentMisses.add(id);
+      // PHASE 5: terminal for this folder, exactly like the latch it mirrors.
+      _markStage(id, PayloadStage.failed);
       _sidebar.onPayloadMiss(id);
       // DIAGNOSTIC (2026-09-02). THE latch: from here nothing re-asks about
       // this item until the folder reloads (`_earlyResolve`'s permanent-miss
@@ -1521,6 +1707,11 @@ class ImagePreloadController {
           notifyLoaded,
           distance: distance,
         );
+        // PHASE 5: the one tier-2 landing whose id is known at the call site.
+        // The registry -- not this line -- decides readiness; publishing can
+        // be refused (window, payload identity, already published), so the
+        // answer is READ BACK rather than assumed.
+        if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
       } else {
         // No payload survived, so no publisher will ever take ownership.
         // This is the one dispose the controller owns.

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 // dart:typed_data is not imported: package:flutter/services.dart (added for
 // LogicalKeyboardKey) already re-exports Uint8List.
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
@@ -21,6 +22,7 @@ import '../services/image_pipeline/idle_publish_scheduler.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
+import '../services/image_pipeline/payload_state.dart';
 import '../services/image_pipeline/photo_payload.dart';
 import '../services/image_pipeline/retention_policy.dart';
 import '../services/library/photo_file_actions.dart';
@@ -651,6 +653,20 @@ class AppState extends ChangeNotifier {
 
   SourcePayload? thumbnailPayloadFor(String id) =>
       _preloadController.thumbnailPayloadFor(id);
+
+  /// PHASE 5: [id]'s own payload readiness, for a widget that wants to repaint
+  /// when THAT item lands rather than when anything in the app changes.
+  ///
+  /// A listenable, never bytes: the tier-1/tier-2 provider factories stay the
+  /// controller's (AD-028), so a view still reads its pixels through the
+  /// getters above -- this only tells it WHEN to.
+  ///
+  /// Safe after [dispose]: the controller disposes its notifiers, and a
+  /// disposed `PayloadStateNotifier` ignores listener add/remove instead of
+  /// asserting -- the same `_disposed` discipline as the landing callback
+  /// handed to the controller in [_preloadImages].
+  ValueListenable<PayloadState> payloadStateFor(String id) =>
+      _preloadController.stateFor(id);
 
   /// True once the current item's full-size (tier-2) decode has landed in
   /// ImageCache; the view uses this to switch providers seamlessly instead

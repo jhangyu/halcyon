@@ -32,7 +32,9 @@ class SidebarThumbnailController {
     required Future<void> Function(PhotoItem item) ensurePayload,
     required Set<String> Function() retentionIds,
     required VoidCallback republishEvictionPriority,
-  }) : _peekPayload = peekPayload,
+    void Function(String id)? onTileLanded,
+  }) : _onTileLanded = onTileLanded,
+       _peekPayload = peekPayload,
        _hasPayload = hasPayload,
        _isPreviewPermanentMiss = isPreviewPermanentMiss,
        _decodeLane = decodeLane,
@@ -47,6 +49,13 @@ class SidebarThumbnailController {
   final Future<void> Function(PhotoItem item) _ensurePayload;
   final Set<String> Function() _retentionIds;
   final VoidCallback _republishEvictionPriority;
+
+  /// PHASE 5: reports the id whose TILE was just written, so the controller
+  /// can wake that row's own listener instead of the whole strip. Optional so
+  /// every existing test construction still compiles; when it is null this
+  /// class behaves exactly as it did (the global [_notify] is still called
+  /// either way in this commit).
+  final void Function(String id)? _onTileLanded;
 
   // A SUM TYPE, not bytes: the JPG / embedded-preview path stores the encoded
   // bitstream it already had, and the RAW-decode path stores oriented,
@@ -283,6 +292,10 @@ class SidebarThumbnailController {
         return false;
       }
       _cache[id] = derived;
+      // PHASE 5: per-row first, then the global repaint. Order matters only
+      // in that a listener woken by the global callback must already be able
+      // to read the tile -- and it can, because the write above is done.
+      _onTileLanded?.call(id);
       (notifyLoaded ?? _notify)?.call();
       return true;
     } catch (e) {

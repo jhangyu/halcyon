@@ -6,6 +6,7 @@ import '../../../models/photo_item.dart';
 import '../../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../../../providers/app_state.dart';
 import '../../../services/image_pipeline/image_preload_controller.dart';
+import '../../../services/image_pipeline/payload_state.dart';
 import '../../zoom_controller.dart';
 import 'app_actions_menu.dart' show openFolderShortcutLabel;
 import '../darkroom/darkroom_empty_state.dart';
@@ -102,7 +103,6 @@ class _PhotoViewportState extends State<PhotoViewport>
 
     final currentId = state.selectedItemID;
     final item = state.currentItem;
-    final bytes = state.currentImageBytes;
 
     if (currentId == null || item == null) {
       return const Center(child: CircularProgressIndicator());
@@ -111,15 +111,26 @@ class _PhotoViewportState extends State<PhotoViewport>
     return Stack(
       children: [
         // Viewer Area
+        //
+        // PHASE 5: the viewer subtree repaints off the SELECTED ITEM'S OWN
+        // payload state, not off every app-wide notification. The state value
+        // itself is deliberately unused below -- what to paint is still
+        // decided by AppState's existing getters (bytes / full-size readiness
+        // / failure), which are the pipeline's single source of truth; the
+        // listenable only says WHEN to re-read them. Reading them inside this
+        // builder is what makes the read fresh.
         Positioned.fill(
-          child: state.currentItemFailed
-              ? _buildUnreadable(item)
-              : _buildZoomableViewer(
-                  bytes,
-                  state.currentItemHasFullSize,
-                  currentId, // PERF-INSTRUMENTATION
-                  state.displayProvider,
-                ),
+          child: ValueListenableBuilder<PayloadState>(
+            valueListenable: state.payloadStateFor(currentId),
+            builder: (context, _, _) => state.currentItemFailed
+                ? _buildUnreadable(item)
+                : _buildZoomableViewer(
+                    state.currentImageBytes,
+                    state.currentItemHasFullSize,
+                    currentId, // PERF-INSTRUMENTATION
+                    state.displayProvider,
+                  ),
+          ),
         ),
       ],
     );

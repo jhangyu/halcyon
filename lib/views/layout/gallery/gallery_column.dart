@@ -462,11 +462,15 @@ class _GalleryColumnState extends State<GalleryColumn>
                 child: SizedBox(
                   width: kChipDecodeWidth,
                   height: kChipDecodeWidth / kChipAspect,
-                  child: PhotoThumbnail(
-                    payload: strip.payloadFor(item.id),
-                    width: kChipDecodeWidth,
-                    height: kChipDecodeWidth / kChipAspect,
-                    borderRadius: 0,
+                  child: StripTile(
+                    strip: strip,
+                    id: item.id,
+                    builder: (context, payload) => PhotoThumbnail(
+                      payload: payload,
+                      width: kChipDecodeWidth,
+                      height: kChipDecodeWidth / kChipAspect,
+                      borderRadius: 0,
+                    ),
                   ),
                 ),
               ),

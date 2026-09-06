@@ -286,11 +286,15 @@ class _GalleryMobileSurfaceState extends State<GalleryMobileSurface>
                     child: SizedBox(
                       width: kGalleryMobileChipDecodeWidth,
                       height: kGalleryMobileChipDecodeWidth * 2 / 3,
-                      child: PhotoThumbnail(
-                        payload: strip.payloadFor(item.id),
-                        width: kGalleryMobileChipDecodeWidth,
-                        height: kGalleryMobileChipDecodeWidth * 2 / 3,
-                        borderRadius: 0,
+                      child: StripTile(
+                        strip: strip,
+                        id: item.id,
+                        builder: (context, payload) => PhotoThumbnail(
+                          payload: payload,
+                          width: kGalleryMobileChipDecodeWidth,
+                          height: kGalleryMobileChipDecodeWidth * 2 / 3,
+                          borderRadius: 0,
+                        ),
                       ),
                     ),
                   ),

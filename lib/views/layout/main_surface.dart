@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 import '../../models/photo_item.dart';
 import '../../models/rename_rule.dart' show ExifMetadata;
+import '../../services/image_pipeline/payload_state.dart';
 import '../../services/image_pipeline/photo_payload.dart';
 
 /// Key on the widget that must measure 1350x900 at 1440x900. Declared here so
@@ -42,6 +44,7 @@ class PhotoStripModel {
     required this.recycleMode,
     required this.onSelect,
     required this.payloadFor,
+    this.stateFor = _absentPayloadStateFor,
     required this.onVisibleRange,
     required this.revision,
   });
@@ -52,6 +55,15 @@ class PhotoStripModel {
   final void Function(String id) onSelect;
   final SourcePayload? Function(String id) payloadFor;
 
+  /// PHASE 5: ONE ROW'S readiness. Defaults to [_absentPayloadStateFor], a
+  /// constant listenable that never fires: a strip built without it (the theme
+  /// widget tests, which supply their payloads directly) keeps exactly its old
+  /// behaviour and repaints through [revision]. Production always passes
+  /// `AppState.payloadStateFor`. A tile wraps itself in a
+  /// [ValueListenableBuilder] on its own id, so a landing repaints that tile
+  /// and no other -- [revision] is the strip-wide fallback it replaces.
+  final ValueListenable<PayloadState> Function(String id) stateFor;
+
   /// AD-014 contract: the strip reports the PURE visible index range once per
   /// frame; prefetch margin is the controller's business, not the view's.
   final void Function(int firstIndex, int lastIndex) onVisibleRange;
@@ -60,6 +72,43 @@ class PhotoStripModel {
   /// theme listens to THIS around its strip, so a thumbnail landing repaints
   /// the strip without rebuilding the viewer.
   final Listenable revision;
+}
+
+/// The never-firing default for [PhotoStripModel.stateFor]. One shared
+/// instance, so a strip built without per-item state allocates nothing per
+/// row and rebuilds exactly when it used to.
+final ValueNotifier<PayloadState> _kAbsentPayloadState =
+    ValueNotifier<PayloadState>(const PayloadState.absent());
+
+ValueListenable<PayloadState> _absentPayloadStateFor(String id) =>
+    _kAbsentPayloadState;
+
+/// PHASE 5: one strip row, rebuilt when THAT row's payload state changes.
+///
+/// Every theme's tile builder wraps its chip in this instead of relying on the
+/// strip-wide [PhotoStripModel.revision] rebuild, so a landing for one row
+/// cannot repaint 40 others. It hands the builder the row's PAYLOAD (read back
+/// through the model at build time), never the state object: what a tile paints
+/// is still decided by the pipeline's own accessor.
+class StripTile extends StatelessWidget {
+  const StripTile({
+    super.key,
+    required this.strip,
+    required this.id,
+    required this.builder,
+  });
+
+  final PhotoStripModel strip;
+  final String id;
+  final Widget Function(BuildContext context, SourcePayload? payload) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<PayloadState>(
+      valueListenable: strip.stateFor(id),
+      builder: (context, _, _) => builder(context, strip.payloadFor(id)),
+    );
+  }
 }
 
 @immutable
