@@ -93,6 +93,65 @@ def stall_analysis(events, span_s):
     }
 
 
+def stall_attribution(events, window_us=10_000):
+    """H2 copy-vs-GC discriminator: attribute each stall to an adjacent
+    payload-landing event.
+
+    A stall that ENDS just before a `pool.materialize` / `decode.ffi` line is
+    the signature of the ~97MB decode payload landing on the UI isolate. With
+    the pool.materialize instrumentation (ceyx decode_pool.dart) we can now
+    split those into:
+      - materialize-explained: the measured materialize duration covers >=50%
+        of the stall -> the cost IS the materialize/copy step;
+      - candidate-GC: a landing is adjacent but the measured materialize was
+        too small to explain the stall -> the blockage is elsewhere in the
+        landing (heap admission / GC pause being the prime suspect);
+      - unattributed: no landing within `window_us` after the stall line.
+    NOTE: `decode.ffi`'s own dur_us is WORKER wall time, never counted as
+    on-main cost.
+    """
+    stalls = [(us, int(kv["ms"])) for us, name, kv in events
+              if name == "stall" and "ms" in kv]
+    # Cumulative-mode logs carry running totals; convert to per-gap deltas so
+    # the ms compared against materialize durations is the actual gap.
+    if len(stalls) >= 2:
+        span_s = (events[-1][0] - events[0][0]) / 1e6
+        if stall_analysis(events, span_s)["mode"].startswith("cumulative"):
+            stalls = [(b_us, max(0, b - a))
+                      for (_, a), (b_us, b) in zip(stalls, stalls[1:])]
+    landings = [(us, name, kv) for us, name, kv in events
+                if name in ("pool.materialize", "decode.ffi")]
+    rows, explained, gc_cand, unattributed = [], 0, 0, 0
+    explained_ms, gc_ms = 0, 0
+    for sus, ms in stalls:
+        near = [(us - sus, name, kv) for us, name, kv in landings
+                if 0 <= us - sus <= window_us]
+        if not near:
+            unattributed += 1
+            continue
+        gap, name, kv = min(near)
+        mat_us = int(kv["dur_us"]) if name == "pool.materialize" else None
+        if mat_us is not None and mat_us >= ms * 500:  # >=50% of stall
+            explained += 1
+            explained_ms += ms
+            verdict = "materialize-explained"
+        else:
+            gc_cand += 1
+            gc_ms += ms
+            verdict = "candidate-GC"
+        rows.append((sus, ms, name, gap, mat_us, verdict))
+    return {
+        "n": len(stalls),
+        "explained": explained,
+        "explained_ms": explained_ms,
+        "gc_candidate": gc_cand,
+        "gc_candidate_ms": gc_ms,
+        "unattributed": unattributed,
+        "has_materialize": any(n == "pool.materialize" for _, n, _ in landings),
+        "rows": rows,
+    }
+
+
 def decode_windows(events):
     """Pair req_start/req_end by id -> sorted [(start_us, end_us)]."""
     open_reqs, wins = {}, []
@@ -158,6 +217,7 @@ def summarise_log(path):
         "navs": hist.get("nav", 0),
         "hist": hist,
         "stall": stall_analysis(events, span_s),
+        "stall_attr": stall_attribution(events),
         "overrun_n": len(overruns),
         "overrun_p50": _quantiles(totals)[0],
         "overrun_p90": _quantiles(totals)[1],
@@ -244,6 +304,24 @@ def print_log_report(summary, other=None):
             f"{k}={v}" for k, v in s["publish_paths"].most_common()))
         print("-- top events: " + ", ".join(
             f"{k}={v}" for k, v in s["hist"].most_common(8)))
+        attr = s["stall_attr"]
+        print(f"-- stall attribution (copy-vs-GC discriminator, "
+              f"{attr['n']} stalls):")
+        if not attr["has_materialize"]:
+            print("   no pool.materialize events in this log -- capture "
+                  "predates the instrumentation; only decode.ffi adjacency "
+                  "available, so 'candidate-GC' below really means "
+                  "'adjacent-but-unmeasured'.")
+        print(f"   materialize-explained: {attr['explained']} "
+              f"({attr['explained_ms']} ms)  candidate-GC: "
+              f"{attr['gc_candidate']} ({attr['gc_candidate_ms']} ms)  "
+              f"unattributed: {attr['unattributed']}")
+        for sus, ms, name, gap, mat_us, verdict in attr["rows"][:12]:
+            mat = f" materialize_us={mat_us}" if mat_us is not None else ""
+            print(f"   stall {ms:>4} ms at {sus/1e6:>7.3f}s -> {name} "
+                  f"(+{gap} us{mat}) {verdict}")
+        if len(attr["rows"]) > 12:
+            print(f"   ... {len(attr['rows']) - 12} more attributed stalls")
 
 
 # ------------------------------------------------------------- sample text ---
@@ -418,6 +496,17 @@ PERF|30000|stall|ms=18
 PERF|1000100|nav|id=b
 """
 
+LOG_FIXTURE_ATTRIBUTION = """PERF|1000|nav|id=a
+PERF|10000|stall|ms=20
+PERF|11000|pool.materialize|dur_us=18000|bytes=96962304|type=decode|iso=main
+PERF|30000|stall|ms=30
+PERF|31000|pool.materialize|dur_us=500|bytes=96962304|type=decode|iso=main
+PERF|50000|stall|ms=15
+PERF|52000|decode.ffi|id=x|bytes=96962304|dur_us=2978093|iso=main
+PERF|70000|stall|ms=10
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -477,6 +566,27 @@ def selftest(tmpdir="."):
         assert summarise_log(p3)["stall"]["mode"].startswith("cumulative")
         # Non-monotonic -> summed directly: 20+25+18 = 63.
         assert s2["stall"]["late_ms"] == 63, s2["stall"]["late_ms"]
+
+        # No landing events at all -> everything unattributed, flag says the
+        # capture predates the pool.materialize instrumentation.
+        assert s["stall_attr"]["has_materialize"] is False
+        assert s["stall_attr"]["explained"] == 0
+        assert s["stall_attr"]["unattributed"] == s["stall_attr"]["n"]
+
+        p = write(LOG_FIXTURE_ATTRIBUTION, ".log")
+        paths.append(p)
+        a = summarise_log(p)["stall_attr"]
+        assert a["has_materialize"] is True
+        assert a["n"] == 4, a
+        # 18ms materialize inside a 20ms stall (>=50%) -> copy-explained.
+        assert a["explained"] == 1 and a["explained_ms"] == 20, a
+        # 0.5ms materialize under a 30ms stall, and a decode.ffi-adjacent
+        # stall (worker dur_us never counts as on-main cost) -> candidate GC.
+        assert a["gc_candidate"] == 2 and a["gc_candidate_ms"] == 45, a
+        assert a["unattributed"] == 1, a
+        verdicts = [row[5] for row in a["rows"]]
+        assert verdicts == ["materialize-explained", "candidate-GC",
+                            "candidate-GC"], verdicts
 
         p = write(SAMPLE_FIXTURE, ".txt")
         paths.append(p)
