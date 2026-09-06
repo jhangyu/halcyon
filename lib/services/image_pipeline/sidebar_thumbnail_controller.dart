@@ -252,10 +252,47 @@ class SidebarThumbnailController {
     }
   }
 
+  /// Distance from the visible viewport used to rank rows WITHIN the
+  /// sidebar's own priority class (added to [kSidebarPayloadPriorityBase]).
+  ///
+  /// Two-part, fixed 2026-09-06 (contract D1): a row inside the visible range
+  /// `[safeStart, safeEnd]` ranks by distance from the visible CENTER; a
+  /// margin row (prefetch only, never on screen) ranks by [_marginDistanceBase]
+  /// (itself derived from the visible span so it is always strictly larger
+  /// than any in-range distance) plus its distance from the nearest visible
+  /// edge. This guarantees every visible row outranks every margin row,
+  /// which the old `(index - safeStart).abs()` formula did not: it measured
+  /// from the TOP of the range with no floor for margin rows, so a margin row
+  /// a few slots above the viewport could outrank a visible row deep in a
+  /// tall visible range.
+  static int _rowDistance({
+    required int index,
+    required int safeStart,
+    required int safeEnd,
+  }) {
+    if (index >= safeStart && index <= safeEnd) {
+      final center = (safeStart + safeEnd) ~/ 2;
+      return (index - center).abs();
+    }
+    final marginBase = _marginDistanceBase(safeStart, safeEnd);
+    final edgeDistance = index < safeStart
+        ? safeStart - index
+        : index - safeEnd;
+    return marginBase + edgeDistance;
+  }
+
+  /// Strictly greater than any possible in-range distance from
+  /// `(safeStart + safeEnd) ~/ 2`, which is bounded by the visible span
+  /// itself (`safeEnd - safeStart`). Adding 1 to that span is therefore
+  /// sufficient regardless of how wide the visible range is.
+  static int _marginDistanceBase(int safeStart, int safeEnd) =>
+      (safeEnd - safeStart) + 1;
+
   /// Asks the lane to produce [item]'s payload on the SIDEBAR's behalf.
   ///
-  /// [rowDistance] is the row's distance from the first visible row, so nearer
-  /// rows are produced first within the sidebar's own priority class.
+  /// [rowDistance] is the row's [_rowDistance] result, so rows closer to the
+  /// visible center (and, among margin rows, closer to the visible edge) are
+  /// produced first within the sidebar's own priority class.
   ///
   /// The body re-checks the retention union when its TURN comes, not when it
   /// is queued (invariant I4): a row scrolled past before its turn does no
@@ -400,18 +437,32 @@ class SidebarThumbnailController {
         // RULE 2 -- no payload yet. Register interest either way; the
         // payload-landed hook turns whichever producer wins into a tile.
         _waiters.add(id);
-        if (!_decodeLane.isPending((LaneTaskKind.payload, id))) {
-          // RULE 3 -- nobody already owns this key, so nobody else will
-          // produce it. Ask the lane, at the sidebar's own low priority.
-          //
-          // The pending test is load-bearing, NOT an optimisation (G-027):
-          // re-enqueueing a key that is ALREADY pending REPLACES its
-          // priority, so enqueueing an id the navigation pass is waiting on
-          // would DEMOTE the decode of the item the user is looking at from
-          // rank 0 to rank 2000+. Testing the lane itself rather than the
-          // navigation window is self-healing: once the nav window moves
-          // away and its entry drains, the sidebar may take the key over.
-          _enqueueSidebarPayload(item, rowDistance: (index - safeStart).abs());
+        // RULE 3 -- (re-)enqueue at this sweep's priority, UNLESS the key is
+        // currently pending at a NAVIGATION priority (< kSidebarPayloadPriorityBase).
+        //
+        // This replaces the old plain `isPending` guard, whose sole purpose
+        // (G-027: never demote a navigation entry from rank 0 to 2000+) is
+        // preserved here by checking the pending priority's VALUE rather than
+        // merely its presence. A priority >= kSidebarPayloadPriorityBase can
+        // only ever have been set by the sidebar itself (navigation priorities
+        // are always < kSidebarPayloadPriorityBase), so re-enqueueing such a
+        // key is always safe -- and necessary, because DecodeLane.enqueue
+        // REPLACES a pending entry's priority (decode_lane.dart:120-139): this
+        // is what keeps an already-pending sidebar row's priority in step with
+        // the CURRENT visible range as the user scrolls, instead of freezing
+        // it at the range that first requested it.
+        final key = (LaneTaskKind.payload, id);
+        final pendingPriority = _decodeLane.pendingPriorityOf(key);
+        if (pendingPriority == null ||
+            pendingPriority >= kSidebarPayloadPriorityBase) {
+          _enqueueSidebarPayload(
+            item,
+            rowDistance: _rowDistance(
+              index: index,
+              safeStart: safeStart,
+              safeEnd: safeEnd,
+            ),
+          );
         }
       }
     });
