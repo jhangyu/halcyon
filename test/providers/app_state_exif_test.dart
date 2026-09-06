@@ -256,7 +256,7 @@ class _SilentPreload extends ImagePreloadController {
   Future<void> preloadImages({
     required List<PhotoItem> items,
     required String selectedItemId,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) async {}
 
   @override

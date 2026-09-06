@@ -212,6 +212,13 @@ void main() {
   });
 
   group('B3 — notification fan-out count', () {
+    // TC-974 pins the CONTROLLER's `notifyLoaded` callback cardinality (a
+    // param `preloadImages` still accepts and exercises); it says nothing
+    // about AppState. The app-level claim -- a landing notifies no app-wide
+    // listener -- is TC-1014 in
+    // test/providers/payload_landing_no_global_notify_test.dart, added when
+    // AppState stopped passing `notifyLoaded` (P1,
+    // docs/logs/2026-09-06/p3-plan-P1.md Task 5). Do not conflate the two.
     test(
       'TC-974: N distinct payload landings produce exactly N notifyLoaded '
       'callbacks',

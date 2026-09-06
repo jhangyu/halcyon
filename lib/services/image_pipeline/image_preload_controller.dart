@@ -1045,7 +1045,7 @@ class ImagePreloadController {
   Future<void> preloadImages({
     required List<PhotoItem> items,
     required String selectedItemId,
-    required VoidCallback notifyLoaded,
+    VoidCallback? notifyLoaded,
   }) async {
     if (items.isEmpty) return;
     final intent = _pendingIntent ??= _PendingIntent();

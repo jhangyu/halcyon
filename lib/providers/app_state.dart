@@ -111,11 +111,14 @@ class AppState extends ChangeNotifier {
   // field existed to narrow -- one landing rebuilding 40 rows -- has no
   // remaining producer to narrow.
   //
-  // The PREVIEW path deliberately still calls `notifyListeners` (see
-  // [_preloadImages]): the viewer genuinely must rebuild when the photo on
-  // screen gains its payload, and removing that is a separate, larger decision
-  // about every unscoped `context.watch<AppState>()` consumer (parked by the
-  // lead's ruling of 2026-09-06, commit B scope (c)).
+  // The PREVIEW path no longer calls `notifyListeners` either (see
+  // [_preloadImages]): as of P1 (2026-09-06) a landing wakes exactly the item
+  // that landed through [payloadStateFor], which `photo_viewport.dart`
+  // already consumes via `ValueListenableBuilder`. The removal was gated on
+  // fixing two payload-state races the old app-wide notify was masking (see
+  // docs/logs/2026-09-06/p3-plan-P1.md); with those fixed, no unscoped
+  // `context.watch<AppState>()` consumer in the app depends on payload
+  // landing (enumerated: TC-1014's sign-off report).
 
   AppState({
     PhotoLibraryScanner? scanner,
@@ -1076,18 +1079,17 @@ class AppState extends ChangeNotifier {
     final selectedId = _selectedItemID;
     if (selectedId == null) return;
 
+    // No `notifyLoaded`: since P1 a landing wakes exactly the item that
+    // landed, through `payloadStateFor(id)` -> the viewer's
+    // `ValueListenableBuilder` (see `photo_viewport.dart`). The app-wide
+    // callback this used to pass was also what MASKED the two payload-state
+    // races fixed earlier in P1 (a stale/orphaned per-item notifier still got
+    // a repaint because everything repainted), which is why its removal is
+    // ordered strictly after those fixes (see
+    // docs/logs/2026-09-06/p3-plan-P1.md Task 5).
     await _preloadController.preloadImages(
       items: _items,
       selectedItemId: selectedId,
-      // Guarded rather than a bare `notifyListeners` reference: preload work
-      // fans out through idle-scheduler slots and lane awaits, so a callback
-      // handed out before dispose() can still fire afterwards (observed on
-      // Windows CI as "A AppState was used after being disposed" from
-      // ImagePreloadController._flushPendingNotifies -- the controller has no
-      // way to know the notifier it was given has since been torn down).
-      notifyLoaded: () {
-        if (!_disposed) notifyListeners();
-      },
     );
   }
 
