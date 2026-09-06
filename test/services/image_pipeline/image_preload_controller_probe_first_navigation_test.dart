@@ -79,7 +79,20 @@ void main() {
       selectedItemId: cheapItems[5].id,
       notifyLoaded: () {},
     );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Poll the ASSERTED quantity itself (currentSize == 9), not a proxy: a
+    // fixed sleep races real precache completion under CPU contention --
+    // containsKey below stays true for a still-pending entry, so only
+    // currentSize (completed entries) can tell "resident" from "in flight".
+    // (round-2 review blocker: reproduced 3/3 in a 14-file batch run.)
+    await until(
+      () => PaintingBinding.instance.imageCache.currentSize == 9,
+      reason: 'the whole -3..+5 tier-1 window to finish precaching',
+    );
+    // Quiescence drain: the poll above returns the INSTANT currentSize first
+    // reads 9, which an over-decoding regression (e.g. still climbing to 12)
+    // could pass through on its way past -- re-settle briefly so the frozen
+    // ==9 expect below still catches "more than 9", not just "at least 9".
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     final neighbourBytes = cheap.imageBytesFor(cheapItems[7].id)!;
     final key = await tierOneProviderFor(
       neighbourBytes,
@@ -229,7 +242,7 @@ void main() {
         selectedItemId: raws[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     expect(maxInFlight, 1, reason: 'the burst may never put two RAW decodes in '
         'flight at once');
@@ -262,7 +275,7 @@ void main() {
         selectedItemId: jpgs[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     final bytes5 = cheap.imageBytesFor(jpgs[5].id)!;
     final key5 = await tierOneProviderFor(
@@ -293,7 +306,7 @@ void main() {
         selectedItemId: realCheapItems[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     expect(
       realCheapCalls,
@@ -336,7 +349,7 @@ void main() {
         selectedItemId: items[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
     }
     expect(
       controller.payloadFor(items[8].id),
@@ -381,7 +394,7 @@ void main() {
         selectedItemId: items[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
     }
     // The PixelPayload (window-resolution) is retained through the whole
     // excursion: it never leaves the unchanged -3..+5 retention window.
@@ -426,7 +439,7 @@ void main() {
         selectedItemId: cheapItems[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
     }
     expect(cheapCalls.where((path) => path == cheapTarget), hasLength(1));
     expect(
@@ -460,7 +473,7 @@ void main() {
         selectedItemId: jpgs[idx].id,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await Future<void>.delayed(const Duration(milliseconds: 280));
     }
     expect(identical(before, jpgController.imageBytesFor(jpgs[8].id)), isTrue);
   });
