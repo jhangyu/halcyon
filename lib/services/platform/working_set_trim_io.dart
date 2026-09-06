@@ -84,6 +84,23 @@ class WorkingSetTrim {
   @visibleForTesting
   static int debugTrimAttempts = 0;
 
+  /// Suppresses the IDLE-delayed trim ([request]) while something else owns
+  /// resident memory deliberately.
+  ///
+  /// Set true by `ensureHalcyonDecodePoolConfigured` once the ceyx native
+  /// buffer pool is wired in (R6, Task #9): that pool keeps a fixed set of
+  /// ~100MB RGBA slots resident precisely so a returned buffer is reusable
+  /// IMMEDIATELY, and an idle trim pages out exactly those slots — turning the
+  /// pool's whole reason for existing into a page-fault storm on the next
+  /// decode. The two mechanisms want opposite things about the same bytes, and
+  /// the pool is the one that has a measured job.
+  ///
+  /// Deliberately does NOT suppress [trimNow]: that fires at folder switch,
+  /// after the caches are already evicted and with nothing about to be
+  /// re-read, which is the one moment where releasing pages is unambiguously
+  /// right.
+  static bool suppressed = false;
+
   static Timer? _idleTimer;
   static DateTime? _lastTrimAt;
   static bool _resolved = false;
@@ -105,6 +122,13 @@ class WorkingSetTrim {
   /// on any platform, at any frequency. Never throws.
   static void request() {
     debugRequestCalls++;
+    if (suppressed) {
+      // Cancel any timer armed before suppression turned on, so a trim already
+      // in flight cannot land after the pool took ownership.
+      _idleTimer?.cancel();
+      _idleTimer = null;
+      return;
+    }
     _idleTimer?.cancel();
     _idleTimer = Timer(idleDelay, () {
       _idleTimer = null;
@@ -134,6 +158,7 @@ class WorkingSetTrim {
     debugRequestCalls = 0;
     debugTrimNowCalls = 0;
     debugTrimAttempts = 0;
+    suppressed = false;
   }
 
   static bool _performTrim({required bool bypassRateLimit}) {

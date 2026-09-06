@@ -55,6 +55,21 @@ from .run import run
 
 SYMBOL = "dng_decode_and_process_sized"
 
+# The full entry-point set the Dart side looks up in the shipped decoder. SYMBOL
+# above is the historical single-symbol record (H-SIZED-SYMBOL / -NM) and is kept
+# exactly as it was; this tuple is what H-CEYX-SYMBOLS-NM checks, and it includes
+# SYMBOL so that assertion is a strict superset rather than a parallel truth.
+# Verified present in the shipped dylib on 2026-09-06 (`nm -gU` on
+# ../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib listed all three).
+# NOTE the leading-underscore convention: Mach-O prefixes C symbols with "_", so
+# nm prints "_ceyx_probe_output_size". check_symbol() does a substring match, so
+# the undecorated spelling below matches on both Mach-O and ELF.
+CEYX_SYMBOLS = (
+    SYMBOL,
+    "ceyx_probe_output_size",
+    "ceyx_decode_into_buffer",
+)
+
 # Host detection is a dict lookup, not a branch (G-5). It is used ONLY for skip
 # semantics — "is this artefact running on its own platform?" — never to choose
 # what to build or where to look.
@@ -278,6 +293,64 @@ SUITE = {
         ),
         expected=f"'{SYMBOL}' occurs in the captured nm output",
     ),
+    "H-DECODER-ARCH": Assertion(
+        id="H-DECODER-ARCH",
+        measures=(
+            "the machine architecture of the ceyx DECODER LIBRARY inside the "
+            "shipped artefact equals the architecture declared for that target"
+        ),
+        valid_on=("macos", "linux", "windows"),
+        why_valid=(
+            "Same structural header read as H-ARCH (Mach-O cputype / ELF "
+            "e_machine / PE Machine), in pure Python, so it is host-independent "
+            "and no toolchain can invert it. It is a SEPARATE assertion from "
+            "H-ARCH because they measure different files that can disagree: "
+            "H-ARCH reads the Flutter runner, which the local build produces, "
+            "while this reads the prebuilt decoder, which is FETCHED from the "
+            "ceyx release pin. The macOS x64 leg is exactly the case where they "
+            "can diverge — an app correctly built x86_64 next to an arm64 "
+            "decoder dylib fetched from the wrong pin entry is a shipping "
+            "artefact that cannot load its own decoder at runtime, and every "
+            "other assertion in the suite (presence, pinned digests, nm "
+            "symbols) passes on it, because nm parses a foreign-architecture "
+            "Mach-O file perfectly happily. Nothing else in the suite would "
+            "catch it."
+        ),
+        red_state=(
+            "put the arm64 decoder dylib in an x86_64 target's artefact (i.e. "
+            "fetch the macos-arm64 pin entry for the macos-x64 leg): the "
+            "assertion fails naming both the expected and the observed arch"
+        ),
+        expected="observed decoder arch == the target's expected_arch in dng_ffi_artifacts.json",
+    ),
+    "H-CEYX-SYMBOLS-NM": Assertion(
+        id="H-CEYX-SYMBOLS-NM",
+        measures=(
+            "EVERY entry point the Dart side looks up — "
+            + ", ".join(CEYX_SYMBOLS)
+            + " — appears in the shipped decoder's symbol table"
+        ),
+        valid_on=("macos", "linux"),
+        why_valid=(
+            "Same instrument and same validity argument as H-SIZED-SYMBOL-NM "
+            "(Mach-O/ELF default visibility means a listed symbol really is "
+            "dlsym-resolvable), applied to the whole set instead of one member "
+            "of it. It exists because a guarded FFI lookup nulls out the ENTIRE "
+            "binding when ANY one symbol is missing, so a decoder carrying only "
+            "the historical symbol ships a silently absent feature — the "
+            "2026-09-06 incident. Windows is excluded for the identical reason "
+            "H-SIZED-SYMBOL-NM excludes it (PE exports nothing by default, so "
+            "the symbol table measures a build setting, not reachability). The "
+            "tool's output is captured to a str and matched in Python, never "
+            "piped to grep (G-3)."
+        ),
+        red_state=(
+            "run against a decoder built without ceyx_decode_into_buffer (or "
+            "strip it): the captured nm output lacks that name and the "
+            "assertion fails naming exactly which symbols were missing"
+        ),
+        expected="all of " + ", ".join(CEYX_SYMBOLS) + " occur in the captured nm output",
+    ),
 }
 
 _MANDATORY_FIELDS = ("measures", "valid_on", "why_valid", "red_state", "expected")
@@ -324,14 +397,24 @@ def ffi_entry_for(repo_root, target):
 def platform_of(repo_root, target):
     """The artefact platform name (macos/windows/linux/android) for a CI target.
 
-    The mapping lives in dng_ffi_artifacts.json as the ``ci_target`` field, so
-    it is data, not a branch. Falls back to the target name itself.
+    Read from ``targets.spec(target)["assert_platform"]`` — data, not a branch,
+    and in the one file G-5 designates for per-platform facts.
+
+    Why this is NOT derived from dng_ffi_artifacts.json's key any more: two CI
+    legs can ship the SAME platform for different architectures (macos /
+    macos-x64), and each needs its own manifest entry for expected_arch and
+    decoder_artifact. Deriving the platform name from the manifest KEY would
+    have given the x64 leg a platform of its own ("macos-x86_64"), which is in
+    no assertion's ``valid_on`` and, worse, would never equal ``host_platform()``
+    — so run_suite()'s "a skip on the artefact's OWN platform is a FAILURE" rule
+    (Spec §4.5) would have silently stopped applying to that entire leg, which
+    is precisely the 2026-08-25 silently-skipped-gate failure. Architecture is
+    asserted as architecture (H-ARCH / H-DECODER-ARCH), never smuggled in as a
+    platform name. The ``repo_root`` parameter is retained for call-site
+    compatibility and is unused.
     """
-    manifest = _load_json(Path(repo_root) / "scripts" / "dng_ffi_artifacts.json")
-    for name, entry in manifest["platforms"].items():
-        if entry.get("ci_target") == target:
-            return name
-    return target
+    del repo_root  # kept for signature stability; the answer is target data now
+    return targets.spec(target)["assert_platform"]
 
 
 def pinned_libraries(repo_root, pin_platform):
@@ -832,6 +915,71 @@ def _assert_sized_symbol_nm(ctx):
     return "pass", f"{SYMBOL} listed by {tool} for {path.name}"
 
 
+def _assert_decoder_arch(ctx):
+    """The FETCHED decoder library's own architecture, read from its header.
+
+    Deliberately reads the member's bytes out of the artefact source (rather
+    than materialising and shelling out to lipo/file) for the same reason
+    H-ARCH does: a struct.unpack of a format-defined constant cannot be
+    inverted by a missing tool, a foreign host, or a shell pipeline (G-3).
+    """
+    entry = ctx["ffi_entry"]
+    if entry is None:
+        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
+    expected = entry["expected_arch"]
+    basename = entry["decoder_artifact"]
+    hits = ctx["source"].find([basename])
+    if not hits:
+        return "fail", (
+            f"{basename} is absent from {ctx['source'].describe()}, so its "
+            "architecture cannot be read"
+        )
+    try:
+        arch = machine_arch(ctx["source"].read(hits[0]))
+    except ValueError as exc:
+        return "fail", f"{hits[0]}: {exc}"
+    if arch != expected:
+        return "fail", (
+            f"{hits[0]}: expected decoder arch {expected}, observed {arch} — "
+            "the app would fail at DynamicLibrary.open on the target machine"
+        )
+    return "pass", f"{hits[0]}={arch} (expected {expected})"
+
+
+def _assert_ceyx_symbols_nm(ctx):
+    """All of CEYX_SYMBOLS in the shipped decoder's symbol table."""
+    entry = ctx["ffi_entry"]
+    if entry is None:
+        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
+    tool = entry.get("tool")
+    if not tool or shutil.which(tool) is None:
+        return "skip", f"symbol-table tool {tool!r} is not on PATH"
+    path, error = _decoder_disk_path(ctx)
+    if path is None:
+        return "fail", error
+    check = _check_symbol()
+    tool_args = entry.get("tool_args", [])
+    missing = []
+    unreadable = []
+    for symbol in CEYX_SYMBOLS:
+        status = check(path, tool, tool_args, symbol)
+        if status == "skipped":
+            unreadable.append(symbol)
+        elif status != "present":
+            missing.append(symbol)
+    if unreadable:
+        # The tool resolved but could not read the file — an environment defect,
+        # reported as a skip so run_suite()'s own-platform rule can turn it into
+        # a failure where that is the right answer, rather than deciding here.
+        return "skip", f"{tool} resolved but could not inspect {path.name}"
+    if missing:
+        return "fail", (
+            f"absent from {tool} output for {path.name}: {', '.join(missing)} "
+            f"(checked {', '.join(CEYX_SYMBOLS)})"
+        )
+    return "pass", f"{tool} lists all of {', '.join(CEYX_SYMBOLS)} for {path.name}"
+
+
 def _check_symbol():
     """Import scripts/check_dng_ffi_artifacts.py's check_symbol lazily.
 
@@ -853,6 +1001,8 @@ _IMPLEMENTATIONS = {
     "H-DECODER-HASH": _assert_decoder_hash,
     "H-SIZED-SYMBOL": _assert_sized_symbol,
     "H-SIZED-SYMBOL-NM": _assert_sized_symbol_nm,
+    "H-DECODER-ARCH": _assert_decoder_arch,
+    "H-CEYX-SYMBOLS-NM": _assert_ceyx_symbols_nm,
 }
 
 

@@ -459,7 +459,20 @@ void main() {
           selectedItemId: photos[selected].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 60));
+        // BOUNDED WAIT, not a fixed 60ms sleep: the 40ms debounce plus the
+        // full-size decodes it fires are real engine futures, so a sleep
+        // just-longer-than-the-debounce flaked under load when those decodes
+        // took longer than the 20ms margin. Wait for the actual condition
+        // (every in-window id ready), bounded at 5s so a real regression
+        // still fails instead of hanging.
+        await until(
+          () => [
+            for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
+              photos[selected + d].id,
+          ].every(controller.isFullSizeReady),
+          reason: 'every id in the forward-biased tier-2 window to become '
+              'full-size ready after the debounce settles',
+        );
 
         for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++) {
           expect(

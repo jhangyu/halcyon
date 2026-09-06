@@ -11,6 +11,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
+import '../../support/preload_fixtures.dart' show until;
+
 void main() {
   group('inflightByteBudgetFor', () {
     // TC-1042
@@ -204,8 +206,15 @@ void main() {
             notifyLoaded: () {},
           )
           .timeout(const Duration(seconds: 5));
-      await pumpMicrotasks(64);
-      for (final id in ['a', 'b', 'c', 'd']) {
+      // BOUNDED WAIT, not a fixed pump count: preloadImages resolving doesn't
+      // guarantee every off-lane continuation has landed its payload yet, so
+      // a fixed 64-pump budget flaked under load ("X never completed").
+      const ids = ['a', 'b', 'c', 'd'];
+      await until(
+        () => ids.every((id) => controller.payloadFor(id) != null),
+        reason: 'every item to land a payload once the byte gate frees up',
+      );
+      for (final id in ids) {
         expect(controller.payloadFor(id), isNotNull, reason: '$id never completed');
       }
       expect(
@@ -237,7 +246,13 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      for (var i = 0; i < 64; i++) {
+      // CONDITION-DRIVEN sampling, not a fixed 64-microtask budget: this
+      // still needs to *sample* the running count each tick (there's no
+      // single event to await for "peak concurrency"), but the sampling
+      // window is now wall-clock bounded so scheduler contention that slows
+      // down the ticks can't cut the sample off before the peak is reached.
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (peakEncodes < 2 && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(Duration.zero);
         final running = controller.debugEncodeStageRunningCount;
         if (running > peakEncodes) peakEncodes = running;

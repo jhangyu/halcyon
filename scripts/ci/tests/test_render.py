@@ -37,7 +37,7 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 # Plan §3/WP-E "print_plan() prints, per phase, `PLAN <phase>: <argv list repr>`".
 PLAN_LINE_RE = re.compile(r"^PLAN (\w[\w-]*): (\[.*\])\s*$")
 
-TARGET_NAMES = ["macos", "windows", "linux", "android-apk", "web"]
+TARGET_NAMES = ["macos", "macos-x64", "windows", "linux", "android-apk", "web"]
 
 
 def _capture_print_plan(target):
@@ -72,7 +72,9 @@ def _expected_build_argv(target):
     import ci.targets as targets  # noqa: PLC0415
 
     spec = targets.spec(target)
-    return ["python3", "scripts/build_apps.py", target, *spec["build_flags"]]
+    # The positional is build_target, NOT the CI target name: macos-x64 builds
+    # build_apps.py's `macos` target with --macos-arch x86_64 (targets.py).
+    return ["python3", "scripts/build_apps.py", spec["build_target"], *spec["build_flags"]]
 
 
 def _normalize_build_argv(argv):
@@ -177,6 +179,48 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
             "macos-arm64): its CI leg fetches the prebuilt decoder stack just "
             "like windows/linux, it no longer carries committed dylibs",
         )
+
+
+class MacosX64ArgvTestCase(GoldenArgvTestCase):
+    """The macOS x64 leg's whole reason to exist is one flag PAIR. A dropped or
+    reordered `--macos-arch x86_64` renders an argv that builds arm64 while every
+    downstream name still says x64, and the golden file alone would not say
+    which half drifted — so assert the pair's adjacency and the value directly."""
+
+    def test_macos_x64_renders_the_arch_flag_pair(self):
+        argv = self._plans_for("macos-x64")["build"]
+        self.assertIn("--macos-arch", argv, f"macos-x64 build argv lost --macos-arch: {argv!r}")
+        self.assertEqual(
+            argv[argv.index("--macos-arch") + 1],
+            "x86_64",
+            f"--macos-arch must be immediately followed by x86_64: {argv!r}",
+        )
+        self.assertIn("--fetch-native", argv,
+                      "macos-x64 consumes the ceyx pin's macos-x86_64 entry, which "
+                      "only --fetch-native selects")
+
+    def test_macos_x64_builds_the_macos_positional(self):
+        """build_apps.py has no `macos-x64` target — passing the CI target name
+        as the positional would fail with an unknown-target error on the runner,
+        which is the exact mismatch this file exists to catch pre-commit."""
+        argv = self._plans_for("macos-x64")["build"]
+        import ci.targets as targets  # noqa: PLC0415
+
+        self.assertEqual(argv[2], "macos", f"positional must be 'macos': {argv!r}")
+        self.assertEqual(targets.spec("macos-x64")["build_target"], "macos")
+
+    def test_macos_legs_do_not_collide_on_archive_name(self):
+        import ci.targets as targets  # noqa: PLC0415
+
+        names = {t: targets.spec(t)["archive_name"] for t in ("macos", "macos-x64")}
+        self.assertEqual(len(set(names.values())), 2,
+                         f"the two macOS legs must not publish the same archive name: {names!r}")
+
+    def test_macos_legs_consume_different_pin_entries(self):
+        import ci.targets as targets  # noqa: PLC0415
+
+        self.assertEqual(targets.spec("macos")["pin_platform"], "macos-arm64")
+        self.assertEqual(targets.spec("macos-x64")["pin_platform"], "macos-x86_64")
 
 
 class ChildInterpreterTestCase(unittest.TestCase):

@@ -158,6 +158,14 @@ class ImagePreloadController {
   ImagePreloadController({
     required NativeImageLoad imageLoader,
     DngFullDecoder? dngDecoder,
+    // Task 8 (native-rotation-spec): the orienting sibling of [dngDecoder],
+    // threaded straight to [PhotoSource]. No production default is baked in
+    // here -- unlike [payloadEncoder]/[pointerPayloadEncoder] this mirrors
+    // [dngDecoder]'s OWN pattern (explicit injection, no controller-side
+    // default), so every existing caller of this constructor (including
+    // `AppState.forTesting`, which this file does not own) is unaffected
+    // until the composition root chooses to pass one.
+    DngOrientingFullDecoder? orientingDngDecoder,
     PayloadEncoder? payloadEncoder = _encodeJpegNative,
     PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
     RetentionPolicy retention = const RetentionPolicy.floor(),
@@ -181,6 +189,7 @@ class ImagePreloadController {
        _source = PhotoSource(
          loader: imageLoader,
          dngDecoder: dngDecoder,
+         orientingDngDecoder: orientingDngDecoder,
          payloadEncoder: payloadEncoder,
          pointerPayloadEncoder: pointerPayloadEncoder,
          compositeGate: compositeGate,
@@ -1802,7 +1811,19 @@ class ImagePreloadController {
         '|payloadKind=$payloadKind'
         '|bytes=${decode.encodedPayload?.byteCost ?? decode.fullRes?.rgba.lengthInBytes ?? -1}'
         '|cost=${decode.observedCost}'
-        '|exifOrientation=${decode.exifOrientation}',
+        '|exifOrientation=${decode.exifOrientation}'
+        // PROBE 1 (jank-rootcause-analysis.md §6). `exifOrientation` above is
+        // null on every RAW item BY CONTRACT (photo_source.dart's decode arm
+        // reports "nothing to carry forward", not "no rotation"), so until now
+        // the log could not tell a rotated item from an identity one -- and
+        // that is the split that decides whether the item pays a GPU pass plus
+        // two full-frame copies on this isolate. `fullRes.image` is non-null
+        // if and ONLY if the EXIF transform was not the identity
+        // (decoded_rgba_image_provider.dart's `decodedRgbaToOrientedFullRes`
+        // short-circuit), so it IS the discriminator, readable here without
+        // widening the SourceDecode record. The numeric orientation itself
+        // rides on the `orient|` line emitted at the transform site.
+        '|rotatedPass=${decode.fullRes?.image != null}',
       );
       PerfLog.log(
         'decode|id=$id|rawDecode=${decode.rawDecodeRan}'

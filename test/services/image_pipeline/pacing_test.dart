@@ -1094,22 +1094,33 @@ void main() {
       );
       await pumpMicrotasks();
 
-      // One drain per frame; pump more frames than the window has slots.
-      for (var i = 0; i < 12; i++) {
+      final windowIds = controller.debugRetentionIds;
+      expect(windowIds.length, greaterThan(4), reason: 'the cap is under test');
+
+      // CONDITION-DRIVEN, not a fixed frame count: one drain per frame, but
+      // keep draining until every slot is registered (bounded so a real
+      // regression -- a slot that never registers -- still fails instead of
+      // hanging). A fixed 12-frame budget flaked under load because the
+      // drains themselves can be delayed by scheduler contention, not just
+      // the registrations they're waiting on.
+      const maxFrameDrains = 200;
+      var drains = 0;
+      while (drains < maxFrameDrains &&
+          !windowIds.every(controller.debugTierOneKeyIds.contains)) {
         frames.frame();
         await pumpMicrotasks(4);
+        drains++;
       }
 
-      final windowIds = controller.debugRetentionIds;
       final registered = controller.debugTierOneKeyIds;
       for (final id in windowIds) {
         expect(
           registered,
           contains(id),
-          reason: 'slot $id was submitted and must eventually be registered',
+          reason: 'slot $id was submitted and must eventually be registered '
+              'within $maxFrameDrains frame drains',
         );
       }
-      expect(windowIds.length, greaterThan(4), reason: 'the cap is under test');
     });
 
     // TC-897 -- the controller-level twin of TC-894: with the pacer's exempt

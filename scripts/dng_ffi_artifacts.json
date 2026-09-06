@@ -24,6 +24,28 @@
       },
       "expected": true
     },
+    "macos-x86_64": {
+      "path": "../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib",
+      "format": "macho",
+      "tool": "nm",
+      "tool_args": [
+        "-gU"
+      ],
+      "comment": "Intel/x86_64 macOS. SAME on-disk path as the 'macos' entry on purpose: build_apps.py places whichever architecture --macos-arch selected at that one path (fetch_target_for(), build_apps.py:1440-1467), so only ONE of the two can be on disk at a time and the manual checker reads whichever the last build fetched. The CI assertions do NOT read this path -- they read the member inside the built/packaged artefact -- so the shared path is not a source of ambiguity there. expected_arch is what distinguishes this entry: it is the value H-ARCH and H-DECODER-ARCH judge the macos-x64 leg against.",
+      "ci_target": "macos-x64",
+      "decoder_artifact": "libdng_decoder_native.dylib",
+      "expected_arch": "x86_64",
+      "r7": {
+        "measures": "the shipped Intel macOS app and its decoder dylib are both x86_64, and the dylib exposes every ceyx entry point",
+        "valid_on": [
+          "macos"
+        ],
+        "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-SIZED-SYMBOL is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
+        "red_state": "fetch the macos-arm64 pin entry for this leg (or build without --macos-arch x86_64): H-DECODER-ARCH / H-ARCH fail naming expected x86_64 vs observed arm64",
+        "expected": "present=True, arch=x86_64 for both the app executable and the decoder, and all of dng_decode_and_process_sized / ceyx_probe_output_size / ceyx_decode_into_buffer listed by nm"
+      },
+      "expected": true
+    },
     "windows": {
       "path": "../ceyx/plugin/windows/Libraries/dng_decoder_native.dll",
       "format": "pe",

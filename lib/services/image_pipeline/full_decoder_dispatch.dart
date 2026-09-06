@@ -6,7 +6,8 @@ import 'package:image/image.dart' as img;
 
 import '../../models/supported_photo_formats.dart';
 import 'dng_decode_contract.dart';
-import 'dng_decode_service.dart';
+import 'dng_decode_service.dart'
+    show halcyonDngFullDecoder, halcyonOrientingDngFullDecoder;
 import 'dng_embedded_jpeg_extractor.dart';
 import 'heif_decode_service.dart';
 import 'jxl_decode_service.dart';
@@ -163,3 +164,31 @@ Future<DecodedRgba> dispatchFullDecode(
 /// closure: the optional named arms are extra parameters, so the tear-off is
 /// still a subtype of the seam typedef.
 const DngFullDecoder halcyonFullDecoder = dispatchFullDecode;
+
+/// [DngOrientingFullDecoder]-shaped sibling of [dispatchFullDecode] (Task 8,
+/// native-rotation-spec). Routes ONLY the RAW arm to an orienting decoder;
+/// heif/jxl/tiff have no native orientation capability this round (OQ-2:
+/// RAW only, parked out of scope), so they call today's unoriented decoder
+/// and report `appliedOrientation: 1` -- the host applies the full
+/// orientation via the residual, exactly as it does today.
+Future<DecodedRgba> dispatchOrientingFullDecode(
+  String path, {
+  required int exifOrientation,
+  DngOrientingFullDecoder rawArm = halcyonOrientingDngFullDecoder,
+  DngFullDecoder tiffArm = decodeTiffFull,
+  DngFullDecoder heifArm = halcyonHeifFullDecoder,
+  DngFullDecoder jxlArm = halcyonJxlFullDecoder,
+}) async {
+  if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
+  if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
+  if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);
+  if (SupportedPhotoFormats.isDecodablePath(path)) {
+    return rawArm(path, exifOrientation: exifOrientation);
+  }
+  throw UnsupportedError('no full-decode route for $path');
+}
+
+/// The composition root's entry point for the orienting seam. See
+/// [halcyonFullDecoder]'s dartdoc for why this is a plain tear-off.
+const DngOrientingFullDecoder halcyonOrientingFullDecoder =
+    dispatchOrientingFullDecode;

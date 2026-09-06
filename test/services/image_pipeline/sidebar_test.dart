@@ -127,6 +127,26 @@ Future<Directory> _tempDirWithPixel(List<String> names) async {
   return dir;
 }
 
+/// TC-374's temp-dir teardown (errno-32 on Windows): each test already gets
+/// its OWN uniquely-suffixed dir from `createTemp`, so this is not a shared
+/// path -- but a transient handle (AV scanner, a still-draining async decode
+/// holding the file open a beat longer under load) can still make a single
+/// `delete(recursive: true)` fail. Retry a few times with a short backoff and
+/// only then give up, so cleanup never fails the test itself.
+Future<void> _deleteDirTolerant(Directory dir) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+      return;
+    } on FileSystemException {
+      if (attempt == 4) return; // best-effort cleanup, not a test assertion
+      await Future<void>.delayed(Duration(milliseconds: 50 * (attempt + 1)));
+    }
+  }
+}
+
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
 /// a real debounce/async-drain still gets its full budget if it needs it, but
 /// the common case (condition already true) returns almost immediately
@@ -311,7 +331,15 @@ void main() {
         endIdx: 5,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      // CONDITION-DRIVEN, not a fixed 250ms sleep: wait for the sweep's
+      // debounce to actually enqueue the ids under test rather than a sleep
+      // sized off "the debounce plus margin", which is the same flaky shape
+      // fixed above in this file.
+      await _pollUntilLane(
+        () => <String>['p1', 'p2', 'p3', 'p4', 'p5']
+            .every((id) => controller.debugLanePendingPriorityFor(id) != null),
+        const Duration(milliseconds: 5000),
+      );
 
       for (final id in <String>['p1', 'p2', 'p3', 'p4', 'p5']) {
         final priority = controller.debugLanePendingPriorityFor(id);
@@ -570,7 +598,7 @@ void main() {
     test('TC-374 INV-MEM: the sidebar cache stays viewport-bound', () async {
       final names = [for (var i = 0; i < 200; i++) 'f${i.toString().padLeft(3, "0")}.dng'];
       final dir = await _tempDirWithPixel(names);
-      addTearDown(() => dir.delete(recursive: true));
+      addTearDown(() => _deleteDirTolerant(dir));
 
       final controller = ImagePreloadController(
         imageLoader: _alwaysFailLoaderPixel,
@@ -609,7 +637,7 @@ void main() {
     test('TC-378 a stale generation writes nothing into the sidebar cache',
         () async {
       final dir = await _tempDirWithPixel(['c.dng']);
-      addTearDown(() => dir.delete(recursive: true));
+      addTearDown(() => _deleteDirTolerant(dir));
 
       final gate = Completer<void>();
       final controller = ImagePreloadController(
@@ -666,9 +694,6 @@ void main() {
           endIdx: safeEnd,
           notifyLoaded: () {},
         );
-        // Let the sweep's 100ms debounce fire and enqueue every row.
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-
         final visibleIds = [
           for (var i = safeStart; i <= safeEnd; i++) 'p$i',
         ];
@@ -676,6 +701,16 @@ void main() {
           for (var i = safeStart - 20; i < safeStart; i++) 'p$i',
           for (var i = safeEnd + 1; i <= safeEnd + 20; i++) 'p$i',
         ];
+        // CONDITION-DRIVEN, not a fixed 250ms sleep: the assertions below
+        // hard-require every margin id to be pending, so wait for that
+        // directly instead of a sleep sized off "the 100ms debounce plus
+        // margin", which flaked under load when the debounce's real timer
+        // was delayed past the fixed budget.
+        await until(
+          () => marginIds
+              .every((id) => controller.debugLanePendingPriorityFor(id) != null),
+          reason: "the sweep's debounce to fire and enqueue every margin row",
+        );
 
         // decodeLaneWidth is clamped to a minimum of 1 (decode_lane.dart:75), so
         // exactly one task is always IN FLIGHT (removed from the pending map,
@@ -751,7 +786,10 @@ void main() {
           endIdx: 150,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await until(
+          () => controller.debugLanePendingPriorityFor('p150') != null,
+          reason: "the sweep's debounce to fire and enqueue p150",
+        );
         final firstPriority = controller.debugLanePendingPriorityFor('p150');
         expect(firstPriority, isNotNull, reason: 'p150 should be pending after sweep 1');
         expect(
@@ -769,7 +807,13 @@ void main() {
           endIdx: 152,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await until(
+          () =>
+              controller.debugLanePendingPriorityFor('p150') ==
+              kSidebarPayloadPriorityBase,
+          reason: 'the second sweep to re-enqueue p150 at its new, improved '
+              'priority',
+        );
         final secondPriority = controller.debugLanePendingPriorityFor('p150');
         expect(
           secondPriority,

@@ -31,10 +31,16 @@ def _build_argv(repo_root: Path, target: str) -> list:
     `check_python_interpreter()` refuses for this process. Handing the child the
     interpreter that already passed that check is what makes the refusal cover
     the whole run rather than only its first process.
+
+    The positional comes from ``spec["build_target"]``, NOT from ``target``:
+    the CI target name and the build_apps.py target name coincide for most
+    legs but not all (``macos-x64`` builds the ``macos`` target with
+    ``--macos-arch x86_64``). Reading it from the data keeps that difference a
+    dict lookup rather than a name-equality branch (G-5).
     """
     spec = targets.spec(target)
     build_apps = os.fspath(Path(repo_root, "scripts", "build_apps.py").resolve())
-    return [sys.executable, build_apps, target, *spec["build_flags"]]
+    return [sys.executable, build_apps, spec["build_target"], *spec["build_flags"]]
 
 
 def provision(repo_root: Path, target: str) -> int:

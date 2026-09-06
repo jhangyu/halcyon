@@ -193,6 +193,7 @@ class PhotoSource {
   const PhotoSource({
     required this.loader,
     this.dngDecoder,
+    this.orientingDngDecoder,
     this.payloadEncoder,
     this.pointerPayloadEncoder,
     this.compositeGate = immediateCompositeGate,
@@ -212,6 +213,13 @@ class PhotoSource {
   /// to; the caller records `payload: null, deferred: false` exactly as any
   /// other unrecoverable file.
   final DngFullDecoder? dngDecoder;
+
+  /// Task 8 (native-rotation-spec): the orienting sibling of [dngDecoder].
+  /// When non-null, [decodePhase]/[decodePhaseExpensive] call this instead of
+  /// [dngDecoder], passing the declared EXIF orientation so a RAW frame can
+  /// come back already oriented. Null (every existing construction site) is
+  /// the byte-identical legacy path -- [dngDecoder] is used exactly as today.
+  final DngOrientingFullDecoder? orientingDngDecoder;
 
   /// Phase 13: turns the decoded RAW's FULL-RESOLUTION pixels into the single
   /// JPEG bitstream the item retains, so a no-preview RAW becomes the same
@@ -311,7 +319,8 @@ class PhotoSource {
         :final declaredPreviewsUnreadable,
       ):
         final decoder = dngDecoder;
-        if (decoder == null) {
+        final orienting = orientingDngDecoder;
+        if (decoder == null && orienting == null) {
           // D3 (docs/logs/2026-08-26/raw-support-contract.md): a missing
           // native library is a static platform property, decided HERE,
           // before any decoder is invoked -- never inferred from a caught
@@ -357,7 +366,13 @@ class PhotoSource {
           // conflated: this is FFI/decode wall time, `materialize` is the
           // GPU-texture/engine-buffer hand-off cost.
           final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
-          final decoded = await decoder(path);
+          // Task 8: prefer the orienting seam when the caller wired one --
+          // [decoder] is guaranteed non-null in the `else` arm because the
+          // guard above only lets this try block run when at least one of
+          // the two is non-null.
+          final decoded = orienting != null
+              ? await orienting(path, exifOrientation: exifOrientation)
+              : await decoder!(path);
           if (PerfLog.enabled) {
             PerfLog.log(
               'decode.ffi|id=$path'
@@ -482,7 +497,8 @@ class PhotoSource {
     required int exifOrientation,
   }) async {
     final decoder = dngDecoder;
-    if (decoder == null) {
+    final orienting = orientingDngDecoder;
+    if (decoder == null && orienting == null) {
       // D3: decided before invoking anything, same as [decodePhase]'s arm
       // above -- see its comment. In practice this arm is unreachable today
       // (a null decoder never defers in [decodePhase], so there is nothing
@@ -506,7 +522,11 @@ class PhotoSource {
     try {
       // P0 -- `decode.ffi`, see the matching comment in [decodePhase]'s try block.
       final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
-      final decoded = await decoder(path);
+      // Task 8: same orienting-seam preference as [decodePhase] -- see its
+      // comment on why [decoder]'s null-assert is safe here.
+      final decoded = orienting != null
+          ? await orienting(path, exifOrientation: exifOrientation)
+          : await decoder!(path);
       if (PerfLog.enabled) {
         PerfLog.log(
           'decode.ffi|id=$path'

@@ -1,0 +1,1 @@
+['python3', 'scripts/build_apps.py', 'macos', '--macos-arch', 'x86_64', '--fetch-native']

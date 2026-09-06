@@ -13,6 +13,8 @@ import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
+import '../../support/preload_fixtures.dart' show until;
+
 void main() {
   group('encode_stage_test.dart', () {
     test('runningCount never exceeds width', () async {
@@ -236,7 +238,15 @@ void main() {
         selectedItemId: 'a',
         notifyLoaded: () => observed.add(controller.payloadFor('a')),
       );
-      await pumpMicrotasks();
+      // BOUNDED WAIT, not a pump count: the off-lane encode continuation lands
+      // the final payload one await after preloadImages resolves, so a fixed
+      // pump count can legitimately stop between "resolved" and "landed",
+      // which is what made this flake under load (Expected EncodedPayload,
+      // Actual null).
+      await until(
+        () => controller.payloadFor('a') is EncodedPayload,
+        reason: "the off-lane encode to land 'a's final EncodedPayload",
+      );
 
       final landed = controller.payloadFor('a');
       expect(landed, isA<EncodedPayload>());
