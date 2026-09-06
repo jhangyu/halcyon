@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
@@ -1165,7 +1166,11 @@ void main() {
     });
 
     test('a generous budget lets the same script overlap encodes', () async {
-      expect(await peakConcurrentEncodesWithBudget(1 << 24), 2);
+      // WP2 (2026-09-06): "generous" is measured against the PRE-DECODE NOMINAL
+      // charge (`kNominalFullFrameBytes`), not against the fixture's real 16
+      // decoded bytes, because admission is now taken before the decode knows
+      // the size. The expected peak of 2 is unchanged.
+      expect(await peakConcurrentEncodesWithBudget(2 * kNominalFullFrameBytes), 2);
     });
   });
 

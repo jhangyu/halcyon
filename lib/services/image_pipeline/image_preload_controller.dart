@@ -11,6 +11,7 @@ import 'dart_image_loader.dart' show resetSidebarWalkMemo;
 import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart'
     show bumpHalcyonDecodePoolGeneration, setHalcyonDecodePoolWidth;
+import 'frame_bytes.dart';
 import 'idle_publish_scheduler.dart';
 import 'image_source_types.dart';
 import 'payload_claim.dart';
@@ -140,7 +141,7 @@ class ImagePreloadController {
   }) : _navigationDebounce = navigationDebounce,
        _retention = retention,
        _inflight = InflightBytesBudget(
-         maxBytes: inflightByteBudget ?? retention.payloadByteBudget ~/ 4,
+         maxBytes: inflightByteBudget ?? inflightByteBudgetFor(retention),
        ),
        _frameHook = scheduleFrameCallback,
        _publicationsPerFrame = publicationsPerFrame,
@@ -152,7 +153,7 @@ class ImagePreloadController {
          compositeGate: compositeGate,
        ),
        _stageWidths = StageWidths.derive(decodeLaneWidth),
-       _decodeLane = DecodeLane(width: decodeLaneWidth),
+       _decodeLaneWidthAtBuild = decodeLaneWidth,
        // Same derivation as `_stageWidths` above -- recomputed rather than
        // read off it because an initialiser list cannot read `this`. The
        // constructor body's `_applyStageWidths` re-pushes it anyway; building
@@ -160,6 +161,16 @@ class ImagePreloadController {
        _encodeStage = EncodeStage(
          width: StageWidths.derive(decodeLaneWidth).encode,
        ) {
+    // WP2 (2026-09-06): the lane is the ONE admission point for BOTH the slot
+    // and the transient full-frame BYTES, so it is handed the very same
+    // [InflightBytesBudget] object `_inflight` names -- built in the body
+    // rather than the initialiser list only because an initialiser cannot read
+    // another field. The lane does no byte accounting of its own, so
+    // `debugInflightBytes` still observes every charge.
+    _decodeLane = DecodeLane(
+      width: _decodeLaneWidthAtBuild,
+      budget: _inflight,
+    );
     // Push the widths the stages were BUILT with, not just later changes:
     // until the stored preference hydrates and calls [setDecodeLaneWidth], the
     // lane and the pool would otherwise disagree (lane = this constructor's
@@ -195,7 +206,7 @@ class ImagePreloadController {
     if (policy == _retention) return;
     _retention = policy;
     _cache.setByteBudget(policy.payloadByteBudget);
-    _inflight.maxBytes = policy.payloadByteBudget ~/ 4;
+    _inflight.maxBytes = inflightByteBudgetFor(policy);
   }
 
   @visibleForTesting
@@ -216,7 +227,11 @@ class ImagePreloadController {
   /// upgrades in [TierTwoScheduler]. Sharing it is what makes "at most [width]
   /// RAW decodes in flight" a property of the pipeline rather than of one
   /// scheduler (2026-08-26 ruling, width generalised 2026-08-30).
-  final DecodeLane _decodeLane;
+  late final DecodeLane _decodeLane;
+
+  /// The width the lane is BUILT at, parked by the initialiser list so the
+  /// constructor body can build the lane with `_inflight` (see there).
+  final int _decodeLaneWidthAtBuild;
 
   /// Read through to the lane, never a shadow field: the controller and the
   /// lane can then never disagree (same reasoning as [AppState.retentionPolicy]).
@@ -378,6 +393,12 @@ class ImagePreloadController {
 
   @visibleForTesting
   int get debugInflightBytes => _inflight.inFlightBytes;
+
+  /// How many lane dispatch attempts the BYTE budget refused (WP2). Zero means
+  /// the gate never engaged, which is what distinguishes "the queue drained
+  /// because the budget was never binding" from "the budget refused work and
+  /// the queue still drained" in the deadlock regression.
+  int get debugByteBlockedPumps => _decodeLane.debugByteBlockedPumps;
 
   @visibleForTesting
   Set<String> get debugThumbPermanentMisses => _sidebar.permanentMisses;
@@ -1638,25 +1659,34 @@ class ImagePreloadController {
               longEdge: loadLongEdge,
               allowExpensive: canDoExpensive,
             );
+      // WP2: the estimate becomes the fact. The lane admitted this task on
+      // `kNominalFullFrameBytes`; `decode.fullRes` is what it turned out to be
+      // actually holding, and a cheap item holds no frame and settles to 0.
+      // No-op off the lane, where nothing was admitted.
+      _decodeLane.adjustAdmission(
+        (LaneTaskKind.payload, id),
+        to: decode.fullRes?.rgba.lengthInBytes ?? 0,
+      );
       // PERF-INSTRUMENTATION (D1 AC3 markers + gap #5): request end + decode
       // phase result, now carrying the payload classification round-2
       // needs to pick between H1/H2 (EncodedPayload path) vs H4
-      // (PixelPayload/RAW path). `pixels != null` marks a real RAW/full
-      // decode ran; otherwise this was an embedded-preview/bitmap byte
-      // handoff (dart_image_loader).
-      final payloadKind = decode.pixels != null
+      // (PixelPayload/RAW path). `rawDecodeRan` marks a real RAW/full decode
+      // ran (WP1 2026-09-06: it records exactly what the old `pixels != null`
+      // recorded, now that the window-res payload is built lazily); otherwise
+      // this was an embedded-preview/bitmap byte handoff (dart_image_loader).
+      final payloadKind = decode.rawDecodeRan
           ? 'Pixel'
           : (decode.encodedPayload != null ? 'Encoded' : 'none');
       PerfLog.log(
         'req_end|id=$id|dur=${PerfLog.us - tCh}'
-        '|rawDecode=${decode.pixels != null}'
+        '|rawDecode=${decode.rawDecodeRan}'
         '|payloadKind=$payloadKind'
-        '|bytes=${decode.encodedPayload?.byteCost ?? decode.pixels?.byteCost ?? -1}'
+        '|bytes=${decode.encodedPayload?.byteCost ?? decode.fullRes?.rgba.lengthInBytes ?? -1}'
         '|cost=${decode.observedCost}'
         '|exifOrientation=${decode.exifOrientation}',
       );
       PerfLog.log(
-        'decode|id=$id|rawDecode=${decode.pixels != null}'
+        'decode|id=$id|rawDecode=${decode.rawDecodeRan}'
         '|dur=${PerfLog.us - tCh}',
       );
 
@@ -1664,7 +1694,7 @@ class ImagePreloadController {
       // call IS the lane's task body -- so return now and let the encode run
       // on its own stage. The lane slot is freed here; the production
       // claim is NOT (see [_finishOffLane]).
-      if (onSerialLane && decode.pixels != null) {
+      if (onSerialLane && decode.rawDecodeRan) {
         // The claim moves with the work: `_finishOffLane`'s `finally` is the
         // only thing that releases it from here. Transferred BEFORE the
         // `unawaited` below, because that continuation can begin before this
@@ -1678,6 +1708,13 @@ class ImagePreloadController {
           claim: claim,
         );
         handedOff = true;
+        // The BYTE admission moves with the work too, for the same reason the
+        // claim does: the full-res frame stays alive for the whole off-lane
+        // encode, so releasing it at lane-body return would leave
+        // encode-width x one frame of live bytes uncharged (lead ruling C2,
+        // erratum E-WP2-C2). Taken BEFORE the `unawaited` below so the lane's
+        // `finally` can no longer find it.
+        final admission = _decodeLane.takeAdmission((LaneTaskKind.payload, id));
         unawaited(
           _finishOffLane(
             item,
@@ -1686,6 +1723,7 @@ class ImagePreloadController {
             notifyLoaded: notifyLoaded,
             loadLongEdge: loadLongEdge,
             loadGeneration: loadGeneration,
+            admission: admission,
             claim: claim,
           ),
         );
@@ -1762,21 +1800,22 @@ class ImagePreloadController {
     required int loadLongEdge,
     required int loadGeneration,
     required PayloadClaim claim,
+    required LaneAdmission? admission,
   }) async {
     final id = item.id;
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
-    // Sized from what this decode is actually holding. Acquired AFTER the
-    // decode, never before: a pre-decode acquire would put a second admission
-    // gate in front of [DecodeLane] and the two could deadlock against each
-    // other's width.
-    final bytes =
-        decode.fullRes?.rgba.lengthInBytes ?? decode.pixels?.byteCost ?? 0;
-    // The epoch this admission belongs to. This continuation is unawaited by
-    // design, so `dispose()`/`reset()` -> `InflightBytesBudget.clear()` can run
-    // between the acquire and the release below; releasing against a stale
-    // epoch is then a no-op instead of an over-release (BUG 2026-09-03,
-    // TC-886).
-    final budgetEpoch = await _inflight.acquire(bytes);
+    // WP2 (2026-09-06): the bytes are NOT acquired here any more. They were
+    // admitted BEFORE the decode, together with the lane slot, by the one
+    // dispatcher -- so nothing ever holds a slot while waiting for bytes, which
+    // is the hold-and-wait cycle the old post-decode acquire dodged by not
+    // bounding decode-time bytes at all. [admission] is that charge, handed
+    // over at the stage boundary; this method now only has to give it back.
+    //
+    // The epoch it carries is why a late release is safe: this continuation is
+    // unawaited by design, so `dispose()`/`reset()` ->
+    // `InflightBytesBudget.clear()` can land between the admission and the
+    // release below; releasing against a stale epoch is then a no-op instead of
+    // an over-release (BUG 2026-09-03, TC-886).
     try {
       final outcome = await _encodeStage.run(() => _source.encodePhase(decode));
       PerfLog.log(
@@ -1807,8 +1846,10 @@ class ImagePreloadController {
       }
     } finally {
       // Released exactly once, after [_completeOutcome] has either retained or
-      // dropped the payload -- the buffers are only out of flight then.
-      _inflight.release(bytes, epoch: budgetEpoch);
+      // dropped the payload -- the buffers are only out of flight then. The
+      // release also re-pumps the lane, since these bytes may be exactly what a
+      // byte-blocked pending decode was refused for.
+      if (admission != null) _decodeLane.releaseAdmission(admission);
       // [claim] plays the role `budgetEpoch` plays for the byte budget on the
       // line above, though it matches by object identity rather than by
       // counter. This future is unawaited and can outlive the `reset()` that
@@ -2055,6 +2096,10 @@ class ImagePreloadController {
       // one classifier call instead of this file's own arithmetic. The rank
       // WITHIN P2 is still the user-ruled near-to-far walk.
       priority: navigationPriorityFor(distance),
+      // WP2: the PRE-DECODE estimate. The real size is unknown until the decode
+      // returns; `_ensurePayload` reconciles it to `fullRes.rgba.lengthInBytes`
+      // (0 for a cheap item, which holds no full frame) the moment it does.
+      estimatedBytes: kNominalFullFrameBytes,
       // `distance` is captured at enqueue time and becomes stale after
       // navigation. This is harmless: a navigation re-enqueue REPLACES this
       // body with a fresh distance, so stale distance only survives when the
