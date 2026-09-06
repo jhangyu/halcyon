@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../models/photo_item.dart';
 import 'decode_lane.dart';
+import 'derive_queue.dart';
 import 'image_preload_controller.dart' show thumbnailPrefetchMargin;
 import 'photo_payload.dart';
 import 'thumbnail_derivation.dart';
@@ -115,6 +116,24 @@ class SidebarThumbnailController {
   int _lastPreloadStart = -1;
   int _lastPreloadEnd = -1;
   Timer? _debounceTimer;
+
+  // Bounds concurrent [_deriveTile] runs fired from [onPayloadLanded] (Phase 2,
+  // async-pipeline-refactor-plan.md §3). A burst of landings used to fire
+  // `_deriveTile` unawaited per landing -- unbounded concurrency on the UI
+  // isolate, resolved in arbitrary arrival order. The queue is priority-
+  // ordered by [_rowDistanceById] so a visible-centre landing is derived
+  // before a margin landing even if the margin one arrived first. The SWEEP
+  // path (`preloadThumbnails` RULE 1) is untouched -- it is already
+  // sequential and keeps its inline await (D5 rule 1, §8-D2).
+  final DeriveQueue _deriveQueue = DeriveQueue(width: 2);
+
+  // This sweep's row distance per id, from [_rowDistance] -- the SAME
+  // distance function `_enqueueSidebarPayload` uses for lane priority, reused
+  // here (not a second distance scheme) so [onPayloadLanded] can rank a
+  // landed id without recomputing its position. Replaced wholesale by every
+  // sweep; a landing for an id outside the latest sweep's `order` (should not
+  // happen -- see [onPayloadLanded]) falls back to [_fallbackLandedPriority].
+  Map<String, int> _rowDistanceById = {};
   // Bumped by every new thumbnail request and by [reset]. The running batch
   // carries the generation it started with and stops as soon as it no longer
   // matches, so a batch whose range is already stale (fast scroll, or a folder
@@ -140,6 +159,16 @@ class SidebarThumbnailController {
   Set<String> get permanentMisses => Set<String>.unmodifiable(_permanentMisses);
 
   Set<String> get enqueuedIds => Set<String>.unmodifiable(_enqueuedIds);
+
+  /// Test-only window into the derivation queue's state, so a test can assert
+  /// what would run next without racing the queue's own microtask pump.
+  @visibleForTesting
+  DeriveQueue get debugDeriveQueue => _deriveQueue;
+
+  /// Test-only: this sweep's row distance for [id], or null if [id] was not
+  /// part of the latest sweep's order.
+  @visibleForTesting
+  int? debugRowDistanceFor(String id) => _rowDistanceById[id];
 
   /// A payload that can NEVER be produced is also a tile that can never be
   /// produced. Without this the sidebar would wait forever on a file the
@@ -176,18 +205,32 @@ class SidebarThumbnailController {
     if (!_waiters.remove(id)) return;
     if (_cache.containsKey(id)) return;
     final generation = _batchGeneration;
+    final priority = _rowDistanceById[id] ?? _fallbackLandedPriority();
     unawaited(
-      _deriveTile(
-        id,
-        payload,
-        generation,
-        checkPayloadIdentity: true,
-        claimLoadingKey: false,
-        catchDeriveErrors: false,
-        notifyLoaded: null,
+      _deriveQueue.submit(
+        priority,
+        () => _deriveTile(
+          id,
+          payload,
+          generation,
+          checkPayloadIdentity: true,
+          claimLoadingKey: false,
+          catchDeriveErrors: false,
+          notifyLoaded: null,
+        ),
       ),
     );
   }
+
+  /// Used only when a landed id has no entry in [_rowDistanceById] -- every id
+  /// that can reach [onPayloadLanded] was added to [_waiters] from the same
+  /// sweep's `order` list that populates the map, so this is a defensive
+  /// fallback, not the expected path. Ranks after every distance a real sweep
+  /// can produce (see [_marginDistanceBase]).
+  int _fallbackLandedPriority() =>
+      _marginDistanceBase(_lastPreloadStart, _lastPreloadEnd) +
+      thumbnailPrefetchMargin +
+      1;
 
   /// The ONE derive-and-publish body, merged 2026-09-03 from the two copies
   /// that had drifted apart: [onPayloadLanded]'s async arm and
@@ -382,6 +425,18 @@ class SidebarThumbnailController {
 
       _wantedIds = {for (final i in order) items[i].id};
       _priorityIds = [for (final i in order) items[i].id];
+      // Populated for EVERY id in this sweep's order, not only the ones that
+      // end up waiting for a producer: a payload can land (via the preview
+      // path, another sidebar-adjacent producer, etc.) for any of them, and
+      // [onPayloadLanded] needs a distance the moment that happens.
+      _rowDistanceById = {
+        for (final i in order)
+          items[i].id: _rowDistance(
+            index: i,
+            safeStart: safeStart,
+            safeEnd: safeEnd,
+          ),
+      };
       _republishEvictionPriority();
       _cache.removeWhere((key, _) => !_wantedIds.contains(key));
       // A waiter cannot outlive its viewport: pruned in the same statement
