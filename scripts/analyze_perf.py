@@ -106,9 +106,23 @@ def stall_attribution(events, window_us=10_000):
       - candidate-GC: a landing is adjacent but the measured materialize was
         too small to explain the stall -> the blockage is elsewhere in the
         landing (heap admission / GC pause being the prime suspect);
-      - unattributed: no landing within `window_us` after the stall line.
+      - unattributed: nothing overlaps or follows the stall.
     NOTE: `decode.ffi`'s own dur_us is WORKER wall time, never counted as
     on-main cost.
+
+    OVERLAP vs ADJACENCY (jank-rootcause-analysis.md §6 probe 4). The original
+    rule was adjacency only: a landing had to appear within `window_us` AFTER
+    the stall line, and the landing list held `pool.materialize`/`decode.ffi`
+    but NOT `materialize`. Both halves of that were wrong for the dominant
+    cost. `materialize` (`ui.decodeImageFromPixels`, the ~92MB engine-buffer
+    copy plus GPU upload) runs 100-258ms in real captures, so its line lands
+    far outside any 10ms post-window, and the stalls it causes happen DURING
+    it, not before it. Excluding it reported 78 of 104 stalls as
+    "unattributed" in capture_222859 -- the analyser's blind spot reading as a
+    finding about GC. An event with a measured duration is therefore now
+    matched by INTERVAL OVERLAP (`end - dur_us` .. `end` against the stall's
+    own `ms` window); zero-duration adjacency is kept only for `decode.ffi`,
+    which has no on-main interval to overlap with.
     """
     stalls = [(us, int(kv["ms"])) for us, name, kv in events
               if name == "stall" and "ms" in kv]
@@ -120,18 +134,38 @@ def stall_attribution(events, window_us=10_000):
             stalls = [(b_us, max(0, b - a))
                       for (_, a), (b_us, b) in zip(stalls, stalls[1:])]
     landings = [(us, name, kv) for us, name, kv in events
-                if name in ("pool.materialize", "decode.ffi")]
+                if name in ("materialize", "pool.materialize", "decode.ffi")]
     rows, explained, gc_cand, unattributed = [], 0, 0, 0
     explained_ms, gc_ms = 0, 0
     for sus, ms in stalls:
-        near = [(us - sus, name, kv) for us, name, kv in landings
-                if 0 <= us - sus <= window_us]
+        # The stall itself spans [sus - ms, sus]: the probe reports drift it has
+        # ALREADY observed, so the blockage precedes the line.
+        s_start = sus - ms * 1000
+        near = []
+        for us, name, kv in landings:
+            if name == "decode.ffi":
+                # Worker wall time; only its landing instant is on-main.
+                if 0 <= us - sus <= window_us:
+                    near.append((0, us - sus, name, kv, None))
+                continue
+            dur = int(kv.get("dur_us", 0))
+            # Overlap of [us - dur, us] with [s_start, sus], in microseconds.
+            overlap = min(us, sus) - max(us - dur, s_start)
+            if overlap > 0:
+                near.append((-overlap, us - sus, name, kv, dur))
+            elif 0 <= us - sus <= window_us:
+                near.append((0, us - sus, name, kv, dur))
         if not near:
             unattributed += 1
             continue
-        gap, name, kv = min(near)
-        mat_us = int(kv["dur_us"]) if name == "pool.materialize" else None
-        if mat_us is not None and mat_us >= ms * 500:  # >=50% of stall
+        # Best = largest overlap; ties (adjacency-only matches) fall back to the
+        # nearest landing, which is what the original rule picked.
+        neg_overlap, gap, name, kv, mat_us = min(near, key=lambda r: (r[0], r[1]))
+        covered_us = -neg_overlap
+        # >=50% of the stall accounted for, by overlap where there is one and by
+        # the raw duration where the match was adjacency-only.
+        share_us = covered_us or (mat_us or 0)
+        if share_us >= ms * 500:
             explained += 1
             explained_ms += ms
             verdict = "materialize-explained"
@@ -318,8 +352,11 @@ def print_log_report(summary, other=None):
               f"unattributed: {attr['unattributed']}")
         for sus, ms, name, gap, mat_us, verdict in attr["rows"][:12]:
             mat = f" materialize_us={mat_us}" if mat_us is not None else ""
+            # `gap` is the landing line's offset from the stall line and is
+            # NEGATIVE whenever the match was an overlap by an event still
+            # running when the stall was reported.
             print(f"   stall {ms:>4} ms at {sus/1e6:>7.3f}s -> {name} "
-                  f"(+{gap} us{mat}) {verdict}")
+                  f"(gap {gap:+d} us{mat}) {verdict}")
         if len(attr["rows"]) > 12:
             print(f"   ... {len(attr['rows']) - 12} more attributed stalls")
 
@@ -507,6 +544,16 @@ PERF|70000|stall|ms=10
 PERF|1000100|nav|id=b
 """
 
+# Probe 4: the case the old adjacency rule could not see. The stall spans
+# 100..200ms and the `materialize` that caused it does not LOG until 260ms --
+# 60ms past even a generous post-window -- but its interval (260-200=60ms ..
+# 260ms) covers the stall completely.
+LOG_FIXTURE_OVERLAP = """PERF|1000|nav|id=a
+PERF|200000|stall|ms=100
+PERF|260000|materialize|id=7|bytes=96962304|dur_us=200000|iso=main
+PERF|1000100|nav|id=b
+"""
+
 SAMPLE_FIXTURE = """Analysis of sampling Halcyon (pid 1) every 1 millisecond
 Call graph:
     100 Thread_1: io.flutter.ui
@@ -587,6 +634,16 @@ def selftest(tmpdir="."):
         verdicts = [row[5] for row in a["rows"]]
         assert verdicts == ["materialize-explained", "candidate-GC",
                             "candidate-GC"], verdicts
+
+        p = write(LOG_FIXTURE_OVERLAP, ".log")
+        paths.append(p)
+        o = summarise_log(p)["stall_attr"]
+        # Adjacency alone would call this unattributed (the line is 60ms after
+        # the stall); interval overlap attributes it to the materialize.
+        assert o["n"] == 1, o
+        assert o["unattributed"] == 0, o
+        assert o["explained"] == 1 and o["explained_ms"] == 100, o
+        assert o["rows"][0][2] == "materialize", o["rows"]
 
         p = write(SAMPLE_FIXTURE, ".txt")
         paths.append(p)

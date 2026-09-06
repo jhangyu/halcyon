@@ -53,11 +53,23 @@ def main():
         stderr=subprocess.STDOUT, text=True)
 
     log_path = None
+    # Serializes writes to the real terminal between the background pump
+    # thread (constant flutter/log chatter) and the main thread's input()
+    # prompt below. Without this, a pump write landing between input()'s
+    # prompt-write and its read can scroll the "type 's' + Enter" prompt off
+    # screen while the terminal is still accepting keystrokes -- functionally
+    # harmless (typing blind still works) but reads as "the prompt never
+    # showed up / nothing happens when I type", which is the reported
+    # symptom. Re-printing the prompt on every loop iteration (below) means
+    # the user always sees it again even if an earlier one got buried.
+    out_lock = threading.Lock()
 
     def pump():
         nonlocal log_path
         for line in proc.stdout:
-            sys.stdout.write("  | " + line)
+            with out_lock:
+                sys.stdout.write("  | " + line)
+                sys.stdout.flush()
             m = READY_RE.search(line)
             if m:
                 log_path = m.group(1)
@@ -77,10 +89,20 @@ def main():
 
     # Stray newlines buffered during the build make a bare input() return
     # instantly (observed twice); requiring a literal token is immune to that.
-    print("\n" + "=" * 70)
-    while input(f"READY — set up the window, then type 's' + Enter to START "
-                f"the {args.duration}s capture: ").strip().lower() != "s":
-        print("(waiting — type 's' then Enter when ready)")
+    # Holding out_lock across the input() call blocks the pump thread from
+    # interleaving flutter's continuing build/log chatter with the prompt
+    # while we're waiting on the user (see out_lock comment above) -- this is
+    # what was making the "type 's' + Enter" prompt appear to vanish/never
+    # respond in real runs.
+    with out_lock:
+        print("\n" + "=" * 70)
+    answer = ""
+    while answer.strip().lower() != "s":
+        with out_lock:
+            answer = input(f"READY — set up the window, then type 's' + Enter "
+                            f"to START the {args.duration}s capture: ")
+        if answer.strip().lower() != "s":
+            print("(waiting — type 's' then Enter when ready)")
     print(f"START {datetime.datetime.now():%H:%M:%S} — capturing "
           f"{args.duration}s, do your loading now...")
 
@@ -114,7 +136,19 @@ def main():
     if not args.keep_running:
         print("quitting app...")
         try:
-            proc.stdin.write("q")
+            # `flutter run`'s hot-reload key-command reader only switches into
+            # single-keystroke (no-Enter) mode when its stdin is a real TTY
+            # (flutter_tools' AnsiTerminal.keystrokes checks
+            # stdio.stdinHasTerminal). Here stdin is a plain
+            # subprocess.PIPE, so flutter_tools falls back to reading stdin
+            # as newline-delimited lines -- a bare "q" with no trailing "\n"
+            # sits in its line buffer forever and is never dispatched. That
+            # made every run pay the full 15s `wait(timeout=...)` before
+            # falling through to terminate() (and, worse, terminate() can
+            # leave the actual macOS app process it spawned running instead
+            # of getting flutter's own graceful app-shutdown path). Sending
+            # "q\n" lets flutter's LineSplitter see the command immediately.
+            proc.stdin.write("q\n")
             proc.stdin.flush()
             proc.wait(timeout=15)
         except Exception:
