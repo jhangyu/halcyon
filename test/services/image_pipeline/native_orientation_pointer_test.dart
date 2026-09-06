@@ -160,6 +160,23 @@ void main() {
       },
     );
 
+    // Composition-root activation guard (round-3 review): main.dart's one-line
+    // orientingDngDecoder wiring is the single point where native rotation
+    // goes live; every other injection site defaults to null, so deleting it
+    // leaves the whole suite green while silently reverting to host rotation.
+    // Grepped mechanically, same style as AC-8.2 above.
+    test('main.dart wires orientingDngDecoder into AppState', () {
+      final source = File('lib/main.dart').readAsStringSync();
+      const needle = 'orientingDngDecoder: halcyonOrientingFullDecoder';
+      expect(
+        needle.allMatches(source).length,
+        1,
+        reason:
+            'expected the production AppState construction to pass '
+            'orientingDngDecoder: halcyonOrientingFullDecoder exactly once',
+      );
+    });
+
     // AC-8.5: the null-binding arm is the byte-for-byte control -- a decode
     // with NO orientingDngDecoder configured must behave exactly as the
     // pre-Task-8 byte-copy path (this mirrors encode_test.dart's existing
