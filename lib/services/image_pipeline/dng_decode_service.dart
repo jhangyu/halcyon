@@ -2,6 +2,7 @@ import 'package:ceyx/ceyx.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../perf/perf_log.dart';
+import '../platform/working_set_trim.dart';
 import 'dng_decode_contract.dart';
 
 /// P2: routes the [DngFullDecoder] seam through ceyx's persistent worker pool
@@ -59,7 +60,7 @@ bool decodePoolEnabledFor(String raw) =>
     raw != '0' && raw != 'false' && raw != 'off';
 
 Future<DecodedRgba> decodeDngFull(String path) async {
-  _ensurePoolLogger();
+  ensureHalcyonDecodePoolConfigured();
   final image = kDecodePoolEnabled
       ? await CeyxDecodePool.shared.decode(path)
       // LEGACY ARM: one isolate spawn + one dylib load per decode. Kept
@@ -97,15 +98,68 @@ Future<DecodedRgba> decodeDngFull(String path) async {
 /// `image_preload_controller.dart`.
 const DngFullDecoder halcyonDngFullDecoder = decodeDngFull;
 
-bool _poolLoggerInstalled = false;
+/// Task 8 (native-rotation-spec) production binding for
+/// [DngOrientingFullDecoder]. The pinned ceyx package in this tree today has
+/// NO oriented decode entry (that arrives with spec Tasks 3-5's pin bump) --
+/// so THIS ROUND it is a thin pass-through: run today's unoriented decode and
+/// report `appliedOrientation: 1`, exactly like every existing fake decoder
+/// default. Halcyon applies the whole declared orientation via the residual
+/// (`residualExifOrientation`), so behaviour is byte-identical to the
+/// `dngDecoder`-only path -- this only exists so `PhotoSource` has a seam to
+/// call, wired end-to-end, ready for the oriented pool entry to drop in here
+/// once the pin is bumped.
+///
+/// ponytail: one function, no branching on decodeIntoBufferOrientedAvailable
+/// yet -- there is nothing to branch on until Task 5 lands. Add the guarded
+/// lookup then, not before (referencing a not-yet-existing ceyx symbol here
+/// would break the build today).
+Future<DecodedRgba> decodeDngFullOriented(
+  String path, {
+  required int exifOrientation,
+}) => decodeDngFull(path);
 
-/// Routes pool events (ready / worker died / respawn / narrowing) into the
-/// perf log AND onto the console. A silently narrowed pool is exactly the
-/// defect class this loudness exists to prevent, so it is deliberately not
-/// gated on `PerfLog.enabled`.
-void _ensurePoolLogger() {
-  if (_poolLoggerInstalled) return;
-  _poolLoggerInstalled = true;
+const DngOrientingFullDecoder halcyonOrientingDngFullDecoder =
+    decodeDngFullOriented;
+
+bool _poolConfigured = false;
+
+/// One-time process configuration of the ceyx decode pool. Idempotent; called
+/// from every entry point below, so no startup ordering has to be maintained.
+///
+/// Does three things:
+///
+/// 1. **Wires the native buffer pool (R6, Task #9, user ruling 2026-09-06).**
+///    `CeyxDecodePool.nativeBufferPool` defaults to null in the ceyx package,
+///    and every pooled-route gate short-circuits on that null
+///    (`decode_pool.dart:532-535`). Until this assignment existed the whole
+///    WP6/WP10 decode-into route was reachable only from ceyx's own tests:
+///    production decodes fell back to the legacy native allocator, and nothing
+///    was red anywhere — the route was shipped, tested, and carrying zero
+///    traffic. The assignment lives HERE rather than as a default inside ceyx
+///    because a library must not decide on its own to hold eight ~100MB
+///    resident slots for every consumer; the host app owns that budget.
+///
+/// 2. **Suppresses the idle working-set trim.** See
+///    [WorkingSetTrim.suppressed]: idle trimming pages out exactly the idle
+///    pooled slots the pool keeps resident for immediate reuse. The
+///    folder-switch trim (`trimNow`) is deliberately left enabled.
+///
+/// 3. **Routes pool events into the perf log and the console.** A silently
+///    narrowed pool is exactly the defect class this loudness exists to
+///    prevent, so it is deliberately not gated on `PerfLog.enabled`.
+void ensureHalcyonDecodePoolConfigured() {
+  // RE-ASSERTED on every call, deliberately NOT behind the latch below. These
+  // two are process invariants held in mutable statics that other code (and
+  // any test helper) can clear; two stores are free, whereas a latched
+  // assignment that something else resets afterwards leaves the pooled route
+  // silently off — which is the exact failure this whole task exists to fix.
+  // The latch guards only the closure allocations, which is all it was ever
+  // for.
+  CeyxDecodePool.nativeBufferPool = CeyxNativeBufferPool.shared;
+  WorkingSetTrim.suppressed = true;
+
+  if (_poolConfigured) return;
+  _poolConfigured = true;
   CeyxDecodePool.logger = (line) {
     PerfLog.log(line);
     debugPrint('[ceyx-pool] $line');
@@ -134,7 +188,7 @@ void _ensurePoolLogger() {
 /// resulting throw, so a superseded decode can never write a permanent-miss
 /// latch into the newly opened folder's state.
 void bumpHalcyonDecodePoolGeneration() {
-  _ensurePoolLogger();
+  ensureHalcyonDecodePoolConfigured();
   CeyxDecodePool.shared.bumpGeneration();
 }
 
@@ -166,7 +220,7 @@ List<int>? halcyonDecodeWidthRecommendations() {
 /// clamps it against the machine's recommended width; that recommendation is
 /// displayed in settings and is advisory only.
 void setHalcyonDecodePoolWidth(int width) {
-  _ensurePoolLogger();
+  ensureHalcyonDecodePoolConfigured();
   CeyxDecodePool.shared.width = width;
   // Requested, not effective: the effective value arrives asynchronously as a
   // worker ack and is logged by the pool logger installed above. Logging both
