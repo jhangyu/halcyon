@@ -449,7 +449,7 @@ void main() {
       await h.scheduler.publishPiggybackFullRes(
         'a',
         payload,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image),
+        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null),
         () {},
         distance: 0,
       );
@@ -468,7 +468,7 @@ void main() {
       await h.scheduler.publishPiggybackFullRes(
         'a',
         payload,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image),
+        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null),
         () {},
         distance: 0,
       );
@@ -486,7 +486,7 @@ void main() {
       await h.scheduler.publishPiggybackFullRes(
         'a',
         published,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image),
+        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null),
         () {},
         distance: 0,
       );
@@ -502,7 +502,7 @@ void main() {
       await h.scheduler.publishPiggybackFullRes(
         'a',
         payload,
-        (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null),
+        (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null, releaseNative: null),
         () {},
         distance: 0,
       );
@@ -1059,7 +1059,7 @@ void main() {
         await scheduler.publishPiggybackFullRes(
           'a0',
           payload,
-          (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1, image: null),
+          (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1, image: null, releaseNative: null),
           () {},
           distance: 0,
         );

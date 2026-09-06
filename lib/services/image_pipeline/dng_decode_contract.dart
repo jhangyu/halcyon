@@ -16,6 +16,7 @@ class DecodedRgba {
     required this.height,
     this.nativeAddress = 0,
     this.nativeKeepAlive,
+    this.releaseNative,
   });
 
   /// RGBA8 interleaved, length == width * height * 4.
@@ -40,6 +41,21 @@ class DecodedRgba {
   /// package-agnostic (class dartdoc above: "no package import"). Null
   /// whenever [nativeAddress] is 0.
   final Object? nativeKeepAlive;
+
+  /// WP6 (gc-remediation, 2026-09-06). Returns this frame's native buffer to
+  /// `CeyxNativeBufferPool` at end-of-consumption; typically
+  /// `DngImage.releaseToPool` (idempotent on the ceyx side). Null means
+  /// "nothing to release", NEVER "leak": every Dart-heap-backed decode and
+  /// every fake decoder in the test suite leaves it null, and the pool's own
+  /// `NativeFinalizer` is the safety net for the buffers nobody releases
+  /// explicitly.
+  ///
+  /// The single call site is `_finishOffLane`'s `finally`
+  /// (image_preload_controller.dart), guarded by the aliasing rule: it fires
+  /// only when the published payload is an [EncodedPayload], because a
+  /// retained `PixelPayload` IS this buffer (the identity short-circuit in
+  /// `decodedRgbaToOrientedFullRes`).
+  final void Function()? releaseNative;
 }
 
 /// Decodes a DNG that carries no embedded full-size JPEG preview.

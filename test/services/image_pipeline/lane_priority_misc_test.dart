@@ -1410,7 +1410,7 @@ void main() {
         await h.scheduler.publishPiggybackFullRes(
           'a',
           payload,
-          (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null),
+          (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null, releaseNative: null),
           () {},
           distance: 0,
         );

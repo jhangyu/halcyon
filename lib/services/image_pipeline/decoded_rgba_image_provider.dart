@@ -225,11 +225,20 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
 /// hand the ImageCache a frame that is already on the GPU instead of
 /// re-uploading [rgba] -- the old code read that frame back and then uploaded
 /// the very same pixels again one call later.
+/// [releaseNative] (WP6, erratum E-WP4-1) is how [rgba]'s native buffer goes
+/// back to `CeyxNativeBufferPool`, or null when no pooled buffer backs this
+/// decode (every Dart-heap decode and every test fake). Null means "nothing to
+/// release", NEVER "leak" -- the pool's `NativeFinalizer` is the safety net.
+/// It rides on THIS record rather than on `DecodedRgba` because the single
+/// release site, `_finishOffLane`'s `finally`, can reach `decode.fullRes` and
+/// nothing else decode-scoped; `DecodedRgba` is not retained past
+/// `decodePhase`.
 typedef OrientedFullRes = ({
   Uint8List rgba,
   int width,
   int height,
   ui.Image? image,
+  void Function()? releaseNative,
 });
 
 /// Reduces a freshly decoded RAW frame to FULL-RESOLUTION oriented RGBA,
@@ -261,6 +270,9 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: decoded.width,
       height: decoded.height,
       image: null,
+      // The buffer handed out here IS `decoded.rgba` -- the aliasing case the
+      // release guard in `_finishOffLane` exists for.
+      releaseNative: decoded.releaseNative,
     );
   }
 
@@ -283,6 +295,9 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: oriented.width,
       height: oriented.height,
       image: oriented,
+      // `rgba` here is a FRESH readback buffer, so nothing aliases the native
+      // one -- but the handle still has to travel to the single release site.
+      releaseNative: decoded.releaseNative,
     );
   } catch (_) {
     // A failure must not leak the handle the caller never received.

@@ -86,6 +86,10 @@ Future<DecodedRgba> decodeDngFull(String path) async {
     // this field holds.
     nativeAddress: image.nativeAddress,
     nativeKeepAlive: image,
+    // WP6 (gc-remediation): end-of-consumption pool return. Safe on BOTH arms
+    // -- `DngImage.releaseToPool` is idempotent and a documented no-op when no
+    // pooled buffer backs this image, which is exactly the legacy arm's case.
+    releaseNative: image.releaseToPool,
   );
 }
 

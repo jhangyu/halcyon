@@ -390,6 +390,10 @@ class ImagePreloadController {
       width: fullRes.width,
       height: fullRes.height,
       image: fullRes.image,
+      // WP6: the handle must survive the shrink -- `_finishOffLane`'s release
+      // site reads `decode.fullRes`, but a dropped field here would still be a
+      // silent divergence between the two records.
+      releaseNative: fullRes.releaseNative,
     );
   }
 
@@ -1933,6 +1937,14 @@ class ImagePreloadController {
     // `InflightBytesBudget.clear()` can land between the admission and the
     // release below; releasing against a stale epoch is then a no-op instead of
     // an over-release (BUG 2026-09-03, TC-886).
+    //
+    // WP6: the payload `_completeOutcome` settled on, captured here because the
+    // `finally`'s pool-return guard needs it. Left null on the catch path and
+    // on the WP7 cancellation return, so the guard reads "no EncodedPayload was
+    // published" and does not release. NOT threaded through
+    // `_completeOutcome`'s signature: that method is also on WP7's and WP8's
+    // paths and the value is already in scope one line above the call.
+    SourcePayload? published;
     try {
       // WP7, SECOND gate (N3): the window moved past this id while its
       // decode was in flight (no FFI decode is cancellable, so the decode
@@ -1979,6 +1991,7 @@ class ImagePreloadController {
               fullRes: _shrinkAfterEncode(rawOutcome.fullRes!),
               failureCode: rawOutcome.failureCode,
             );
+      published = outcome.payload;
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
@@ -2010,6 +2023,19 @@ class ImagePreloadController {
       // dropped the payload -- the buffers are only out of flight then. The
       // release also re-pumps the lane, since these bytes may be exactly what a
       // byte-blocked pending decode was refused for.
+      //
+      // WP6. ORDER IS LOAD-BEARING (plan N1): reclaim native bytes BEFORE
+      // telling the budget they are free, so no admission is granted against
+      // capacity the pool has not actually reclaimed. No `await` may be
+      // introduced between these two statements.
+      //
+      // ALIASING GUARD: the identity short-circuit returns `decoded.rgba`
+      // ITSELF as the payload's buffer (decoded_rgba_image_provider.dart, the
+      // `image: null` literal), so a RETAINED `PixelPayload` IS this native
+      // buffer. Returning it to the pool would hand live, displayed pixels to
+      // the next decode. On that branch ownership transfers to the cache
+      // instead and ceyx's NativeFinalizer safety net reclaims it later.
+      if (published is EncodedPayload) decode.fullRes?.releaseNative?.call();
       if (admission != null) _decodeLane.releaseAdmission(admission);
       // [claim] plays the role `budgetEpoch` plays for the byte budget on the
       // line above, though it matches by object identity rather than by
