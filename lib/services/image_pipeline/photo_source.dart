@@ -289,18 +289,24 @@ class PhotoSource {
               '|dur_us=${PerfLog.us - materializeStartUs}',
             );
           }
-          final pixels = await decodedRgbaToPixelPayload(
-            decoded,
-            exifOrientation: exifOrientation,
-            longEdge: longEdge,
-            gate: compositeGate,
-          );
           final fullRes = await decodedRgbaToOrientedFullRes(
             decoded,
             exifOrientation: exifOrientation,
             gate: compositeGate,
           );
           handedOut = fullRes;
+          final pixels = fullRes.image == null
+              ? await decodedRgbaToPixelPayload(
+                  decoded,
+                  exifOrientation: exifOrientation,
+                  longEdge: longEdge,
+                  gate: compositeGate,
+                )
+              : await pixelPayloadFromOrientedImage(
+                  fullRes.image!,
+                  longEdge: longEdge,
+                  gate: compositeGate,
+                );
           return (
             encodedPayload: null,
             pixels: pixels,
@@ -408,18 +414,24 @@ class PhotoSource {
           '|dur_us=${PerfLog.us - materializeStartUs}',
         );
       }
-      final pixels = await decodedRgbaToPixelPayload(
-        decoded,
-        exifOrientation: exifOrientation,
-        longEdge: longEdge,
-        gate: compositeGate,
-      );
       final fullRes = await decodedRgbaToOrientedFullRes(
         decoded,
         exifOrientation: exifOrientation,
         gate: compositeGate,
       );
       handedOut = fullRes;
+      final pixels = fullRes.image == null
+          ? await decodedRgbaToPixelPayload(
+              decoded,
+              exifOrientation: exifOrientation,
+              longEdge: longEdge,
+              gate: compositeGate,
+            )
+          : await pixelPayloadFromOrientedImage(
+              fullRes.image!,
+              longEdge: longEdge,
+              gate: compositeGate,
+            );
       return (
         encodedPayload: null,
         pixels: pixels,
