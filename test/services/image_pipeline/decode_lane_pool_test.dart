@@ -357,12 +357,14 @@ void main() {
   group('stage_widths_test.dart', () {
     group('StageWidths.derive', () {
       test('TC-1020: derives every stage width from one number, secondary '
-          'stages pinned at 2', () {
+          'stages equal to the decode lane width (user ruling 2026-09-06: '
+          'all stage pool widths derive EQUAL to the user decode parameter, '
+          'low-clamp only -- the previous pinned constant 2 is removed)', () {
         for (var n = 1; n <= kMaxDecodeLaneWidth; n++) {
           final widths = StageWidths.derive(n);
           expect(widths.decodeLane, n, reason: 'decodeLane passes through');
-          expect(widths.encode, 2, reason: 'encode pinned this revision');
-          expect(widths.derive, 2, reason: 'derive pinned this revision');
+          expect(widths.encode, n, reason: 'encode equals the lane width');
+          expect(widths.derive, n, reason: 'derive equals the lane width');
         }
       });
 
@@ -384,9 +386,14 @@ void main() {
           reason: 'above-ceiling widths pass through the derivation untouched',
         );
 
-        // Clamping never leaks into the secondary stages.
-        expect(StageWidths.derive(0).encode, 2);
-        expect(StageWidths.derive(kMaxDecodeLaneWidth + 3).derive, 2);
+        // Equal derivation (user ruling 2026-09-06): the secondary stages
+        // follow the lane width, including through the low-clamp -- they are
+        // no longer pinned at a constant of 2.
+        expect(StageWidths.derive(0).encode, 1);
+        expect(
+          StageWidths.derive(kMaxDecodeLaneWidth + 3).derive,
+          kMaxDecodeLaneWidth + 3,
+        );
       });
 
       test('value equality holds (so a redundant push can be skipped)', () {

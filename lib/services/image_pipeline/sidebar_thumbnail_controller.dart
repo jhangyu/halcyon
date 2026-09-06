@@ -8,7 +8,6 @@ import 'lane_priority.dart';
 import 'derive_queue.dart';
 import 'image_preload_controller.dart' show thumbnailPrefetchMargin;
 import 'photo_payload.dart';
-import 'stage_widths.dart' show kSecondaryStageWidth;
 import 'thumbnail_derivation.dart';
 
 /// Everything the sidebar thumbnail strip owns.
@@ -34,7 +33,14 @@ class SidebarThumbnailController {
     required Set<String> Function() retentionIds,
     required VoidCallback republishEvictionPriority,
     void Function(String id)? onTileLanded,
-    int deriveQueueWidth = kSecondaryStageWidth,
+    // Construction default for this class's OWN unit tests only: production
+    // always passes the derived width explicitly (`deriveQueueWidth:
+    // _stageWidths.derive` in ImagePreloadController), and a live change
+    // arrives through [setDeriveQueueWidth]. Deliberately a local literal
+    // rather than a shared "secondary stage width" constant -- there is no
+    // such concept any more (user ruling 2026-09-06: every stage pool is as
+    // wide as the one configured decode width).
+    int deriveQueueWidth = 2,
   }) : _onTileLanded = onTileLanded,
        _peekPayload = peekPayload,
        _hasPayload = hasPayload,

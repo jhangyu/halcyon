@@ -153,7 +153,13 @@ class ImagePreloadController {
        ),
        _stageWidths = StageWidths.derive(decodeLaneWidth),
        _decodeLane = DecodeLane(width: decodeLaneWidth),
-       _encodeStage = EncodeStage(width: kSecondaryStageWidth) {
+       // Same derivation as `_stageWidths` above -- recomputed rather than
+       // read off it because an initialiser list cannot read `this`. The
+       // constructor body's `_applyStageWidths` re-pushes it anyway; building
+       // it at the derived width just means it is never briefly wrong.
+       _encodeStage = EncodeStage(
+         width: StageWidths.derive(decodeLaneWidth).encode,
+       ) {
     // Push the widths the stages were BUILT with, not just later changes:
     // until the stored preference hydrates and calls [setDecodeLaneWidth], the
     // lane and the pool would otherwise disagree (lane = this constructor's

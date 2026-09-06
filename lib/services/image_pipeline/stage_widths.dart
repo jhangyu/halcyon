@@ -1,11 +1,3 @@
-/// Width of every bounded stage that is NOT the decode lane.
-///
-/// Pinned at 2 in this revision (`EncodeStage`'s and `DeriveQueue`'s shipped
-/// constructor defaults), deliberately: P2's deliverable is that ONE function
-/// decides all three numbers, not a new tuning knob. A future ratio rule goes
-/// in [StageWidths.derive] and nowhere else.
-const int kSecondaryStageWidth = 2;
-
 /// The widths of every bounded stage in the image pipeline, derived from the
 /// one configured number (`AppState.decodeLaneWidth`, pref `decodeLaneWidth`).
 ///
@@ -34,11 +26,18 @@ class StageWidths {
   /// where the persisted preference is read; duplicating it here would make
   /// the ceiling live in two places and silently narrow the lane below what
   /// the caller asked for.
-  factory StageWidths.derive(int decodeLaneWidth) => StageWidths(
-    decodeLane: decodeLaneWidth < 1 ? 1 : decodeLaneWidth,
-    encode: kSecondaryStageWidth,
-    derive: kSecondaryStageWidth,
-  );
+  ///
+  /// EQUAL WIDTHS (binding user ruling 2026-09-06). Every stage pool is
+  /// exactly as wide as the one number the user configured: the earlier
+  /// revision pinned the encode stage and the sidebar derive queue at 2
+  /// regardless of that setting, which contradicted the written spec ("all
+  /// stage pool widths derive from the one decode parameter"). A future
+  /// non-identity ratio, if one is ever justified by measurement, goes HERE
+  /// and nowhere else.
+  factory StageWidths.derive(int decodeLaneWidth) {
+    final width = decodeLaneWidth < 1 ? 1 : decodeLaneWidth;
+    return StageWidths(decodeLane: width, encode: width, derive: width);
+  }
 
   /// Bound on concurrent real (RAW) decodes; also sizes the native decode pool.
   final int decodeLane;
