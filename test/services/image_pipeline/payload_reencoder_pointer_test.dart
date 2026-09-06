@@ -26,7 +26,7 @@ void main() {
 
     setUp(resetReencodeCounters);
 
-    // TC-1044
+    // TC-1079
     test('native-backed frames take the pointer entry', () async {
       int? seenAddress;
       var copyEncoderCalls = 0;
@@ -55,7 +55,7 @@ void main() {
       expect(reencodeFallbacks, 0);
     });
 
-    // TC-1045
+    // TC-1080
     test('Dart-heap frames (nativeAddress == 0) take the copy entry', () async {
       var pointerEncoderCalls = 0;
       var copyEncoderCalls = 0;
@@ -84,7 +84,7 @@ void main() {
       expect(reencodeFallbacks, 0);
     });
 
-    // TC-1046
+    // TC-1081
     test('no pointerEncoder supplied takes the copy entry (default null)', () async {
       var copyEncoderCalls = 0;
       final result = await reencodePayload(
@@ -100,7 +100,7 @@ void main() {
       expect(copyEncoderCalls, 1);
     });
 
-    // TC-1047
+    // TC-1082
     test('pointer-path native-unavailable failure still degrades to the pixel fallback', () async {
       final fallback = pixelsRe(10, 10);
       final result = await reencodePayload(
