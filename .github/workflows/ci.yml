@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jhangyu/ceyx
-          ref: 60087ad47e3a484b5f3642ae6d2e63fc7f84c349
+          ref: 9f9f557a7db1a034f2287a18b43cbbd4c36b85e1
           path: ceyx
 
       - uses: subosito/flutter-action@v2
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jhangyu/ceyx
-          ref: 60087ad47e3a484b5f3642ae6d2e63fc7f84c349
+          ref: 9f9f557a7db1a034f2287a18b43cbbd4c36b85e1
           path: ceyx
 
       - uses: subosito/flutter-action@v2
