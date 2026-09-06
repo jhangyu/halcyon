@@ -67,9 +67,16 @@ jobs:
       fail-fast: false        # lets sibling matrix legs finish; a leg still fails when it fails
       matrix:
         include:
-          - {os: macos-14,       target: macos,   archive: 'Halcyon-macos-arm64-'}
-          - {os: windows-latest, target: windows, archive: 'Halcyon-windows-x64-'}
-          - {os: ubuntu-latest,  target: linux,   archive: 'Halcyon-linux-x64-'}
+          # macos-x64 runs on macos-14 too: it is a CROSS-COMPILE
+          # (--macos-arch x86_64, rendered from scripts/ci/targets.py), not an
+          # Intel runner. Its archive prefix must differ from the arm64 leg's or
+          # the two would overwrite each other on the release; the
+          # `test_macos_legs_do_not_collide_on_archive_name` selftest asserts
+          # that mechanically against targets.py.
+          - {os: macos-14,       target: macos,     archive: 'Halcyon-macos-arm64-'}
+          - {os: macos-14,       target: macos-x64, archive: 'Halcyon-macos-x64-'}
+          - {os: windows-latest, target: windows,   archive: 'Halcyon-windows-x64-'}
+          - {os: ubuntu-latest,  target: linux,     archive: 'Halcyon-linux-x64-'}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

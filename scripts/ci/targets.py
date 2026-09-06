@@ -11,8 +11,26 @@ Provenance of every value below (transcribed byte-for-byte, not re-derived):
   provision     release.yml:137 (apt), ci.yml:121 / release.yml:57 (pod install)
   artifact_path build_apps.py:1730-1752 (flutter_artifact)
   archive_name  release.yml:66/105/144
+  build_target  build_apps.py:2820-2845 (the positional `target` argparse accepts)
   app_executable macos/Runner/Configs/AppInfo.xcconfig:8 (PRODUCT_NAME),
                  windows/CMakeLists.txt:7 and linux/CMakeLists.txt:7 (BINARY_NAME)
+
+``build_target`` vs the dict KEY. The key is the CI TARGET NAME (what
+``ci.py --target`` takes and what a workflow matrix leg names);
+``build_target`` is the positional ``scripts/build_apps.py`` is invoked with.
+For five of the six they are identical. They are NOT identical for
+``macos-x64``: build_apps.py has no separate Intel target, it has a
+``--macos-arch`` FLAG on the one ``macos`` target (build_apps.py:2838-2840),
+so that CI leg renders ``build_apps.py macos --macos-arch x86_64 …``. Keeping
+the two names as separate fields is what lets one build entry point serve two
+CI legs without any name-equality branching anywhere else (G-5).
+
+``assert_platform`` is the artefact PLATFORM name the R-7 assertion suite
+judges this target as (``assertions.platform_of``). It is neither the
+architecture nor the runner: BOTH macOS legs declare "macos", so both stay
+subject to run_suite()'s "a skip on the artefact's own platform is a FAILURE"
+rule. See the macos-x64 entry's own comment for why inventing a per-arch
+platform name would have silently disabled that rule for the whole leg.
 
 ``app_executable`` is the basename of the Flutter runner binary inside the
 shipped artefact, and it is NOT the same string on every platform: only macOS
@@ -26,6 +44,8 @@ from __future__ import annotations
 
 TARGETS: dict = {
     "macos": {
+        "build_target": "macos",
+        "assert_platform": "macos",
         "runs_on": "macos-14",
         # --fetch-native: as of the HALCYON-MIGRATION campaign (2026-09, tag
         # v0.1.8) macOS is fetched from the ceyx release pin, the same as
@@ -66,7 +86,69 @@ TARGETS: dict = {
         ],
         "pin_platform": "macos-arm64",
     },
+    "macos-x64": {
+        # Intel macOS, CROSS-COMPILED on the same Apple-silicon runner image the
+        # arm64 leg uses. build_apps.py has no separate Intel target: it has one
+        # `macos` target plus a `--macos-arch` flag (build_apps.py:2838-2840),
+        # which sets FLUTTER_XCODE_ARCHS (2560-2565), selects the pin's
+        # "macos-x86_64" asset via fetch_target_for() (1440-1467), and already
+        # refuses to finish if the produced app's slices are not exactly
+        # {x86_64} (2405) or the fetched dylib's are not (2702). Hence
+        # build_target "macos" with the arch carried in build_flags.
+        "build_target": "macos",
+        # The artefact platform for the assertion suite is "macos", NOT a new
+        # platform name. That is deliberate and load-bearing: assertions.py
+        # treats a skip as a FAILURE only when the artefact's platform equals
+        # the host's (Spec §4.5, the 2026-08-25 silently-skipped-gate lesson).
+        # Inventing a "macos-x86_64" artefact platform would make every skip on
+        # this leg "legitimate" — a missing nm, an unreadable manifest entry —
+        # and the leg would report green while measuring nothing. Architecture
+        # is not a platform here; it is asserted directly, by H-ARCH and
+        # H-DECODER-ARCH, against expected_arch=x86_64.
+        "assert_platform": "macos",
+        # macos-14 (Apple silicon), not macos-13 (Intel): this leg is a
+        # cross-compile, which is exactly what the local proof did, and it keeps
+        # both macOS legs on one runner image rather than depending on the
+        # retiring Intel image. The cost is stated, not hidden — see the
+        # H-SIZED-SYMBOL omission in "assertions" below.
+        "runs_on": "macos-14",
+        "build_flags": ["--macos-arch", "x86_64", "--fetch-native"],
+        # Identical to the arm64 leg: same Podfile, same gitignored
+        # Flutter-Generated.xcconfig that only `pub get` creates.
+        "provision": [["flutter", "pub", "get"], ["pod", "install"]],
+        "artifact_kind": "app_bundle",
+        # Same output path as the arm64 build — the two never coexist on one
+        # runner, because each CI/release matrix leg builds exactly one of them.
+        "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
+        "app_executable": "Halcyon",
+        "archive_name": "Halcyon-macos-x64-{version}.zip",
+        "archive_format": "zip",
+        # H-SIZED-SYMBOL (the functional FFI probe) is DELIBERATELY ABSENT, for
+        # the same class of reason H-SIZED-SYMBOL-NM is absent on windows: the
+        # instrument is structurally invalid here. The probe is
+        # `dart run` + DynamicLibrary.open, and an arm64 dart process cannot
+        # load an x86_64 dylib, so on this runner it could only ever report a
+        # loader failure that says nothing about the artefact. It is omitted in
+        # DATA, visibly, rather than silently skipped at run time. What replaces
+        # it: H-DECODER-ARCH (the shipped dylib really is x86_64) and
+        # H-SIZED-SYMBOL-NM / H-CEYX-SYMBOLS-NM (nm reads a foreign-arch Mach-O
+        # file fine on any host, because it parses the file rather than loading
+        # it). Runtime loadability on real Intel hardware is therefore NOT
+        # measured by this leg and must not be claimed from a green run.
+        "assertions": [
+            "H-ARCH",
+            "H-DECODER-PRESENT",
+            "H-DECODER-ARCH",
+            "H-DECODER-DEPS",
+            "H-DECODER-HASH",
+            "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS-NM",
+        ],
+        "pin_platform": "macos-x86_64",
+    },
     "windows": {
+        "build_target": "windows",
+        "assert_platform": "windows",
         "runs_on": "windows-latest",
         # --fetch-native, not plain auto: ceyx still carries a committed
         # dng_decoder_native.dll (hand-built, no S4 colour-gate record). Auto-fetch
@@ -93,6 +175,8 @@ TARGETS: dict = {
         "pin_platform": "windows",
     },
     "linux": {
+        "build_target": "linux",
+        "assert_platform": "linux",
         "runs_on": "ubuntu-latest",
         "build_flags": [],
         "provision": [
@@ -118,6 +202,8 @@ TARGETS: dict = {
         "pin_platform": "linux",
     },
     "android-apk": {
+        "build_target": "android-apk",
+        "assert_platform": "android",
         "runs_on": "ubuntu-latest",
         "build_flags": [],
         "provision": [],
@@ -134,6 +220,11 @@ TARGETS: dict = {
         "pin_platform": None,
     },
     "web": {
+        "build_target": "web",
+        # No manifest entry and no native artefact: platform_of() previously fell
+        # back to the target name for this target, and "web" preserves that
+        # exactly. Its assertion list is empty, so nothing consumes it.
+        "assert_platform": "web",
         "runs_on": "ubuntu-latest",
         "build_flags": [],
         "provision": [],
@@ -150,6 +241,8 @@ TARGETS: dict = {
 
 # Every entry must carry exactly these keys (Plan §2). Enforced by _validate().
 REQUIRED_KEYS = (
+    "build_target",
+    "assert_platform",
     "runs_on",
     "build_flags",
     "provision",

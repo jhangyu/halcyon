@@ -72,8 +72,21 @@ jobs:
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
 
+  # Two macOS legs, one per architecture. BOTH run on macos-14 (Apple silicon):
+  # the x64 leg is a CROSS-COMPILE (`--macos-arch x86_64`, rendered by
+  # scripts/ci/targets.py), not an Intel runner. That is deliberate — it matches
+  # how the capability was first proved locally and avoids depending on the
+  # retiring macos-13 Intel image — and it has a stated cost: the functional FFI
+  # probe cannot load an x86_64 dylib from an arm64 process, so the x64 leg's
+  # assertion list omits it in data and gates on Mach-O header + nm symbol
+  # checks instead. A green x64 leg therefore does NOT claim runtime loadability
+  # on real Intel hardware. See the "assertions" comment in targets.py.
   build:
-    name: Build macOS (release)
+    name: Build ${{ matrix.target }} (release)
+    strategy:
+      fail-fast: false        # lets the sibling arch leg finish; a leg still fails when it fails
+      matrix:
+        target: [macos, macos-x64]
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -92,20 +105,22 @@ jobs:
           channel: 'stable'
           # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
-      - name: ci.py provision --target macos
-        run: python3 scripts/ci.py provision --target macos
+      - name: ci.py provision
+        run: python3 scripts/ci.py provision --target ${{ matrix.target }}
 
-      - name: ci.py build --target macos
-        run: python3 scripts/ci.py build --target macos
+      - name: ci.py build
+        run: python3 scripts/ci.py build --target ${{ matrix.target }}
 
-      - name: ci.py assert-capabilities --target macos
-        run: python3 scripts/ci.py assert-capabilities --target macos
+      - name: ci.py assert-capabilities
+        run: python3 scripts/ci.py assert-capabilities --target ${{ matrix.target }}
 
-      - name: Upload ci-logs (build macos)
+      # Names must be unique across matrix legs or upload-artifact@v4 rejects the
+      # collision, hence the matrix value in the name.
+      - name: Upload ci-logs (build ${{ matrix.target }})
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ci-logs-build-macos
+          name: ci-logs-build-${{ matrix.target }}
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
 

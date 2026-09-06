@@ -313,6 +313,75 @@ class TestAutoReleaseWiring(unittest.TestCase):
                       "release.yml must expose a real publish path for the gate")
 
 
+class TestReleaseMatrixMatchesTargets(unittest.TestCase):
+    """release.yml's matrix and scripts/ci/targets.py must agree.
+
+    The failure this prevents is silent and expensive: the publish step globs
+    `Halcyon/<matrix.archive><version>.*`, while `ci.py package` writes whatever
+    targets.py's `archive_name` says. If the two drift, the leg builds, asserts
+    and packages GREEN, and then `fail_on_unmatched_files` fires at the very end
+    of the release — or, worse, two legs share a prefix and one silently
+    overwrites the other's asset. Nothing else in the tree ties the YAML literal
+    to the Python data, so this test is that tie.
+    """
+
+    MATRIX_LINE_RE = re.compile(
+        r"^\s*-\s*\{os:\s*([\w.-]+)\s*,\s*target:\s*([\w.-]+)\s*,\s*archive:\s*'([^']+)'\s*\}"
+    )
+
+    def _matrix_entries(self):
+        path = WORKFLOWS_DIR / "release.yml"
+        if not path.is_file():
+            self.skipTest(f"{path} not present")
+        entries = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            m = self.MATRIX_LINE_RE.match(line)
+            if m:
+                entries.append((m.group(1), m.group(2), m.group(3)))
+        self.assertTrue(entries, "no release.yml matrix include entries parsed")
+        return entries
+
+    def _targets_module(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import ci.targets as targets  # noqa: PLC0415
+
+        return targets
+
+    def test_every_matrix_target_exists_and_prefixes_match(self):
+        targets = self._targets_module()
+        for runner, target, prefix in self._matrix_entries():
+            with self.subTest(target=target):
+                spec = targets.spec(target)  # KeyError -> unknown target
+                expected_prefix = spec["archive_name"].split("{version}")[0]
+                self.assertEqual(
+                    prefix,
+                    expected_prefix,
+                    f"release.yml's archive prefix for {target!r} ({prefix!r}) does "
+                    f"not match targets.py's archive_name ({spec['archive_name']!r}); "
+                    f"the publish glob would find nothing",
+                )
+                self.assertEqual(
+                    runner,
+                    spec["runs_on"],
+                    f"release.yml runs {target!r} on {runner!r} but targets.py "
+                    f"declares runs_on={spec['runs_on']!r}",
+                )
+
+    def test_no_two_release_legs_share_an_archive_prefix(self):
+        prefixes = [prefix for _, _, prefix in self._matrix_entries()]
+        duplicates = sorted({p for p in prefixes if prefixes.count(p) > 1})
+        self.assertEqual(
+            duplicates,
+            [],
+            f"two release legs publish the same archive prefix, so one would "
+            f"overwrite the other's asset: {duplicates!r}",
+        )
+
+
 class TestNoTestExecutionInCI(unittest.TestCase):
     """CLAUDE.md (2026-08-31 decree): "CI is compile-only ... Functional
     tests ... are NOT run in CI." No argv list literal anywhere under
