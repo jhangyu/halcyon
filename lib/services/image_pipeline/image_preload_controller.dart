@@ -241,6 +241,13 @@ class ImagePreloadController {
   @visibleForTesting
   int get debugEncodeStageRunningCount => _encodeStage.runningCount;
 
+  /// Decodes currently OCCUPYING a lane slot. Exposed so a test can establish
+  /// "the lane is busy" as a precondition instead of assuming it: an entry the
+  /// lane has already started is not pending, so an assertion about pending
+  /// ranks is only meaningful once the slots are known to be full.
+  @visibleForTesting
+  int get debugDecodeLaneRunningCount => _decodeLane.runningCount;
+
   final FrameHook? _frameHook;
   final int _publicationsPerFrame;
 
@@ -760,6 +767,11 @@ class ImagePreloadController {
   bool isFullSizeReady(String id) => _tierTwo.isReady(id);
 
   void reset() {
+    // PHASE 6: a queued pass belongs to the folder being left. Dropping the
+    // record is the cancellation -- the scheduled microtask still runs and
+    // finds nothing, which is cheaper and less error-prone than trying to
+    // unschedule it.
+    _pendingIntent = null;
     _cache.clear();
     // PHASE 5: a folder reload is the ONLY thing that clears a `failed`
     // state, and it clears it by ending the notifier's life -- the next
@@ -809,6 +821,7 @@ class ImagePreloadController {
     // Same reason as [reset]: an unawaited in-flight load must not write into
     // the maps cleared below.
     _folderGeneration++;
+    _pendingIntent = null;
     _disposeAllPayloadStates();
     _sidebar.dispose();
     _decodeLane.clearPending();
@@ -845,11 +858,106 @@ class ImagePreloadController {
     _tierOneKeys.clear();
   }
 
+  // ---------------------------------------------------------------------------
+  // PHASE 6 -- intent coalescing at the scheduler entrance.
+  //
+  // Nine arrow-key events used to buy nine full window passes: nine retention
+  // recomputations, nine eviction republishes, nine sidebar sweeps, and nine
+  // sets of per-slot chains for windows that were already history before their
+  // probes came back. The events are not independent -- each one SUPERSEDES the
+  // last -- so what the pipeline needs from a burst is the FINAL intent, once.
+  //
+  // The entrance therefore records intent and schedules one pass on a
+  // microtask. It is deliberately a microtask and not a timer: no wall-clock
+  // delay is introduced anywhere, so this is upstream of (and invisible to)
+  // both existing debounces -- tier-2's 250ms and the sidebar's 100ms are
+  // untouched, which G-001 and the tier-2 tests still pin.
+  //
+  // Why this is safe for callers that `await` the entrance: the pass microtask
+  // is queued BEFORE the continuation of the returned future, so
+  // `await preloadImages(...)` still resumes with the pass already issued --
+  // exactly the Phase 3 contract ("returns when work has been ISSUED").
+  // ---------------------------------------------------------------------------
+
+  /// The one mutable intent, overwritten by every entrance call and consumed by
+  /// the scheduled pass. Null between passes.
+  _PendingIntent? _pendingIntent;
+  bool _intentPassScheduled = false;
+  int _intentPassCount = 0;
+
+  /// Scheduling passes actually run. The nine-selections-one-pass property is
+  /// asserted on this (plan §3 Phase 6 acceptance bullet 1).
+  @visibleForTesting
+  int get debugSchedulingPassCount => _intentPassCount;
+
+  /// True while a burst's pass is queued but has not run yet.
+  @visibleForTesting
+  bool get debugHasPendingIntent => _pendingIntent != null;
+
+  void _scheduleIntentPass() {
+    if (_intentPassScheduled) return;
+    _intentPassScheduled = true;
+    scheduleMicrotask(_runIntentPass);
+  }
+
+  void _runIntentPass() {
+    _intentPassScheduled = false;
+    final intent = _pendingIntent;
+    _pendingIntent = null;
+    if (intent == null) return; // reset()/dispose() dropped it.
+    _intentPassCount++;
+    // NAVIGATION FIRST, then the sidebar. Not cosmetic: the sidebar's
+    // re-enqueue guard reads the lane's pending priority for a key
+    // (`isSidebarPriority`, G-027), so issuing the window before the sweep
+    // means the sweep sees navigation's priorities rather than racing them.
+    final navItems = intent.navItems;
+    final selectedItemId = intent.selectedItemId;
+    if (navItems != null && selectedItemId != null) {
+      _issueNavigationPass(
+        items: navItems,
+        selectedItemId: selectedItemId,
+        notifyLoaded: intent.notifyLoaded ?? () {},
+      );
+    }
+    final thumbItems = intent.thumbItems;
+    final startIdx = intent.thumbStartIdx;
+    final endIdx = intent.thumbEndIdx;
+    if (thumbItems != null && startIdx != null && endIdx != null) {
+      // Unawaited by design: the sidebar's own contract is "the sweep has been
+      // SCHEDULED", and its 100ms debounce owns the rest.
+      unawaited(
+        _sidebar.preloadThumbnails(
+          items: thumbItems,
+          startIdx: startIdx,
+          endIdx: endIdx,
+        ),
+      );
+    }
+  }
+
+  /// Records the navigation intent. A burst of calls in one turn of the event
+  /// loop produces ONE pass, for the LAST selection -- see [_runIntentPass].
   Future<void> preloadImages({
     required List<PhotoItem> items,
     required String selectedItemId,
     required VoidCallback notifyLoaded,
   }) async {
+    if (items.isEmpty) return;
+    final intent = _pendingIntent ??= _PendingIntent();
+    intent.navItems = items;
+    intent.selectedItemId = selectedItemId;
+    intent.notifyLoaded = notifyLoaded;
+    _scheduleIntentPass();
+  }
+
+  /// The window pass itself, unchanged from Phase 3 except that it is now
+  /// reached from [_runIntentPass] instead of directly from the entrance. It
+  /// still contains no await from its first line to its last.
+  void _issueNavigationPass({
+    required List<PhotoItem> items,
+    required String selectedItemId,
+    required VoidCallback notifyLoaded,
+  }) {
     if (items.isEmpty) return;
 
     // Snapshot. `items` belongs to the CALLER (AppState hands us its live
@@ -1975,10 +2083,40 @@ class ImagePreloadController {
     required int startIdx,
     required int endIdx,
     VoidCallback? notifyLoaded,
-  }) => _sidebar.preloadThumbnails(
-    items: items,
-    startIdx: startIdx,
-    endIdx: endIdx,
-    notifyLoaded: notifyLoaded,
-  );
+  }) async {
+    // PHASE 6: the viewport half of the same intent record the navigation
+    // entrance writes, so a frame that reports a new visible range AND a new
+    // selection produces one pass, in a defined order (window, then sweep).
+    //
+    // [notifyLoaded] bypasses the record deliberately: it is only ever
+    // non-null in the sidebar's own unit tests, which call this to observe a
+    // single sweep and would learn nothing from a coalesced one.
+    if (notifyLoaded != null) {
+      return _sidebar.preloadThumbnails(
+        items: items,
+        startIdx: startIdx,
+        endIdx: endIdx,
+        notifyLoaded: notifyLoaded,
+      );
+    }
+    final intent = _pendingIntent ??= _PendingIntent();
+    intent.thumbItems = items;
+    intent.thumbStartIdx = startIdx;
+    intent.thumbEndIdx = endIdx;
+    _scheduleIntentPass();
+  }
+}
+
+/// PHASE 6: the ONE mutable intent (plan §3 Phase 6). Deliberately a mutable
+/// holder rather than an immutable record: the two entrances write different
+/// halves of it at different moments, and the point is that the LAST writer of
+/// each half wins before the pass reads them.
+class _PendingIntent {
+  List<PhotoItem>? navItems;
+  String? selectedItemId;
+  VoidCallback? notifyLoaded;
+
+  List<PhotoItem>? thumbItems;
+  int? thumbStartIdx;
+  int? thumbEndIdx;
 }
