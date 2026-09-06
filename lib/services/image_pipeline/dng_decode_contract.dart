@@ -17,6 +17,7 @@ class DecodedRgba {
     this.nativeAddress = 0,
     this.nativeKeepAlive,
     this.releaseNative,
+    this.appliedOrientation = 1,
   });
 
   /// RGBA8 interleaved, length == width * height * 4.
@@ -56,12 +57,40 @@ class DecodedRgba {
   /// retained `PixelPayload` IS this buffer (the identity short-circuit in
   /// `decodedRgbaToOrientedFullRes`).
   final void Function()? releaseNative;
+
+  /// The EXIF orientation the DECODER has already applied to [rgba], or 1
+  /// when it applied none. Never a request; always a report. Halcyon applies
+  /// only the RESIDUAL (`residualExifOrientation` in `exif_orientation.dart`),
+  /// so a decoder that ignores the request, a build whose dylib predates the
+  /// oriented entry, and the pure-Dart TIFF arm are all correct without a
+  /// feature flag. Defaults to 1 so every existing construction site
+  /// (production and every fake decoder in the test suite) is unaffected.
+  final int appliedOrientation;
 }
 
 /// Decodes a DNG that carries no embedded full-size JPEG preview.
 ///
 /// Throws on failure; callers treat any throw as "fall back to the old path".
 typedef DngFullDecoder = Future<DecodedRgba> Function(String path);
+
+/// Orientation-aware sibling of [DngFullDecoder].
+///
+/// A SECOND typedef, not a widened [DngFullDecoder] -- Dart's function-type
+/// subtyping means adding even an OPTIONAL named parameter to a typedef
+/// breaks every existing closure assigned to it (see the erratum recorded at
+/// `payload_reencoder.dart:13-22`, where `Enc e = fakeOld;` is a compile
+/// error after such a widening). [DngFullDecoder]'s declaration therefore
+/// stays byte-identical, and this is a separate, additional seam -- exactly
+/// as `PointerPayloadEncoder` is the separate sibling of `PayloadEncoder`.
+///
+/// [exifOrientation] is the DECLARED orientation (from Halcyon's own IFD0
+/// walk); the returned [DecodedRgba.appliedOrientation] reports what the
+/// decoder actually did with it, which may be less than requested (or
+/// nothing at all, on an older dylib or a non-RAW arm).
+typedef DngOrientingFullDecoder = Future<DecodedRgba> Function(
+  String path, {
+  required int exifOrientation,
+});
 
 /// The app's only defence against an OOM from a container header that claims
 /// an absurd extent: refuse when `width * height * 4` exceeds this many bytes.
