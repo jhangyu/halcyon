@@ -7,6 +7,8 @@
 //           (the Phase 3 entrance contract survives the microtask)
 //   TC-995  the navigation and viewport halves coalesce into one pass
 //   TC-996  reset() drops a queued intent: no pass runs for the old folder
+//   TC-997  the lane's top-priority entry after a nine-event burst is the
+//           ninth selection itself
 //
 // Red-proof: docs/logs/2026-09-06/phase6-redproof.txt.
 

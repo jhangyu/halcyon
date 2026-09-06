@@ -3,9 +3,13 @@ import 'package:flutter/foundation.dart';
 /// How far along one item's payload is, as a view can observe it.
 ///
 /// The declaration order IS the progression order: [ImagePreloadController]
-/// only ever moves an item FORWARD along this list (plan §3 Phase 5, "observed
-/// transitions are a prefix of absent -> decoding -> tierOneReady ->
-/// tierTwoReady"), and [failed] is terminal until the folder reloads.
+/// only ever moves an item FORWARD along this list (plan §3 Phase 5). The
+/// universal invariant is that the stage is MONOTONE NON-DECREASING; the
+/// "observed transitions are a prefix of absent -> decoding -> tierOneReady
+/// -> tierTwoReady" property only holds for a notifier created before the
+/// first landing -- a notifier created after a landing is born at the
+/// already-derived truth, so it can skip earlier stages. [failed] is
+/// terminal until the folder reloads.
 ///
 /// Deliberately NOT a second source of truth: every value here is written from
 /// the same landing sites that already call `notifyLoaded`, so a stage can

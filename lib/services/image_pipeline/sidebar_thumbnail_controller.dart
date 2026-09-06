@@ -531,9 +531,10 @@ class SidebarThumbnailController {
         // only other producer; the tier-2 catch-up path was missed by the
         // Phase 4 rebase and is fixed in the same commit as this correction.)
         // Full-res upgrades use a different key entirely, so they can never
-        // be the pending entry this reads. Getting this wrong re-opens G-027 in the silent direction --
-        // demoting the item the user is looking at -- which is why both
-        // directions are asserted by test rather than argued here.
+        // be the pending entry this reads. Getting this wrong re-opens G-027
+        // in the silent direction -- demoting the item the user is looking
+        // at -- which is why both directions are asserted by test rather
+        // than argued here.
         //
         // This replaces the old plain `isPending` guard, whose sole purpose
         // (G-027: never demote a navigation entry from rank 0 to 2000+) is

@@ -465,8 +465,8 @@ class TierTwoScheduler {
           // the user ruled on (open question 4): payload production -- the
           // blank slots the user can SEE -- goes in first, then upgrades
           // near-to-far. The full-res BAND (lane_priority.dart) is what makes
-          // that ordering
-          // hold even against a payload task queued after this loop ran.
+          // that ordering hold even against a payload task queued after this
+          // loop ran.
           pendingUpgrades.add((
             item: item,
             payload: payload,
@@ -665,7 +665,7 @@ class TierTwoScheduler {
       // of calling `publishFullRes` directly. `exempt` mirrors the tier-1
       // rule ([isSelectedExempt]) -- the item the user is looking at must not
       // wait a frame for its own full-resolution pixels, the same rationale
-      // The full-res band already applies to decode ORDER; this applies
+      // the full-res band already applies to decode ORDER; this applies
       // it to publish TIMING too. [_publishOrDiscard] tracks the claim in
       // [_pendingFullResPublish] so a queued (not yet drained) publish still
       // blocks a redundant decode, and its `stillValid` re-checks at DRAIN

@@ -81,9 +81,10 @@ ValueListenable<PayloadState> _absentPayloadStateFor(String id) =>
 /// PHASE 5: one strip row, rebuilt when THAT row's payload state changes.
 ///
 /// Every theme's tile builder wraps its chip in this instead of rebuilding the
-/// whole strip, so a landing for one row cannot repaint 40 others. It hands the builder the row's PAYLOAD (read back
-/// through the model at build time), never the state object: what a tile paints
-/// is still decided by the pipeline's own accessor.
+/// whole strip, so a landing for one row cannot repaint 40 others. It hands
+/// the builder the row's PAYLOAD (read back through the model at build time),
+/// never the state object: what a tile paints is still decided by the
+/// pipeline's own accessor.
 class StripTile extends StatelessWidget {
   const StripTile({
     super.key,
