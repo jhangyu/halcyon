@@ -425,7 +425,17 @@ class SidebarThumbnailController {
     if (items.isEmpty) return;
 
     final safeStart = startIdx.clamp(0, items.length - 1);
-    final safeEnd = endIdx.clamp(0, items.length - 1);
+    var safeEnd = endIdx.clamp(0, items.length - 1);
+    // Defensive clamp (latent G-027-adjacent hole, not reachable today: every
+    // production caller already passes startIdx <= endIdx). Without this, an
+    // inverted range makes `_marginDistanceBase` ((safeEnd - safeStart) + 1)
+    // go <= 0, which pushes a margin row's `_rowDistance` negative and could
+    // in principle rank a sidebar-margin row ahead of the visible band it is
+    // supposed to sit strictly behind. Normalising to a single-row range is
+    // the smallest correct fix: it keeps every downstream distance
+    // non-negative without inventing an ordering for an input that should
+    // never occur.
+    if (safeEnd < safeStart) safeEnd = safeStart;
 
     if (_lastPreloadStart == safeStart && _lastPreloadEnd == safeEnd) return;
     _lastPreloadStart = safeStart;

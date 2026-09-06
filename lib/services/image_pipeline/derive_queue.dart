@@ -14,13 +14,32 @@ import 'dart:async';
 /// Lower [submit] priority values run sooner. Ties break by submission order
 /// (stable), so two jobs at equal priority still complete in arrival order.
 class DeriveQueue {
-  DeriveQueue({int width = 2}) : _width = width < 1 ? 1 : width;
+  DeriveQueue({int width = 2, this.jobTimeout = const Duration(seconds: 5)})
+    : _width = width < 1 ? 1 : width;
 
   final List<_Job<Object?>> _pending = <_Job<Object?>>[];
   int _width;
   int _running = 0;
   bool _pumpScheduled = false;
   int _sequence = 0;
+
+  /// Ceiling on a single job's runtime, so a hung derivation (a stalled
+  /// native decode, a wedged FFI call) releases its concurrency slot instead
+  /// of blocking every later submission behind it forever -- the same
+  /// starvation class [width] alone cannot prevent, because [width] only
+  /// bounds how many jobs run at once, not how long one is allowed to run.
+  ///
+  /// Injectable (not a top-level `const`) so a test can use a millisecond-
+  /// scale value instead of waiting out the real 5s default. On timeout the
+  /// job's [Future] completes with a [TimeoutException] -- exactly the same
+  /// completer path an ordinary thrown error already takes -- so a caller
+  /// that never awaits its `submit` future (every production call site is
+  /// `unawaited`) sees no behavioural change: the slot frees, the pump
+  /// advances, and if the abandoned body eventually resolves anyway, its
+  /// write lands through the SAME post-await guards (`generation`,
+  /// `_wantedIds`, payload identity -- see `sidebar_thumbnail_controller.dart`
+  /// `_deriveTile`) that already make a late write harmless.
+  final Duration jobTimeout;
 
   int get width => _width;
 
@@ -48,15 +67,6 @@ class DeriveQueue {
     return job.completer.future;
   }
 
-  /// Drops every queued-but-not-started body, failing its future. Running
-  /// bodies are unaffected.
-  void clear() {
-    for (final job in _pending) {
-      job.completer.completeError(StateError('DeriveQueue was cleared'));
-    }
-    _pending.clear();
-  }
-
   void _schedulePump() {
     if (_pumpScheduled) return;
     _pumpScheduled = true;
@@ -76,7 +86,13 @@ class DeriveQueue {
   Future<void> _runOne(_Job<Object?> job) async {
     _running++;
     try {
-      job.completer.complete(await job.body());
+      final result = await job.body().timeout(
+        jobTimeout,
+        onTimeout: () => throw TimeoutException(
+          'DeriveQueue job (priority ${job.priority}) exceeded $jobTimeout',
+        ),
+      );
+      job.completer.complete(result);
     } catch (error, stack) {
       job.completer.completeError(error, stack);
     } finally {
