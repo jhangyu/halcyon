@@ -198,34 +198,15 @@ void main() {
     });
   });
 
-  group('decode_pool_killswitch_test.dart', () {
-    test('TC-944: the define parses the documented spellings', () {
-      // Not supplied -> pool ON. This is the shipped default.
-      expect(decodePoolEnabledFor(''), isTrue);
-      expect(kDecodePoolEnabled, isTrue,
-          reason: 'the test suite runs without the define, so the default arm '
-              'must be the pool');
-
-      // The documented off spellings must all actually turn it OFF. `0` is the
-      // trap: `bool.fromEnvironment` would return its DEFAULT for this value,
-      // leaving the pool on while the operator believes it is off.
-      expect(decodePoolEnabledFor('0'), isFalse);
-      expect(decodePoolEnabledFor('false'), isFalse);
-      expect(decodePoolEnabledFor('off'), isFalse);
-
-      // Anything else means on: an unrecognised value must not silently disable
-      // the production path.
-      expect(decodePoolEnabledFor('1'), isTrue);
-      expect(decodePoolEnabledFor('true'), isTrue);
-      expect(decodePoolEnabledFor('yes'), isTrue);
-
-      // The const and the callable spell the same rule twice (Dart forbids a
-      // method call in a const expression). Pin them together so they cannot
-      // drift: a build could otherwise honour a spelling the tests reject, or
-      // vice versa.
-      expect(decodePoolEnabledFor(kDecodePoolDefine), equals(kDecodePoolEnabled));
-    });
-  });
+  // WP2-H (pool-retire-plan-v2 Task 2.4, 2026-09-08): the
+  // `decode_pool_killswitch_test.dart` group (TC-944) covered
+  // `kDecodePoolDefine`/`kDecodePoolEnabled` and the legacy `Isolate.run`
+  // fallback arms they selected. Both consts and both legacy arms were
+  // deleted from `dng_decode_service.dart` — the pool route is now the only
+  // route, unconditionally. That coverage has no surviving subject: there is
+  // no longer a spelling to parse or an arm to select between. The remaining
+  // free function `decodePoolEnabledFor` is dead code left in place because
+  // it is outside this task's file-ownership scope to delete.
 
   group('decode_pool_width_sink_test.dart', () {
     TestWidgetsFlutterBinding.ensureInitialized();

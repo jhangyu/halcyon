@@ -28,44 +28,17 @@ import 'dng_decode_contract.dart';
 /// hacks. The dylib lands in `<App>.app/Contents/Frameworks/` because
 /// `ceyx` is a Flutter FFI plugin whose pod vendors it, and
 /// `dng_bindings.dart`'s own search order finds it there.
-/// Raw value of the pool kill-switch define. Empty when not supplied.
-const String kDecodePoolDefine = String.fromEnvironment(
-  'HALCYON_DECODE_POOL',
-);
-
-/// Whether [decodeDngFull] uses the worker pool. Compile-time const, so the
-/// unused arm is tree-shaken from a release build.
-///
-/// `--dart-define=HALCYON_DECODE_POOL=0` (or `false`) reverts this seam to the
-/// pre-pool `Isolate.run`-per-decode path, so the SAME tree can be captured
-/// both ways. That is the only A/B that controls for every other change in a
-/// round; a headless bench cannot.
-/// Deliberately NOT `bool.fromEnvironment`: that returns its default for any
-/// value other than the exact strings `true`/`false`, so the documented `=0`
-/// spelling would silently leave the pool ON — a kill-switch that looks set
-/// and does nothing is worse than no kill-switch at all.
-///
-/// Written inline rather than via [decodePoolEnabledFor] because Dart forbids
-/// method invocation in a const expression, and this MUST stay const to be
-/// tree-shakable. TC-944 asserts the two spellings agree, so they cannot
-/// drift apart.
-const bool kDecodePoolEnabled =
-    kDecodePoolDefine != '0' &&
-    kDecodePoolDefine != 'false' &&
-    kDecodePoolDefine != 'off';
-
-/// The same rule as [kDecodePoolEnabled], callable so it can be tested for
-/// every spelling instead of only the one this build was compiled with.
+/// The same rule as the pool kill-switch used to select, callable so it can
+/// be tested for every spelling instead of only the one this build was
+/// compiled with. Retained after WP2-H removed the kill-switch consts and
+/// legacy arms: nothing in `lib/` calls this any more, but it is public API
+/// and out of this task's file/scope list to delete.
 bool decodePoolEnabledFor(String raw) =>
     raw != '0' && raw != 'false' && raw != 'off';
 
 Future<DecodedRgba> decodeDngFull(String path) async {
   ensureHalcyonDecodePoolConfigured();
-  final image = kDecodePoolEnabled
-      ? await CeyxDecodePool.shared.decode(path)
-      // LEGACY ARM: one isolate spawn + one dylib load per decode. Kept
-      // reachable ONLY through the define above, for same-tree A/B captures.
-      : await DngDecoderService().decodeOnWorker(path);
+  final image = await CeyxDecodePool.shared.decode(path);
 
   final expectedLength = image.width * image.height * 4;
   if (image.rgbaData.length != expectedLength) {
@@ -107,10 +80,6 @@ const DngFullDecoder halcyonDngFullDecoder = decodeDngFull;
 /// happened" (spec §1.4). The mapping degrades exactly like every other arm
 /// in this file:
 ///
-/// * **legacy arm** (`kDecodePoolEnabled == false`) has no oriented decode at
-///   all -- it calls the existing unoriented worker-isolate path and reports
-///   `appliedOrientation: 1`, so the host applies the FULL declared
-///   orientation via the residual, byte-identical to today.
 /// * **pool arm with an old dylib** -- `CeyxDecodePool.decode` still accepts
 ///   `exifOrientation` (it is a Dart-side parameter, always present since
 ///   Task 4), but the ceyx service's own self-verifying consistency check
@@ -127,12 +96,10 @@ Future<DecodedRgba> decodeDngFullOriented(
   required int exifOrientation,
 }) async {
   ensureHalcyonDecodePoolConfigured();
-  final image = kDecodePoolEnabled
-      ? await CeyxDecodePool.shared.decode(path, exifOrientation: exifOrientation)
-      // LEGACY ARM: no oriented decode entry exists on this path at all --
-      // reachable only through the `HALCYON_DECODE_POOL` kill-switch define,
-      // same as decodeDngFull's own legacy arm above.
-      : await DngDecoderService().decodeOnWorker(path);
+  final image = await CeyxDecodePool.shared.decode(
+    path,
+    exifOrientation: exifOrientation,
+  );
 
   final expectedLength = image.width * image.height * 4;
   if (image.rgbaData.length != expectedLength) {
