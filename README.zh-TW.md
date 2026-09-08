@@ -2,8 +2,8 @@
 
 *[English version](README.md)*
 
-Halcyon 是一款 Flutter 桌面應用程式，讓攝影師整理 RAW 與 JPG 照片資料夾：用鍵盤瀏覽，
-為照片標星或標垃圾桶，再批次複製或搬移已加星號的檔案。
+Halcyon 是一款支援 Windows、macOS、Linux 的 GPU 加速 RAW 照片挑選工具——全鍵盤操作，
+以 JPG 等級的速度挑選、標記、重新命名全解析度 RAW 檔案。
 <!-- evidence: lib/views/main_screen.dart:104-129 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
 
 ![主頁面](docs/images/main_page.webp)

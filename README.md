@@ -2,9 +2,8 @@
 
 *[繁體中文版本 / Traditional Chinese](README.zh-TW.md)*
 
-Halcyon is a Flutter desktop application for photographers to triage RAW and JPG photo
-folders: browse with the keyboard, mark photos star/trash, then batch-copy or move the
-starred files.
+Halcyon is a GPU-accelerated RAW photo triage app for Windows, macOS, and Linux — cull,
+mark, and rename full-resolution RAW files at JPG speed, entirely with the keyboard.
 <!-- evidence: lib/views/main_screen.dart:104-129 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
 
 ![Main page](docs/images/main_page.webp)
