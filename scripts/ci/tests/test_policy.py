@@ -100,9 +100,22 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
 # itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
 # transcribed by hand.
+# 2026-09-08 (ceyx v0.1.20 re-pin): refreshed to the tag v0.1.20 pin, written
+# by `python3 scripts/build_apps.py --ceyx-release latest`. The tag and the
+# artifacts.lock digest (88dc0cf5 -> f98b6080) moved, and all nine archive
+# digests moved (a tag push repackages every archive even when a given
+# platform's extracted library bytes are unchanged -- see the v0.1.15/v0.1.17
+# entries above for the same phenomenon). Per-library digests: the decoder
+# itself changed for linux, macos-arm64, macos-x86_64 and windows; the
+# android decoder .so/.heif.so/.de265.so triple is byte-identical to v0.1.19
+# (repackaging only); libjxl-dist-windows and libwebp-dist-windows's static
+# libs also changed. This guard fired exactly as designed on the re-pin --
+# it is the ledger entry that moves, never the test. Recomputed with the
+# SAME CRLF-normalizing method test_pin_file_untouched itself uses
+# (read_bytes, replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "1c7c166bbc9fe2d01b9e93e6eaaa74ae76bd40ac899d6601b2a9b06b14248ff6"
+    "b2e9ef96974693879daff8b02655dcdf37bc409a41b06975de5cf24a6259e244"
 )
 
 
