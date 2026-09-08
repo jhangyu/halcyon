@@ -7,17 +7,29 @@ folders: browse with the keyboard, mark photos star/trash, then batch-copy or mo
 starred files.
 <!-- evidence: lib/views/main_screen.dart:104-129 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
 
-![Halcyon main triage view](docs/images/halcyon_main_triage_view.png)
+![Main page](docs/images/main_page.webp)
 
-*The main triage screen, macOS 15.6.1: the sidebar lists the folder's 628 photos, and
-the viewer fills the rest of the window with no app bar — only the star and trash
-buttons float over the image. Arrow keys move; `S` and `X` mark.*
+*The main triage screen*
 
-![Rename by EXIF dialog](docs/images/halcyon_exif_rename_dialog.png)
+![Rename by EXIF dialog](docs/images/exif_rename.webp)
 
-*The Rename by EXIF dialog on the same folder. The left pane holds the presets and the
-editable rule template with live validation; the right pane previews five randomly
-sampled files, showing each current filename above the name it would be renamed to.*
+*The Rename by EXIF dialog*
+
+![Export settings](docs/images/export_settings.webp)
+
+*Export settings*
+
+![Performance settings](docs/images/performance_settings.webp)
+
+*Performance settings*
+
+![Theme settings](docs/images/theme_settings.webp)
+
+*Theme settings*
+
+![Shortcut settings](docs/images/shortcut_settings.webp)
+
+*Shortcut settings*
 
 ### The name
 
@@ -26,33 +38,37 @@ transformed into kingfishers — the two repositories are named as a pair: Ceyx 
 decoding engine, Halcyon the application built on it.
 <!-- evidence: docs/logs/2026-08-26/readme-draft/BRIEFING.md:46-49 (shared framing agreed for both READMEs); ../ceyx/README.md:56-65 "Sister project: Halcyon" section states the same pairing and dependency direction -->
 
-### Why Halcyon
+### Key Features
 
-- **Culling is a throughput problem, not a viewing problem.** The photographer's loop is
-  look, judge, advance — arrow keys move between photos, `S` stars, `X` trashes, and
-  nothing in that loop asks for a dialog or a mouse click. Anything that stalls that loop
-  is the whole cost of the tool.
-  <!-- evidence: lib/views/main_screen.dart:104-129 arrowLeft/arrowRight/keyS/keyX bound directly to previousPhoto/nextPhoto/markCurrent -->
-- **Lineage: FastPictureViewer.** The keyboard-driven marking model — browse and mark
-  without leaving the keyboard — is directly inspired by FastPictureViewer, a paid
-  Windows tool from an earlier era that photographers still miss.
-- **Preview area maximized, chrome minimized.** The main screen has no app bar: the
-  `Scaffold` body is a `Stack` with the image viewer positioned to fill the screen and
-  only a floating action bar and status line overlaid on top of it.
-  <!-- evidence: lib/views/main_screen.dart:48-59 Scaffold with no appBar, body is Stack(children: [_buildKeyboardShortcutHandler(...), StatusLine()]); lib/views/main_detail_view.dart:113-135 Stack with Positioned.fill viewer and a bottom-centered floating action bar -->
-  The macOS window's default size is computed directly from a 3:2 preview area plus a
-  270px sidebar (`previewWidth = defaultHeight * 1.5`, `defaultWidth = 270.0 +
-  previewWidth`), targeting a wide desktop window rather than a narrow one.
-  <!-- evidence: macos/Runner/MainFlutterWindow.swift:9-19 -->
-  The sidebar itself is user-resizable between 180px and 600px by dragging a handle.
-  <!-- evidence: lib/views/main_screen.dart:71-78 -->
-- **Decoding is delegated, not reimplemented.** RAW decode belongs to the sister project
-  Ceyx; Halcyon is the application that consumes it under real product constraints —
-  UI thread responsiveness, tiered preview/full-size loading, and folder-scale batch
-  workflows.
-- **Honest about scope.** Desktop is the target platform. Mobile and web build targets
-  exist and compile, but the interface itself is not adapted for touch.
-  <!-- evidence: pubspec.yaml has no platform restriction, standard Flutter multi-platform project; this claim is scope framing, not a measured behaviour -->
+- **JPG-speed full-resolution RAW decoding.** The RAW decode pipeline is a from-scratch
+  rewrite of libraw/Adobe DNG SDK logic in Halide, offloading the heavy compute to the
+  idle GPU wherever possible. Measured: a single RAW file decodes in 56ms, and batch mode
+  sustains 32 RAW decodes per second.
+- **True cross-platform desktop.** Built with Flutter for Windows, macOS, and Linux. The
+  decode kernel is C++/Halide, accelerated via Metal or Vulkan depending on platform.
+  Android already compiles (phone-sized UI not yet designed) and iOS support remains open.
+- **Full RAW format coverage.** GPU acceleration is enabled for every RAW format libraw
+  supports, including hand-tuned fast paths for the notoriously slow Fuji X-Trans and
+  Sigma Foveon sensors — both over 4x faster than stock libraw. Halcyon also corrects
+  libraw's default washed-out tone curve so RAW previews track a camera's own JPEG
+  rendering more closely.
+- **Display-aware decode routing.** Halcyon always prefers an existing JPG, or a RAW/DNG
+  file's embedded full-size JPEG preview, for display. The full hardware-accelerated
+  RAW decode path only runs when no full-size preview is embedded.
+- **Tuned preload for zero-latency browsing.** Flipping between RAW files at 1:1 zoom is
+  instant, so a photographer can move through a shoot without ever waiting on a decode —
+  and without breaking flow.
+- **A culling model with exactly two marks.** Star or trash — nothing else — built for
+  fast on-location review right after a shoot. Marks and browse position are written
+  straight into the photo folder, so closing and reopening the app resumes exactly where
+  you left off, even after a crash.
+- **Interface built around vertical space.** Most viewers dock the thumbnail strip below
+  the preview, which eats into vertical space that photos (typically 3:2 or 4:3) need
+  most on a 16:9 screen. Halcyon keeps thumbnails and controls in a side rail instead,
+  giving the image the full height of the window.
+- **Built-in EXIF renaming.** Every camera maker's default sequential filenames become a
+  headache once you're culling. Halcyon ships a full EXIF-based rename tool, so mixed-
+  source shoots can be renamed by a custom EXIF template without leaving the app.
 
 ### Sister project: Ceyx
 

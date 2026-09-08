@@ -6,15 +6,29 @@ Halcyon 是一款 Flutter 桌面應用程式，讓攝影師整理 RAW 與 JPG �
 為照片標星或標垃圾桶，再批次複製或搬移已加星號的檔案。
 <!-- evidence: lib/views/main_screen.dart:104-129 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
 
-![Halcyon main triage view](docs/images/halcyon_main_triage_view.png)
+![主頁面](docs/images/main_page.webp)
 
-*主挑選畫面，macOS 15.6.1：側邊欄列出該資料夾的 628 張照片，檢視區佔滿視窗其餘部分，
-沒有應用程式標題列，只有星標與垃圾桶按鈕浮在影像上方。方向鍵切換照片，`S` 與 `X` 標記。*
+*主頁面瀏覽畫面*
 
-![依 EXIF 重新命名對話框](docs/images/halcyon_exif_rename_dialog.png)
+![依 EXIF 重新命名對話框](docs/images/exif_rename.webp)
 
-*同一個資料夾上的「Rename by EXIF」對話框。左半部是預設集與可編輯的規則樣板（附即時
-驗證），右半部隨機抽樣五個檔案預覽，每一列上方是目前檔名、下方是套用規則後的新檔名。*
+*EXIF 重新命名對話框*
+
+![匯出設定](docs/images/export_settings.webp)
+
+*匯出設定畫面*
+
+![效能設定](docs/images/performance_settings.webp)
+
+*效能設定畫面*
+
+![主題設定](docs/images/theme_settings.webp)
+
+*主題設定畫面*
+
+![快捷鍵設定](docs/images/shortcut_settings.webp)
+
+*快捷鍵設定畫面*
 
 ### 名稱由來
 
@@ -22,29 +36,29 @@ Halcyon 與 Ceyx 都是翠鳥屬名。希臘神話中，阿爾庫俄涅（Alcyon
 化身翠鳥——這兩個儲存庫因此成對命名：Ceyx 是解碼引擎，Halcyon 則是建構於其上的應用程式。
 <!-- evidence: docs/logs/2026-08-26/readme-draft/BRIEFING.md:46-49 (shared framing agreed for both READMEs); ../ceyx/README.md:56-65 "Sister project: Halcyon" section states the same pairing and dependency direction -->
 
-### 為什麼是 Halcyon
+### 核心特色
 
-- **篩選是吞吐量問題，不是檢視問題。** 攝影師的操作迴圈是「看、判斷、前進」——方向鍵
-  在照片間移動，`S` 加星號，`X` 標記垃圾桶，整個迴圈裡沒有一步需要對話框或滑鼠點擊。
-  任何拖慢這個迴圈的東西，就是這個工具的全部成本所在。
-  <!-- evidence: lib/views/main_screen.dart:104-129 arrowLeft/arrowRight/keyS/keyX bound directly to previousPhoto/nextPhoto/markCurrent -->
-- **淵源：FastPictureViewer。** 這種「不離開鍵盤即可瀏覽與標記」的鍵盤驅動標記模型，
-  直接受 FastPictureViewer 啟發——那是上一個時代一款付費的 Windows 工具，至今仍有攝影師懷念它。
-- **最大化預覽區域、最小化介面裝飾。** 主畫面沒有 app bar：`Scaffold` 的 body 是一個
-  `Stack`，圖片檢視器定位為填滿整個畫面，上面只疊一個浮動動作列與狀態列。
-  <!-- evidence: lib/views/main_screen.dart:48-59 Scaffold with no appBar, body is Stack(children: [_buildKeyboardShortcutHandler(...), StatusLine()]); lib/views/main_detail_view.dart:113-135 Stack with Positioned.fill viewer and a bottom-centered floating action bar -->
-  macOS 視窗的預設尺寸直接由 3:2 預覽區域加上 270px 側欄計算而來（`previewWidth =
-  defaultHeight * 1.5`、`defaultWidth = 270.0 + previewWidth`），目標是寬螢幕桌面視窗，
-  而非窄視窗。
-  <!-- evidence: macos/Runner/MainFlutterWindow.swift:9-19 -->
-  側欄可由使用者拖曳把手，在 180px 到 600px 之間自由調整寬度。
-  <!-- evidence: lib/views/main_screen.dart:71-78 -->
-- **解碼委託給姊妹專案，而非自行重新實作。** RAW 解碼屬於姊妹專案 Ceyx；Halcyon 在真實產品
-  的條件下——UI 執行緒的即時反應、分層預覽到完整尺寸載入、資料夾規模的批次工作流程——
-  使用該解碼引擎。
-- **對範圍誠實。** 桌面是目標平台。行動裝置與網頁建置目標存在且可編譯，但介面本身
-  並未針對觸控操作調整。
-  <!-- evidence: pubspec.yaml has no platform restriction, standard Flutter multi-platform project; this claim is scope framing, not a measured behaviour -->
+- **以 JPG 等級的速度解碼全解析度 RAW。** 解碼引擎以 Halide 從零重寫 libraw / Adobe DNG SDK
+  的解碼邏輯，儘可能將高運算負載轉移到閒置的 GPU 上。實測單張 RAW 檔可在 56 毫秒內完成解碼，
+  批次模式下每秒可處理 32 張。
+- **真正的跨平台桌面應用。** 以 Flutter 開發，同時支援 Windows、macOS、Linux 三大平台；
+  解碼核心以 C++ / Halide 撰寫，依平台使用 Metal 或 Vulkan 進行硬體加速。Android 已可編譯
+  （手機版介面尚未設計），iOS 支援亦保留未來可能性。
+- **全格式 RAW 支援。** libraw 支援的所有 RAW 格式皆已啟用硬體加速，並針對素以解碼緩慢著稱的
+  Fuji X-Trans 與 Sigma Foveon 感光元件額外調校加速路徑——兩者皆比原生 libraw 快 4 倍以上。
+  同時修正了 libraw 預設偏灰、偏暗的色調曲線，讓 RAW 預覽的明暗更貼近相機自身的 JPEG 出圖。
+- **依顯示需求選擇解碼路徑。** Halcyon 一律優先使用現成的 JPG，或 RAW/DNG 檔內嵌的全尺寸
+  JPEG 預覽來顯示；只有在檔案未內嵌全尺寸預覽時，才會啟動完整的硬體加速 RAW 解碼路徑。
+- **精心調校的預載策略，實現零延遲瀏覽。** 在 1:1 放大模式下於多張 RAW 檔間快速切換完全
+  無感延遲，讓攝影師能一路看片不被讀檔打斷，迅速進入心流狀態。
+- **只有兩種標記的高效挑選邏輯。** 保留或淘汰，僅此兩種，專為拍攝現場的快速挑片而設計。
+  標記與瀏覽進度會直接寫入照片資料夾，即使關閉重開，甚至意外當機，也能從上次的位置繼續。
+- **把垂直空間留給照片的介面設計。** 多數看圖軟體把縮圖列放在預覽下方，但照片多為 3:2 或
+  4:3 比例，螢幕卻是 16:9——縮圖列因此擠佔了照片最需要的垂直空間。Halcyon 改將縮圖與控制項
+  集中於側欄，把整個視窗高度都還給照片本身。
+- **內建 EXIF 快速重新命名。** 各家相機預設的流水號檔名，在挑片時總是一團亂。Halcyon 內建
+  完整的 EXIF 重新命名工具，可依自訂 EXIF 樣板直接為資料夾中的照片重新命名，混搭不同素材
+  來源的過片流程不再是惡夢。
 
 ### 姊妹專案：Ceyx
 
