@@ -67,6 +67,7 @@ jobs:
       - name: Upload ci-logs (verify ${{ matrix.os }})
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: ci-logs-verify-${{ matrix.os }}
           path: Halcyon/build/ci-logs/**
@@ -119,6 +120,7 @@ jobs:
       - name: Upload ci-logs (build ${{ matrix.target }})
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: ci-logs-build-${{ matrix.target }}
           path: Halcyon/build/ci-logs/**
