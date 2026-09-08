@@ -28,14 +28,6 @@ import 'dng_decode_contract.dart';
 /// hacks. The dylib lands in `<App>.app/Contents/Frameworks/` because
 /// `ceyx` is a Flutter FFI plugin whose pod vendors it, and
 /// `dng_bindings.dart`'s own search order finds it there.
-/// The same rule as the pool kill-switch used to select, callable so it can
-/// be tested for every spelling instead of only the one this build was
-/// compiled with. Retained after WP2-H removed the kill-switch consts and
-/// legacy arms: nothing in `lib/` calls this any more, but it is public API
-/// and out of this task's file/scope list to delete.
-bool decodePoolEnabledFor(String raw) =>
-    raw != '0' && raw != 'false' && raw != 'off';
-
 Future<DecodedRgba> decodeDngFull(String path) async {
   ensureHalcyonDecodePoolConfigured();
   final image = await CeyxDecodePool.shared.decode(path);

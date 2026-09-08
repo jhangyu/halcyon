@@ -204,9 +204,9 @@ void main() {
   // fallback arms they selected. Both consts and both legacy arms were
   // deleted from `dng_decode_service.dart` — the pool route is now the only
   // route, unconditionally. That coverage has no surviving subject: there is
-  // no longer a spelling to parse or an arm to select between. The remaining
-  // free function `decodePoolEnabledFor` is dead code left in place because
-  // it is outside this task's file-ownership scope to delete.
+  // no longer a spelling to parse or an arm to select between. The dead
+  // `decodePoolEnabledFor` free function it used to test was deleted too
+  // (user-ruled parking-lot cleanup, task #8, 2026-09-08).
 
   group('decode_pool_width_sink_test.dart', () {
     TestWidgetsFlutterBinding.ensureInitialized();
