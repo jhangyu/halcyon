@@ -86,9 +86,23 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # never the test. Recomputed with the SAME CRLF-normalizing method
 # test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
 # sha256), never transcribed by hand.
+# 2026-09-08 (ceyx v0.1.19 re-pin, commit 43adb67): refreshed to the tag
+# v0.1.19 pin. The tag, the artifacts.lock digest (4f75eab4 -> 88dc0cf5) and
+# the archive digests moved together; the macos-arm64 archive now hashes to
+# bdb7190b, re-downloaded from the release URL and checked against this file
+# before the ledger was touched. This release RETIRES the decode-pool entry
+# points, so `dng_decode_and_process_sized` is gone from every decoder asset
+# (`nm -gU` dumped to a file, then matched:
+# docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt) and the capability
+# assertions were re-pointed at ceyx_decode_into_buffer_oriented in the same
+# commit as this ledger entry. This guard fired exactly as designed on the
+# re-pin commit -- it is the ledger entry that moves, never the test.
+# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
+# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
+# transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "86f1cf8f0164092567d04b020ff97915f880bce9f17c42eb00bb58648b0ad08b"
+    "1c7c166bbc9fe2d01b9e93e6eaaa74ae76bd40ac899d6601b2a9b06b14248ff6"
 )
 
 

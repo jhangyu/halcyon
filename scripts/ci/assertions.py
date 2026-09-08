@@ -53,14 +53,26 @@ from pathlib import Path
 from . import report, targets
 from .run import run
 
-SYMBOL = "dng_decode_and_process_sized"
+SYMBOL = "ceyx_decode_into_buffer_oriented"
 
+# 2026-09-08 (ceyx v0.1.19 re-pin): SYMBOL used to be
+# "dng_decode_and_process_sized". Upstream DELETED that entry point in ceyx
+# 53d61d1 (decode-pool retirement), so the single-symbol record was measuring a
+# name that no longer exists and every capability leg went red. It now points at
+# ceyx_decode_into_buffer_oriented — upstream's own replacement positive control
+# (ceyx 364b962): always compiled, always CEYX_FFI_EXPORT'd, hence valid on PE
+# too. The assertion IDS are deliberately unchanged (H-SIZED-SYMBOL / -NM):
+# they are stable identifiers referenced by scripts/ci/targets.py and by the
+# archived red-state artefacts, and renaming them would invalidate that record
+# without measuring anything new.
+#
 # The full entry-point set the Dart side looks up in the shipped decoder. SYMBOL
-# above is the historical single-symbol record (H-SIZED-SYMBOL / -NM) and is kept
-# exactly as it was; this tuple is what H-CEYX-SYMBOLS-NM checks, and it includes
-# SYMBOL so that assertion is a strict superset rather than a parallel truth.
-# Verified present in the shipped dylib on 2026-09-06 (`nm -gU` on
-# ../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib listed all three).
+# above is the single-symbol record (H-SIZED-SYMBOL / -NM); this tuple is what
+# H-CEYX-SYMBOLS-NM checks, and it includes SYMBOL so that assertion is a strict
+# superset rather than a parallel truth. Verified present in the v0.1.19 shipped
+# dylib on 2026-09-08 (`nm -gU` dumped to a file, then matched — see
+# docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt: all three listed, and neither
+# dng_decode_and_process nor …_sized survives).
 # NOTE the leading-underscore convention: Mach-O prefixes C symbols with "_", so
 # nm prints "_ceyx_probe_output_size". check_symbol() does a substring match, so
 # the undecorated spelling below matches on both Mach-O and ELF.
@@ -263,7 +275,10 @@ SUITE = {
         red_state=(
             "point the probe at a nonexistent path or a library built without "
             "the symbol: PROBE-FAIL on stderr and exit 1 (demonstrated: "
-            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt)"
+            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt; re-demonstrated "
+            "for the v0.1.19 symbol rename in "
+            "docs/logs/2026-09-08/red-probe-bogus-symbol.txt, green control in "
+            "docs/logs/2026-09-08/green-probe-oriented.txt)"
         ),
         expected="probe exits 0 printing PROBE-OK",
     ),
@@ -345,7 +360,8 @@ SUITE = {
             "piped to grep (G-3)."
         ),
         red_state=(
-            "run against a decoder built without ceyx_decode_into_buffer (or "
+            "run against a decoder built without ceyx_decode_into_buffer_oriented "
+            "(or "
             "strip it): the captured nm output lacks that name and the "
             "assertion fails naming exactly which symbols were missing"
         ),
