@@ -1980,6 +1980,80 @@ def update_ceyx_pin_latest(layout, tag=None):
     step("--ceyx-release latest only rewrites the pin; a normal pinned build then")
     step("consumes the reviewed version.")
 
+    check_pin_ledger_freshness()
+
+
+# Three separate re-pin campaigns forgot to update this ledger constant after
+# rewriting the pin file, each time only discovered when CI's G-6 selftest
+# (scripts/ci/tests/test_policy.py::TestPinFileUntouched) went red. Since
+# --ceyx-release latest already stops without building, failing loudly here
+# costs nothing and makes every future re-pin self-announcing instead of
+# waiting for a CI round-trip to notice.
+TEST_POLICY_PATH = (
+    Path(__file__).resolve().parent / "ci" / "tests" / "test_policy.py"
+)
+_PIN_LEDGER_CONST_RE = re.compile(
+    r'PIN_FILE_SHA256_REVIEWED\s*=\s*\(\s*["\']([0-9a-fA-F]{64})["\']\s*\)'
+    r'|PIN_FILE_SHA256_REVIEWED\s*=\s*["\']([0-9a-fA-F]{64})["\']'
+)
+
+
+def _pin_file_sha256(pin_path=None):
+    """Mirrors test_policy.py's TestPinFileUntouched.test_pin_file_untouched
+    EXACTLY: read raw bytes, normalize CRLF -> LF, sha256 the result. Do not
+    change this without also updating that test - they must always agree."""
+    path = pin_path if pin_path is not None else CEYX_PIN_PATH
+    raw = path.read_bytes()
+    normalized = raw.replace(b"\r\n", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
+
+
+def check_pin_ledger_freshness(pin_path=None, test_policy_path=None):
+    """After update_ceyx_pin_latest() rewrites the pin file, verify that
+    scripts/ci/tests/test_policy.py's frozen PIN_FILE_SHA256_REVIEWED constant
+    (G-6) has been updated to match - READ-ONLY, this never edits
+    test_policy.py. Exits with code 3 (distinct from the generic fail()'s 1)
+    if the ledger is stale, so this failure mode is identifiable in scripts."""
+    pin_path = pin_path if pin_path is not None else CEYX_PIN_PATH
+    test_policy_path = (
+        test_policy_path if test_policy_path is not None else TEST_POLICY_PATH
+    )
+
+    actual = _pin_file_sha256(pin_path)
+
+    if not test_policy_path.is_file():
+        print()
+        print(f"WARNING: {test_policy_path} not found - cannot verify the "
+              f"G-6 pin ledger constant PIN_FILE_SHA256_REVIEWED is fresh.",
+              file=sys.stderr)
+        print(f"       -> freshly computed pin sha256: {actual}", file=sys.stderr)
+        sys.exit(3)
+
+    text = test_policy_path.read_text(encoding="utf-8")
+    m = _PIN_LEDGER_CONST_RE.search(text)
+    if not m:
+        print()
+        print(f"WARNING: could not locate PIN_FILE_SHA256_REVIEWED in "
+              f"{test_policy_path} - cannot verify the G-6 ledger is fresh.",
+              file=sys.stderr)
+        print(f"       -> freshly computed pin sha256: {actual}", file=sys.stderr)
+        sys.exit(3)
+    reviewed = m.group(1) or m.group(2)
+
+    if reviewed.lower() != actual.lower():
+        print()
+        print("ERROR: the G-6 pin ledger is now STALE.", file=sys.stderr)
+        print(f"       {pin_path} was just rewritten and no longer matches "
+              f"the frozen PIN_FILE_SHA256_REVIEWED constant.", file=sys.stderr)
+        print(f"       -> update PIN_FILE_SHA256_REVIEWED in "
+              f"{test_policy_path} to:", file=sys.stderr)
+        print(f"       -> {actual}", file=sys.stderr)
+        print("       -> (this is the same failure TestPinFileUntouched in "
+              "test_policy.py will raise in CI if left stale)", file=sys.stderr)
+        sys.exit(3)
+
+    ok(f"G-6 pin ledger constant is fresh (sha256 {actual})")
+
 
 def verify_ceyx_release(layout, only=None):
     """--ceyx-release verify: exercise the whole consumption path against the
