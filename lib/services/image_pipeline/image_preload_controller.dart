@@ -1057,6 +1057,10 @@ class ImagePreloadController {
   // field initialisers is safe.
   late final TierTwoRegistry _tierTwo = TierTwoRegistry(
     currentPayloadFor: _cache.peek,
+    // AC-P2a: the instant tier-2 becomes displayable for an id, its tier-1
+    // window-resolution entry is a duplicate GPU texture. See
+    // [_evictTierOneDuplicate].
+    onReadyForDisplay: _evictTierOneDuplicate,
   );
 
   /// The deferred full-size residency path (compressed-residency v2 Task 3).
@@ -1425,6 +1429,56 @@ class ImagePreloadController {
       PaintingBinding.instance.imageCache.evict(key);
     }
     _tierOneKeys.clear();
+  }
+
+  /// Drops [id]'s TIER-1 ImageCache entry once its TIER-2 entry is ready
+  /// (AC-P2a, docs/logs/2026-09-12/gpu-texture-contract.md).
+  ///
+  /// Inside the +/-1 band an item that has reached tier-2 holds two GPU
+  /// textures for the same picture: the window-resolution tier-1 one (~19.4MB
+  /// each, ~58MB over the band) and the full-size tier-2 one. From the moment
+  /// tier-2 is ready the first is pure duplication -- nothing resolves it any
+  /// more, because every display site asks for the tier-2 provider while
+  /// [isFullSizeReady] is true.
+  ///
+  /// Called from two places, and both are needed: the registry's
+  /// `onReadyForDisplay` hook (the instant the duplicate appears) and the band
+  /// scan in [_precacheTierOneWindow] (the id whose tier-2 landed BEFORE its
+  /// tier-1 key was recorded, e.g. a paced registration that drained late).
+  ///
+  /// Three guards:
+  ///   1. [TierTwoRegistry.isReady] -- readiness is re-derived against the
+  ///      CURRENT payload, so a stale ready flag cannot strip the tier-1
+  ///      entry an item is actually painting.
+  ///   2. key equality against the tier-2 key -- DEFENSIVE, NOT LOAD-BEARING:
+  ///      tier-1 and tier-2 keys differ by TYPE on every current path
+  ///      (`RawPixelsImage` vs `RawFullResImage` for a pixel-backed item;
+  ///      `ResizeImageKey` vs `MemoryImage` for an encoded one), so this can
+  ///      never fire today. It guards against a future caller routing a
+  ///      [PixelPayload] through [TierTwoRegistry.publishEncoded]: that path
+  ///      publishes `_fullSizeProviderForPayload`'s output, which for a pixel
+  ///      payload is `RawPixelsImage(payload)` -- the SAME ImageCache entry
+  ///      tier-1 holds. Evicting there would destroy the tier-2 entry itself.
+  ///      Today every pixel tier-2 entry goes through `publishFullRes`
+  ///      instead (tier_two_scheduler.dart type-gates both call sites), so
+  ///      pixel items hold a GENUINE duplicate -- window-resolution pixels
+  ///      plus a separately decoded full-resolution image -- and are reclaimed
+  ///      by this method like any other.
+  ///   3. the tier-1 key map is the only bookkeeping touched; the payload
+  ///      behind it is untouched, so a later tier-2 eviction just re-precaches
+  ///      tier-1 on the next pass instead of re-reading the file.
+  ///
+  /// Not a regression of the "tier-1 displays first" rule: this only ever runs
+  /// AFTER tier-2 is ready, and evicting a LIVE ImageCache entry does not
+  /// destroy the image a widget is currently painting (its stream listener
+  /// holds it), so the switch is still gapless.
+  void _evictTierOneDuplicate(String id) {
+    if (!_tierTwo.isReady(id)) return;
+    final key = _tierOneKeys[id];
+    if (key == null) return;
+    if (key == _tierTwo.keyFor(id)) return; // one shared entry, not a duplicate
+    _tierOneKeys.remove(id);
+    PaintingBinding.instance.imageCache.evict(key);
   }
 
   // ---------------------------------------------------------------------------
@@ -2792,7 +2846,21 @@ class ImagePreloadController {
     for (var i = bandStart; i <= bandEnd; i++) {
       final item = items[i];
       final payload = _cache.peek(item.id);
+      // `continue`, not `return`: a missing payload is a per-SLOT fact and the
+      // slots after it may well have theirs, whereas the `return` above is a
+      // whole-scan precondition (no target size => no provider to build for
+      // ANY slot). The asymmetry is deliberate; making either one match the
+      // other would drop work the band still owes.
       if (payload == null) continue; // not loaded yet; retried next pass
+      // AC-P2a: an id whose tier-2 entry is already ready must NOT get a
+      // tier-1 entry re-registered on this pass -- that would recreate the
+      // duplicate texture [_evictTierOneDuplicate] just reclaimed, once per
+      // navigation pass. Any key it still holds is swept here (the late-drain
+      // case the ready hook cannot see).
+      if (_tierTwo.isReady(item.id)) {
+        _evictTierOneDuplicate(item.id);
+        continue;
+      }
       _decodeIntoImageCache(
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),
@@ -2870,8 +2938,15 @@ class ImagePreloadController {
       id: id,
       rank: rank,
       exempt: exempt,
+      // AC-P2a adds a THIRD drain-time condition: tier-2 may have become ready
+      // between submit and drain, at which point this registration would
+      // publish the very duplicate texture the eviction exists to remove (and
+      // would do so AFTER the ready hook already ran, so nothing would ever
+      // reclaim it until the next navigation pass).
       stillValid: () =>
-          _navRetentionIds.contains(id) && identical(_cache.peek(id), payload),
+          _navRetentionIds.contains(id) &&
+          identical(_cache.peek(id), payload) &&
+          !_tierTwo.isReady(id),
       // R3-WP8 (plan Step 9.4): tier-1 registration cost is the payload's own
       // byteCost (SourcePayload.byteCost).
       byteCost: payload.byteCost,

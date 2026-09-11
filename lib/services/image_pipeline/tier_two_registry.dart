@@ -25,14 +25,40 @@ import 'raw_full_res_image.dart';
 /// BLOCKER 1). That re-derivation is [isReady], and after this extraction it is
 /// the ONLY place the four terms of the conjunction exist.
 class TierTwoRegistry {
-  TierTwoRegistry({required SourcePayload? Function(String id) currentPayloadFor})
-    : _currentPayloadFor = currentPayloadFor;
+  TierTwoRegistry({
+    required SourcePayload? Function(String id) currentPayloadFor,
+    void Function(String id)? onReadyForDisplay,
+  }) : _currentPayloadFor = currentPayloadFor,
+       _onReadyForDisplay = onReadyForDisplay;
 
   /// The controller's CURRENT payload for an id -- bound to
   /// `PhotoPayloadCache.peek`. Injected rather than holding the cache itself,
   /// so retention stays single-owned and a unit test can drive the BLOCKER-1
   /// stale-payload scenario by swapping one closure.
   final SourcePayload? Function(String id) _currentPayloadFor;
+
+  /// Fired for [id] immediately AFTER its `notifyLoaded`, on both publish
+  /// paths, once the tier-2 decode listener has actually landed -- i.e. at the
+  /// first instant [isReady] can be true for this id.
+  ///
+  /// It exists for exactly one consumer, the controller's tier-1 duplicate
+  /// eviction (AC-P2a, docs/logs/2026-09-12/gpu-texture-contract.md): inside
+  /// the +/-1 band an item that reaches tier-2 is holding TWO GPU textures --
+  /// its window-resolution tier-1 one (~19.4MB) and the full-size tier-2 one --
+  /// and the first is a duplicate from this moment on.
+  ///
+  /// ORDERING IS BEHAVIOUR: after `notifyLoaded`, never before. The notify is
+  /// what makes the view switch to the tier-2 provider; dropping the tier-1
+  /// entry first would open a window in which the displayed provider's entry
+  /// is gone and the replacement has not been selected yet. (Eviction of a
+  /// LIVE entry cannot destroy the image a widget is painting -- the stream
+  /// listener keeps it alive -- so this ordering is belt-and-braces, and it is
+  /// also the ordering the tests assert.)
+  ///
+  /// The registry does NOT decide what "duplicate" means: tier-1 keys, the
+  /// band, and the pixel-payload case where BOTH tiers share one ImageCache
+  /// entry are all controller-side facts. This only reports the instant.
+  final void Function(String id)? _onReadyForDisplay;
 
   /// id -> the ImageCache key, which for every tier-2 kind IS the provider
   /// itself (`MemoryImage` is its own key; `RawFullResImage.obtainKey` returns
@@ -131,6 +157,17 @@ class TierTwoRegistry {
     final key = _keys[id];
     return key is ImageProvider<Object> ? key : null;
   }
+
+  /// The raw ImageCache KEY registered for [id], or null when there is none.
+  ///
+  /// Unlike [providerFor] this does not require the key to be an
+  /// [ImageProvider], because its one caller compares it for EQUALITY against
+  /// a tier-1 key to detect the case where both tiers resolved to the same
+  /// ImageCache entry (a [PixelPayload] item: `_tierOneProviderForPayload` and
+  /// `_fullSizeProviderForPayload` both build `RawPixelsImage(payload)`, which
+  /// is its own key and compares equal on the retained buffer). Evicting
+  /// "tier-1" there would evict the tier-2 entry itself.
+  Object? keyFor(String id) => _keys[id];
 
   /// The ids that currently hold a tier-2 ImageCache entry, both payload kinds.
   /// The dual-window property under test is exactly "this set == the +/-2 band"
@@ -248,6 +285,7 @@ class TierTwoRegistry {
       stream.removeListener(listener);
       _readyIds.add(id);
       notifyLoaded();
+      _onReadyForDisplay?.call(id);
     }, onError: (error, stackTrace) => stream.removeListener(listener));
     stream.addListener(listener);
     provider.obtainKey(const ImageConfiguration()).then((key) {
@@ -326,6 +364,7 @@ class TierTwoRegistry {
         stream.removeListener(listener);
         _readyIds.add(id);
         notifyLoaded();
+        _onReadyForDisplay?.call(id);
       },
       onError: (error, stackTrace) {
         stream.removeListener(listener);
