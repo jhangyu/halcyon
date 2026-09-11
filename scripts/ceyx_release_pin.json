@@ -124,20 +124,20 @@
     "stack requirements and the application's declared minimum are not to be",
     "conflated."
   ],
-  "tag": "v0.1.20",
+  "tag": "v0.1.21",
   "lock": {
     "asset": "artifacts.lock",
-    "sha256": "f98b60807c224466d02048f2c4d1400de1876f07569f69a6eee1bb09b77c5128"
+    "sha256": "ba25894101515cd02f275f11ae3623f9ddb0e4ada825ca26a43a46c31f751c83"
   },
   "assets": {
     "android": {
       "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
-      "sha256": "12a759be41e2e2b0ca431cd7694793c747c801eb8a1c976d6159f5596979651c",
+      "sha256": "271bcc1dfc5659c614a2a1e62ee29623e91409b6e596726812504edd73d3dec0",
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "13eac723a95b2fbd0249936c49e29efe0bae773a10b0f93cc74c2a1db7cb5219"
+          "sha256": "a1c530e546b45c0503247fe9ce6e2362270779a92074567eac6aa08d3533f1fb"
         },
         {
           "member": "libheif.so",
@@ -153,7 +153,7 @@
     },
     "heif-dist-windows": {
       "archive": "heif-dist-windows-x86_64.tar.gz",
-      "sha256": "735d7ec4dde056a1adef93a7074e675304076e40c0094b8d6d0a9c93cce1ca72",
+      "sha256": "77531bda20a494effa7724b260fdba6a99fd2c6b3a75401e005598bc063b1f68",
       "libraries": [
         {
           "member": "bin/heif.dll",
@@ -169,7 +169,7 @@
     },
     "libjxl-dist-linux": {
       "archive": "libjxl-dist-linux-x86_64.tar.gz",
-      "sha256": "b5cb182356560cfa093f5a07e62cd1b5bda50131c3cb72435f17126ae08da211",
+      "sha256": "c878ee381e472c00a1338937cc7ba14f6bb7388c6e52c2464fea931b2c3ff001",
       "libraries": [
         {
           "member": "lib/libjxl.a",
@@ -180,46 +180,46 @@
     },
     "libjxl-dist-windows": {
       "archive": "libjxl-dist-windows-x86_64.tar.gz",
-      "sha256": "082269708ce06512b7d72fb2279726ebf2aba0722b10f012df36cb2b1361243c",
+      "sha256": "45cbfefa0c8a1d20f109c8a116775af1cbf501cddba2f7bff32d00029c084dc6",
       "libraries": [
         {
           "member": "lib/jxl.lib",
           "artifact": "jxl.lib",
-          "sha256": "2f3b0d89d52b82037fe84e235e55d4344a4b07323b3ad521656d42fb81140088"
+          "sha256": "5b29076cf5831a2d21dbceb74a1d4d97b04468a7957ffec4bba925be44ad0928"
         }
       ]
     },
     "libwebp-dist-windows": {
       "archive": "libwebp-dist-windows-x86_64.tar.gz",
-      "sha256": "d5ea8bfeff159837d7734c5092cf01c50dc8813134764593712d02be3b56334f",
+      "sha256": "5e581624d1e867643fd3e68c9d27ebd439b491ea15172ed2446b638881eb8745",
       "libraries": [
         {
           "member": "lib/libwebp.lib",
           "artifact": "libwebp.lib",
-          "sha256": "6e638f2ff2b12e03ca0d35068244c4a5036467e1241ea506b8d24c51eec0bf6e"
+          "sha256": "cdb96bba21f31886ef00c3616ae49df6ba7614322f145f80e40faa55f8b439aa"
         }
       ]
     },
     "linux": {
       "archive": "dng_decoder_native-linux-x86_64.tar.gz",
-      "sha256": "847d44ae5fe0155603aa8d52a4c0bcfcff1730476dfd86bc61a9a5af08c0f501",
+      "sha256": "4210591c934e35623ef641f0fd273774deebed3e094d757095e6d51afee45fa4",
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "0435e54078436ea65c84b8be00016251ee1962d7c168f06a0f27b64d1a400580"
+          "sha256": "4e18fa743cac8663c9bedc968991ab82a3ba6b015dfda75f994db36b7773a52f"
         }
       ]
     },
     "macos-arm64": {
       "archive": "dng_decoder_native-macos-arm64.tar.gz",
-      "sha256": "a4504d953c439d2332d7118adb7811012291b092adca7a3885b5a4bb712d54f4",
+      "sha256": "a427a9c78dded693fa078faec7aa6ba535ad1057dd6b0b6dc916a38e46ce0010",
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "811ce2a9513f6777205a7e3bbee6c2ce83645fe33e8dfb5a13295e4704758819",
-          "uuid": "07C4E080-F78F-32B5-9495-627213237ED9"
+          "sha256": "de2732e5ecc873523bdd9eb3c98636d51a49971b6efb5218ce074cccae4828fb",
+          "uuid": "62448587-FD74-3805-82AD-73298117D119"
         },
         {
           "member": "liblcms2.2.dylib",
@@ -255,13 +255,13 @@
     },
     "macos-x86_64": {
       "archive": "dng_decoder_native-macos-x86_64.tar.gz",
-      "sha256": "f2dc6c9c06ed05a2587007aee8c6f34208398999d55a6fc26a562d05e5d8ad99",
+      "sha256": "5eac168ac8e4ec48b6259dcdafc7d3f1ddc192a3152dfcaaa4588ef02920bffb",
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "f24af5e72842694f8581e2fc9af70ae5f62b6a04c4b0ed1577365afecc13b95f",
-          "uuid": "74C50519-0A4B-304A-9678-B51E3C7AEC35"
+          "sha256": "7dcb7231a45b1dabcd337de5a4424026f91d498d62d91a5d14678be0a90cce57",
+          "uuid": "A0DDFF7A-56A4-3276-BC1A-560AF693A917"
         },
         {
           "member": "liblcms2.2.dylib",
@@ -297,12 +297,12 @@
     },
     "windows": {
       "archive": "dng_decoder_native-windows-x86_64.tar.gz",
-      "sha256": "083e9b9b1f22606db100425e187029016022413ee019e0c0f251b4c4c0b270a2",
+      "sha256": "9deeaba148ec396850b4863f377889eb2b82aff59d5b57948f42b732fe4ace88",
       "libraries": [
         {
           "member": "dng_decoder_native.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "abb2a1c1da9f42b07c4f0cda7f14fde29a6fcadea726e4ffb34627852ee5d201"
+          "sha256": "eef22f0b76569d659181f6a79305729c48de7748143c8f6a1a0a39809e75cfd0"
         },
         {
           "member": "heif.dll",
