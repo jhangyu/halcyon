@@ -1595,7 +1595,15 @@ void main() {
   group('image_preload_reset_tier_one_evict_test.dart', () {
     setUp(clearImageCacheSetUp);
 
-    // TC-487
+    // TC-487 (I6 bytes-identity). AC-P2a review (docs/logs/2026-09-12/
+    // gpu-texture-contract.md, impl-p2-dedup-opus spec): `_evictTierOneDuplicate`
+    // never rebuilds a provider -- it only removes a map entry and evicts an
+    // ImageCache key -- so `tierOneProviderFor`/`fullSizeProviderFor` still key
+    // on the same (bytes identity, width, height) they always did. This test's
+    // assertions are therefore confirmed UNCHANGED by AC-P2a; no rewrite
+    // needed. (The item this test uses is never selected/never reaches
+    // tier-2-ready, so `reset`'s unconditional evict loop -- not
+    // `_evictTierOneDuplicate` -- is what runs here either way.)
     test('reset evicts the tier-1 ImageCache entries it recorded', () async {
       final controller = ImagePreloadController(
         imageLoader: _pngLoader,

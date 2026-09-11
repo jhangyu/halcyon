@@ -24,8 +24,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
@@ -398,10 +400,18 @@ void main() {
     /// A cheap-source controller: every item gets an EncodedPayload, and
     /// the RAW decoder fails the test outright so nothing here can be
     /// explained by a re-decode.
-    ImagePreloadController build() {
+    ///
+    /// [navigationDebounce] gates only [TierTwoScheduler] (see
+    /// `image_preload_controller.dart:1102`, `_navigationDebounce` has
+    /// exactly one read site); tier-1 precache reacts to a landed payload
+    /// immediately regardless of this value. Tests that need to observe the
+    /// tier-1-before-tier-2-ready window use a non-zero debounce so tier-2
+    /// cannot win the race to "settled"; tests that only care about the
+    /// final band-minus-ready state use zero.
+    ImagePreloadController build({Duration navigationDebounce = Duration.zero}) {
       final controller = ImagePreloadController(
         scheduleFrameCallback: _microtaskFrame,
-        navigationDebounce: Duration.zero,
+        navigationDebounce: navigationDebounce,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         dngDecoder: (path) async =>
@@ -419,6 +429,12 @@ void main() {
           photos[selected + d].id,
     };
 
+    // AC-P2a (docs/logs/2026-09-12/gpu-texture-contract.md): a band id whose
+    // tier-2 entry is already ready holds NO tier-1 key --
+    // `_evictTierOneDuplicate` reclaims it the instant tier-2 becomes
+    // displayable. So the settled tier-1 key set is the band MINUS whichever
+    // ids have already reached tier-2, not the whole band unconditionally.
+
     // `Set`'s default `==` is identity-based, not value-based (it is NOT
     // overridden the way `List`/`Map` literals sometimes assume) -- two
     // distinct `Set<String>` instances with identical elements compare
@@ -428,11 +444,17 @@ void main() {
         a.length == b.length && a.containsAll(b);
 
     testWidgets(
-      'TC-1223 after a settled pass the set of ids holding a tier-1 '
-      'ImageCache key EQUALS the +/-1 band id set',
+      'TC-1223 before tier-2 is ready the set of ids holding a tier-1 '
+      'ImageCache key EQUALS the +/-1 band id set; once tier-2 is ready '
+      'for an id, that id drops out of the tier-1 set (AC-P2a)',
       (tester) async {
         await tester.runAsync(() async {
-          final controller = build();
+          // A debounce long enough that tier-1 (undebounced) settles onto
+          // the full band well before tier-2 (debounced) becomes ready for
+          // anything, so the first assertion below cannot be a race.
+          final controller = build(
+            navigationDebounce: const Duration(milliseconds: 300),
+          );
           addTearDown(controller.dispose);
           final photos = paddedItems(14);
           const selected = 5;
@@ -443,21 +465,41 @@ void main() {
             notifyLoaded: () {},
           );
           await until(
-            () => controller.debugTierOneKeyIds.isNotEmpty,
-            reason: 'the tier-1 precache to register at least one key',
-          );
-          await until(
             () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
-            reason: 'the tier-1 key set to settle onto the +/-1 band',
+            reason: 'the tier-1 key set to settle onto the +/-1 band while '
+                'tier-2 is still debounced',
           );
-
-          // The SET, not its size: a same-sized set of the WRONG ids
-          // would pass a length assertion.
           expect(
             controller.debugTierOneKeyIds,
             bandIds(photos, selected),
-            reason: 'window-resolution retention is abolished (R-B): only '
-                'the +/-1 band holds decoded tier-1 entries',
+            reason: 'window-resolution retention is abolished (R-B): the '
+                '+/-1 band holds decoded tier-1 entries until tier-2 lands',
+          );
+          for (final id in bandIds(photos, selected)) {
+            expect(
+              controller.isFullSizeReady(id),
+              isFalse,
+              reason: 'precondition: tier-2 must not have landed yet, or '
+                  'the assertion above proves nothing about ordering',
+            );
+          }
+
+          // Let the tier-2 debounce elapse and its publish land.
+          final centerId = photos[selected].id;
+          await until(
+            () => controller.isFullSizeReady(centerId),
+            reason: 'tier-2 to become ready for the selected id',
+          );
+          await until(
+            () => !controller.debugTierOneKeyIds.contains(centerId),
+            reason: 'AC-P2a: the tier-1 duplicate for a tier-2-ready id must '
+                'be reclaimed',
+          );
+          expect(
+            controller.debugTierOneKeyIds.contains(centerId),
+            isFalse,
+            reason: 'the settled tier-1 set is band-minus-ready, not the '
+                'whole band unconditionally',
           );
         });
       },
@@ -465,10 +507,18 @@ void main() {
 
     testWidgets(
       'TC-1224 a slot at +4 keeps its retained payload across the same '
-      'pass: this is a FORM change, not an eviction',
+      'pass: this is a FORM change, not an eviction. AC-P2a: once tier-2 '
+      'catches up the band ids drop out of the tier-1 set',
       (tester) async {
         await tester.runAsync(() async {
-          final controller = build();
+          // Non-zero debounce (option (b), team-lead ruling
+          // docs/logs/2026-09-12/): gives a real pre-tier-2 phase in which
+          // the original TC-1224 claim (band equality, +4 untouched) is
+          // checked exactly as it always was, THEN the debounce is let
+          // through and the AC-P2a band-minus-ready claim is checked too.
+          final controller = build(
+            navigationDebounce: const Duration(milliseconds: 300),
+          );
           addTearDown(controller.dispose);
           final photos = paddedItems(14);
           const selected = 5;
@@ -486,7 +536,8 @@ void main() {
           final retentionBefore = controller.debugRetentionIds.toSet();
           await until(
             () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
-            reason: 'the tier-1 key set to settle onto the +/-1 band',
+            reason: 'the tier-1 key set to settle onto the +/-1 band while '
+                'tier-2 is still debounced',
           );
 
           expect(controller.payloadFor(outerId), isNotNull,
@@ -498,16 +549,42 @@ void main() {
             reason: 'no id was added to or dropped from retention (the '
                 'per-hunk boundary test, expressed as an assertion)',
           );
+
+          // AC-P2a phase: let the tier-2 debounce elapse. Every band id
+          // holds a tier-1 key IFF its tier-2 is not yet ready -- band-minus-
+          // ready, the exact inverse relationship, checked per id (not just
+          // "the set shrank").
+          final centerId = photos[selected].id;
+          await until(
+            () => controller.isFullSizeReady(centerId),
+            reason: 'tier-2 to become ready for the selected id',
+          );
+          for (final id in bandIds(photos, selected)) {
+            await until(
+              () =>
+                  controller.debugTierOneKeyIds.contains(id) !=
+                  controller.isFullSizeReady(id),
+              reason: 'band id $id to settle to band-minus-ready '
+                  '(tier-1 key present XOR tier-2 ready)',
+            );
+          }
+          // +4 is untouched by AC-P2a: it was never in the tier-1 band and
+          // tier-2's own window is +/-2, so it never reaches tier-2 either.
+          expect(controller.debugTierOneKeyIds, isNot(contains(outerId)));
+          expect(controller.isFullSizeReady(outerId), isFalse);
         });
       },
     );
 
     testWidgets(
       'TC-1225 selection at index 0 keeps tier-1 keys for 0 and +1 and '
-      'for no others (the band clamps, the sweep must respect the clamp)',
+      'for no others (the band clamps, the sweep must respect the clamp). '
+      'AC-P2a: once tier-2 catches up 0 and +1 drop out too',
       (tester) async {
         await tester.runAsync(() async {
-          final controller = build();
+          final controller = build(
+            navigationDebounce: const Duration(milliseconds: 300),
+          );
           addTearDown(controller.dispose);
           final photos = paddedItems(14);
           const selected = 0;
@@ -519,16 +596,234 @@ void main() {
           );
           await until(
             () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
-            reason: 'the clamped two-slot band to settle',
+            reason: 'the clamped two-slot band to settle while tier-2 is '
+                'still debounced',
           );
 
+          // The SET, not its size: a same-sized set of the WRONG ids would
+          // pass a length assertion.
           expect(
             controller.debugTierOneKeyIds,
             {photos[0].id, photos[1].id},
             reason: 'a clamped band is two slots, and the stale sweep must '
                 'not evict a key for an id that IS in the clamped band',
           );
+
+          // AC-P2a phase: let the debounce elapse; both clamped-band ids
+          // drop out of the tier-1 set once their tier-2 is ready.
+          for (final id in {photos[0].id, photos[1].id}) {
+            await until(
+              () => controller.isFullSizeReady(id),
+              reason: 'tier-2 to become ready for clamped-band id $id',
+            );
+            await until(
+              () => !controller.debugTierOneKeyIds.contains(id),
+              reason: 'AC-P2a: id $id to drop out of the tier-1 set once '
+                  'ready',
+            );
+          }
+          expect(
+            controller.debugTierOneKeyIds,
+            isEmpty,
+            reason: 'both clamped-band ids reached tier-2; nothing else was '
+                'ever in the tier-1 band to begin with',
+          );
         });
+      },
+    );
+
+    testWidgets(
+      'TC-1242 ordering: tier-1 is visible (notifyLoaded observes it) before '
+      'tier-2 is ready; the tier-1 duplicate is reclaimed only AFTER '
+      "notifyLoaded fires for tier-2 (AC-P2a, 'no fallback flash')",
+      (tester) async {
+        await tester.runAsync(() async {
+          final controller = build(
+            navigationDebounce: const Duration(milliseconds: 200),
+          );
+          addTearDown(controller.dispose);
+          final photos = paddedItems(14);
+          const selected = 5;
+          final centerId = photos[selected].id;
+
+          var notifyCount = 0;
+          var tierOnePresentAtFirstNotify = false;
+
+          await controller.preloadImages(
+            items: photos,
+            selectedItemId: centerId,
+            notifyLoaded: () {
+              notifyCount++;
+              // The tier-2 publish's decode-listener fires notifyLoaded
+              // BEFORE `_evictTierOneDuplicate` (image_preload_controller.dart
+              // TierTwoRegistry `onReadyForDisplay` wiring): the first
+              // notification to observe tier-2 readiness for centerId must
+              // still see the tier-1 entry live.
+              if (controller.isFullSizeReady(centerId) &&
+                  !tierOnePresentAtFirstNotify &&
+                  controller.debugTierOneKeyIds.contains(centerId)) {
+                tierOnePresentAtFirstNotify = true;
+              }
+            },
+          );
+
+          await until(
+            () => controller.debugTierOneKeyIds.contains(centerId),
+            reason: 'tier-1 to register for the selected id before tier-2 '
+                'is ready (tier-1 is undebounced)',
+          );
+          expect(
+            controller.isFullSizeReady(centerId),
+            isFalse,
+            reason: 'precondition: tier-2 still debounced',
+          );
+
+          await until(
+            () => controller.isFullSizeReady(centerId),
+            reason: 'tier-2 to become ready',
+          );
+          await until(
+            () => !controller.debugTierOneKeyIds.contains(centerId),
+            reason: 'the tier-1 duplicate to be reclaimed after tier-2 ready',
+          );
+
+          expect(
+            notifyCount,
+            greaterThan(0),
+            reason: 'the tier-2 publish path must call notifyLoaded',
+          );
+          expect(
+            tierOnePresentAtFirstNotify,
+            isTrue,
+            reason: 'notifyLoaded for tier-2 readiness must fire while '
+                'tier-1 is STILL live -- eviction happens after, not before '
+                '(no fallback flash)',
+          );
+        });
+      },
+    );
+
+    // Plain test(), not testWidgets(): the RAW-decode path awaits real
+    // engine futures, which hang forever inside testWidgets' FakeAsync zone.
+    //
+    // TC-1243 DELETED (round 2, team-lead ruling): it asserted the tier-2
+    // survival property via the PIGGYBACK path (both tiers momentarily
+    // `RawPixelsImage(payload)`), but mutation testing proved that path
+    // never actually exercises guard #2 -- the REGISTERED tier-2 key for a
+    // pixel item is always a `RawFullResImage` in production (both
+    // piggyback and catch-up publish through `TierTwoRegistry.publishFullRes`,
+    // which always builds one from a freshly-decoded `ui.Image`;
+    // `_fullSizeProviderForPayload`'s `PixelPayload -> RawPixelsImage(payload)`
+    // branch is a DISPLAY-time helper for the view layer, never what gets
+    // written into `TierTwoRegistry._keys`). A test that cannot fail under
+    // any reachable mutation is a fake green; deleting guard #2 itself left
+    // TC-1243 passing. TC-1247 below subsumes the intended property
+    // (tier-2 survives the dedup sweep) on the path that actually reaches
+    // guard-adjacent logic, with a genuine mutation-verified red-leg
+    // (docs/logs/2026-09-12/gpu-texture-contract.md round 2 adjudication;
+    // tmp/verify/p2-mutation-redlegs.txt has both the TC-1243 fake-green
+    // finding and TC-1247's red).
+    test(
+      'TC-1247 the CATCH-UP upgrade path (tier_two_scheduler.dart:637-655): a '
+      'PixelPayload item that already holds tier-1 (RawPixelsImage) slides '
+      'into the band, and its LATER catch-up publish (a genuinely separate '
+      'RawFullResImage entry, not a shared one) correctly evicts the stale '
+      'tier-1 duplicate while the new tier-2 entry survives',
+      () async {
+        // 300ms debounce: gates only the tier-2 sweep/catch-up (see [build]'s
+        // doc), so there is a real window after re-entry in which tier-1 has
+        // already re-registered from the RETAINED payload but the catch-up
+        // decode has not landed yet.
+        final controller = ImagePreloadController(
+          scheduleFrameCallback: _microtaskFrame,
+          navigationDebounce: const Duration(milliseconds: 300),
+          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+              const NativeImageNeedsRawDecode(exifOrientation: 1),
+          dngDecoder: (path) async {
+            final rgba = Uint8List(4 * 3 * 4);
+            for (var p = 0; p < 4 * 3; p++) {
+              rgba[p * 4 + 3] = 0xFF; // opaque, per the RAW-decode contract
+            }
+            return DecodedRgba(rgba: rgba, width: 4, height: 3);
+          },
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(10, 10);
+        final photos = paddedItems(14);
+        // Selected at index 8; the target item at index 5 sits at distance
+        // -3 -- inside the -3..+5 retention window (so it gets a payload)
+        // but OUTSIDE the tier-2 +/-2 window (so its piggybacked full-res
+        // pixels get discarded, not published) and outside the tier-1 +/-1
+        // band. It ends this phase holding a retained PixelPayload and NO
+        // tier-2 entry: exactly the precondition the catch-up path exists
+        // for ("slid into the band, or left and came back after its entry
+        // was evicted").
+        const farSelected = 8;
+        const targetIndex = 5;
+        final targetId = photos[targetIndex].id;
+
+        await controller.preloadImages(
+          items: photos,
+          selectedItemId: photos[farSelected].id,
+          notifyLoaded: () {},
+        );
+        await until(
+          () => controller.payloadFor(targetId) is PixelPayload,
+          reason: 'the far slot to RAW-decode and retain its PixelPayload',
+        );
+        expect(
+          controller.isFullSizeReady(targetId),
+          isFalse,
+          reason: 'precondition: distance 3 is outside the tier-2 +/-2 '
+              'window, so the piggybacked full-res pixels must have been '
+              'discarded, not published',
+        );
+
+        // Re-enter: move the selection onto the target itself (distance 0),
+        // inside both the tier-1 band and the tier-2 window.
+        await controller.preloadImages(
+          items: photos,
+          selectedItemId: targetId,
+          notifyLoaded: () {},
+        );
+        await until(
+          () => controller.debugTierOneKeyIds.contains(targetId),
+          reason: 'tier-1 to re-register the RETAINED payload immediately '
+              '(no new decode) as it re-enters the band',
+        );
+        expect(
+          controller.isFullSizeReady(targetId),
+          isFalse,
+          reason: 'precondition: the tier-2 sweep is still debounced, so the '
+              'catch-up upgrade has not landed yet',
+        );
+
+        // Let the debounce elapse and the catch-up FFI decode land.
+        await until(
+          () => controller.isFullSizeReady(targetId),
+          reason: 'the catch-up upgrade to publish tier-2',
+        );
+        await until(
+          () => !controller.debugTierOneKeyIds.contains(targetId),
+          reason: 'AC-P2a: the now-stale tier-1 duplicate must be reclaimed',
+        );
+
+        expect(
+          controller.debugTierOneKeyIds.contains(targetId),
+          isFalse,
+          reason: '(i) the tier-1 key must be gone: unlike the piggyback '
+              'case, the catch-up publish builds a DIFFERENT RawFullResImage '
+              'object, so guard #2 (key equality) does NOT apply here -- '
+              'this is a genuine duplicate, and it must be reclaimed',
+        );
+        expect(
+          controller.isFullSizeReady(targetId),
+          isTrue,
+          reason: '(ii) the NEW tier-2 RawFullResImage entry must be '
+              'resident (isFullSizeReady re-derives residency via '
+              'ImageCache.containsKey, see tier_two_registry.dart:120): '
+              'reclaiming the stale tier-1 duplicate must not touch it',
+        );
       },
     );
   });

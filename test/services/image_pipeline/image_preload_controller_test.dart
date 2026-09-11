@@ -1969,13 +1969,27 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
+      // Tier-agnostic witness (AC-P2a, docs/logs/2026-09-12/
+      // gpu-texture-contract.md): the claim under test is "the burst
+      // actually decoded jpgs[5]", not "jpgs[5] is currently held at
+      // tier-1". With `navigationDebounce: Duration.zero` here, index 5's
+      // tier-2 can beat its tier-1 registration to ready and
+      // `_evictTierOneDuplicate` reclaims the tier-1 entry the instant that
+      // happens -- a strictly better outcome (no duplicate GPU texture), not
+      // a regression this witness should flag.
       final bytes5 = cheap.imageBytesFor(jpgs[5].id)!;
       final key5 = await tierOneProviderFor(
         bytes5,
         width: 800,
         height: 600,
       ).obtainKey(const ImageConfiguration());
-      expect(PaintingBinding.instance.imageCache.containsKey(key5), isTrue);
+      expect(
+        PaintingBinding.instance.imageCache.containsKey(key5) ||
+            cheap.isFullSizeReady(jpgs[5].id),
+        isTrue,
+        reason: 'jpgs[5] must have been decoded during the burst, whether '
+            'it currently sits at tier-1 or has already advanced to tier-2',
+      );
 
       // Separate real-DNG witness: the cheap result must come from TIFF content,
       // not from the JPEG control above. A preview-bearing DNG still receives
