@@ -123,8 +123,8 @@ class _BandEntryHarness {
             loadOrder.add(item.id);
             return (inFlight[item.id] ??= Completer<void>()).future;
           },
-      dngDecoder: () => null,
-      exifOrientationFor: (id) => null,
+      dngDecoder: () => dngDecoder,
+      exifOrientationFor: (id) => exifOrientation,
       // Ten seconds: far beyond any pump below, so nothing the debounced sweep
       // would do can contribute to what these tests observe.
       navigationDebounce: const Duration(seconds: 10),
@@ -137,6 +137,12 @@ class _BandEntryHarness {
   final Map<String, SourcePayload> payloads = {};
   final List<String> loadOrder = [];
   final Map<String, Completer<void>> inFlight = {};
+
+  // Task 5 (AC-3): injectable so TC-1221's positive control can reach a real
+  // decode; unset (null) reproduces the prior hardcoded behavior exactly, so
+  // TC-1180/TC-1181 are unaffected.
+  DngFullDecoder? dngDecoder;
+  int? exifOrientation;
 
   Future<void> pump() async {
     for (var i = 0; i < 4; i++) {
@@ -1661,6 +1667,132 @@ void main() {
               'overwritten in the registry\'s own bookkeeping (F6 orphan leak)',
         );
         expect(registry.providerFor('IMG_00'), same(secondProvider));
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Task 5 (spec v2 §3.3 / AC-3): band entry decodes the in-RAM JPEG and
+  // buys NO decode of the original file.
+  // ---------------------------------------------------------------------
+  group('band entry off-NAS (AC-3)', () {
+    /// A band-entry harness whose RAW decoder COUNTS its calls per id
+    /// instead of being null, so "zero file decodes" is an observation
+    /// about a decoder that was actually reachable rather than about a
+    /// decoder that could never have run.
+    _BandEntryHarness harnessWithCountingDecoder(Map<String, int> calls) {
+      final h = _BandEntryHarness();
+      // Identity orientation. Without it _upgradeFullRes takes its
+      // markFullResFailure early return BEFORE the counter's increment
+      // site, and TC-1221's positive control would prove nothing.
+      h.exifOrientation = 1;
+      h.dngDecoder = (path) async {
+        final id = path.split('/').last.split('.').first;
+        calls[id] = (calls[id] ?? 0) + 1;
+        final rgba = Uint8List(2 * 2 * 4);
+        for (var i = 3; i < rgba.length; i += 4) {
+          rgba[i] = 0xFF; // opaque: the debug identity short-circuit in
+                          // decoded_rgba_image_provider.dart asserts it
+        }
+        return DecodedRgba(rgba: rgba, width: 2, height: 2);
+      };
+      return h;
+    }
+
+    test(
+      'TC-1220 a slot retained as an EncodedPayload entering the band '
+      'publishes from bytes: zero file decodes, zero decoder calls',
+      () async {
+        final calls = <String, int>{};
+        final h = harnessWithCountingDecoder(calls);
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(() => h.registry.clear());
+
+        for (final item in items) {
+          h.payloads[item.id] = freshEncodedPayload();
+        }
+
+        h.scheduler.schedule(items, 2, () {});
+        await h.pump();
+        await until(
+          () => h.registry.isReady('a3'),
+          reason: "a3's band-entry publish to become ready",
+        );
+
+        expect(
+          h.scheduler.debugBandEntryFileDecodeCount,
+          0,
+          reason: 'an in-RAM JPEG must be decoded from bytes, never by '
+              're-reading the original file (spec v2 §3.3, AC-3)',
+        );
+        expect(calls['a3'], isNull, reason: 'no decoder call for a3');
+        expect(calls, isEmpty, reason: 'no decoder call for ANY band slot');
+      },
+    );
+
+    test(
+      'TC-1221 positive control: a slot still holding a temporary '
+      'PixelPayload DOES buy a file decode on band entry',
+      () async {
+        final calls = <String, int>{};
+        final h = harnessWithCountingDecoder(calls);
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(() => h.registry.clear());
+
+        for (final item in items) {
+          h.payloads[item.id] = item.id == 'a3'
+              ? PixelPayload(
+                  rgba: Uint8List(2 * 2 * 4),
+                  width: 2,
+                  height: 2,
+                )
+              : freshEncodedPayload();
+        }
+
+        h.scheduler.schedule(items, 2, () {});
+        await h.pump();
+        await until(
+          () => h.scheduler.debugBandEntryFileDecodeCount > 0,
+          reason: "a3's pixel-state band entry to buy its file decode",
+        );
+
+        // The counter is PROVEN able to be non-zero, so its zero in
+        // TC-1220 is an observation and not a dead assertion.
+        expect(h.scheduler.debugBandEntryFileDecodeCount, greaterThan(0));
+        expect(calls['a3'], isNotNull);
+      },
+    );
+
+    test(
+      'TC-1222 oscillating across the band edge buys no decode at all for '
+      'an EncodedPayload slot',
+      () async {
+        final calls = <String, int>{};
+        final h = harnessWithCountingDecoder(calls);
+        final items = photoItems(8, idPrefix: 'a', dir: '/tmp');
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(() => h.registry.clear());
+
+        for (final item in items) {
+          h.payloads[item.id] = freshEncodedPayload();
+        }
+
+        // enter -> leave -> re-enter, ONE step at a time: a stride would
+        // jump over the band edge this test exists to cross.
+        for (final index in [2, 3, 4, 3, 2, 3]) {
+          h.scheduler.schedule(items, index, () {});
+          await h.pump();
+        }
+        await until(
+          () => h.registry.isReady('a4'),
+          reason: 'the oscillation to settle its band publishes',
+        );
+
+        expect(h.scheduler.debugBandEntryFileDecodeCount, 0);
+        expect(calls, isEmpty,
+            reason: 're-entry rebuilds from the retained JPEG bytes');
       },
     );
   });

@@ -148,6 +148,19 @@ class TierTwoScheduler {
   /// collaborator of the controller, not a public API surface of its own).
   int debugCatchUpEnqueueCount = 0;
 
+  /// How many band-entry promotions had to buy a decode of the ORIGINAL
+  /// FILE (the pre-v2 route). Zero is the steady-state expectation once
+  /// every retained slot carries a full-size JPEG; non-zero means a slot
+  /// was promoted while still in its temporary pixel state (Task 3/4).
+  ///
+  /// Incremented, never reset -- same discipline as
+  /// [debugCatchUpEnqueueCount]: a resettable counter cannot distinguish
+  /// "never happened" from "happened and was cleared". Forwarded through
+  /// [ImagePreloadController.debugBandEntryFileDecodeCount], which carries
+  /// the `@visibleForTesting` annotation for the one call site that
+  /// matters.
+  int debugBandEntryFileDecodeCount = 0;
+
   final TierTwoRegistry _registry;
 
   /// The pipeline's ONE serial decode lane, shared with the controller's
@@ -803,6 +816,7 @@ class TierTwoScheduler {
 
       ui.Image image;
       try {
+        debugBandEntryFileDecodeCount++;
         final decoded = await decoder(file.path);
         image = await decodedRgbaToImage(
           decoded,
