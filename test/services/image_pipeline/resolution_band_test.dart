@@ -23,6 +23,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
@@ -42,76 +43,24 @@ void main() {
     test(
       'TC-1150 full-size pixels are kept only for selected +/-1',
       () {
-        final floor = const RetentionPolicy.floor();
-        PhotoResolutionBand bandAt(int distance) => resolutionBandForDistance(
-          distance,
-          windowResolutionBefore: floor.before,
-          windowResolutionAfter: floor.after,
-        );
-
         for (final distance in [-1, 0, 1]) {
           expect(
-            bandAt(distance),
-            PhotoResolutionBand.fullResolutionPixels,
+            isFullResolutionDistance(distance),
+            isTrue,
             reason: 'distance $distance is inside the spec\'s selected +/-1',
           );
-          expect(isFullResolutionDistance(distance), isTrue);
         }
         // Both edges must bite, or the assertion would pass against an
-        // unbounded band. +2 is the slot the pre-WP4.2 forward bias (-1..+3)
-        // used to hold at full resolution and no longer does.
+        // unbounded band. +2 is the slot the pre-WP4.2 forward bias
+        // (-1..+3) used to hold at full resolution and no longer does.
         for (final distance in [-2, 2, 3]) {
           expect(
-            bandAt(distance),
-            isNot(PhotoResolutionBand.fullResolutionPixels),
+            isFullResolutionDistance(distance),
+            isFalse,
             reason: 'distance $distance is outside the selected +/-1 band',
           );
-          expect(isFullResolutionDistance(distance), isFalse);
         }
         expect(kFullResolutionBandRadius, 1);
-      },
-    );
-
-    // TC-1151
-    test(
-      'TC-1151 the near band is window-resolution and beyond it is compressed '
-      'payload only, on every retention rung',
-      () {
-        for (final tier in RetentionTier.values) {
-          final policy = retentionPolicyForTier(tier);
-          PhotoResolutionBand bandAt(int distance) => resolutionBandForDistance(
-            distance,
-            windowResolutionBefore: policy.before,
-            windowResolutionAfter: policy.after,
-          );
-
-          // Stepping by ONE, never by a stride: a stride coarser than the band
-          // edges jumps over the exact discontinuity this walk exists to find.
-          for (var d = -policy.before - 2; d <= policy.after + 2; d++) {
-            final expected = switch (d) {
-              _ when d.abs() <= kFullResolutionBandRadius =>
-                PhotoResolutionBand.fullResolutionPixels,
-              _ when d >= -policy.before && d <= policy.after =>
-                PhotoResolutionBand.windowResolutionPixels,
-              _ => PhotoResolutionBand.compressedPayloadOnly,
-            };
-            expect(
-              bandAt(d),
-              expected,
-              reason: 'rung $tier, distance $d',
-            );
-          }
-          // The third rung is reachable on every rung, i.e. the band table is
-          // genuinely three-valued and not two-valued with a dead enum member.
-          expect(
-            bandAt(policy.after + 1),
-            PhotoResolutionBand.compressedPayloadOnly,
-          );
-          expect(
-            bandAt(-policy.before - 1),
-            PhotoResolutionBand.compressedPayloadOnly,
-          );
-        }
       },
     );
 
@@ -438,6 +387,147 @@ void main() {
           // The RAW decoder is pinned by `fail(...)` in the fixture above: if
           // re-promotion had gone down the RAW route, this test would already
           // have failed inside the loader.
+        });
+      },
+    );
+  });
+
+  group('tier-1 precache is the +/-1 band only (spec v2 §3.4, R-B)', () {
+    setUp(clearImageCacheSetUp);
+
+    /// A cheap-source controller: every item gets an EncodedPayload, and
+    /// the RAW decoder fails the test outright so nothing here can be
+    /// explained by a re-decode.
+    ImagePreloadController build() {
+      final controller = ImagePreloadController(
+        scheduleFrameCallback: _microtaskFrame,
+        navigationDebounce: Duration.zero,
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+        dngDecoder: (path) async =>
+            fail('the tier-1 precache must never RAW-decode'),
+      );
+      controller.updateTargetSize(10, 10);
+      return controller;
+    }
+
+    Set<String> bandIds(List<PhotoItem> photos, int selected) => {
+      for (var d = -kFullResolutionBandRadius;
+          d <= kFullResolutionBandRadius;
+          d++)
+        if (selected + d >= 0 && selected + d < photos.length)
+          photos[selected + d].id,
+    };
+
+    // `Set`'s default `==` is identity-based, not value-based (it is NOT
+    // overridden the way `List`/`Map` literals sometimes assume) -- two
+    // distinct `Set<String>` instances with identical elements compare
+    // unequal via `==`, so a poll predicate written as `a == b` never
+    // succeeds even once the sets genuinely match. Value equality here.
+    bool sameIds(Set<String> a, Set<String> b) =>
+        a.length == b.length && a.containsAll(b);
+
+    testWidgets(
+      'TC-1223 after a settled pass the set of ids holding a tier-1 '
+      'ImageCache key EQUALS the +/-1 band id set',
+      (tester) async {
+        await tester.runAsync(() async {
+          final controller = build();
+          addTearDown(controller.dispose);
+          final photos = paddedItems(14);
+          const selected = 5;
+
+          await controller.preloadImages(
+            items: photos,
+            selectedItemId: photos[selected].id,
+            notifyLoaded: () {},
+          );
+          await until(
+            () => controller.debugTierOneKeyIds.isNotEmpty,
+            reason: 'the tier-1 precache to register at least one key',
+          );
+          await until(
+            () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
+            reason: 'the tier-1 key set to settle onto the +/-1 band',
+          );
+
+          // The SET, not its size: a same-sized set of the WRONG ids
+          // would pass a length assertion.
+          expect(
+            controller.debugTierOneKeyIds,
+            bandIds(photos, selected),
+            reason: 'window-resolution retention is abolished (R-B): only '
+                'the +/-1 band holds decoded tier-1 entries',
+          );
+        });
+      },
+    );
+
+    testWidgets(
+      'TC-1224 a slot at +4 keeps its retained payload across the same '
+      'pass: this is a FORM change, not an eviction',
+      (tester) async {
+        await tester.runAsync(() async {
+          final controller = build();
+          addTearDown(controller.dispose);
+          final photos = paddedItems(14);
+          const selected = 5;
+          final outerId = photos[selected + 4].id;
+
+          await controller.preloadImages(
+            items: photos,
+            selectedItemId: photos[selected].id,
+            notifyLoaded: () {},
+          );
+          await until(
+            () => controller.payloadFor(outerId) != null,
+            reason: 'the +4 slot to acquire its retained payload',
+          );
+          final retentionBefore = controller.debugRetentionIds.toSet();
+          await until(
+            () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
+            reason: 'the tier-1 key set to settle onto the +/-1 band',
+          );
+
+          expect(controller.payloadFor(outerId), isNotNull,
+              reason: '+4 keeps its payload; only its decoded form goes');
+          expect(controller.debugTierOneKeyIds, isNot(contains(outerId)));
+          expect(
+            controller.debugRetentionIds,
+            retentionBefore,
+            reason: 'no id was added to or dropped from retention (the '
+                'per-hunk boundary test, expressed as an assertion)',
+          );
+        });
+      },
+    );
+
+    testWidgets(
+      'TC-1225 selection at index 0 keeps tier-1 keys for 0 and +1 and '
+      'for no others (the band clamps, the sweep must respect the clamp)',
+      (tester) async {
+        await tester.runAsync(() async {
+          final controller = build();
+          addTearDown(controller.dispose);
+          final photos = paddedItems(14);
+          const selected = 0;
+
+          await controller.preloadImages(
+            items: photos,
+            selectedItemId: photos[selected].id,
+            notifyLoaded: () {},
+          );
+          await until(
+            () => sameIds(controller.debugTierOneKeyIds, bandIds(photos, selected)),
+            reason: 'the clamped two-slot band to settle',
+          );
+
+          expect(
+            controller.debugTierOneKeyIds,
+            {photos[0].id, photos[1].id},
+            reason: 'a clamped band is two slots, and the stale sweep must '
+                'not evict a key for an id that IS in the clamped band',
+          );
         });
       },
     );

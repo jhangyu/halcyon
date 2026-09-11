@@ -1073,55 +1073,13 @@ void main() {
       }
     });
 
-    // The pacer decides WHEN a registration lands, never WHETHER it lands.
-    //
-    // `PublicationPacer`'s own default queue cap is 4 and its overflow rule
-    // DROPS the highest-rank entry outright. One navigation pass submits a
-    // registration for every retained slot (-3..+5 == 9 of them), so a cap of 4
-    // would silently deny the far half of the window a tier-1 entry forever --
-    // the AC2 guarantee. The controller therefore sizes the cap from the
-    // retention window. With the cap left at 4 this test fails at 5 keys.
-    test('every retained window slot eventually gets a tier-1 key', () async {
-      final frames = FakeFramesImagePreloadPacer();
-      final controller = buildController(scheduleFrameCallback: frames.arm);
-      addTearDown(controller.dispose);
-      controller.updateTargetSize(800, 600);
-
-      await controller.preloadImages(
-        items: manyCheapItems(),
-        selectedItemId: 'j',
-        notifyLoaded: () {},
-      );
-      await pumpMicrotasks();
-
-      final windowIds = controller.debugRetentionIds;
-      expect(windowIds.length, greaterThan(4), reason: 'the cap is under test');
-
-      // CONDITION-DRIVEN, not a fixed frame count: one drain per frame, but
-      // keep draining until every slot is registered (bounded so a real
-      // regression -- a slot that never registers -- still fails instead of
-      // hanging). A fixed 12-frame budget flaked under load because the
-      // drains themselves can be delayed by scheduler contention, not just
-      // the registrations they're waiting on.
-      const maxFrameDrains = 200;
-      var drains = 0;
-      while (drains < maxFrameDrains &&
-          !windowIds.every(controller.debugTierOneKeyIds.contains)) {
-        frames.frame();
-        await pumpMicrotasks(4);
-        drains++;
-      }
-
-      final registered = controller.debugTierOneKeyIds;
-      for (final id in windowIds) {
-        expect(
-          registered,
-          contains(id),
-          reason: 'slot $id was submitted and must eventually be registered '
-              'within $maxFrameDrains frame drains',
-        );
-      }
-    });
+    // "every retained window slot eventually gets a tier-1 key" DELETED
+    // (spec v2 R-B, 2026-09-11, lead ruling round 3): its premise was that
+    // tier-1 precache spans the whole -3..+5 retention window. Window-
+    // resolution retention is abolished -- tier-1 now covers only the +/-1
+    // full-resolution band, so most retained slots never get a tier-1 key
+    // at all, by design. See resolution_band_test.dart TC-1223/1224/1225 for
+    // the band's replacement coverage.
 
     // TC-897 -- the controller-level twin of TC-894: with the pacer's exempt
     // claim enforced against the controller's selected id, a NON-selected window

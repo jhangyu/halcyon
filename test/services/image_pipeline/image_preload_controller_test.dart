@@ -732,98 +732,15 @@ void main() {
       },
     );
 
-    testWidgets(
-      'tier-1 and tier-2 caches coexist: evicting a tier-2 entry does not '
-      'evict the tier-1 entry for the same item (AC3c)',
-      (tester) async {
-        await tester.runAsync(() async {
-          final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
-            navigationDebounce: Duration.zero,
-            imageLoader:
-                (path, {required purpose, int? targetLongEdge}) async =>
-                    NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
-          );
-          addTearDown(controller.dispose);
-
-          final items = List.generate(10, (i) {
-            final id = 'IMG_${i.toString().padLeft(2, '0')}';
-            return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
-          });
-          controller.updateTargetSize(10, 10);
-
-          // Land on index 5; let tier-1 (immediate) and tier-2 (after
-          // debounce) both settle. Tier-2 window is {4,5,6}; tier-1 window is
-          // {3,4,5,6,7}.
-          await controller.preloadImages(
-            items: items,
-            selectedItemId: items[5].id,
-            notifyLoaded: () {},
-          );
-          await pumpUntil(
-            () => controller.isFullSizeReady(items[4].id),
-            reason: 'tier-2 to land for index 4 after the debounce',
-          );
-          expect(controller.isFullSizeReady(items[4].id), isTrue);
-
-          final bytesAt4 = controller.imageBytesFor(items[4].id)!;
-          final tierOneKeyAt4 = await tierOneProviderFor(
-            bytesAt4,
-            width: 10,
-            height: 10,
-          ).obtainKey(ImageConfiguration.empty);
-          final tierTwoKeyAt4 = await fullSizeProviderFor(
-            bytesAt4,
-          ).obtainKey(ImageConfiguration.empty);
-
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(tierOneKeyAt4),
-            isTrue,
-          );
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
-            isTrue,
-          );
-
-          // Navigate to index 7. New tier-2 window is +/-2 = {5,6,7,8,9}: index
-          // 4 falls OUT of it. New tier-1 window is the whole -3..+5 = {4..12}:
-          // index 4 STAYS in it, exactly on the -3 boundary. This is the
-          // coexistence case -- tier-2 eviction for index 4 must not touch its
-          // still-current tier-1 entry.
-          //
-          // The step is two items rather than one because round 2 widened tier-2
-          // from +/-1 to +/-2; a single step no longer takes index 4 out of the
-          // tier-2 window, which would make this test vacuous rather than false.
-          // The ASSERTIONS are unchanged -- only the navigation distance needed
-          // to cross the boundary moved.
-          await controller.preloadImages(
-            items: items,
-            selectedItemId: items[7].id,
-            notifyLoaded: () {},
-          );
-          // Poll for the eviction itself (it runs on the 250ms debounce sweep)
-          // rather than assuming a fixed sleep outlasts it on a slow runner.
-          await pumpUntil(
-            () =>
-                !PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
-            reason: "index 4's tier-2 entry to be evicted after leaving +/-2",
-          );
-
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(tierTwoKeyAt4),
-            isFalse,
-            reason: 'index 4 left the tier-2 (+/-2) window and must be evicted',
-          );
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(tierOneKeyAt4),
-            isTrue,
-            reason:
-                'index 4 is still inside the tier-1 (-3..+5) window; evicting '
-                'its tier-2 entry must not have evicted tier-1 too',
-          );
-        });
-      },
-    );
+    // "tier-1 and tier-2 caches coexist... (AC3c)" DELETED (spec v2 R-B,
+    // 2026-09-11, lead ruling round 3): its coexistence scenario staged an
+    // id that stayed inside the tier-1 (-3..+5) window while leaving the
+    // narrower tier-2 (+/-2) window. Window-resolution retention is
+    // abolished -- tier-1 is now the +/-1 band, no wider than tier-2's own
+    // band, so no id can leave tier-2 while staying in tier-1: the scenario
+    // this test staged no longer exists. AC3c's coexistence claim is
+    // superseded by R-B; not replaced, because a contrived substitute would
+    // be a new test nobody specified.
 
     testWidgets(
       'isFullSizeReady does not report stale readiness after an item leaves '
@@ -1812,8 +1729,8 @@ void main() {
 
     test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
         'cold arrival fills the same window, one decode at a time', () async {
-      // Left at the production debounce (no override): the currentSize==9
-      // assertion below needs the tier-1 window to finish BEFORE tier-2 starts
+      // Left at the production debounce (no override): the currentSize==3
+      // assertion below needs the tier-1 band to finish BEFORE tier-2 starts
       // adding its own (distinct-key) entries to the same ImageCache. Even a
       // short 40ms debounce raced the async probe/content-check chain that
       // preloadImages itself performs before this poll's first check, so this
@@ -1832,21 +1749,23 @@ void main() {
         selectedItemId: cheapItems[5].id,
         notifyLoaded: () {},
       );
-      // Poll the ASSERTED quantity itself (currentSize == 9), not a proxy: a
+      // Poll the ASSERTED quantity itself (currentSize == 3), not a proxy: a
       // fixed sleep races real precache completion under CPU contention --
       // containsKey below stays true for a still-pending entry, so only
       // currentSize (completed entries) can tell "resident" from "in flight".
       // (round-2 review blocker: reproduced 3/3 in a 14-file batch run.)
       await until(
-        () => PaintingBinding.instance.imageCache.currentSize == 9,
-        reason: 'the whole -3..+5 tier-1 window to finish precaching',
+        () => PaintingBinding.instance.imageCache.currentSize == 3,
+        reason: 'the +/-1 tier-1 band to finish precaching (spec v2 R-B, '
+            '2026-09-11: window-resolution retention is abolished)',
       );
       // Quiescence drain: the poll above returns the INSTANT currentSize first
-      // reads 9, which an over-decoding regression (e.g. still climbing to 12)
-      // could pass through on its way past -- re-settle briefly so the frozen
-      // ==9 expect below still catches "more than 9", not just "at least 9".
+      // reads 3, which an over-decoding regression (e.g. still climbing past
+      // the band) could pass through on its way past -- re-settle briefly so
+      // the frozen ==3 expect below still catches "more than 3", not just
+      // "at least 3".
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      final neighbourBytes = cheap.imageBytesFor(cheapItems[7].id)!;
+      final neighbourBytes = cheap.imageBytesFor(cheapItems[6].id)!;
       final key = await tierOneProviderFor(
         neighbourBytes,
         width: 800,
@@ -1855,15 +1774,15 @@ void main() {
       expect(PaintingBinding.instance.imageCache.containsKey(key), isTrue);
       expect(
         PaintingBinding.instance.imageCache.currentSize,
-        9,
+        3,
         reason:
-            'P1 frozen cheap arrival count: exactly the current -3..+5 tier-1 '
-            'window is decoded before the tier-2 debounce. Was 5 (a +/-2 span) '
-            'until the round-2 tier-1 widening; changed under orchestrator '
-            'authorization because this number encoded the OLD requirement, '
-            'which the user replaced by ruling that tier-1 covers the whole '
-            'retention window. The byte-identity gate on this file re-anchors '
-            'to the new sha256; it is amended, not retired',
+            'P1 frozen cheap arrival count: exactly the +/-1 tier-1 band is '
+            'decoded before the tier-2 debounce. Was 9 (the whole -3..+5 '
+            'retention window) until spec v2 abolished window-resolution '
+            'retention (ruling R-B, 2026-09-11, lead ruling round 3): tier-1 '
+            'now covers only the +/-1 full-resolution band, rung-independent. '
+            'The byte-identity gate on this file re-anchors to the new '
+            'sha256; it is amended, not retired',
       );
 
       PaintingBinding.instance.imageCache.clear();
@@ -2277,29 +2196,10 @@ void main() {
       height: 2,
     );
 
-    Future<bool> tierOneResident(
-      ImagePreloadController controller,
-      String id, {
-      required int width,
-      required int height,
-    }) async {
-      final bytes = controller.imageBytesFor(id);
-      if (bytes != null) {
-        final key = await tierOneProviderFor(
-          bytes,
-          width: width,
-          height: height,
-        ).obtainKey(const ImageConfiguration());
-        return PaintingBinding.instance.imageCache.containsKey(key);
-      }
-      // Pixel-backed items share their tier-1 entry with RawPixelsImage, keyed
-      // on the retained buffer's identity (invariant I1) -- there is no
-      // separate encoded-bytes key to build for that kind.
-      final provider = controller.pixelsProviderFor(id);
-      if (provider == null) return false;
-      final key = await provider.obtainKey(const ImageConfiguration());
-      return PaintingBinding.instance.imageCache.containsKey(key);
-    }
+    // `tierOneResident` helper DELETED (spec v2 R-B, 2026-09-11, lead ruling
+    // round 3): its only callers asserted tier-1 residency outside the +/-1
+    // band, a claim window-resolution retention's abolition makes false;
+    // all such assertions were deleted with it (dead-code rule).
 
     Future<void> until(bool Function() condition, {String? reason}) async {
       final deadline = DateTime.now().add(const Duration(seconds: 5));
@@ -2371,14 +2271,16 @@ void main() {
       );
       // +2 and +3 joined this list when S3.2 narrowed the full-resolution band
       // from -1..+3 to +/-1: they are DEGRADED, not evicted -- still retained,
-      // still holding a window-resolution tier-1 entry, just no full-size one.
+      // no full-size entry.
+      //
+      // The tier-1 half of this loop's claim ("still holding a window-
+      // resolution tier-1 entry") is DELETED (spec v2 R-B, 2026-09-11, lead
+      // ruling round 3): window-resolution retention is abolished, so a slot
+      // outside the +/-1 band now holds NO decoded tier-1 entry either --
+      // only its payload survives. The tier-2-absence claim is independent
+      // of R-B and stays.
       for (final d in [-3, -2, 2, 3, 4, 5]) {
         final id = cheapItems[cheapSelected + d].id;
-        expect(
-          await tierOneResident(cheap, id, width: 10, height: 10),
-          isTrue,
-          reason: 'distance $d (encoded) must still hold a tier-1 entry',
-        );
         expect(
           cheap.debugTierTwoKeyIds.contains(id),
           isFalse,
@@ -2445,32 +2347,21 @@ void main() {
             '+/-1 full-resolution band after settle, same as encoded payloads',
       );
 
-      // --- boundary claim: -3, -2, +4, +5 have a tier-1 entry (once a
-      // payload was ever produced for them) and NEVER a tier-2 entry. Under
+      // --- boundary claim: -3, -2, +4, +5 NEVER hold a tier-2 entry. Under
       // the forward-biased -1..+3 window (AD-034) the backward boundaries are
       // now -3 and -2 and the forward boundaries are +4 and +5.
       //
-      // Each boundary is checked with its OWN short walk rather than inside
-      // the combined walk above: retention (width 9) and the full -3..+5
-      // span (also width 9) coincide only exactly AT the final selection, so
-      // any walk that swings out to acquire one extreme's payload evicts the
-      // other extreme's payload before the final settle -- a structural
-      // consequence of the frozen retention/tier-2 window sizes, not a test
-      // artefact. Isolating each boundary sidesteps that without weakening
-      // what is actually asserted per position.
-      //
-      // distances -3 and -2 are free: the items at pixelSelected-3 (index 2)
-      // and pixelSelected-2 (index 3) already received payloads from the "3"
-      // stop of the walk above and survive into the final retention window
-      // [2,10], but hold no tier-2 entry because the tier-2 window is now
-      // [4,8]. -2 is the slot the forward bias gave up (AD-034).
+      // The tier-1-residency half of this claim is DELETED (spec v2 R-B,
+      // 2026-09-11, lead ruling round 3): window-resolution retention is
+      // abolished, so these boundary distances hold no tier-1 entry either.
+      // The surviving tier-2-absence claim needs only ONE short walk (not
+      // per-boundary isolation): unlike the deleted tier-1 claim, tier-2
+      // absence for an id outside the tier-2 window does not depend on that
+      // id's payload still being resident, so the eviction-races-acquisition
+      // structural concern the per-boundary isolation existed for does not
+      // apply here.
       for (final d in [-3, -2]) {
         final backwardId = pixelItems[pixelSelected + d].id;
-        expect(
-          await tierOneResident(pixel, backwardId, width: 10, height: 10),
-          isTrue,
-          reason: 'distance $d (pixel) must still hold a tier-1 entry',
-        );
         expect(
           pixel.debugTierTwoKeyIds.contains(backwardId),
           isFalse,
@@ -2504,11 +2395,6 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
         final id = boundaryItems[targetIndex].id;
-        expect(
-          await tierOneResident(boundary, id, width: 10, height: 10),
-          isTrue,
-          reason: 'distance $d (pixel) must still hold a tier-1 entry',
-        );
         expect(
           boundary.debugTierTwoKeyIds.contains(id),
           isFalse,

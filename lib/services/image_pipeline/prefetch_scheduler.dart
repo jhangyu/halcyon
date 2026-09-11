@@ -2,29 +2,6 @@ import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
 
-/// The RESOLUTION FORM an already-retained item is held in, as a function of
-/// its distance from the selected item (spec S3.2, "distance-driven resolution
-/// degradation").
-///
-/// This type says nothing about WHICH items are retained, in what ORDER they
-/// are evicted, or under what CONDITION a payload is dropped -- all three are
-/// retention/eviction policy and live in `retention_policy.dart` /
-/// `photo_payload_cache.dart`. Degradation is not eviction: an item in
-/// [compressedPayloadOnly] still has its payload, it simply holds no decoded
-/// ImageCache entry, and re-entering a nearer band rebuilds from that retained
-/// payload (a JPEG decode, tens of ms) rather than re-reading RAW off disk.
-enum PhotoResolutionBand {
-  /// Decoded at full size (tier-2). Selected +/- [kFullResolutionBandRadius].
-  fullResolutionPixels,
-
-  /// Decoded at window resolution (tier-1) only. The near band: everything
-  /// inside the retention window that is not in the full-resolution band.
-  windowResolutionPixels,
-
-  /// No decoded pixels at all -- only the retained compressed payload bytes.
-  compressedPayloadOnly,
-}
-
 /// How far EITHER SIDE of the selected item a FULL-SIZE (tier-2) decode is
 /// kept: the spec's "full-size pixels only for selected +/-1" (S3.2).
 ///
@@ -63,33 +40,16 @@ const int kEvictionBandAfter = 3;
 
 /// Whether [distanceFromSelectedItem] is inside the full-resolution band.
 ///
-/// Split out of [resolutionBandForDistance] because the tier-2 scheduler asks
-/// only this arm and does not know the retention window the other two arms are
-/// measured against.
+/// The SOLE resolution predicate since spec v2 (2026-09-11, ruling R-B):
+/// window-resolution RETENTION is abolished, so there is no longer a
+/// three-valued band table to belong to. A slot inside this band holds
+/// decoded pixels (tier-2 full size, plus a tier-1 window-resolution entry
+/// for progressive display); every other retained slot holds its full-size
+/// JPEG payload and no decoded entry at all. The deleted
+/// `resolutionBandForDistance` / `PhotoResolutionBand` pair is not coming
+/// back: a middle tier is exactly what R-B forbids.
 bool isFullResolutionDistance(int distanceFromSelectedItem) =>
     distanceFromSelectedItem.abs() <= kFullResolutionBandRadius;
-
-/// The resolution form an item at [distanceFromSelectedItem] is held in, given
-/// the retention window currently in force
-/// ([windowResolutionBefore]/[windowResolutionAfter] are
-/// `RetentionPolicy.before`/`.after`, which vary per memory rung).
-///
-/// One table, so the tier-2 scheduler, the tier-1 precache and the tests do not
-/// have to agree by hand about where the edges are.
-PhotoResolutionBand resolutionBandForDistance(
-  int distanceFromSelectedItem, {
-  required int windowResolutionBefore,
-  required int windowResolutionAfter,
-}) {
-  if (isFullResolutionDistance(distanceFromSelectedItem)) {
-    return PhotoResolutionBand.fullResolutionPixels;
-  }
-  if (distanceFromSelectedItem >= -windowResolutionBefore &&
-      distanceFromSelectedItem <= windowResolutionAfter) {
-    return PhotoResolutionBand.windowResolutionPixels;
-  }
-  return PhotoResolutionBand.compressedPayloadOnly;
-}
 
 /// Decides WHICH LANE a source runs on. The only layer that knows about cost
 /// (design §3.3).

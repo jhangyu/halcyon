@@ -2709,12 +2709,14 @@ class ImagePreloadController {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
     if (width == null || height == null) return;
-    // The NAVIGATION window, deliberately NOT the retention union. Since
-    // sidebar scrolling produces payloads too (D5 decision 4), a lane body
-    // landing a payload for a sidebar-only row reaches here -- and the tier-1
-    // ImageCache budget is sized for a handful of window-resolution entries,
-    // not for a whole folder. TC-429 is the regression guard.
-    if (!_navRetentionIds.contains(id)) return;
+    // The +/-1 BAND, not the navigation window (spec v2 R-B, 2026-09-11):
+    // decoded pixels exist only inside the band, so a landing outside it
+    // decodes nothing and simply keeps its payload. This is strictly
+    // narrower than the old `_navRetentionIds` membership test, so TC-429's
+    // guarantee (a sidebar-only row never gets a detail-path tier-1 entry)
+    // is preserved a fortiori: a sidebar row's distance is far outside the
+    // band.
+    if (!isFullResolutionDistance(distance)) return;
     if (!identical(_cache.peek(id), payload)) return;
     _decodeIntoImageCache(
       id,
@@ -2749,66 +2751,48 @@ class ImagePreloadController {
     stream.addListener(listener);
   }
 
-  // Tier-1 precache: decode the WHOLE -3..+5 retention window at window
-  // resolution ahead of display, using the SAME provider factory the view uses.
-  // Requires [updateTargetSize] to have been called at least once (from a
-  // previous layout pass); no-ops otherwise, degrading to on-demand full decode
-  // at display time (functionally correct, just slower for that frame).
+  // Tier-1 precache: decode the +/-kFullResolutionBandRadius BAND at window
+  // resolution ahead of display, using the SAME provider factory the view
+  // uses. Requires [updateTargetSize] to have been called at least once
+  // (from a previous layout pass); no-ops otherwise, degrading to on-demand
+  // full decode at display time (functionally correct, just slower for that
+  // frame).
   //
-  // The span is DERIVED from the retention constants rather than written out
-  // again, so a retained slot and a screen-resolution entry cannot drift apart:
-  // before round 2 this was a hardcoded +/-2 while retention was -3..+5, which
-  // left the four outer slots holding a payload and no ImageCache entry at all,
-  // so stepping onto one re-decoded despite the payload being right there.
+  // SPEC V2 (2026-09-11, ruling R-B): this span used to be the whole -3..+5
+  // RETENTION window, which made every retained slot hold a decoded
+  // window-resolution ImageCache entry -- the window-resolution retention
+  // tier the spec abolishes. It is now the +/-1 band and nothing else. A
+  // slot outside the band keeps its PAYLOAD and loses only its decoded
+  // form: degradation, not eviction. The span is deliberately NOT derived
+  // from the retention constants any more, and is therefore rung-
+  // independent -- widening retention must not widen decoded residency.
   //
-  // This is a CONSUMER of payloads, never a producer -- it skips a slot with no
-  // payload instead of fetching one. That separation is why widening this span
-  // can never add a decode: production is the window pass's and the serial
-  // lane's business, and this loop only ever decodes what is already retained.
+  // This is a CONSUMER of payloads, never a producer -- it skips a slot with
+  // no payload instead of fetching one.
   void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
     final width = _tierOneWidth;
     final height = _tierOneHeight;
     if (width == null || height == null) return;
 
-    final tierStart = (currentIndex - retention.before).clamp(
+    final bandStart = (currentIndex - kFullResolutionBandRadius).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + retention.after).clamp(0, items.length - 1);
-    // Same window the retention-cache sweep in preloadImages used, recomputed
-    // from the same constants via the shared helper (C6) so this method's idea
-    // of the window and the cache's cannot drift apart. The decode loop below
-    // still walks tierStart..tierEnd, not neededIds, because it also decides
-    // WHICH slots to decode (skipping ones with no payload yet) -- that is a
-    // second job the id set alone does not do.
-    final neededIds = retentionWindowIds<PhotoItem>(
-      items,
-      currentIndex,
-      (item) => item.id,
-      before: retention.before,
-      after: retention.after,
+    final bandEnd = (currentIndex + kFullResolutionBandRadius).clamp(
+      0,
+      items.length - 1,
     );
+    // The ids the band covers AFTER clamping, so the stale sweep below
+    // cannot evict a key for a slot that IS in a band clamped at either end
+    // of the list.
+    final bandIds = <String>{
+      for (var i = bandStart; i <= bandEnd; i++) items[i].id,
+    };
 
-    for (var i = tierStart; i <= tierEnd; i++) {
+    for (var i = bandStart; i <= bandEnd; i++) {
       final item = items[i];
       final payload = _cache.peek(item.id);
-      if (payload == null) continue; // not loaded yet; retried on next pass
-      // S3.2's band table, asked here rather than re-derived: a slot in the
-      // compressed-payload-only band keeps its payload and holds NO decoded
-      // entry. Equivalent to this loop's own bounds today, because the
-      // window-resolution band IS the retention window -- which is exactly the
-      // point. The hardcoded +/-2 tier-1 span this loop used to carry drifted
-      // from the -3..+5 retention span precisely because the two were written
-      // out twice; routing the decision through the one band table is what
-      // stops that recurring when a later rung narrows the near band.
-      if (resolutionBandForDistance(
-            i - currentIndex,
-            windowResolutionBefore: retention.before,
-            windowResolutionAfter: retention.after,
-          ) ==
-          PhotoResolutionBand.compressedPayloadOnly) {
-        continue;
-      }
+      if (payload == null) continue; // not loaded yet; retried next pass
       _decodeIntoImageCache(
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),
@@ -2818,8 +2802,10 @@ class ImagePreloadController {
       );
     }
 
+    // Everything outside the band loses its tier-1 key on this pass. That
+    // eviction IS the abolition; the payload behind it is untouched.
     final staleIds = _tierOneKeys.keys
-        .where((id) => !neededIds.contains(id))
+        .where((id) => !bandIds.contains(id))
         .toList();
     for (final id in staleIds) {
       final key = _tierOneKeys.remove(id);
