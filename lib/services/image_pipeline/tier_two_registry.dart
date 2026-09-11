@@ -156,8 +156,29 @@ class TierTwoRegistry {
   /// provider (a publishEncoded/publishFullRes race, see [publishEncoded])
   /// would get a false negative here and pay for a redundant decode instead
   /// of recognizing the entry already in hand.
-  bool hasFullResEntryFor(String id, SourcePayload payload) =>
-      identical(_sources[id], payload);
+  ///
+  /// RESIDENCY (2026-09-11, docs/logs/2026-09-11/wp5-registry-stuck-diagnosis.txt):
+  /// identity alone is not enough, for exactly the reason [publishEncoded]'s
+  /// `stillResident` already documents on the encoded path (:190-209, TC-923).
+  /// The ImageCache can evict this entry under LRU pressure WITHOUT telling
+  /// the registry: `_sources[id]` still holds the same payload object while
+  /// the entry itself is gone. With an identity-only answer here,
+  /// [publishFullRes]'s first-writer-wins guard swallowed every recovery
+  /// publish for that payload FOREVER (nothing clears `_sources` but an
+  /// [evict] or a payload replacement), stranding the item on its blurry
+  /// tier-1 provider until it left the retention window and came back with a
+  /// NEW payload object -- user-visible as "stays blurry until I navigate
+  /// away and back", and confirmed by the user's own recovery signature.
+  ///
+  /// `containsKey`, not [isReady]: a publish whose decode listener has not
+  /// fired yet is still genuinely in hand (containsKey is true for a pending
+  /// entry too), and answering false there would buy exactly the second
+  /// decode AC-M5-4 forbids.
+  bool hasFullResEntryFor(String id, SourcePayload payload) {
+    if (!identical(_sources[id], payload)) return false;
+    final key = _keys[id];
+    return key != null && _imageCache.containsKey(key);
+  }
 
   /// True when a full-resolution upgrade already failed for THIS payload
   /// object. Compared with [identical], so the memo dies with the payload.
@@ -313,6 +334,26 @@ class TierTwoRegistry {
       },
     );
     stream.addListener(listener);
+    // OVERSIZE CONTAINMENT (2026-09-11, defensive -- NOT observed in the
+    // field). `resolve` above is synchronous for this provider (obtainKey
+    // returns a SynchronousFuture and the completer is a OneFrame over a
+    // SynchronousFuture), so by this line the ImageCache has already decided
+    // whether to keep the frame. It REFUSES -- and disposes -- any image
+    // larger than its own `maximumSizeBytes` (SDK image_cache.dart `_touch`),
+    // silently, with no error delivered to [listener].
+    //
+    // Without this branch that refusal is indistinguishable from an eviction,
+    // and [hasFullResEntryFor]'s new residency term would answer "no entry"
+    // on every subsequent sweep -- an unbounded re-decode loop for a frame
+    // this cache can never hold. Recording it as a per-payload failure is the
+    // existing, correct vocabulary for "this upgrade cannot be had for this
+    // payload": the item keeps its tier-1 display (never an error screen, see
+    // [_fullResFailures]) and the memo dies with the payload.
+    if (!_imageCache.containsKey(provider)) {
+      PerfLog.log('publish|id=$id|path=$source|cache_refused=1');
+      _fullResFailures[id] = payload;
+      evict(id);
+    }
   }
 
   /// Records that a full-resolution upgrade failed for THIS payload object, so
