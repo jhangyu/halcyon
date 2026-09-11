@@ -20,36 +20,50 @@ void main() {
   });
 
   testWidgets(
-    'configureImageCache raises ImageCache.maximumSizeBytes to 768 MiB '
-    '(default 100MB only fits ~1 full-frame decode)',
+    'configureImageCache raises ImageCache.maximumSizeBytes to the '
+    'floor-retention working-set budget (default 100MB only fits ~1 '
+    'full-frame decode)',
     (tester) async {
       configureImageCache();
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        805306368,
+        534773760,
         reason:
-            '768 MiB pinned as a RAW BYTE COUNT on purpose: the round-1 record '
-            'lost time to MB-vs-MiB drift, and 768 decimal MB (768000000) is a '
-            'different number that would still look right in a review',
+            '510 MiB pinned as a RAW BYTE COUNT on purpose: the round-1 record '
+            'lost time to MB-vs-MiB drift. S3.1 (2026-09-11) derives this from '
+            'the floor retention window (9 slots, 3 of them full-resolution) '
+            'instead of a quarter of machine RAM clamped to 768 MiB',
       );
     },
   );
 
   testWidgets(
-    'TC-320: configureImageCache derives the budget from a supplied reading',
+    'TC-320: configureImageCache applies the machine-memory SAFETY CEILING '
+    'downward only',
     (tester) async {
-      configureImageCache(physicalMemoryBytes: 2 * 1024 * 1024 * 1024);
+      configureImageCache(physicalMemoryBytes: 1536 * 1024 * 1024);
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        536870912,
-        reason: '2 GiB / 4 = 512 MiB, above the 256 MiB floor',
+        402653184,
+        reason:
+            '1.5 GiB / 4 = 384 MiB is BELOW the 510 MiB working-set budget, so '
+            'the safety ceiling binds on this small machine',
+      );
+
+      configureImageCache(physicalMemoryBytes: 64 * 1024 * 1024 * 1024);
+      expect(
+        PaintingBinding.instance.imageCache.maximumSizeBytes,
+        534773760,
+        reason:
+            'a large machine gets the SAME working-set budget: the ceiling '
+            'never raises it, and surplus RAM is left to the OS file cache',
       );
 
       configureImageCache();
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        805306368,
-        reason: 'no reading still means the 768 MiB ceiling',
+        534773760,
+        reason: 'no reading means no ceiling applies at all',
       );
     },
   );

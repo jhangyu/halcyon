@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'memory_pressure_wiring.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1)
 import 'providers/app_state.dart';
@@ -16,15 +17,20 @@ import 'views/main_screen.dart';
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
 // precaching needs headroom for several images at once.
 
-void configureImageCache({int? physicalMemoryBytes}) {
-  // M6 F-25/P5.1 seam, now actually fed: DeviceMemory supplies the reading on
-  // macOS and null everywhere else, and null yields the same fixed ceiling
-  // this app shipped before. dart:io still has no platform-neutral
-  // total-physical-memory API (ProcessInfo is RSS-only) and Platform.isX
-  // branches are forbidden (C-3), which is why the reading arrives over a
-  // channel instead of from Dart. See
-  // lib/services/image_pipeline/cache_budget.dart for the sizing rationale.
+void configureImageCache({
+  RetentionPolicy retention = const RetentionPolicy.floor(),
+  int? physicalMemoryBytes,
+}) {
+  // S3.1 (2026-09-11): the budget is derived from the working set the
+  // retention window implies, NOT from a fraction of machine memory. The
+  // memory reading, when DeviceMemory supplies one (macOS only today; null
+  // everywhere else, and Platform.isX branches are forbidden by C-3), is now
+  // only a downward safety ceiling. Surplus memory is deliberately left to the
+  // operating system file cache, which accelerates this app's own reads. See
+  // lib/services/image_pipeline/cache_budget.dart for the full derivation and
+  // its attribution evidence.
   PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheBudgetBytes(
+    retention: retention,
     physicalMemoryBytes: physicalMemoryBytes,
   );
 }
@@ -43,7 +49,15 @@ Future<void> main() async {
   // reading would silently leave the app on the floor policy while looking
   // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
   final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
-  configureImageCache(physicalMemoryBytes: physicalMemoryBytes);
+  // Retention is resolved FIRST because the image-cache budget is derived from
+  // the retention window's slot count (S3.1), not from machine memory.
+  final retention = retentionPolicyFor(
+    physicalMemoryBytes: physicalMemoryBytes,
+  );
+  configureImageCache(
+    retention: retention,
+    physicalMemoryBytes: physicalMemoryBytes,
+  );
   // D3 (docs/logs/2026-09-04/occupancy-attribution-contract.md): round-2
   // found the original build.stamp (in PerfLog.init) samples
   // imageCache.maximumSizeBytes BEFORE this call runs, so it always reads
@@ -55,9 +69,6 @@ Future<void> main() async {
       '|imageCacheMaxBytes=${PaintingBinding.instance.imageCache.maximumSizeBytes}',
     );
   }
-  final retention = retentionPolicyFor(
-    physicalMemoryBytes: physicalMemoryBytes,
-  );
   final processors = Platform.numberOfProcessors;
   // The one line that makes the mechanism self-reporting: without it, "the
   // app adapts to this machine" is a claim about code rather than an
@@ -103,6 +114,12 @@ Future<void> main() async {
   // Finder "Open With" / shell association: load the file's folder and select
   // that photo. Registered before runApp so a launch-time file isn't missed.
   OpenWithChannel.listen(appState.openPhotoAtPath);
+  // Operating-system memory pressure (WP4.4 / S3.4): generous in calm, shrink
+  // under pressure. Registered before runApp for the same reason as the line
+  // above -- a pressure event pushed during startup is held by Flutter's
+  // channel buffers and delivered as soon as this handler exists. The returned
+  // responder is intentionally dropped: its lifetime is the process's.
+  startMemoryPressureResponse(appState);
   runApp(
     ChangeNotifierProvider.value(
       value: appState, // PERF-INSTRUMENTATION

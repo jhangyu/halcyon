@@ -123,16 +123,19 @@ bool _poolConfigured = false;
 ///
 /// Does three things:
 ///
-/// 1. **Wires the native buffer pool (R6, Task #9, user ruling 2026-09-06).**
-///    `CeyxDecodePool.nativeBufferPool` defaults to null in the ceyx package,
-///    and every pooled-route gate short-circuits on that null
-///    (`decode_pool.dart:532-535`). Until this assignment existed the whole
-///    WP6/WP10 decode-into route was reachable only from ceyx's own tests:
-///    production decodes fell back to the legacy native allocator, and nothing
-///    was red anywhere — the route was shipped, tested, and carrying zero
-///    traffic. The assignment lives HERE rather than as a default inside ceyx
-///    because a library must not decide on its own to hold eight ~100MB
-///    resident slots for every consumer; the host app owns that budget.
+/// 1. **Re-asserts the native buffer pool (R6, Task #9, user ruling
+///    2026-09-06; updated by S2 2026-09-11).** `CeyxDecodePool.nativeBufferPool`
+///    is now a NON-NULLABLE static defaulting to `CeyxNativeBufferPool.shared`
+///    (decision D2), so this store no longer switches the pooled route on — the
+///    ceyx package does that itself, and the pooled-route gate
+///    (`decode_pool.dart`, `_pooledRouteEnabled`) asks only whether the dylib
+///    exports the decode-into entry pair. Historically the ceyx default WAS
+///    null and every gate short-circuited on it, so until this assignment
+///    existed the whole WP6/WP10 decode-into route was reachable only from
+///    ceyx's own tests while production leaked through the self-allocating
+///    path. What the store buys TODAY is narrower but still real: the field is
+///    mutable, so a test helper that swapped in a small or instrumented pool
+///    cannot leave production running on it.
 ///
 /// 2. **Suppresses the idle working-set trim.** See
 ///    [WorkingSetTrim.suppressed]: idle trimming pages out exactly the idle

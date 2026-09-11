@@ -2,27 +2,94 @@ import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
 
-/// How far BEFORE the selected item a FULL-SIZE (tier-2) decode is precached.
+/// The RESOLUTION FORM an already-retained item is held in, as a function of
+/// its distance from the selected item (spec S3.2, "distance-driven resolution
+/// degradation").
 ///
-/// Retention is a wider thing again (`-3..+5`): these radii decide only which
-/// slots are decoded at FULL size, not which are kept -- and, since the
-/// 2026-08-26 serial-lane ruling, they decide nothing at all about which slots
-/// may START an expensive decode. Every slot of the retention window may;
-/// expensive ones simply queue on `DecodeLane` instead of running in
-/// parallel.
-///
-/// Forward-biased (`-1..+3`) rather than symmetric, for the same reason
-/// retention and the lane start order already are: browsing is overwhelmingly
-/// forwards, so spending the scarce full-resolution budget on `i-2` buys a
-/// slot the user rarely returns to while `i+3` -- already retained as a
-/// payload -- pays a catch-up decode on arrival. The WINDOW SIZE is unchanged
-/// at 5 slots, so the peak number of resident full-resolution images is the
-/// same as under the old symmetric `+/-2`.
-const int kTierTwoBefore = 1;
+/// This type says nothing about WHICH items are retained, in what ORDER they
+/// are evicted, or under what CONDITION a payload is dropped -- all three are
+/// retention/eviction policy and live in `retention_policy.dart` /
+/// `photo_payload_cache.dart`. Degradation is not eviction: an item in
+/// [compressedPayloadOnly] still has its payload, it simply holds no decoded
+/// ImageCache entry, and re-entering a nearer band rebuilds from that retained
+/// payload (a JPEG decode, tens of ms) rather than re-reading RAW off disk.
+enum PhotoResolutionBand {
+  /// Decoded at full size (tier-2). Selected +/- [kFullResolutionBandRadius].
+  fullResolutionPixels,
 
-/// How far AFTER the selected item a FULL-SIZE (tier-2) decode is precached.
-/// See [kTierTwoBefore] for why this is the larger of the two.
-const int kTierTwoAfter = 3;
+  /// Decoded at window resolution (tier-1) only. The near band: everything
+  /// inside the retention window that is not in the full-resolution band.
+  windowResolutionPixels,
+
+  /// No decoded pixels at all -- only the retained compressed payload bytes.
+  compressedPayloadOnly,
+}
+
+/// How far EITHER SIDE of the selected item a FULL-SIZE (tier-2) decode is
+/// kept: the spec's "full-size pixels only for selected +/-1" (S3.2).
+///
+/// Retention is a much wider thing (`-3..+5` on the floor rung, wider per rung
+/// in `retention_policy.dart`): this radius decides only which slots are
+/// decoded at FULL size, not which are kept -- and, since the 2026-08-26
+/// serial-lane ruling, it decides nothing at all about which slots may START an
+/// expensive decode. Every slot of the retention window may; expensive ones
+/// simply queue on `DecodeLane` instead of running in parallel.
+///
+/// HISTORY. Until WP4.2 this band was the forward-biased `-1..+3`
+/// (`kTierTwoBefore`/`kTierTwoAfter`), sized so a forward step landed on a
+/// ready full-resolution entry. S3.2 narrows it to a symmetric `+/-1` because
+/// a resident full-resolution frame is ~97 MB of graphics memory and the
+/// forward slots `+2`/`+3` can be re-promoted from their RETAINED payload in
+/// tens of milliseconds. The forward bias itself is NOT gone: it still governs
+/// retention, the serial lane's start order, and eviction ranking
+/// ([kEvictionBandBefore]/[kEvictionBandAfter]).
+const int kFullResolutionBandRadius = 1;
+
+/// The band the payload cache's EVICTION RANKING is computed against
+/// (`ImagePreloadController._evictionOrderIndices`): ids beyond
+/// `-kEvictionBandBefore..+kEvictionBandAfter` sort last and are evicted first.
+///
+/// Deliberately a SEPARATE pair of constants from
+/// [kFullResolutionBandRadius], frozen at the pre-WP4.2 `-1..+3` values.
+/// Eviction ordering is retention policy, which S3.2 places out of scope, so
+/// narrowing the resolution band must not move it. Two names, because they are
+/// two questions: "what form is this item held in" and "who loses their payload
+/// first when the budget bites".
+const int kEvictionBandBefore = 1;
+
+/// See [kEvictionBandBefore]. The larger of the two because browsing is
+/// overwhelmingly forwards, so behind-side ids lose the budget first.
+const int kEvictionBandAfter = 3;
+
+/// Whether [distanceFromSelectedItem] is inside the full-resolution band.
+///
+/// Split out of [resolutionBandForDistance] because the tier-2 scheduler asks
+/// only this arm and does not know the retention window the other two arms are
+/// measured against.
+bool isFullResolutionDistance(int distanceFromSelectedItem) =>
+    distanceFromSelectedItem.abs() <= kFullResolutionBandRadius;
+
+/// The resolution form an item at [distanceFromSelectedItem] is held in, given
+/// the retention window currently in force
+/// ([windowResolutionBefore]/[windowResolutionAfter] are
+/// `RetentionPolicy.before`/`.after`, which vary per memory rung).
+///
+/// One table, so the tier-2 scheduler, the tier-1 precache and the tests do not
+/// have to agree by hand about where the edges are.
+PhotoResolutionBand resolutionBandForDistance(
+  int distanceFromSelectedItem, {
+  required int windowResolutionBefore,
+  required int windowResolutionAfter,
+}) {
+  if (isFullResolutionDistance(distanceFromSelectedItem)) {
+    return PhotoResolutionBand.fullResolutionPixels;
+  }
+  if (distanceFromSelectedItem >= -windowResolutionBefore &&
+      distanceFromSelectedItem <= windowResolutionAfter) {
+    return PhotoResolutionBand.windowResolutionPixels;
+  }
+  return PhotoResolutionBand.compressedPayloadOnly;
+}
 
 /// Decides WHICH LANE a source runs on. The only layer that knows about cost
 /// (design §3.3).

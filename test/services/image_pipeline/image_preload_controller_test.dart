@@ -64,8 +64,8 @@ class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
 // Historical note: a pixel-backed (expensive/RAW) item used to get a payload
 // only within +/-1 of SOME selection it had passed through (AD-018), so the
 // pixel sub-case below walks the selection through neighbouring positions
-// before settling in order to see the full -1..+3 band (kTierTwoBefore /
-// kTierTwoAfter; the test NAMES below still say "+/-2" and are frozen by the
+// before settling in order to see the full -1..+3 band (kEvictionBandBefore /
+// kEvictionBandAfter; the test NAMES below still say "+/-2" and are frozen by the
 // contract at the top of this file -- the band they assert is now -1..+3,
 // AD-034)
 // populated. AD-018 was OVERTURNED on 2026-08-26 (memory.md AD-033: expensive
@@ -2352,12 +2352,14 @@ void main() {
       await until(
         () =>
             cheap.debugTierTwoKeyIds.length ==
-            kTierTwoBefore + kTierTwoAfter + 1,
-        reason: 'cheap tier-2 band to settle to -1..+3',
+            2 * kFullResolutionBandRadius + 1,
+        reason: 'cheap full-resolution band to settle to +/-1',
       );
 
       final cheapExpectedBand = <String>{
-        for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
+        for (var d = -kFullResolutionBandRadius;
+            d <= kFullResolutionBandRadius;
+            d++)
           cheapItems[cheapSelected + d].id,
       };
       expect(
@@ -2365,9 +2367,12 @@ void main() {
         cheapExpectedBand,
         reason:
             'encoded payloads: the tier-2 key id set must equal exactly the '
-            '-1..+3 band after settle',
+            '+/-1 full-resolution band after settle (WP4.2/S3.2)',
       );
-      for (final d in [-3, -2, 4, 5]) {
+      // +2 and +3 joined this list when S3.2 narrowed the full-resolution band
+      // from -1..+3 to +/-1: they are DEGRADED, not evicted -- still retained,
+      // still holding a window-resolution tier-1 entry, just no full-size one.
+      for (final d in [-3, -2, 2, 3, 4, 5]) {
         final id = cheapItems[cheapSelected + d].id;
         expect(
           await tierOneResident(cheap, id, width: 10, height: 10),
@@ -2422,12 +2427,14 @@ void main() {
       await until(
         () =>
             pixel.debugTierTwoKeyIds.length ==
-            kTierTwoBefore + kTierTwoAfter + 1,
-        reason: 'pixel tier-2 band to settle to -1..+3 after the walk',
+            2 * kFullResolutionBandRadius + 1,
+        reason: 'pixel full-resolution band to settle to +/-1 after the walk',
       );
 
       final pixelExpectedBand = <String>{
-        for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
+        for (var d = -kFullResolutionBandRadius;
+            d <= kFullResolutionBandRadius;
+            d++)
           pixelItems[pixelSelected + d].id,
       };
       expect(
@@ -2435,7 +2442,7 @@ void main() {
         pixelExpectedBand,
         reason:
             'pixel payloads: the tier-2 key id set must equal exactly the '
-            '-1..+3 band after settle, same as encoded payloads',
+            '+/-1 full-resolution band after settle, same as encoded payloads',
       );
 
       // --- boundary claim: -3, -2, +4, +5 have a tier-1 entry (once a
@@ -2472,7 +2479,7 @@ void main() {
       }
       await settle(pixel);
 
-      for (final d in [4, 5]) {
+      for (final d in [2, 3, 4, 5]) {
         final boundary = buildPixelController();
         addTearDown(boundary.dispose);
         boundary.updateTargetSize(10, 10);

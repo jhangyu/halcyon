@@ -21,7 +21,9 @@ import 'dart:ui' as ui;
 //   * tier-1 (screen resolution) precache covers the WHOLE -3..+5 retention
 //     window, so every retained slot also holds a decoded screen-resolution
 //     entry;
-//   * tier-2 (full size) covers -1..+3 via `kTierTwoBefore`/`kTierTwoAfter`,
+//   * tier-2 (full size) covers the +/-1 full-resolution band via
+//     `kFullResolutionBandRadius` (WP4.2/S3.2; it was the forward-biased
+//     -1..+3 before that),
 //     behind the frozen 250ms navigation debounce. Forward-biased for the
 //     same reason retention is (-3..+5): browsing is overwhelmingly forwards.
 //
@@ -220,8 +222,9 @@ Future<NativeImageResult> _pngLoader(
 // the claim TC-366 is meant to test (self-defeating as written). This test
 // instead navigates 0 -> 3 -> 0: at currentIndex=3, retention (-3..+5) still
 // covers item[0] (3-3==0, so it stays retained), while the tier-2 band
-// (-1..+3, kTierTwoBefore=1/kTierTwoAfter=3) does NOT (backward distance 3 >
-// kTierTwoBefore=1) -- so ONLY item[0]'s tier-2 ImageCache entry is evicted,
+// (+/-1, kFullResolutionBandRadius=1) does NOT (backward distance 3 >
+// kFullResolutionBandRadius=1) -- so ONLY item[0]'s tier-2 ImageCache entry is
+// evicted,
 // its payload survives, which is the actual precondition "tier-2 entry
 // evicted, payload retained" the plan's prose names. The setup is verified
 // in-test (assertion that item[0]'s tier-2 entry is actually gone after the
@@ -466,38 +469,44 @@ void main() {
         // still fails instead of hanging.
         await until(
           () => [
-            for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++)
+            for (var d = -kFullResolutionBandRadius;
+                d <= kFullResolutionBandRadius;
+                d++)
               photos[selected + d].id,
           ].every(controller.isFullSizeReady),
-          reason: 'every id in the forward-biased tier-2 window to become '
+          reason: 'every id in the +/-1 full-resolution band to become '
               'full-size ready after the debounce settles',
         );
 
-        for (var d = -kTierTwoBefore; d <= kTierTwoAfter; d++) {
+        for (var d = -kFullResolutionBandRadius;
+            d <= kFullResolutionBandRadius;
+            d++) {
           expect(
             controller.isFullSizeReady(photos[selected + d].id),
             isTrue,
             reason:
-                'distance $d is inside the tier-2 window and must hold a '
-                'full-size entry; the window is forward-biased -1..+3 so that '
-                'the next forward step lands on a ready entry instead of a '
-                'catch-up decode',
+                'distance $d is inside the full-resolution band and must hold '
+                'a full-size entry (WP4.2/S3.2: selected +/-1)',
           );
         }
 
-        // The span is -1..+3, not "everything": both boundaries must still
-        // bite, or the test would pass just as well against an unbounded
-        // window. -2 is the slot the forward bias GAVE UP; +4 is the slot it
-        // still does not reach.
+        // The band is +/-1, not "everything": both edges must still bite, or
+        // the test would pass just as well against an unbounded window. +2 is
+        // the slot S3.2 gave up -- it keeps its retained payload and is
+        // re-promoted from it (tens of ms) if the user steps onto it.
         expect(
-          controller.isFullSizeReady(photos[selected - kTierTwoBefore - 1].id),
+          controller.isFullSizeReady(
+            photos[selected - kFullResolutionBandRadius - 1].id,
+          ),
           isFalse,
-          reason: 'distance -2 is outside the forward-biased tier-2 window',
+          reason: 'distance -2 is outside the full-resolution band',
         );
         expect(
-          controller.isFullSizeReady(photos[selected + kTierTwoAfter + 1].id),
+          controller.isFullSizeReady(
+            photos[selected + kFullResolutionBandRadius + 1].id,
+          ),
           isFalse,
-          reason: 'distance +4 is outside the tier-2 window',
+          reason: 'distance +2 is outside the full-resolution band',
         );
       });
     });
@@ -868,13 +877,16 @@ void main() {
       // Pinned in BYTES on purpose. The round-1 record lost time to MB-vs-MiB
       // drift, and 768 decimal MB (768,000,000) or 224 decimal MB (224,000,000)
       // would both still read as "768"/"224" in a review.
-      expect(kImageCacheCeilingBytes, 805306368, reason: '768 MiB exactly');
+      // S3.1 (2026-09-11): the image-cache figure is no longer a fixed ceiling
+      // constant; it is derived from the retention working set, so it is
+      // pinned through the derivation function at the shipped floor rung.
+      expect(imageCacheBudgetBytes(), 534773760, reason: '510 MiB exactly');
       expect(kPayloadByteBudget, 268435456, reason: '256 MiB exactly');
       // The two are sized against OPPOSITE corpora -- the cache figure by the
       // cheap mix (two entries per item, full-size decode), the payload figure by
       // the expensive mix (window-resolution RGBA retained per slot). Neither can
       // sanity-check the other, so both are asserted independently.
-      expect(kImageCacheCeilingBytes, 768 * 1024 * 1024);
+      expect(imageCacheBudgetBytes(), 510 * 1024 * 1024);
       expect(kPayloadByteBudget, 256 * 1024 * 1024);
     });
 
@@ -1883,7 +1895,8 @@ void main() {
         expect(decodeCallsByPath[path0], 1);
 
         // index 3: retention (-3..+5) still covers item0 (3-3==0), but the
-        // tier-2 band (-1..+3) does not (backward distance 3 > kTierTwoBefore
+        // full-resolution band (+/-1) does not (backward distance 3 >
+        // kFullResolutionBandRadius
         // == 1) -- so ONLY item0's tier-2 entry is evicted, its payload stays
         // retained, exactly the scenario the plan names ("its tier-2 entry is
         // evicted", not "it leaves the retention window").

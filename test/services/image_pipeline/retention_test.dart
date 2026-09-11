@@ -19,6 +19,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
+import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 // ---------------------------------------------------------------------------
@@ -210,27 +211,75 @@ void main() {
   group('cache_budget_test.dart', () {
     const gib = 1 << 30;
 
-    test('budget derivation: floor 256MiB, rung ceilings, quarter of physical',
-        () {
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: null), 768 << 20);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 2 * gib),
-          512 << 20); // 2GiB/4
+    // TC-1182 (S3.1, 2026-09-11): the budget is WORKING-SET derived. Machine
+    // memory is a downward safety ceiling only, so the same retention window
+    // yields the same budget on a 4 GiB and a 64 GiB machine.
+    test('TC-1182: budget is working-set derived, not RAM-proportional', () {
+      const floorBudget = 510 << 20; // 534,773,760 B
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: null), floorBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib), floorBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), floorBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 256 * gib), floorBudget,
+          reason: 'surplus RAM is left to the OS file cache, not claimed');
+      // Downward safety ceiling: a quarter of a small machine's memory.
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20), 384 << 20);
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 512 << 20),
-          256 << 20); // floor: below this the M5 no-re-decode guarantee dies
+          kImageCacheFloorBytes); // never below the M5 guarantee floor
     });
 
-    // TC-334: ceiling follows the retention rung so the widened tier-1 span
-    // keeps ~15% ImageCache headroom (cache-sizing-rederivation.md §3).
-    test('TC-334: rung-scaled ceiling 768 / 800 / 896 MiB', () {
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib),
-          768 << 20); // floor rung, saturated old ceiling
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 11 * gib), 768 << 20);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 12 * gib),
-          800 << 20); // mid rung boundary
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 31 * gib), 800 << 20);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 32 * gib),
-          896 << 20); // high rung boundary
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), 896 << 20);
+    // TC-1183: the derivation formula itself, pinned input-by-input so a
+    // future reader can see WHY the number is what it is.
+    test('TC-1183: working-set formula, every input named', () {
+      // Floor rung: 9 retention slots, 3 of them also full-resolution
+      // (S3.2's selected +/-1 band).
+      // 3*(96,000,000 + 19,440,000) + 6*19,440,000 + 1,677,722
+      //   = 464,637,722 B, * 1.15 = 534,333,381 B, rounded up to 510 MiB.
+      expect(
+        imageCacheBudgetBytesFromWorkingSet(
+          fullResolutionBandSlotCount: 3,
+          windowResolutionOnlySlotCount: 6,
+          fullResolutionImageByteCost: kFullResolutionImageByteCost,
+          windowResolutionImageByteCost: kWindowResolutionImageByteCost,
+          sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
+          safetyFactor: kImageCacheSafetyFactor,
+        ),
+        510 << 20,
+      );
+      // Wider retention windows raise the budget through the SLOT COUNT.
+      expect(
+        imageCacheBudgetBytes(
+          retention: retentionPolicyForTier(RetentionTier.balanced),
+        ),
+        574 << 20, // 12 slots
+      );
+      expect(
+        imageCacheBudgetBytes(
+          retention: retentionPolicyForTier(RetentionTier.generous),
+        ),
+        638 << 20, // 15 slots
+      );
+      // The safety factor is a multiplier on the requirement, not a constant
+      // addition: doubling it doubles the headroom above the same row.
+      expect(
+        imageCacheBudgetBytesFromWorkingSet(
+          fullResolutionBandSlotCount: 1,
+          windowResolutionOnlySlotCount: 0,
+          fullResolutionImageByteCost: 600 << 20,
+          windowResolutionImageByteCost: 0,
+          sidebarThumbnailPoolByteCost: 0,
+          safetyFactor: 1.5,
+        ),
+        900 << 20,
+      );
+    });
+
+    // TC-1184: the full-resolution band slot count declared for sizing must
+    // equal the band the tier-2 scheduler actually precaches, or the budget is
+    // sized for a window the app does not hold.
+    test('TC-1184: sizing band count equals the shipped tier-2 band', () {
+      expect(kFullResolutionBandSlotCount, kFullResolutionBandRadius * 2 + 1);
+      expect(kFullResolutionBandSlotCount, 3,
+          reason: 'S3.2 band is selected +/-1');
     });
   });
 

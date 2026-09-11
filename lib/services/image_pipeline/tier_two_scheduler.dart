@@ -94,7 +94,8 @@ typedef FullSizeProviderFor = ImageProvider Function(SourcePayload payload);
 
 /// Owns the TIER-2 SCHEDULING that used to live inline in
 /// [ImagePreloadController]: WHEN a full-size decode happens (the 250ms
-/// navigation debounce), FOR WHICH items (the [kTierTwoBefore]..[kTierTwoAfter] window), and
+/// navigation debounce), FOR WHICH items (the full-resolution band,
+/// [kFullResolutionBandRadius]), and
 /// IN WHAT ORDER (one sequential queue: payload production in index order
 /// first, then full-resolution upgrades by distance).
 ///
@@ -337,7 +338,8 @@ class TierTwoScheduler {
   /// route, which is the one tier-2 decision taken outside this class.
   bool isInWindow(String id) => _windowIds.contains(id);
 
-  /// Publishes the -[kTierTwoBefore]..+[kTierTwoAfter] id set for [currentIndex] IMMEDIATELY,
+  /// Publishes the +/-[kFullResolutionBandRadius] id set for [currentIndex]
+  /// IMMEDIATELY,
   /// without arming or disturbing the debounce.
   ///
   /// Called by the controller at the top of every navigation pass, and it has
@@ -351,22 +353,37 @@ class TierTwoScheduler {
   /// "exactly one decoder call" guarantee AC-M5-4 pins.
   ///
   /// Only the id set moves earlier. WHEN full-size decodes run is still the
-  /// debounce's business, and the -1..+3 window is unchanged.
+  /// debounce's business, and the band shape is unchanged.
   void updateWindow(List<PhotoItem> items, int currentIndex) {
     _windowIds = retentionWindowIds<PhotoItem>(
       items,
       currentIndex,
       (item) => item.id,
-      before: kTierTwoBefore,
-      after: kTierTwoAfter,
+      before: kFullResolutionBandRadius,
+      after: kFullResolutionBandRadius,
     );
   }
+
+  /// The full-resolution band id set the PREVIOUS [schedule] call saw. Diffed
+  /// against the current band to find the items that NEWLY entered it, which
+  /// start decoding immediately (user ruling 2026-09-11 22:00; see
+  /// [_startNewBandEntrants]).
+  ///
+  /// Separate from [_windowIds] on purpose: `updateWindow` runs BEFORE
+  /// `schedule` in the controller's navigation pass and has already overwritten
+  /// `_windowIds` with the new set by the time the diff is taken, so the diff
+  /// needs its own memo of the previous position.
+  Set<String> _bandEntryScanned = {};
 
   /// Cancels a pending debounce. The tier-2 slice of both `reset()` and
   /// `dispose()`; the registry's own `clear()` stays a separate call, because
   /// state and scheduling have separate owners.
   void cancelDebounce() {
     _debounceTimer?.cancel();
+    // A folder switch (reset) or teardown invalidates the band-entry memo: an
+    // id from the old folder must not suppress the immediate start it would
+    // otherwise get on the next pass.
+    _bandEntryScanned = {};
   }
 
   // Tier-2 debounce: every navigation event cancels and reschedules this
@@ -384,20 +401,104 @@ class TierTwoScheduler {
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
+    // USER RULING 2026-09-11 22:00: an item that NEWLY enters the +/-1 band
+    // starts decoding IMMEDIATELY, without waiting out the debounce. See
+    // [_startNewBandEntrants]. The debounce below still owns the window SCAN
+    // (catch-up for items that were already in the band, plus stale eviction)
+    // and its constant is unchanged.
+    _startNewBandEntrants(items, currentIndex, notifyLoaded);
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_navigationDebounce, () {
       _decodeWindow(items, currentIndex, notifyLoaded);
     });
   }
 
-  // Tier-2 precache: decode current -kTierTwoBefore..+kTierTwoAfter at full size once
+  /// Starts the full-resolution decode for the items that entered the
+  /// +/-[kFullResolutionBandRadius] band on THIS navigation pass, synchronously.
+  ///
+  /// Why this exists (docs/logs/2026-09-11/wp42-latency-regression-diagnosis.md):
+  /// the only tier-2 enqueue point used to sit inside the 250ms debounce timer.
+  /// While the band reached +3 that cost was amortised -- one debounce firing
+  /// started three steps' worth of lookahead -- but at a symmetric +/-1 band a
+  /// sequential walker pays a nearly-unamortised debounce on every step, which
+  /// measured as a 101.5ms -> 253.5ms median regression.
+  ///
+  /// Scope, deliberately narrow:
+  /// * only ids that were NOT in the band on the previous pass are dispatched,
+  ///   so a burst of navigation does not re-dispatch the items it is passing
+  ///   through more than once each;
+  /// * the band SHAPE, the eviction bands and the debounce constant are
+  ///   untouched, and this path never evicts anything -- stale eviction stays
+  ///   the debounced sweep's job;
+  /// * dedup is the existing machinery ([_registry.isReady],
+  ///   [_pendingFullResPublish], [_hasFullResClaimFor], the lane's key dedup),
+  ///   so an item already decoding or published is a no-op here.
+  void _startNewBandEntrants(
+    List<PhotoItem> items,
+    int currentIndex,
+    VoidCallback notifyLoaded,
+  ) {
+    if (items.isEmpty) return;
+    final tierStart = (currentIndex - kFullResolutionBandRadius).clamp(
+      0,
+      items.length - 1,
+    );
+    final tierEnd = (currentIndex + kFullResolutionBandRadius).clamp(
+      0,
+      items.length - 1,
+    );
+    final previous = _bandEntryScanned;
+    final current = <String>{};
+    final entrants = <int>[];
+    for (var i = tierStart; i <= tierEnd; i++) {
+      final id = items[i].id;
+      current.add(id);
+      if (!previous.contains(id)) entrants.add(i);
+    }
+    _bandEntryScanned = current;
+    // The dispatch below re-checks `_windowIds`, so the id set has to be
+    // truthful before it runs. In production [updateWindow] has already written
+    // exactly this set earlier in the same synchronous navigation pass (same
+    // items, same index, same constants), so this is a no-op there; writing it
+    // here as well removes the dependency on that call ordering rather than
+    // changing the set.
+    _windowIds = current;
+    if (entrants.isEmpty) return;
+    _dispatchBandItems(
+      items,
+      entrants,
+      currentIndex,
+      notifyLoaded,
+      // THE LOAD IS NOT THIS PATH'S BUSINESS, and this is the whole difference
+      // between the two callers.
+      //
+      // A slot with no payload yet is ALREADY being produced: the controller's
+      // navigation pass enqueues every missing payload in the -3..+5 retention
+      // window on the shared serial lane in this same synchronous turn, and its
+      // piggyback publish hands us the full-resolution entry for free when the
+      // slot is in the band. Enqueuing a catch-up load from here as well put a
+      // second, richer body on the lane for the same id on EVERY navigation
+      // step -- measured as duplicated decodes, a starved byte gate and
+      // paced-publication stalls across 17 controller-level tests.
+      //
+      // The regression this path exists to fix does not need it: a slot
+      // entering the +/-1 band has almost always been sitting in the -3..+5
+      // retention window with its payload already retained, and what it was
+      // waiting 250ms for was the full-resolution DECODE of that payload, not
+      // the payload. Catch-up loading for the genuinely cold slot stays the
+      // debounced sweep's job, exactly as before this path existed.
+      enqueueMissingLoads: false,
+    );
+  }
+
+  // Tier-2 precache: decode the full-resolution band at full size once
   // navigation has paused, and start the expensive sources that the immediate
   // pass deferred. Both tiers coexist: this only evicts its own window's
   // ImageCache entries and never touches the tier-1 keys or the payload cache --
   // payload retention is the -3..+5 rule and belongs to preloadImages alone.
   //
-  // The span here is -1..+3 (kTierTwoBefore/kTierTwoAfter) and it governs
-  // FULL-SIZE decodes only.
+  // The span here is the full-resolution band (kFullResolutionBandRadius) and
+  // it governs FULL-SIZE decodes only.
   // Since the 2026-08-26 ruling it no longer has anything to say about where an
   // expensive source may be STARTED: the window pass in the controller already
   // queues every missing payload in the -3..+5 retention window on the shared
@@ -410,11 +511,11 @@ class TierTwoScheduler {
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    final tierStart = (currentIndex - kTierTwoBefore).clamp(
+    final tierStart = (currentIndex - kFullResolutionBandRadius).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kTierTwoAfter).clamp(
+    final tierEnd = (currentIndex + kFullResolutionBandRadius).clamp(
       0,
       items.length - 1,
     );
@@ -428,18 +529,60 @@ class TierTwoScheduler {
       items,
       currentIndex,
       (item) => item.id,
-      before: kTierTwoBefore,
-      after: kTierTwoAfter,
+      before: kFullResolutionBandRadius,
+      after: kFullResolutionBandRadius,
     );
     _windowIds = neededIds;
 
+    _dispatchBandItems(
+      items,
+      [for (var i = tierStart; i <= tierEnd; i++) i],
+      currentIndex,
+      notifyLoaded,
+      // The sweep is the only catch-up loader: if the user has stopped
+      // navigating there is no later pass to flip readiness for a slot whose
+      // payload never landed.
+      enqueueMissingLoads: true,
+    );
+
+    final staleIds = _registry.keyIds
+        .where((id) => !neededIds.contains(id))
+        .toList();
+    for (final id in staleIds) {
+      _registry.evict(id);
+    }
+  }
+
+  /// The per-slot tier-2 dispatch shared by the debounced sweep
+  /// ([_decodeWindow], which passes the whole band) and the immediate
+  /// band-entry path ([_startNewBandEntrants], which passes only the newly
+  /// entered slots).
+  ///
+  /// [indices] is walked IN ORDER and must already be in the order the lane
+  /// should see (the sweep hands it tierStart..tierEnd): iterating an unordered
+  /// set here would change the tier-2 decode ORDER, which is load-bearing for
+  /// the sequential queue. Collected `PixelPayload` upgrades are still sorted
+  /// by lane rank before enqueue, so payload production -- the blank slots the
+  /// user can SEE -- goes in ahead of them.
+  ///
+  /// This method NEVER evicts and never writes [_windowIds]: both belong to the
+  /// callers ([updateWindow] owns the id set, the debounced sweep owns stale
+  /// eviction).
+  void _dispatchBandItems(
+    List<PhotoItem> items,
+    List<int> indices,
+    int currentIndex,
+    VoidCallback notifyLoaded, {
+    required bool enqueueMissingLoads,
+  }) {
     final pendingUpgrades =
         <({PhotoItem item, PixelPayload payload, int distance})>[];
 
-    for (var i = tierStart; i <= tierEnd; i++) {
+    for (final i in indices) {
       final item = items[i];
       final payload = _currentPayloadFor(item.id);
       if (payload == null) {
+        if (!enqueueMissingLoads) continue;
         // Not fetched yet: either still queued on the serial lane, or a cheap
         // load that has not landed. Its tier-2 decode has to be chained onto
         // the load rather than left for "the next pass": if the user stops
@@ -511,13 +654,6 @@ class TierTwoScheduler {
         upgrade.distance,
         notifyLoaded,
       );
-    }
-
-    final staleIds = _registry.keyIds
-        .where((id) => !neededIds.contains(id))
-        .toList();
-    for (final id in staleIds) {
-      _registry.evict(id);
     }
   }
 

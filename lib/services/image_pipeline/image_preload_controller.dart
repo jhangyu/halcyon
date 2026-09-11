@@ -266,17 +266,94 @@ class ImagePreloadController {
   /// S1.4 (2026-09-11): the DECODE byte budget is deliberately NOT pushed here
   /// any more. It is derived from the decode lane width alone
   /// ([decodeInflightByteBudget]), so the user's memory tier no longer caps
-  /// decode concurrency -- that coupling was the whole defect. Retention and
-  /// eviction behaviour is otherwise unchanged: the line below is byte-identical
-  /// to what shipped before.
+  /// decode concurrency -- that coupling was the whole defect.
+  ///
+  /// S3.4 (2026-09-11): the push is no longer unconditional either. It used to
+  /// read `policy.payloadByteBudget` bare, which meant a tier change during a
+  /// memory-pressure episode silently restored the FULL budget while the
+  /// override was still installed -- and the responder acts on level CHANGES
+  /// only, so nothing would ever re-apply the shrink. That is precisely the
+  /// outcome S3.4 exists to prevent. Retention and eviction behaviour is
+  /// otherwise unchanged: no window constant and no eviction order is read
+  /// here, only which NUMBER the existing budget push carries.
   void setRetention(RetentionPolicy policy) {
     if (policy == _retention) return;
     _retention = policy;
-    _cache.setByteBudget(policy.payloadByteBudget);
+    // An active pressure override outranks the derived number: re-deriving it
+    // here while the machine is under memory pressure would silently undo the
+    // shrink the moment the user touched the retention tier. The override is
+    // cleared by its owner, never as a side effect of another setting.
+    _cache.setByteBudget(_payloadByteBudgetOverride ?? policy.payloadByteBudget);
   }
 
   @visibleForTesting
   int get debugPayloadCacheByteBudget => _cache.byteBudget;
+
+  // ---------------------------------------------------------------------------
+  // MEMORY-PRESSURE SEAM (WP4.4 / spec S3.4).
+  //
+  // Three primitives, no policy. WHEN to shrink, BY HOW MUCH and WHEN to
+  // restore live entirely in `MemoryPressureResponder`; the controller does not
+  // interpret a pressure level and does not know one exists. Both mutators are
+  // MECHANISM that already existed -- the payload cache's own immediate sweep
+  // and the tier-2 registry's beyond-band eviction -- exposed as a callable
+  // moment rather than re-implemented.
+  // ---------------------------------------------------------------------------
+
+  /// The pressure override, or null when the derived budget is in force.
+  int? _payloadByteBudgetOverride;
+
+  /// The payload cache byte budget the pipeline DERIVES, regardless of whether
+  /// an override is currently in force.
+  ///
+  /// The responder halves THIS number, never the in-force one: halving the
+  /// in-force value would halve an already-halved budget every time a platform
+  /// re-announced pressure, and three warnings would leave the cache unable to
+  /// hold the selected item. Read live rather than snapshotted, so a retention
+  /// tier changed mid-episode is reflected at the next shrink.
+  int get derivedPayloadByteBudget => _retention.payloadByteBudget;
+
+  /// Overrides the payload cache byte budget, or restores the derived value.
+  ///
+  /// A non-null [bytes] is pushed to [PhotoPayloadCache.setByteBudget], which
+  /// sweeps immediately when the budget shrinks -- that immediate sweep is the
+  /// whole point under memory pressure and is EXISTING behaviour, unchanged:
+  /// the eviction ORDER is the one `setEvictionPriority` already published.
+  ///
+  /// Null restores [derivedPayloadByteBudget] AS IT IS AT THAT MOMENT, not as
+  /// it was when the override was installed. That is what keeps the pipeline
+  /// the single owner of the derived number: a caller that restored a value it
+  /// had captured earlier would become a second owner and drift from the
+  /// derivation the first time the derivation changed.
+  void setPayloadByteBudgetOverride(int? bytes) {
+    if (bytes == _payloadByteBudgetOverride) return;
+    _payloadByteBudgetOverride = bytes;
+    _cache.setByteBudget(bytes ?? derivedPayloadByteBudget);
+  }
+
+  /// Drops the full-resolution (tier-2) pixels of every item outside the
+  /// current full-resolution band, WITHOUT touching retention.
+  ///
+  /// This is degradation in the S3.2 sense and shares its band: the set it
+  /// evicts is the complement of [TierTwoScheduler.isInWindow], which is the
+  /// `+/-kFullResolutionBandRadius` id set published by every navigation pass.
+  /// Deliberately NOT a second band computed here -- a parallel definition is
+  /// exactly how the old hardcoded tier-1 span drifted from retention.
+  ///
+  /// Every item it touches KEEPS its retained payload, so this changes the FORM
+  /// far items are held in and never WHICH items are retained: no payload is
+  /// dropped, no eviction order moves, no retention constant is read. Under a
+  /// settled window it is a no-op, because a settled sweep has already evicted
+  /// the beyond-band entries; what it buys is the ability to collect entries
+  /// left resident by a window that moved without a settle.
+  void dropBeyondBandTierTwoPixels() {
+    // `keyIds` returns a copy, so evicting inside the loop is safe.
+    for (final id in _tierTwo.keyIds) {
+      if (!_tierTwoScheduler.isInWindow(id)) {
+        _tierTwo.evict(id);
+      }
+    }
+  }
 
   final PhotoSource _source;
 
@@ -1476,8 +1553,8 @@ class ImagePreloadController {
       endIdx,
     ).toList();
     // Eviction rank is NOT the load order: budget eviction drops the id
-    // farthest OUTSIDE the tier-2 full-size band (-kTierTwoBefore..
-    // +kTierTwoAfter) first — -3, then +5, then -2, then +4 — and only then
+    // farthest OUTSIDE the eviction band (-kEvictionBandBefore..
+    // +kEvictionBandAfter) first — -3, then +5, then -2, then +4 — and only then
     // walks the band itself far-to-near (user ruling 2026-09-03, replacing
     // the symmetric farthest-from-selection rule of 2026-08-27). Behind-side
     // ids lose ties because navigation is predominantly forward.
@@ -1568,8 +1645,9 @@ class ImagePreloadController {
     }
   }
 
-  /// [nearToFarOrder] re-ranked for EVICTION: ids beyond the tier-2 band
-  /// (-[kTierTwoBefore]..+[kTierTwoAfter]) sort last (evicted first), farthest
+  /// [nearToFarOrder] re-ranked for EVICTION: ids beyond the eviction band
+  /// (-[kEvictionBandBefore]..+[kEvictionBandAfter]) sort last (evicted first),
+  /// farthest
   /// beyond the band's nearest edge first; in-band ids keep the near-to-far
   /// walk order. At equal beyond-band distance the behind (-) side sorts after
   /// the ahead (+) side, so it is evicted first. Load/lane order is untouched
@@ -1580,8 +1658,8 @@ class ImagePreloadController {
   ) {
     int outsideBand(int i) {
       final d = i - currentIndex;
-      if (d > kTierTwoAfter) return d - kTierTwoAfter;
-      if (d < -kTierTwoBefore) return -kTierTwoBefore - d;
+      if (d > kEvictionBandAfter) return d - kEvictionBandAfter;
+      if (d < -kEvictionBandBefore) return -kEvictionBandBefore - d;
       return 0;
     }
 
@@ -2582,6 +2660,22 @@ class ImagePreloadController {
       final item = items[i];
       final payload = _cache.peek(item.id);
       if (payload == null) continue; // not loaded yet; retried on next pass
+      // S3.2's band table, asked here rather than re-derived: a slot in the
+      // compressed-payload-only band keeps its payload and holds NO decoded
+      // entry. Equivalent to this loop's own bounds today, because the
+      // window-resolution band IS the retention window -- which is exactly the
+      // point. The hardcoded +/-2 tier-1 span this loop used to carry drifted
+      // from the -3..+5 retention span precisely because the two were written
+      // out twice; routing the decision through the one band table is what
+      // stops that recurring when a later rung narrows the near band.
+      if (resolutionBandForDistance(
+            i - currentIndex,
+            windowResolutionBefore: retention.before,
+            windowResolutionAfter: retention.after,
+          ) ==
+          PhotoResolutionBand.compressedPayloadOnly) {
+        continue;
+      }
       _decodeIntoImageCache(
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),

@@ -94,6 +94,57 @@ class _Harness {
   }
 }
 
+/// Like [_Harness], but with a debounce long enough that it CANNOT fire during
+/// the test, and a wide lane so every dispatched slot starts instead of queuing
+/// behind the first one.
+///
+/// Both are load-bearing for TC-1180/TC-1181: the whole point of those tests is
+/// that a newly band-entering item starts WITHOUT the debounce elapsing, so a
+/// zero (or merely short) debounce would make the assertion pass for the wrong
+/// reason, and a width-1 lane would hide which slots were dispatched.
+class _BandEntryHarness {
+  _BandEntryHarness() {
+    registry = TierTwoRegistry(currentPayloadFor: (id) => payloads[id]);
+    scheduler = TierTwoScheduler(
+      registry: registry,
+      lane: lane,
+      currentPayloadFor: (id) => payloads[id],
+      fullSizeProviderFor: (payload) => switch (payload) {
+        EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
+        PixelPayload() => throw StateError('not exercised here'),
+      },
+      ensurePayload:
+          (
+            item, {
+            required int distance,
+            required VoidCallback? notifyLoaded,
+            bool onSerialLane = false,
+          }) {
+            loadOrder.add(item.id);
+            return (inFlight[item.id] ??= Completer<void>()).future;
+          },
+      dngDecoder: () => null,
+      exifOrientationFor: (id) => null,
+      // Ten seconds: far beyond any pump below, so nothing the debounced sweep
+      // would do can contribute to what these tests observe.
+      navigationDebounce: const Duration(seconds: 10),
+    );
+  }
+
+  final DecodeLane lane = DecodeLane(width: 5);
+  late final TierTwoRegistry registry;
+  late final TierTwoScheduler scheduler;
+  final Map<String, SourcePayload> payloads = {};
+  final List<String> loadOrder = [];
+  final Map<String, Completer<void>> inFlight = {};
+
+  Future<void> pump() async {
+    for (var i = 0; i < 4; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers from tier_two_piggyback_handle_test.dart
 // ---------------------------------------------------------------------------
@@ -315,9 +366,9 @@ void main() {
         h.scheduler.schedule(items, 7, () {});
         await h.pump();
 
-        // Window is -kTierTwoBefore..+kTierTwoAfter (-1..+3) around index 7, and
-        // the lane starts
-        // at its centre: index 7 itself is the one load that may have begun.
+        // Window is the full-resolution band (+/-kFullResolutionBandRadius,
+        // i.e. -1..+1) around index 7, and the lane starts at its centre:
+        // index 7 itself is the one load that may have begun.
         // (Until 2026-08-26 this asserted `contains('a5')` -- true only because
         // the old queue started at the window's low index. a5 is now the LAST
         // of the five, still queued behind a7, which is the intended order:
@@ -339,15 +390,18 @@ void main() {
         h.scheduler.schedule(items, 2, () {});
         await h.pump();
 
-        // The four slots in the forward-biased -1..+3 window around index 2 are
-        // a1..a4 (a0 at distance -2 is excluded, AD-034); none has a payload, so
-        // all four are enqueued -- but only the first may have STARTED.
+        // The three slots in the +/-1 full-resolution band around index 2 are
+        // a1..a3 (WP4.2/S3.2 narrowed the band from the forward-biased -1..+3;
+        // a4 at distance +2 is now window-resolution-only and is re-promoted
+        // from its retained payload if the user steps onto it); none has a
+        // payload, so all three are enqueued -- but only the first may have
+        // STARTED.
         //
         // "Index order" until 2026-08-26; the shared serial lane orders by
-        // distance from the selection instead (0, +1, -1, +2), so a window
-        // centred on index 2 starts a2 and finishes with a4. The SEQUENTIALITY
-        // this test pins is unchanged -- one at a time, and the next one only
-        // starts when the previous is released.
+        // distance from the selection instead (0, +1, -1), so a band centred on
+        // index 2 starts a2 and finishes with a1. The SEQUENTIALITY this test
+        // pins is unchanged -- one at a time, and the next one only starts when
+        // the previous is released.
         expect(h.loadOrder, ['a2']);
 
         await h.release('a2');
@@ -357,8 +411,10 @@ void main() {
         expect(h.loadOrder, ['a2', 'a3', 'a1']);
 
         await h.release('a1');
-        await h.release('a4');
-        expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4']);
+        expect(h.loadOrder, ['a2', 'a3', 'a1']);
+        // +2 is outside the full-resolution band: it is never enqueued for a
+        // full-size decode at all.
+        expect(h.loadOrder, isNot(contains('a4')));
       },
     );
 
@@ -385,18 +441,19 @@ void main() {
         // index 7 instead of draining the queue built for index 0.
         expect(h.loadOrder, ['a0', 'a7']);
 
-        // Drain the rest of the second sweep. Under the forward-biased -1..+3
-        // window the sweep at index 7 covers a6..a9 (AD-034; a5 at distance -2
-        // is no longer in the window). a1 and a2 are still pending from the
-        // first sweep and get their turn in here; their bodies must skip
-        // themselves on the window re-check rather than load.
-        for (final id in ['a7', 'a8', 'a6', 'a9']) {
+        // Drain the rest of the second sweep. Under the +/-1 full-resolution
+        // band (WP4.2/S3.2) the sweep at index 7 covers a6..a8. a1 and a2 are
+        // still pending from the first sweep and get their turn in here; their
+        // bodies must skip themselves on the window re-check rather than load.
+        for (final id in ['a7', 'a8', 'a6']) {
           await h.release(id);
         }
-        expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6', 'a9']);
+        expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6']);
         expect(h.loadOrder, isNot(contains('a1')));
         expect(h.loadOrder, isNot(contains('a2')));
         expect(h.loadOrder, isNot(contains('a5')));
+        // +2/+3 are outside the narrowed band and are never swept.
+        expect(h.loadOrder, isNot(contains('a9')));
       },
     );
 
@@ -416,15 +473,16 @@ void main() {
         final allLoaded = Completer<void>();
         h.scheduler.schedule(items, 1, () {
           loaded++;
-          if (loaded == 5 && !allLoaded.isCompleted) allLoaded.complete();
+          if (loaded == 3 && !allLoaded.isCompleted) allLoaded.complete();
         });
         await allLoaded.future;
         await h.pump();
 
-        // The forward-biased -1..+3 window around index 1 clamps to a0..a4
-        // (AD-034; the window grew forward to include a4 relative to the old
-        // symmetric +/-2 span a0..a3).
-        expect(h.registry.keyIds, {'a0', 'a1', 'a2', 'a3', 'a4'});
+        // The +/-1 full-resolution band around index 1 is a0..a2 (WP4.2/S3.2).
+        // a3 and a4 keep their retained payloads -- they are DEGRADED, not
+        // evicted -- but hold no full-resolution ImageCache entry.
+        expect(h.registry.keyIds, {'a0', 'a1', 'a2'});
+        expect(h.payloads.keys, containsAll(<String>['a3', 'a4']));
         expect(h.registry.isReady('a1'), isTrue);
         // Payload production is never triggered for a slot that already has one.
         expect(h.loadOrder, isEmpty);
@@ -434,6 +492,98 @@ void main() {
         await h.pump();
         expect(h.registry.keyIds, isEmpty);
         expect(h.registry.isReady('a1'), isFalse);
+      },
+    );
+
+    // TC-1180 / TC-1181 -- user ruling 2026-09-11 22:00: an item NEWLY entering
+    // the +/-kFullResolutionBandRadius band starts decoding immediately rather
+    // than waiting out the 250ms navigation debounce
+    // (docs/logs/2026-09-11/wp42-latency-regression-diagnosis.md: the debounce
+    // was the only tier-2 enqueue point, which cost a 101.5ms -> 253.5ms
+    // sequential-navigation median once the band narrowed to +/-1).
+    test(
+      'TC-1180 an item with a RETAINED payload entering the full-resolution '
+      'band is published WITHOUT the navigation debounce elapsing',
+      () async {
+        final h = _BandEntryHarness();
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(() => h.registry.clear());
+
+        // Every slot's payload is already retained -- the -3..+5 retention
+        // window is wider than the +/-1 full-resolution band, so this is the
+        // ordinary state of a neighbour the user is about to step onto, and it
+        // is the state the latency regression was measured in.
+        for (final item in items) {
+          h.payloads[item.id] = freshEncodedPayload();
+        }
+
+        h.scheduler.schedule(items, 2, () {});
+        await h.pump();
+
+        // The debounce is 10s and the pump is four zero-duration turns, so the
+        // sweep cannot have run: this is the band-entry path's work alone.
+        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+        // isReady needs the ImageStreamListener callback of a REAL engine
+        // decode, which the zero-duration pump cannot bound (wp5-gate-diagnosis
+        // section 1: the round gate caught exactly this under suite load), so
+        // the positive readiness claim polls; the negative claims below stay
+        // on the pump, which is what bounds them.
+        await until(() => h.registry.isReady('a3'),
+            reason: "a3's band-entry publish to become ready");
+        expect(h.registry.isReady('a3'), isTrue);
+        // The band is not widened by starting earlier.
+        expect(h.registry.keyIds, isNot(contains('a0')));
+        expect(h.registry.keyIds, isNot(contains('a4')));
+        // And the immediate path never produces payloads: a cold slot's load
+        // stays the controller's navigation pass and the debounced sweep's
+        // business, so nothing is enqueued here.
+        expect(h.loadOrder, isEmpty);
+      },
+    );
+
+    test(
+      'TC-1181 a cold (payload-less) band entrant is NOT loaded by the '
+      'immediate path, and one-step moves publish only the new entrant',
+      () async {
+        final h = _BandEntryHarness();
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(() => h.registry.clear());
+
+        // a4 has NO payload: it is the cold slot. The rest are retained.
+        for (final item in items) {
+          if (item.id == 'a4') continue;
+          h.payloads[item.id] = freshEncodedPayload();
+        }
+
+        h.scheduler.schedule(items, 2, () {});
+        await h.pump();
+        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+
+        // One step forward: the band moves a1..a3 -> a2..a4. a4 is the only
+        // entrant, and being cold it must NOT be enqueued from here -- doing so
+        // put a second, richer body on the shared serial lane for an id the
+        // controller's own navigation pass is already producing.
+        h.scheduler.schedule(items, 3, () {});
+        await h.pump();
+        expect(h.loadOrder, isEmpty);
+        // a2/a3 were already in the band and are already published; nothing
+        // new lands for them either.
+        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+
+        // A slot that was already IN the band when its payload landed is not
+        // this path's business either -- it is not a new entrant any more, so
+        // the immediate path leaves it to the piggyback publish its own load
+        // performs and, failing that, to the debounced sweep. Stepping to 4
+        // admits a5 (new entrant, retained) and still does not publish a4,
+        // whose payload landed while it was already inside the band.
+        h.payloads['a4'] = freshEncodedPayload();
+        h.scheduler.schedule(items, 4, () {});
+        await h.pump();
+        expect(h.registry.keyIds, contains('a5'));
+        expect(h.registry.keyIds, isNot(contains('a4')));
+        expect(h.loadOrder, isEmpty);
       },
     );
   });
