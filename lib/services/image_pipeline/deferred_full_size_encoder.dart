@@ -58,10 +58,6 @@ class DeferredFullSizeEncoder {
   _onEncoded;
   final Future<void> Function() _awaitIdleSlot;
 
-  /// id -> the payload object the queued/running job was scheduled AGAINST.
-  /// Cleared when that job finishes, either way.
-  final Map<String, SourcePayload> _jobs = <String, SourcePayload>{};
-
   /// Payload objects a job has already been scheduled for.
   ///
   /// An [Expando], not a [Set]: a set would keep every attempted payload --
@@ -100,7 +96,6 @@ class DeferredFullSizeEncoder {
   }) {
     if (_attempted[previous] == true) return;
     _attempted[previous] = true;
-    _jobs[item.id] = previous;
     _scheduled++;
     _lane.enqueue(
       (LaneTaskKind.deferredEncode, item.id),
@@ -119,9 +114,7 @@ class DeferredFullSizeEncoder {
   /// reach into a lane it shares. A job already RUNNING completes and then
   /// finds its guards false, because the payload cache it re-checks against
   /// has been cleared by the same teardown.
-  void reset() {
-    _jobs.clear();
-  }
+  void reset() {}
 
   bool _guardsHold(String id, SourcePayload previous) =>
       _isRetained(id) && identical(_currentPayloadFor(id), previous);
@@ -131,7 +124,6 @@ class DeferredFullSizeEncoder {
 
     void abandon() {
       _abandoned++;
-      if (identical(_jobs[id], previous)) _jobs.remove(id);
     }
 
     // (1) Guards, before anything is bought.
@@ -201,7 +193,6 @@ class DeferredFullSizeEncoder {
       // decoded frame is never constructed on this path.
       deferredFullSizeEncodes++;
       _completed++;
-      if (identical(_jobs[id], previous)) _jobs.remove(id);
       _onEncoded(
         id,
         previous,
