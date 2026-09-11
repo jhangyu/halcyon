@@ -162,6 +162,12 @@ class AppState extends ChangeNotifier {
           // permanent miss (M6 U-12) -- there is no legacy channel path
           // left to fall back to.
           dngDecoder: dngDecoder,
+          // Compressed residency v2 Task 4: the deferred full-size encode is
+          // OPT-IN at the controller, so this is the argument that turns it on
+          // in the shipped app. Dropping it would not fail anything visibly --
+          // the slot would simply keep its temporary pixels forever -- so
+          // `app_state_deferred_residency_test.dart` pins it.
+          deferredEncodeDecoder: () => dngDecoder,
           orientingDngDecoder: orientingDngDecoder,
           // No sidebar decoder: USER RULING 2026-08-30 (contract D5) makes
           // the sidebar a CONSUMER of the shared q70 payload. The sized
@@ -265,6 +271,18 @@ class AppState extends ChangeNotifier {
       _preloadController.debugPacerHasFrameHook &&
       // ignore: invalid_use_of_visible_for_testing_member
       _preloadController.debugCompositeGateIsPaced;
+
+  /// What the deferred residency job inside the controller this AppState
+  /// BUILT will actually get when it asks for a decoder (v2 Task 4).
+  ///
+  /// Reads through the controller's own supplier, so it cannot agree with a
+  /// wiring that was never passed: if the `deferredEncodeDecoder` argument is
+  /// dropped above, this is null and compressed residency is silently off.
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  DngFullDecoder? get debugDeferredEncodeDecoder =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.debugDeferredEncodeDecoder;
 
   /// One coherent reading of every byte ledger the preload controller owns,
   /// for the S3.0 memory-attribution capture (WP0.2).

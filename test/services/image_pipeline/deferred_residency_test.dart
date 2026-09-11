@@ -39,6 +39,15 @@ DecodedRgba _frame(int width, int height) {
   return DecodedRgba(rgba: rgba, width: width, height: height);
 }
 
+/// The deferred full-size encode is OPT-IN at the controller (null supplier =>
+/// abandon before decoding), so every controller in THIS file -- the file that
+/// exists to exercise that path -- must bind the supplier EXPLICITLY. These
+/// two named decoders exist so the `dngDecoder` and the `deferredEncodeDecoder`
+/// arguments can be the SAME object, which is what production does.
+Future<DecodedRgba> _decode60x40(String path) async => _frame(60, 40);
+
+Future<DecodedRgba> _decode6000x4000(String path) async => _frame(6000, 4000);
+
 List<PhotoItem> _rawItems(List<String> ids) => [
   for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
 ];
@@ -77,7 +86,8 @@ void main() {
         var encodeCalls = 0;
         final controller = ImagePreloadController(
           imageLoader: _needsRawDecodeLoader,
-          dngDecoder: (path) async => _frame(60, 40),
+          dngDecoder: _decode60x40,
+          deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async {
                 encodeCalls++;
@@ -118,7 +128,8 @@ void main() {
         var encodeCalls = 0;
         final controller = ImagePreloadController(
           imageLoader: _needsRawDecodeLoader,
-          dngDecoder: (path) async => _frame(6000, 4000),
+          dngDecoder: _decode6000x4000,
+          deferredEncodeDecoder: () => _decode6000x4000,
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async {
                 encodeCalls++;
@@ -167,7 +178,8 @@ void main() {
         final releaseDeferredEncode = Completer<void>();
         final controller = ImagePreloadController(
           imageLoader: _needsRawDecodeLoader,
-          dngDecoder: (path) async => _frame(60, 40),
+          dngDecoder: _decode60x40,
+          deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async {
                 encodeCalls++;
@@ -283,6 +295,205 @@ void main() {
           encoder:
               (rgba, {required width, required height, required quality}) async =>
                   Uint8List(0),
+        );
+      },
+    );
+
+    test(
+      'TC-A10 (AC-1 end to end) a controller whose INLINE encode throws and '
+      'whose deferred encode succeeds reaches a steady state with ZERO pixel '
+      'entries retained and non-zero encoded bytes',
+      () async {
+        var encodeCalls = 0;
+        final controller = ImagePreloadController(
+          imageLoader: _needsRawDecodeLoader,
+          dngDecoder: _decode60x40,
+          deferredEncodeDecoder: () => _decode60x40,
+          payloadEncoder:
+              (rgba, {required width, required height, required quality}) async {
+                encodeCalls++;
+                if (encodeCalls == 1) throw StateError('inline encode refused');
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        unawaited(
+          controller.preloadImages(
+            items: _rawItems(['a', 'b', 'c']),
+            selectedItemId: 'a',
+            notifyLoaded: () {},
+          ),
+        );
+
+        await until(
+          () =>
+              controller
+                      .debugMemoryLedgerSnapshot
+                      .payloadCachePixelEntryCount ==
+                  0 &&
+              controller.debugRetentionIds.length == 3,
+          reason: 'every retained slot reached its encoded form',
+        );
+        final snapshot = controller.debugMemoryLedgerSnapshot;
+        expect(snapshot.payloadCachePixelEntryCount, 0);
+        expect(snapshot.payloadCachePixelByteTotal, 0);
+        expect(snapshot.payloadCacheEncodedByteTotal, greaterThan(0));
+      },
+    );
+
+    test(
+      'TC-A11 the INLINE success path records the full-resolution dimensions '
+      'it encoded at',
+      () async {
+        final controller = ImagePreloadController(
+          imageLoader: _needsRawDecodeLoader,
+          dngDecoder: _decode60x40,
+          deferredEncodeDecoder: () => _decode60x40,
+          payloadEncoder:
+              (rgba, {required width, required height, required quality}) async =>
+                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        unawaited(
+          controller.preloadImages(
+            items: _rawItems(['a']),
+            selectedItemId: 'a',
+            notifyLoaded: () {},
+          ),
+        );
+        await until(
+          () => controller.debugPayloadFor('a') is EncodedPayload,
+          reason: 'the inline re-encode landed',
+        );
+
+        final payload = controller.debugPayloadFor('a')! as EncodedPayload;
+        expect(payload.width, 60);
+        expect(payload.height, 40);
+        // No deferred job was needed for a slot that encoded inline.
+        expect(controller.debugDeferredCompletedCount, 0);
+      },
+    );
+
+    test(
+      'TC-A12 with an encoder that throws on EVERY call the slot still '
+      'renders: the payload survives the deferred abandonment and no id '
+      'leaves the retention window',
+      () async {
+        final controller = ImagePreloadController(
+          imageLoader: _needsRawDecodeLoader,
+          dngDecoder: _decode60x40,
+          deferredEncodeDecoder: () => _decode60x40,
+          payloadEncoder: throwingPayloadEncoder,
+        );
+        addTearDown(controller.dispose);
+        controller.updateTargetSize(32, 32);
+
+        unawaited(
+          controller.preloadImages(
+            items: _rawItems(['a']),
+            selectedItemId: 'a',
+            notifyLoaded: () {},
+          ),
+        );
+        await until(
+          () => controller.debugPayloadFor('a') is PixelPayload,
+          reason: 'the temporary pixel payload is retained',
+        );
+        final previous = controller.debugPayloadFor('a')!;
+        await until(
+          () => controller.debugDeferredAbandonedCount == 1,
+          reason: 'the deferred job abandoned on the throwing encoder',
+        );
+
+        // The slot keeps EXACTLY what it had: an abandonment must never turn
+        // an encode failure into a blank slot.
+        expect(identical(controller.debugPayloadFor('a'), previous), isTrue);
+        expect(controller.debugRetentionIds, contains('a'));
+      },
+    );
+
+    test(
+      'TC-A13 the deferred residency job COSTS one extra decode of the same '
+      'path when the supplier is bound, and costs nothing at all when it is '
+      'left at its default',
+      () async {
+        // This case pins BOTH sides of the opt-in shape. The pre-existing
+        // decode-arithmetic tests (TC-078, P4, M5-DW4, M5-DW5, TC-098c,
+        // TC-367, TC-430) never name the parameter and therefore observe the
+        // `false` arm's numbers; the `true` arm is the only thing standing
+        // between "the deferred path is off by default in tests" and "the
+        // deferred path does not work at all", which would otherwise be
+        // indistinguishable across the whole suite.
+        Future<int> decodesOfA({required bool withDeferredDecoder}) async {
+          var decodeCalls = 0;
+          var encodeCalls = 0;
+          Future<DecodedRgba> decoder(String path) async {
+            decodeCalls++;
+            return _frame(60, 40);
+          }
+
+          final controller = ImagePreloadController(
+            imageLoader: _needsRawDecodeLoader,
+            dngDecoder: decoder,
+            payloadEncoder:
+                (rgba, {required width, required height, required quality}) async {
+                  encodeCalls++;
+                  // Inline encode fails -> the slot lands in the TEMPORARY
+                  // pixel form -> a deferred job is scheduled. The deferred
+                  // encode succeeds, so the only reason it could fail to
+                  // complete is the decoder it is handed.
+                  if (encodeCalls == 1) throw StateError('inline encode refused');
+                  return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                },
+            // Null in the `false` arm is EXACTLY what omitting the argument
+            // gives -- which is what every pre-existing test does.
+            deferredEncodeDecoder: withDeferredDecoder ? () => decoder : null,
+          );
+          addTearDown(controller.dispose);
+          controller.updateTargetSize(32, 32);
+          unawaited(
+            controller.preloadImages(
+              items: _rawItems(['a']),
+              selectedItemId: 'a',
+              notifyLoaded: () {},
+            ),
+          );
+          if (withDeferredDecoder) {
+            await until(
+              () => controller.debugDeferredCompletedCount == 1,
+              reason: 'the deferred job completed on the available decoder',
+            );
+            expect(controller.debugPayloadFor('a'), isA<EncodedPayload>());
+          } else {
+            await until(
+              () => controller.debugDeferredAbandonedCount == 1,
+              reason: 'the deferred job abandoned for want of a decoder',
+            );
+            // Abandoning must not blank the slot: the temporary pixel form is
+            // still what the slot renders from.
+            expect(controller.debugPayloadFor('a'), isA<PixelPayload>());
+            expect(controller.debugDeferredCompletedCount, 0);
+          }
+          return decodeCalls;
+        }
+
+        expect(
+          await decodesOfA(withDeferredDecoder: true),
+          2,
+          reason:
+              'with a decoder the deferred job re-decodes the ORIGINAL file at '
+              'full resolution -- exactly one extra decode of the same path',
+        );
+        expect(
+          await decodesOfA(withDeferredDecoder: false),
+          1,
+          reason:
+              'leaving the supplier at its default removes that decode and '
+              'nothing else',
         );
       },
     );

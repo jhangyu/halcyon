@@ -185,7 +185,28 @@ class ImagePreloadController {
     // the production 250ms tier-2 quiet period instead of waiting it out in
     // real time. Production callers must not pass this.
     Duration navigationDebounce = tierTwoNavigationDebounce,
-  }) : _navigationDebounce = navigationDebounce,
+    // The decoder supplier the DEFERRED full-size residency job consults
+    // (compressed-residency v2 Task 4). OPT-IN: null -- the default -- means
+    // the job takes the already-specced "no decoder" abandon exit (plan Task 3
+    // Behavior) BEFORE it buys a decode, so a caller that does not name this
+    // argument gets scheduling, guards, dedup and abandon accounting but no
+    // deferred decode.
+    //
+    // It is separate from [dngDecoder] rather than derived from it because the
+    // deferred job's decode is an EXTRA decode of a path the caller may already
+    // be counting; the pre-existing decode-arithmetic tests must be able to
+    // keep their exact counts without a timing-dependent threshold, and the
+    // four tests the plan pins as "green, unedited" must not need an edit at
+    // all.
+    //
+    // PRODUCTION MUST PASS THIS. `app_state.dart` supplies the real decoder
+    // explicitly, and TC-1230 in
+    // test/providers/app_state_deferred_residency_test.dart fails if that
+    // argument is ever dropped -- otherwise compressed residency would go
+    // silently absent in a shipped binding while every test stayed green.
+    DngFullDecoder? Function()? deferredEncodeDecoder,
+  }) : _deferredEncodeDecoder = deferredEncodeDecoder,
+       _navigationDebounce = navigationDebounce,
        _retention = retention,
        _explicitInflightByteBudgetOverride = inflightByteBudget,
        _physicalMemoryBytes = physicalMemoryBytes,
@@ -1046,9 +1067,21 @@ class ImagePreloadController {
   /// `IdlePublishScheduler.awaitSlot` (wired in `app_state.dart`), in tests
   /// `immediateCompositeGate`, which is what keeps these jobs on a bounded,
   /// wall-clock-free schedule under `flutter test`.
+  /// See the `deferredEncodeDecoder` constructor parameter. Non-null in
+  /// production; null means every deferred job abandons before decoding.
+  final DngFullDecoder? Function()? _deferredEncodeDecoder;
+
+  /// What the deferred residency job will actually get when it asks for a
+  /// decoder, resolved through the very supplier the job holds.
+  ///
+  /// Exists so the production-wiring pin can assert on THIS object rather than
+  /// on a copy of `app_state.dart`'s argument list.
+  @visibleForTesting
+  DngFullDecoder? get debugDeferredEncodeDecoder => _deferredEncodeDecoder?.call();
+
   late final DeferredFullSizeEncoder _deferredEncoder = DeferredFullSizeEncoder(
     lane: _decodeLane,
-    dngDecoder: () => _source.dngDecoder,
+    dngDecoder: _deferredEncodeDecoder ?? () => null,
     encoder: _source.payloadEncoder,
     exifOrientationFor: (id) => _exifOrientations[id],
     currentPayloadFor: _cache.peek,

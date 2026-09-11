@@ -239,5 +239,10 @@ Future<SourcePayload> reencodePayload({
     return await fallback();
   }
 
-  return EncodedPayload(jpeg);
+  // The dimensions are those of the frame that was ENCODED, i.e. the
+  // FULL-RESOLUTION buffer this function was handed -- identical on the byte
+  // path and the pointer path, since both encode `fullRes`. The
+  // `fullRes == null` exit above constructs no EncodedPayload at all, so
+  // there is no arm here that could record a display target instead.
+  return EncodedPayload(jpeg, width: fullRes.width, height: fullRes.height);
 }
