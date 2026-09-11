@@ -12,6 +12,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 import '../../support/flaky_io.dart';
+import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
@@ -1203,7 +1204,10 @@ void main() {
           () async {
         final f = await sample(withPreview: true);
         expect(f, isNotNull);
-        final source = PhotoSource(loader: dartImageLoad);
+        final source = PhotoSource(
+          loader: dartImageLoad,
+          payloadEncoder: throwingPayloadEncoder,
+        );
         final outcome = await source.load(f!.path, longEdge: 2800);
         expect(outcome.payload, isNotNull);
         expect(channelCalls, 0);
@@ -1221,7 +1225,11 @@ void main() {
               width: 1,
               height: 1,
             );
-        final source = PhotoSource(loader: dartImageLoad, dngDecoder: fakeDecoder);
+        final source = PhotoSource(
+          loader: dartImageLoad,
+          dngDecoder: fakeDecoder,
+          payloadEncoder: throwingPayloadEncoder,
+        );
         final cheapOut = await source.load(cheap!.path, longEdge: 2800);
         expect(cheapOut.payload, isNotNull);
         expect(cheapOut.observedCost, SourceCost.cheap);

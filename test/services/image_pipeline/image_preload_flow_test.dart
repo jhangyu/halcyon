@@ -1748,7 +1748,7 @@ void main() {
     test('reset evicts the tier-1 ImageCache entries it recorded', () async {
       final controller = ImagePreloadController(
         imageLoader: _pngLoader,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       addTearDown(controller.dispose);
 
@@ -1955,7 +1955,7 @@ void main() {
             decodeCallsByPath.update(path, (n) => n + 1, ifAbsent: () => 1);
             return opaqueDecoded();
           },
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
         );
         addTearDown(controller.dispose);
         controller.updateTargetSize(32, 32);

@@ -215,7 +215,7 @@ void main() {
           calls++;
           return _tinyLane();
         },
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
       );
       final items = photoItems(200, extension: 'arw');
@@ -269,7 +269,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderLane,
         dngDecoder: slowDecoder,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
       );
       final items = photoItems(200, extension: 'arw');
@@ -304,7 +304,7 @@ void main() {
           await gate.future;
           return _tinyLane();
         },
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
       );
       final items = photoItems(200, extension: 'arw');
@@ -375,7 +375,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderLane,
         dngDecoder: slowDecoder,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
       );
       final items = photoItems(200, extension: 'arw');
@@ -443,7 +443,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderShared,
         dngDecoder: decoder.call,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(10, extension: 'arw');
       controller.updateTargetSize(800, 600);
@@ -489,7 +489,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderShared,
         dngDecoder: decoder.call,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(1, extension: 'arw');
       controller.updateTargetSize(800, 600);
@@ -525,7 +525,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderShared,
         dngDecoder: decoder.call,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(200, extension: 'arw');
       controller.updateTargetSize(800, 600);
@@ -556,7 +556,7 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: _rawLoaderShared,
         dngDecoder: null, // no decoder => permanent miss
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(5, extension: 'arw');
       controller.updateTargetSize(800, 600);
@@ -605,7 +605,7 @@ void main() {
         // Tiles now come from the shared payload, so the payload producer is
         // what this bound has to survive.
         dngDecoder: (path) async => _rawFixturePixel(),
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final state = AppState(preloadController: controller);
       await state.loadFolder(dir);
@@ -646,7 +646,7 @@ void main() {
           await gate.future; // still in flight when the generation is bumped
           return _rawFixturePixel();
         },
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final state = AppState(preloadController: controller);
       await state.loadFolder(dir);
@@ -680,7 +680,7 @@ void main() {
             await gate.future;
             return _tinyPriority();
           },
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,
         );
         final items = photoItems(400, extension: 'arw');
@@ -772,7 +772,7 @@ void main() {
             await gate.future;
             return _tinyPriority();
           },
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,
         );
         final items = photoItems(400, extension: 'arw');

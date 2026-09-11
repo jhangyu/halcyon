@@ -22,6 +22,8 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
+import '../../support/preload_fixtures.dart';
+
 // ---------------------------------------------------------------------------
 // Helpers from retention_tier_test.dart
 // ---------------------------------------------------------------------------
@@ -197,7 +199,7 @@ void main() {
     test('TC-444 setRetention updates the window and the cache budget', () {
       final controller = ImagePreloadController(
         imageLoader: _bytesLoader,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       expect(controller.retention, const RetentionPolicy.floor());
 

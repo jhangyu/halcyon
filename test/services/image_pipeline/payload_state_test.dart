@@ -982,7 +982,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           imageLoader: _bytesLoader,
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
         );
         final items = photoItems(60);
@@ -1016,7 +1016,7 @@ void main() {
     test('eviction priority puts every navigation id before every sidebar id', () async {
       final controller = ImagePreloadController(
         imageLoader: _bytesLoader,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(60);
       await controller.preloadThumbnails(
@@ -1048,7 +1048,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           imageLoader: _bytesLoader,
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
         );
         final items = photoItems(60);
         await controller.preloadImages(
@@ -1074,7 +1074,7 @@ void main() {
     test('sidebar-only ids never get a tier-1 or tier-2 ImageCache entry', () async {
       final controller = ImagePreloadController(
         imageLoader: _bytesLoader,
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(60);
       // Tier-1 precache is a no-op until the viewport size is known, so without

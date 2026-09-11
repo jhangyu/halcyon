@@ -586,6 +586,7 @@ void main() {
               declaredPreviewsUnreadable: declaredPreviewsUnreadable,
             ),
             dngDecoder: (path) async => throw StateError('decode failed'),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final outcome = await source.load('/fake/x.dng', longEdge: 2800);
           expect(outcome.payload, isNull);
@@ -634,6 +635,7 @@ void main() {
               width: 4,
               height: 4,
             ),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final outcome = await source.load('/fake/x.dng', longEdge: 2800);
           expect(outcome.failureCode, isNull);
@@ -656,6 +658,7 @@ void main() {
                 const NativeImageNeedsRawDecode(exifOrientation: 1),
             dngDecoder: (path) async =>
                 throw StateError('TIFF_DECODE_FAILED: package:image returned null'),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final outcome = await source.load('/tmp/broken.tif', longEdge: 2800);
           expect(outcome.payload, isNull);
@@ -680,6 +683,7 @@ void main() {
                   declaredPreviewsUnreadable: true,
                 ),
             dngDecoder: (path) async => throw StateError('decode failed'),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final outcome = await source.load('/tmp/broken.dng', longEdge: 2800);
           expect(outcome.failureCode, 'DNG_PARSE_FAILED');
@@ -697,6 +701,7 @@ void main() {
             NativeImageBytes(Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9])),
           ),
           dngDecoder: _decoderTwoPhase,
+          payloadEncoder: throwingPayloadEncoder,
         ),
         'raw success': PhotoSource(
           loader: _loaderReturning(
@@ -709,6 +714,7 @@ void main() {
           loader: _loaderReturning(
             const NativeImageNeedsRawDecode(exifOrientation: 1),
           ),
+          payloadEncoder: throwingPayloadEncoder,
         ),
         'throwing decoder': PhotoSource(
           loader: _loaderReturning(
@@ -1174,6 +1180,7 @@ void main() {
               const NativeImageNeedsRawDecode(exifOrientation: 6),
           dngDecoder: (path) async => _decodedCompositeGate(),
           compositeGate: gate.call,
+          payloadEncoder: throwingPayloadEncoder,
         );
 
         final decode = await source.decodePhaseExpensive(
@@ -1220,7 +1227,7 @@ void main() {
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
           dngDecoder: (path) async => _decodedCompositeGate(),
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           compositeGate: gate.call,
         );
         addTearDown(controller.dispose);
@@ -1320,7 +1327,11 @@ void main() {
 
       // TC-365
       test('no encoder configured -> unchanged PixelPayload behaviour', () async {
-        const source = PhotoSource(loader: _needsRawDecodeReencode, dngDecoder: _fakeDecoder);
+        const source = PhotoSource(
+          loader: _needsRawDecodeReencode,
+          dngDecoder: _fakeDecoder,
+          payloadEncoder: throwingPayloadEncoder,
+        );
         final outcome = await source.load('x.dng', longEdge: 32);
         expect(outcome.payload, isA<PixelPayload>());
       });
@@ -1355,13 +1366,18 @@ void main() {
       });
 
       // TC-421
-      test('payloadEncoder null keeps the loader bytes identical', () async {
+      test('a throwing payloadEncoder keeps the loader bytes identical '
+          '(compressed-residency v2 Task 2: the wrap-only arm is gone, so '
+          'the bytes now go through normalizeEncodedPayload -- which still '
+          'decodes to try the re-encode, then falls back to the original '
+          'bytes when the encoder throws)', () async {
         final fileBytes = Uint8List.fromList(
           List<int>.filled(kNormalizePassthroughMaxBytes + 1, 9),
         );
         var decodes = 0;
         final source = PhotoSource(
           loader: (path, {required purpose, int? targetLongEdge}) async => NativeImageBytes(fileBytes),
+          payloadEncoder: throwingPayloadEncoder,
         );
         final outcome = await withStubDecoder(
           (bytes) async {
@@ -1374,7 +1390,11 @@ void main() {
           identical((outcome.payload! as EncodedPayload).bytes, fileBytes),
           isTrue,
         );
-        expect(decodes, 0);
+        // The wrap-only early return is gone (Task 2): normalizeEncodedPayload
+        // now always attempts the decode before falling back, so this count
+        // moves from 0 to 1. The identity-fallback guarantee above -- the
+        // assertion this test actually exists to pin -- is unchanged.
+        expect(decodes, 1);
       });
 
       // TC-422
@@ -1473,6 +1493,7 @@ void main() {
           const source = PhotoSource(
             loader: _needsRawDecodeOrientation6,
             dngDecoder: _fixtureDecoder,
+            payloadEncoder: throwingPayloadEncoder,
           );
 
           final decode = await source.decodePhase('sample.dng', longEdge: 0);
@@ -1507,6 +1528,7 @@ void main() {
           const source = PhotoSource(
             loader: _unusedLoader,
             dngDecoder: _fixtureDecoder,
+            payloadEncoder: throwingPayloadEncoder,
           );
 
           final decode = await source.decodePhaseExpensive(
@@ -1645,6 +1667,34 @@ void main() {
         reason: 'encodePhase must drop the thunk before it returns',
       );
     });
+
+    test(
+      'TC-A4 a PhotoSource bound to a THROWING encoder still yields the pixel '
+      'fallback outcome -- the deleted encoder==null arm stays reachable per '
+      'test, just never by omission (compressed-residency v2 Task 2)',
+      () async {
+        final rgba = Uint8List(4 * 4 * 4);
+        for (var i = 3; i < rgba.length; i += 4) {
+          rgba[i] = 0xFF;
+        }
+        final source = PhotoSource(
+          loader: (path, {required purpose, int? targetLongEdge}) async =>
+              const NativeImageNeedsRawDecode(exifOrientation: 1),
+          dngDecoder: (path) async =>
+              DecodedRgba(rgba: rgba, width: 4, height: 4),
+          payloadEncoder: throwingPayloadEncoder,
+        );
+
+        final outcome = await source.load('/tmp/a.dng', longEdge: 2800);
+
+        expect(outcome.payload, isNotNull);
+        // The CURRENT allowed temporary state. Task 4 changes what happens to
+        // this payload afterwards (a deferred job replaces it); it does not
+        // change what `encodePhase` itself returns here.
+        expect(outcome.payload!.kind, PayloadKind.pixels);
+        outcome.fullRes?.image?.dispose();
+      },
+    );
   });
 }
 

@@ -481,6 +481,7 @@ void main() {
             loader: (path, {required purpose, int? targetLongEdge}) async =>
                 const NativeImageNeedsRawDecode(exifOrientation: 1),
             dngDecoder: null,
+            payloadEncoder: throwingPayloadEncoder,
           );
 
           final outcome = await source.load(
@@ -503,6 +504,7 @@ void main() {
           final bytesSource = PhotoSource(
             loader: (path, {required purpose, int? targetLongEdge}) async =>
                 NativeImageBytes(Uint8List.fromList([1, 2, 3])),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final bytesOutcome = await bytesSource.load(
             '/tmp/a.jpg',
@@ -514,6 +516,7 @@ void main() {
             loader: (path, {required purpose, int? targetLongEdge}) async =>
                 const NativeImageNeedsRawDecode(exifOrientation: 1),
             dngDecoder: (path) async => throw StateError('decode failed'),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final throwingOutcome = await throwingSource.load(
             '/tmp/b.arw',
@@ -524,6 +527,7 @@ void main() {
           final failureSource = PhotoSource(
             loader: (path, {required purpose, int? targetLongEdge}) async =>
                 const NativeImageFailure('UNREADABLE', 'corrupt'),
+            payloadEncoder: throwingPayloadEncoder,
           );
           final failureOutcome = await failureSource.load(
             '/tmp/c.cr2',

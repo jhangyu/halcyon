@@ -60,7 +60,7 @@ void main() {
       // landed payload. Every decode-only test in this suite binds null the
       // same way (see photo_source.dart's `_normalizedEncoded`/`encodePhase`
       // doc comments); this probe is a decode-only test, not an encoder test.
-      payloadEncoder: null,
+      payloadEncoder: throwingPayloadEncoder,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async {
         loaderCalls[path] = (loaderCalls[path] ?? 0) + 1;
         return const NativeImageNeedsRawDecode(exifOrientation: 1);

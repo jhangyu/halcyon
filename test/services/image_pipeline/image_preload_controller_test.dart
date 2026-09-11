@@ -2949,7 +2949,7 @@ void main() {
           }
           return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       addTearDown(controller.dispose);
 
@@ -3028,7 +3028,7 @@ void main() {
             }
             return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
           },
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
         );
         addTearDown(controller.dispose);
 
@@ -3101,7 +3101,7 @@ void main() {
           }
           return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
-        payloadEncoder: null,
+        payloadEncoder: throwingPayloadEncoder,
       );
       addTearDown(controller.dispose);
 
@@ -3317,6 +3317,7 @@ void main() {
           loader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => throw StateError('native decode failed'),
+          payloadEncoder: throwingPayloadEncoder,
         );
 
         final outcome = await source.load(
@@ -3429,7 +3430,7 @@ void main() {
         final controller = ImagePreloadController(
           // No re-encode: this test is about ROUTING, and the native encoder is
           // not available under plain `flutter test`.
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           imageLoader: (p, {required purpose, int? targetLongEdge}) async {
             loaderCalls++;
             return NativeImageBytes(Uint8List.fromList([137, 80, 78, 71]));
@@ -3490,7 +3491,7 @@ void main() {
         var decoderCalls = 0;
 
         final controller = ImagePreloadController(
-          payloadEncoder: null,
+          payloadEncoder: throwingPayloadEncoder,
           imageLoader: (p, {required purpose, int? targetLongEdge}) async =>
               // The loader agrees there is nothing usable, exactly as it would
               // for a container whose only preview is below the floor.

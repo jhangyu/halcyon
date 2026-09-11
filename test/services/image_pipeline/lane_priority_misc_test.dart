@@ -326,7 +326,10 @@ void main() {
     // becomes an unmistakable `expensive` + null payload + NO_NATIVE_DECODER,
     // so "the loader rejected the preview" cannot hide behind a successful
     // decode. The assertion is therefore about the ROUTE, not the pixels.
-    const source = PhotoSource(loader: dartImageLoad);
+    const source = PhotoSource(
+      loader: dartImageLoad,
+      payloadEncoder: throwingPayloadEncoder,
+    );
 
     test('TC-712 a sub-2800 viewport routes a 2000px-preview RAW cheap '
         'end-to-end', () async {
@@ -941,7 +944,7 @@ void main() {
               await gate.future;
               return _tinyPriority();
             },
-            payloadEncoder: null,
+            payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
           );
           addTearDown(controller.dispose);
@@ -1069,7 +1072,7 @@ void main() {
               await gate.future;
               return _tinyPriority();
             },
-            payloadEncoder: null,
+            payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
             // Test-only seam: the assertions below are on re-rank ORDER, not on
             // the debounce interval itself, so firing it immediately still
@@ -1265,6 +1268,79 @@ void main() {
         expect(endId, submitId, reason: 'submit/end must correlate on the same id');
         expect(end, contains('dur_us='));
         expect(end, contains('bytes=4')); // _okEncoder returns 4 bytes
+      },
+    );
+
+    // TC-1083
+    test(
+      'probe 2/3: the byte encode arm tags reencode.submit with path=byte and '
+      'emits a reencode.copy line carrying the same id and the full-frame '
+      'byte count',
+      () async {
+        PerfLog.init(logPath);
+        final result = await reencodePayload(
+          encoder: _okEncoder,
+          fallback: () async => _pixels(10, 10),
+          fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
+        );
+        await PerfLog.flush();
+        expect(result, isA<EncodedPayload>());
+
+        final lines = File(logPath).readAsStringSync().split('\n');
+        final submit = lines.firstWhere((l) => l.contains('reencode.submit|id='));
+        expect(submit, contains('|path=byte'));
+        expect(submit, contains('|bytes=${40 * 40 * 4}'));
+
+        // The copy probe exists only on this arm -- it measures the
+        // `TransferableTypedData.fromList` the byte encoder pays on the
+        // CALLING isolate.
+        final copy = lines.firstWhere((l) => l.contains('reencode.copy|id='));
+        final submitId =
+            RegExp(r'reencode\.submit\|id=(\d+)').firstMatch(submit)!.group(1);
+        final copyId =
+            RegExp(r'reencode\.copy\|id=(\d+)').firstMatch(copy)!.group(1);
+        expect(copyId, submitId);
+        expect(copy, contains('dur_us='));
+        expect(copy, contains('|bytes=${40 * 40 * 4}'));
+      },
+    );
+
+    // TC-1084
+    test(
+      'probe 2: the pointer encode arm tags reencode.submit with path=pointer '
+      'and emits NO reencode.copy line (it pays no on-isolate copy)',
+      () async {
+        PerfLog.init(logPath);
+        var pointerCalls = 0;
+        final result = await reencodePayload(
+          encoder: _throwingEncoder, // must not be reached on this arm
+          fallback: () async => _pixels(10, 10),
+          fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
+          pointerEncoder:
+              ({
+                required int nativeAddress,
+                required int width,
+                required int height,
+                required int quality,
+                Object? keepAlive,
+              }) async {
+                pointerCalls++;
+                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+              },
+          nativeAddress: 0xC0FFEE,
+        );
+        await PerfLog.flush();
+        expect(result, isA<EncodedPayload>());
+        expect(pointerCalls, 1);
+
+        final content = File(logPath).readAsStringSync();
+        expect(content, contains('reencode.submit|id='));
+        expect(content, contains('|path=pointer'));
+        expect(
+          content,
+          isNot(contains('reencode.copy')),
+          reason: 'the pointer arm never copies on the calling isolate',
+        );
       },
     );
 

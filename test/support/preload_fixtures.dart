@@ -97,3 +97,32 @@ void clearImageCacheSetUp() {
   PaintingBinding.instance.imageCache.clear();
   PaintingBinding.instance.imageCache.clearLiveImages();
 }
+
+/// The canonical fake encoder for this suite: a short, non-empty JPEG-shaped
+/// bitstream, produced synchronously.
+///
+/// Task 2 (compressed-residency v2) made `PayloadEncoder` a REQUIRED
+/// dependency of `PhotoSource`/`ImagePreloadController`, so "no encoder" is no
+/// longer expressible by omission. A test that just needs SOME encoder binds
+/// this one.
+Future<Uint8List> fakeJpegEncoder(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) async => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+
+/// The encoder a test binds when its INTENT is the old decode-only path.
+///
+/// A throwing encoder routes through `reencodePayload`'s catch exit, which
+/// returns the caller's fallback: window-resolution pixels on the RAW decode
+/// path (exactly what the deleted `encoder == null` arm produced) and the
+/// ORIGINAL bytes on `normalizeEncodedPayload`'s path (exactly what the
+/// deleted `_normalizedEncoded` early return produced). So the old behaviour
+/// stays reachable per test, it is just never reachable by omission.
+Future<Uint8List> throwingPayloadEncoder(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) async => throw StateError('decode-only binding: encoder deliberately absent');

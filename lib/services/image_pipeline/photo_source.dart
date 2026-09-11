@@ -194,7 +194,7 @@ class PhotoSource {
     required this.loader,
     this.dngDecoder,
     this.orientingDngDecoder,
-    this.payloadEncoder,
+    required this.payloadEncoder,
     this.pointerPayloadEncoder,
     this.compositeGate = immediateCompositeGate,
   });
@@ -223,10 +223,16 @@ class PhotoSource {
 
   /// Phase 13: turns the decoded RAW's FULL-RESOLUTION pixels into the single
   /// JPEG bitstream the item retains, so a no-preview RAW becomes the same
-  /// cache citizen as a JPG at both tiers. NULL means "do not re-encode" --
-  /// the pre-Phase-13 `PixelPayload` behaviour, which is what every
-  /// decode-only test keeps exercising.
-  final PayloadEncoder? payloadEncoder;
+  /// cache citizen as a JPG at both tiers.
+  ///
+  /// REQUIRED since compressed-residency v2 Task 2 (spec §3.6): the previous
+  /// nullable form let a binding retain uncompressed pixels as the long-lived
+  /// payload purely by configuration, which spec §3.1 forbids. A test whose
+  /// intent is the old decode-only path binds an encoder that THROWS
+  /// (`throwingPayloadEncoder` in `test/support/preload_fixtures.dart`) --
+  /// `reencodePayload`'s catch exit yields the same fallback payload, so the
+  /// behaviour is reachable per test but never by omission.
+  final PayloadEncoder payloadEncoder;
 
   /// R2b (gc-remediation, WP3 production wiring): the pointer-based sibling
   /// used ONLY when [SourceDecode.nativeAddress] is non-zero AND
@@ -241,14 +247,12 @@ class PhotoSource {
   /// bytes, an embedded preview and a decoded RAW all become the same q70
   /// payload (USER RULING 2026-08-30, contract D5: "ALL items").
   ///
-  /// A null [payloadEncoder] is the pre-change behaviour, byte-for-byte: the
-  /// bytes are wrapped and nothing is decoded. That is the binding every
-  /// decode-only test uses and it must stay a true no-op.
-  Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async {
-    final encoder = payloadEncoder;
-    if (encoder == null) return EncodedPayload(bytes);
-    return normalizeEncodedPayload(encoded: bytes, encoder: encoder);
-  }
+  /// There is no longer a wrap-only arm: [normalizeEncodedPayload] has its own
+  /// small-input passthrough and its own "not actually smaller" refusal, so a
+  /// small or already-tight bitstream still comes back as its original bytes
+  /// -- this is not a new re-encode for those inputs.
+  Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async =>
+      normalizeEncodedPayload(encoded: bytes, encoder: payloadEncoder);
 
   /// Produces the decode-side half for [path] at [longEdge]: everything a RAW
   /// decode (or its cheap/fallback substitutes) yields BEFORE the re-encode.
@@ -617,11 +621,6 @@ class PhotoSource {
     // either invokes it or drops it -- so the decode record stops being a
     // reachable holder of the decoded frame either way.
     debugPixelFallbackRetained--;
-    final encoder = payloadEncoder;
-    // The decode-only binding (no encoder configured) has always produced the
-    // window-resolution pixels AS the payload, so here the fallback IS the
-    // product and the thunk is awaited unconditionally. Observably unchanged.
-    if (encoder == null) return outcomeWith(await fallback());
     final fullRes = decode.fullRes;
     // R2b: the pointer path is only valid when `fullRes.rgba` really IS the
     // native-backed buffer `decode.nativeAddress` describes. That is true
@@ -642,7 +641,7 @@ class PhotoSource {
     // a payload is published.
     return outcomeWith(
       await reencodePayload(
-        encoder: encoder,
+        encoder: payloadEncoder,
         fallback: fallback,
         fullRes: fullRes == null
             ? null

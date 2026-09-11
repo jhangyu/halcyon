@@ -17,6 +17,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 import 'package:image/image.dart' as img;
 
+import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 
@@ -1084,6 +1085,7 @@ void main() {
           loader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => throw HeifUnavailableException(path),
+          payloadEncoder: throwingPayloadEncoder,
         );
         final outcome = await source.load('/tmp/gone.heic', longEdge: 2800);
         expect(outcome.payload, isNull);
