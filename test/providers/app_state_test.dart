@@ -14,6 +14,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
+import 'package:halcyon_flutter/services/library/photo_export_service.dart'
+    show ExportFiletype;
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -723,6 +725,31 @@ void main() {
       expect(state.decodeLaneWidth, kDefaultDecodeLaneWidth);
     });
   });
+
+  // TC-1139 (WP0.2) -- the AppState -> controller ledger-snapshot delegation.
+  //
+  // Asserted through `AppState.forTesting` on purpose: the attribution capture
+  // needs one snapshot read WITHOUT standing up a production AppState (real
+  // decoder, real folder). `forTesting` builds a real ImagePreloadController
+  // with real ledgers wired, so the values are production-real even though the
+  // construction is cheap -- which is the property the capture harness relies
+  // on, and therefore the thing worth pinning.
+  test('the memory-ledger snapshot is readable through AppState', () {
+    final state = AppState.forTesting(
+      runtimeCapabilities: {ExportFiletype.jpeg},
+    );
+    addTearDown(state.dispose);
+    final snapshot = state.debugMemoryLedgerSnapshot;
+    // Idle app: no transient bytes, nothing retained.
+    expect(snapshot.decodeInflightBytes, 0);
+    expect(snapshot.encodePublishTailBytes, 0);
+    expect(snapshot.retainedPayloadBytes, 0);
+    // Both ceilings are real and non-zero -- a snapshot wired to the wrong
+    // field would report zero here.
+    expect(snapshot.decodeInflightByteBudget, greaterThan(0));
+    expect(snapshot.retainedPayloadByteBudget, greaterThan(0));
+  });
+
 }
 
 Future<void> _touch(Directory dir, String name) =>

@@ -173,6 +173,12 @@ class ImagePreloadController {
     FrameHook? scheduleFrameCallback,
     int publicationsPerFrame = 1,
     int? inflightByteBudget,
+    // The machine's total physical memory, used ONLY as the safety ceiling of
+    // the decode byte budget (decision D1-a). Optional with a null default:
+    // null means "no ceiling", which is what every test and every platform
+    // without a total-physical-memory reading gets, and is byte-identical to
+    // the behaviour before the ceiling existed.
+    int? physicalMemoryBytes,
     CompositeGate compositeGate = immediateCompositeGate,
     // Test-only seam (test-speedup campaign 2026-09-06): lets tests shrink
     // the production 250ms tier-2 quiet period instead of waiting it out in
@@ -180,8 +186,20 @@ class ImagePreloadController {
     Duration navigationDebounce = tierTwoNavigationDebounce,
   }) : _navigationDebounce = navigationDebounce,
        _retention = retention,
+       _explicitInflightByteBudgetOverride = inflightByteBudget,
+       _physicalMemoryBytes = physicalMemoryBytes,
        _inflight = InflightBytesBudget(
-         maxBytes: inflightByteBudget ?? inflightByteBudgetFor(retention),
+         maxBytes:
+             inflightByteBudget ??
+             decodeInflightByteBudget(
+               decodeLaneWidth: decodeLaneWidth,
+               physicalMemoryBytes: physicalMemoryBytes,
+             ),
+       ),
+       _encodePublishTailBytes = InflightBytesBudget(
+         maxBytes: encodePublishTailByteBudget(
+           encodeStageWidth: StageWidths.derive(decodeLaneWidth).encode,
+         ),
        ),
        _frameHook = scheduleFrameCallback,
        _publicationsPerFrame = publicationsPerFrame,
@@ -241,14 +259,20 @@ class ImagePreloadController {
   ///
   /// `before`/`after` need no push: every pass reads them fresh off
   /// [retention], so a widened window applies on the next navigation and a
-  /// narrowed one on the next retention sweep. The byte budget DOES need a
-  /// push, and shrinking it sweeps immediately -- see
+  /// narrowed one on the next retention sweep. The RETAINED-payload cache
+  /// budget DOES need a push, and shrinking it sweeps immediately -- see
   /// [PhotoPayloadCache.setByteBudget].
+  ///
+  /// S1.4 (2026-09-11): the DECODE byte budget is deliberately NOT pushed here
+  /// any more. It is derived from the decode lane width alone
+  /// ([decodeInflightByteBudget]), so the user's memory tier no longer caps
+  /// decode concurrency -- that coupling was the whole defect. Retention and
+  /// eviction behaviour is otherwise unchanged: the line below is byte-identical
+  /// to what shipped before.
   void setRetention(RetentionPolicy policy) {
     if (policy == _retention) return;
     _retention = policy;
     _cache.setByteBudget(policy.payloadByteBudget);
-    _inflight.maxBytes = inflightByteBudgetFor(policy);
   }
 
   @visibleForTesting
@@ -318,6 +342,22 @@ class ImagePreloadController {
     _decodeLane.width = widths.decodeLane;
     decodePoolWidthSink(_decodeLane.width);
     _encodeStage.width = widths.encode;
+    // S1.1: the decode byte budget follows the LANE WIDTH, pushed from the same
+    // single write path as every other stage width. Suppressed when the caller
+    // supplied an explicit `inflightByteBudget` override, which wins for the
+    // controller's whole lifetime (decision D1-c) -- without that, the first
+    // width push would silently raise the deliberately tiny budgets four
+    // existing tests pin, and those tests would pass for the wrong reason
+    // (no longer byte-blocked) rather than fail.
+    if (_explicitInflightByteBudgetOverride == null) {
+      _inflight.maxBytes = decodeInflightByteBudget(
+        decodeLaneWidth: widths.decodeLane,
+        physicalMemoryBytes: _physicalMemoryBytes,
+      );
+    }
+    _encodePublishTailBytes.maxBytes = encodePublishTailByteBudget(
+      encodeStageWidth: widths.encode,
+    );
     if (pushSidebar) _sidebar.setDeriveQueueWidth(widths.derive);
   }
 
@@ -462,18 +502,88 @@ class ImagePreloadController {
   /// in flight and invisible to it. A per-stage TASK COUNT is not a memory
   /// bound either, because per-item buffers vary by 5x across a mixed folder.
   ///
-  /// The default is a quarter of the payload budget -- derived from an
-  /// existing, RAM-tiered number rather than a new magic constant.
+  /// Sized from the DECODE LANE WIDTH (S1.1, [decodeInflightByteBudget]), never
+  /// from the retention tier: this bounds decode concurrency, and the retention
+  /// tier is a statement about how much decoded data is KEPT.
   final InflightBytesBudget _inflight;
 
+  /// An explicitly supplied `inflightByteBudget` constructor argument, or null.
+  /// Non-null pins the decode budget for the controller's whole lifetime and
+  /// suppresses the width-derived push (decision D1-c).
+  final int? _explicitInflightByteBudgetOverride;
+
+  /// The machine's total physical memory, or null. Safety ceiling only (D1-a).
+  final int? _physicalMemoryBytes;
+
+  /// The SECOND ledger: frames that have left the decode lane but are still
+  /// alive through encode, publication pacing and the idle-publish wait
+  /// (S1.3, decision D1-d).
+  ///
+  /// Separate from [_inflight] rather than a reduced charge against it, because
+  /// the frame is demonstrably still alive -- reducing the charge would make
+  /// the ledger report less than the live byte count, and the ledger's only job
+  /// is to state live transient bytes truthfully. It never refuses; every
+  /// charge against it is the REAL post-decode size.
+  final InflightBytesBudget _encodePublishTailBytes;
+
+  /// Every transient full-frame byte this controller accounts for, across BOTH
+  /// ledgers.
+  ///
+  /// The sum, not the decode ledger alone: roughly a dozen existing tests poll
+  /// this to zero as their quiescence condition before teardown, and after
+  /// S1.3 a decode-only reading reaches zero while an encode tail is still in
+  /// flight -- those waits would keep passing while silently ceasing to wait
+  /// for anything.
   @visibleForTesting
-  int get debugInflightBytes => _inflight.inFlightBytes;
+  int get debugInflightBytes =>
+      _inflight.inFlightBytes + _encodePublishTailBytes.inFlightBytes;
+
+  /// The DECODE half of [debugInflightBytes] -- what bounds decode concurrency.
+  @visibleForTesting
+  int get debugDecodeInflightBytes => _inflight.inFlightBytes;
+
+  /// The ENCODE/PUBLISH TAIL half of [debugInflightBytes].
+  @visibleForTesting
+  int get debugEncodePublishTailBytes =>
+      _encodePublishTailBytes.inFlightBytes;
+
+  /// The current decode byte budget CEILING (not the bytes in flight). Every
+  /// tier-independence assertion is a statement about this number.
+  @visibleForTesting
+  int get debugDecodeInflightByteBudget => _inflight.maxBytes;
+
+  /// Every byte ledger this controller owns, read in ONE place.
+  ///
+  /// Exists for the WP0.2 attribution capture, whose whole point is reporting
+  /// the ledgers TOGETHER: reading them through five separate getters samples a
+  /// moving quantity at five different instants, and the resulting table would
+  /// not describe any state the app was ever actually in.
+  ///
+  /// Read-only. Deliberately does NOT reach for the Flutter image cache or the
+  /// ceyx native buffer pool -- those are not this controller's ledgers, and
+  /// the capture harness reads them from their own owners. (The ceyx pool
+  /// reports a live ADDRESS COUNT, not bytes; anything presenting it as a byte
+  /// figure has to multiply by the fixed buffer size and say so.)
+  @visibleForTesting
+  MemoryLedgerSnapshot get debugMemoryLedgerSnapshot => MemoryLedgerSnapshot(
+    decodeInflightBytes: _inflight.inFlightBytes,
+    encodePublishTailBytes: _encodePublishTailBytes.inFlightBytes,
+    retainedPayloadBytes: _cache.totalByteCost,
+    retainedPayloadByteBudget: _cache.byteBudget,
+    decodeInflightByteBudget: _inflight.maxBytes,
+  );
 
   /// How many lane dispatch attempts the BYTE budget refused (WP2). Zero means
   /// the gate never engaged, which is what distinguishes "the queue drained
   /// because the budget was never binding" from "the budget refused work and
   /// the queue still drained" in the deadlock regression.
   int get debugByteBlockedPumps => _decodeLane.debugByteBlockedPumps;
+
+  /// How many admissions were CORRECTED from the pre-decode nominal estimate to
+  /// the real frame size (AC2). Zero means the re-accounting seam never ran.
+  @visibleForTesting
+  int get debugAdmissionAdjustmentCount =>
+      _decodeLane.debugAdmissionAdjustmentCount;
 
   @visibleForTesting
   Set<String> get debugThumbPermanentMisses => _sidebar.permanentMisses;
@@ -1082,6 +1192,10 @@ class ImagePreloadController {
     _encodeStage.clear();
     _pacer.clear();
     _inflight.clear();
+    // BOTH ledgers, or an unawaited tail release landing after this teardown
+    // would strand bytes across tests (its epoch no-op only protects the
+    // counter, not a charge that was never cleared).
+    _encodePublishTailBytes.clear();
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
@@ -1123,6 +1237,10 @@ class ImagePreloadController {
     _encodeStage.clear();
     _pacer.clear();
     _inflight.clear();
+    // BOTH ledgers, or an unawaited tail release landing after this teardown
+    // would strand bytes across tests (its epoch no-op only protects the
+    // counter, not a charge that was never cleared).
+    _encodePublishTailBytes.clear();
     _tierTwoScheduler.cancelDebounce();
     _evictTierOneKeys();
     _tierTwo.clear();
@@ -1848,13 +1966,26 @@ class ImagePreloadController {
           claim: claim,
         );
         handedOff = true;
-        // The BYTE admission moves with the work too, for the same reason the
-        // claim does: the full-res frame stays alive for the whole off-lane
-        // encode, so releasing it at lane-body return would leave
-        // encode-width x one frame of live bytes uncharged (lead ruling C2,
-        // erratum E-WP2-C2). Taken BEFORE the `unawaited` below so the lane's
-        // `finally` can no longer find it.
-        final admission = _decodeLane.takeAdmission((LaneTaskKind.payload, id));
+        // S1.3. The bytes are RE-ATTRIBUTED, not released: the full-res frame
+        // stays alive for the whole off-lane encode, so forgetting it would
+        // leave encode-width x one frame of live bytes uncharged. But it must
+        // leave the DECODE ledger here -- that ledger is what bounds decode
+        // concurrency, and holding it through a slow encode is exactly what
+        // capped decode parallelism below the configured lane width.
+        //
+        // One lane call, not two statements: the tail must be charged BEFORE
+        // the decode ledger is released (so the accounted total never dips
+        // below the live byte count), and expressing that inside
+        // [DecodeLane.handOffAdmissionToTail] makes the wrong order
+        // unrepresentable. The charge is the REAL post-decode size the lane
+        // already holds, never `kNominalFullFrameBytes`.
+        //
+        // Done BEFORE the `unawaited` below so the lane's `finally` can no
+        // longer find the admission.
+        final encodePublishTailCharge = _decodeLane.handOffAdmissionToTail(
+          (LaneTaskKind.payload, id),
+          _encodePublishTailBytes,
+        );
         unawaited(
           _finishOffLane(
             item,
@@ -1864,7 +1995,7 @@ class ImagePreloadController {
             loadLongEdge: loadLongEdge,
             loadGeneration: loadGeneration,
             windowGeneration: windowGeneration,
-            admission: admission,
+            encodePublishTailCharge: encodePublishTailCharge,
             claim: claim,
           ),
         );
@@ -1942,7 +2073,7 @@ class ImagePreloadController {
     required int loadGeneration,
     required int windowGeneration,
     required PayloadClaim claim,
-    required LaneAdmission? admission,
+    required EncodePublishTailCharge? encodePublishTailCharge,
   }) async {
     final id = item.id;
     final tCh = PerfLog.us; // PERF-INSTRUMENTATION
@@ -1950,8 +2081,16 @@ class ImagePreloadController {
     // admitted BEFORE the decode, together with the lane slot, by the one
     // dispatcher -- so nothing ever holds a slot while waiting for bytes, which
     // is the hold-and-wait cycle the old post-decode acquire dodged by not
-    // bounding decode-time bytes at all. [admission] is that charge, handed
-    // over at the stage boundary; this method now only has to give it back.
+    // bounding decode-time bytes at all.
+    //
+    // S1.3 (2026-09-11): that decode admission is GONE by the time this method
+    // runs -- the stage boundary released it against the decode ledger and
+    // charged the same real byte count to the encode/publish TAIL ledger
+    // instead. [encodePublishTailCharge] is that tail charge, and this method's
+    // only remaining ledger duty is to release it exactly once. Two ledgers,
+    // because the decode one bounds decode concurrency and must not be held
+    // through a slow encode, while the frame is still genuinely alive here and
+    // must still be accounted somewhere.
     //
     // The epoch it carries is why a late release is safe: this continuation is
     // unawaited by design, so `dispose()`/`reset()` ->
@@ -2040,10 +2179,11 @@ class ImagePreloadController {
         cb();
       }
     } finally {
-      // Released exactly once, after [_completeOutcome] has either retained or
-      // dropped the payload -- the buffers are only out of flight then. The
-      // release also re-pumps the lane, since these bytes may be exactly what a
-      // byte-blocked pending decode was refused for.
+      // The TAIL charge is released exactly once, after [_completeOutcome] has
+      // either retained or dropped the payload -- the buffers are only out of
+      // flight then. (The DECODE ledger was already freed at the stage
+      // boundary; that is S1.3, and it is what lets the next decode start while
+      // this encode is still running.)
       //
       // WP6. ORDER IS LOAD-BEARING (plan N1): reclaim native bytes BEFORE
       // telling the budget they are free, so no admission is granted against
@@ -2057,7 +2197,12 @@ class ImagePreloadController {
       // the next decode. On that branch ownership transfers to the cache
       // instead and ceyx's NativeFinalizer safety net reclaims it later.
       if (published is EncodedPayload) decode.fullRes?.releaseNative?.call();
-      if (admission != null) _decodeLane.releaseAdmission(admission);
+      if (encodePublishTailCharge != null) {
+        _encodePublishTailBytes.release(
+          encodePublishTailCharge.bytes,
+          epoch: encodePublishTailCharge.epoch,
+        );
+      }
       // [claim] plays the role `budgetEpoch` plays for the byte budget on the
       // line above, though it matches by object identity rather than by
       // counter. This future is unawaited and can outlive the `reset()` that
@@ -2585,4 +2730,54 @@ class _PendingIntent {
   List<PhotoItem>? thumbItems;
   int? thumbStartIdx;
   int? thumbEndIdx;
+}
+
+/// One coherent reading of every byte ledger `ImagePreloadController` owns,
+/// for the S3.0 memory-attribution capture (WP0.2).
+///
+/// A value object rather than loose getters so the capture cannot accidentally
+/// mix readings taken at different instants, and so the field set is a stable
+/// schema its consumer can parse against.
+///
+/// THE TRANSIENT TOTAL IS TWO NUMBERS, NOT ONE. Since S1.3 a frame past the
+/// decode->encode stage boundary is charged to [encodePublishTailBytes], not to
+/// [decodeInflightBytes]; anything that reports a single "in flight" figure
+/// silently under-counts the tail, which at wide lane settings is the larger of
+/// the two.
+class MemoryLedgerSnapshot {
+  const MemoryLedgerSnapshot({
+    required this.decodeInflightBytes,
+    required this.encodePublishTailBytes,
+    required this.retainedPayloadBytes,
+    required this.retainedPayloadByteBudget,
+    required this.decodeInflightByteBudget,
+  });
+
+  /// Bytes charged to decodes currently in flight (pre-decode nominal estimate
+  /// until the decode returns, real size afterwards).
+  final int decodeInflightBytes;
+
+  /// Bytes charged to frames that have left the decode lane and are still alive
+  /// through encode, publication pacing and the idle-publish wait. Always the
+  /// REAL frame size, never the nominal estimate.
+  final int encodePublishTailBytes;
+
+  /// LIVE retained payload bytes -- what the retention cache is actually
+  /// holding right now. Not to be confused with
+  /// [retainedPayloadByteBudget], which is only its ceiling.
+  final int retainedPayloadBytes;
+
+  /// The retention tier's payload ceiling.
+  final int retainedPayloadByteBudget;
+
+  /// The decode gate's ceiling, derived from the decode lane width.
+  final int decodeInflightByteBudget;
+
+  @override
+  String toString() =>
+      'MemoryLedgerSnapshot(decodeInflightBytes: $decodeInflightBytes, '
+      'encodePublishTailBytes: $encodePublishTailBytes, '
+      'retainedPayloadBytes: $retainedPayloadBytes, '
+      'retainedPayloadByteBudget: $retainedPayloadByteBudget, '
+      'decodeInflightByteBudget: $decodeInflightByteBudget)';
 }

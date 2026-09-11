@@ -78,6 +78,23 @@ class InflightBytesBudget {
     if (delta < 0) _admit();
   }
 
+  /// Charges [bytes] unconditionally and returns the epoch to release against.
+  ///
+  /// Never refuses and never blocks, by design: this is the entry point for the
+  /// ENCODE/PUBLISH TAIL ledger, where the frame is already decoded and alive.
+  /// Refusing would make the ledger report less than the live byte count (a
+  /// lie), and blocking would deadlock -- the release can only come from the
+  /// very work being blocked. Concurrency at that stage is already bounded by
+  /// `EncodeStage.width`, so this instance is an accounting and attribution
+  /// instrument rather than a gate.
+  ///
+  /// Release through [release] with the returned epoch; its stale-epoch no-op
+  /// rule applies unchanged.
+  int chargeWithoutAdmission(int bytes) {
+    _inFlight += bytes < 0 ? 0 : bytes;
+    return _epoch;
+  }
+
   /// Completes when [bytes] fits, or immediately when nothing is in flight.
   ///
   /// The empty-budget escape hatch is load-bearing: a single frame larger than
@@ -132,9 +149,10 @@ class InflightBytesBudget {
   /// otherwise, because the release that would make room could only come from
   /// itself. It is retained deliberately (user ruling 2a, 2026-09-06) and its
   /// BEHAVIOUR is unchanged; only this comment names it. With the budget now
-  /// derived by `inflightByteBudgetFor` it is an exceptional path rather than,
-  /// as under the old quarter-of-the-payload-budget derivation, the path every
-  /// single admission took.
+  /// derived from the decode lane width by `decodeInflightByteBudget`
+  /// (S1.1, 2026-09-11) it is an exceptional path rather than, as under the
+  /// old quarter-of-the-payload-budget derivation, the path every single
+  /// admission took.
   bool _fits(int bytes) => _inFlight == 0 || _inFlight + bytes <= _maxBytes;
 
   void _admit() {
@@ -146,6 +164,20 @@ class InflightBytesBudget {
       waiter.completer.complete(_epoch);
     }
   }
+}
+
+/// A charge against the ENCODE/PUBLISH TAIL ledger, held by the off-lane
+/// encode continuation from the stage boundary until its `finally`.
+///
+/// Carries its epoch for exactly the reason `LaneAdmission` does: the
+/// continuation is deliberately unawaited, so a `dispose()`/`reset()` ->
+/// [InflightBytesBudget.clear] can land between the charge and the release, and
+/// releasing against a stale epoch must be a no-op rather than an
+/// over-release (TC-886 rule).
+class EncodePublishTailCharge {
+  const EncodePublishTailCharge(this.bytes, this.epoch);
+  final int bytes;
+  final int epoch;
 }
 
 class _Waiter {

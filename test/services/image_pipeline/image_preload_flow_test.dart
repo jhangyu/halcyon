@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
-import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
@@ -1135,18 +1134,28 @@ void main() {
       expect(controller.debugInflightBytes, 0);
     });
 
-    // TC-839b -- the byte budget bounds the encode stage.
+    // TC-839b -- what bounds the ENCODE stage.
+    //
+    // MIGRATED 2026-09-11 (S1.3, plan Part A WP1.3 test-migration table).
+    // OLD invariant: the in-flight BYTE budget bounds concurrent encodes
+    // (budget of 1 B -> peak 1; budget of 2 nominal frames -> peak 2).
+    // NEW invariant: after the stage boundary the decode byte budget bounds
+    // NOTHING -- its charge has moved to the encode/publish tail ledger, which
+    // never refuses -- so `EncodeStage.width` is the encode bound, and
+    // `StageWidths.derive` makes that the configured lane width.
+    // A budget-parameterised version of these two cases can now only pass
+    // vacuously, which is why they are re-expressed rather than deleted.
     //
     // Returns the PEAK number of encodes simultaneously in flight for the same
-    // four-item script under the given budget. The companion case below runs the
-    // identical script with a generous budget and observes 2, which is what
-    // makes the budgeted assertion able to fail.
-    Future<int> peakConcurrentEncodesWithBudget(int? budget) async {
+    // four-item script at the given lane width. Each case was observed FAILING
+    // at the opposite width (width 1 measured 1, width 2 measured 2), so
+    // neither assertion is satisfied by the script alone.
+    Future<int> peakConcurrentEncodesAtLaneWidth(int laneWidth) async {
       var concurrent = 0;
       var peak = 0;
+      var tailBytesWhileEncoding = 0;
       final controller = buildController(
-        decodeLaneWidth: 2,
-        inflightByteBudget: budget,
+        decodeLaneWidth: laneWidth,
         decoder: (path) async {
           await Future<void>.delayed(const Duration(milliseconds: 2));
           return decodedFixture();
@@ -1169,21 +1178,39 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks(300);
+      // Drain-bounded sampling, not a fixed pump count: the encoder delays in
+      // real time, so a fixed budget makes the DRAIN assertion the flaky thing
+      // that fails first and masks what this helper is actually measuring.
+      // With a wall-clock deadline the peak below is the only assertion that
+      // can distinguish the two widths.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      // `peak == 0` is part of the condition because the ledger reads zero
+      // BEFORE the first decode is dispatched too -- without it the loop exits
+      // on the first iteration having observed nothing at all.
+      while ((peak == 0 || controller.debugInflightBytes != 0) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(Duration.zero);
+        if (concurrent > 0 && controller.debugEncodePublishTailBytes > 0) {
+          tailBytesWhileEncoding = controller.debugEncodePublishTailBytes;
+        }
+      }
       expect(controller.debugInflightBytes, 0);
+      // The new ledger's own coverage: a frame in the encode stage is still
+      // accounted for, just not on the decode ledger any more.
+      expect(
+        tailBytesWhileEncoding,
+        greaterThan(0),
+        reason: 'the encode tail ledger must hold the frames being encoded',
+      );
       return peak;
     }
 
-    test('a byte budget below one frame serialises the encodes', () async {
-      expect(await peakConcurrentEncodesWithBudget(1), 1);
+    test('the encode stage width bounds concurrent encodes', () async {
+      expect(await peakConcurrentEncodesAtLaneWidth(1), 1);
     });
 
-    test('a generous budget lets the same script overlap encodes', () async {
-      // WP2 (2026-09-06): "generous" is measured against the PRE-DECODE NOMINAL
-      // charge (`kNominalFullFrameBytes`), not against the fixture's real 16
-      // decoded bytes, because admission is now taken before the decode knows
-      // the size. The expected peak of 2 is unchanged.
-      expect(await peakConcurrentEncodesWithBudget(2 * kNominalFullFrameBytes), 2);
+    test('a wider encode stage lets the same script overlap encodes', () async {
+      expect(await peakConcurrentEncodesAtLaneWidth(2), 2);
     });
   });
 

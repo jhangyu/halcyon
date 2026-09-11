@@ -137,6 +137,11 @@ class AppState extends ChangeNotifier {
     PhotoExportService? exportService,
     ExifBatchReader? exifReader,
     RetentionPolicy retention = const RetentionPolicy.floor(),
+    // Forwarded straight to the preload controller, where it is the SAFETY
+    // CEILING of the decode byte budget and nothing else (decision D1-a,
+    // 2026-09-11). Optional with a null default so no test needs a RAM fake;
+    // `main.dart` passes the one reading it already took.
+    int? physicalMemoryBytes,
   }) : _decodeLaneWidth = kDefaultDecodeLaneWidth,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
@@ -164,6 +169,7 @@ class AppState extends ChangeNotifier {
           // than a full decode (ratio 0.916, payload-bench-report.md §4)
           // while costing a whole extra sensor decode outside the lane.
           retention: retention,
+          physicalMemoryBytes: physicalMemoryBytes,
           decodeLaneWidth: kDefaultDecodeLaneWidth,
           // CONTRACT DELIVERABLES 1 AND 2. One scheduler, both seams: tier-1
           // registrations are drained at Priority.idle, and EXIF-orientation
@@ -259,6 +265,20 @@ class AppState extends ChangeNotifier {
       _preloadController.debugPacerHasFrameHook &&
       // ignore: invalid_use_of_visible_for_testing_member
       _preloadController.debugCompositeGateIsPaced;
+
+  /// One coherent reading of every byte ledger the preload controller owns,
+  /// for the S3.0 memory-attribution capture (WP0.2).
+  ///
+  /// Delegates; holds no state of its own, so it cannot drift from the
+  /// controller's ledgers. Works from BOTH constructors -- [AppState.forTesting]
+  /// builds a real [ImagePreloadController] with real ledgers wired, so a
+  /// capture self-test does not have to stand up a production AppState (real
+  /// decoder, real folder) just to read one snapshot.
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  MemoryLedgerSnapshot get debugMemoryLedgerSnapshot =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.debugMemoryLedgerSnapshot;
 
   final PhotoExportService _exportService;
   final ExifBatchReader _exifReader;

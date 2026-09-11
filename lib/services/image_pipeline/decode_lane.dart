@@ -167,36 +167,72 @@ class DecodeLane {
     _schedulePump();
   }
 
+  /// How many admissions were actually CORRECTED from their pre-decode
+  /// estimate to a real frame size by [adjustAdmission].
+  ///
+  /// Counts only the calls that found a live admission with a budget wired, so
+  /// it distinguishes "the re-accounting seam ran" from "the seam was a no-op"
+  /// -- which is exactly what AC2 asks to be pinned, and what an assertion on
+  /// `inFlightBytes` alone cannot tell apart. Not `@visibleForTesting`: the
+  /// controller re-exposes it as `debugAdmissionAdjustmentCount`, same shape as
+  /// [debugByteBlockedPumps].
+  int debugAdmissionAdjustmentCount = 0;
+
   /// Corrects [key]'s admission from its pre-decode estimate to the real size,
   /// once the decode has produced the frame. No-op when [key] holds no
-  /// admission (no budget wired, or the admission was already transferred).
+  /// admission (no budget wired, or the admission was already handed off).
   void adjustAdmission(LaneKey key, {required int to}) {
     final admission = _admitted[key];
     final budget = _budget;
     if (admission == null || budget == null) return;
+    assert(to >= 0, 'a real frame size cannot be negative');
     budget.adjust(admission.bytes, to, epoch: admission.epoch);
     admission.bytes = to < 0 ? 0 : to;
+    assert(
+      _admitted[key]!.bytes == (to < 0 ? 0 : to),
+      'the ledger write-back must match the value charged against the budget',
+    );
+    debugAdmissionAdjustmentCount++;
     _schedulePump();
   }
 
-  /// Hands [key]'s byte admission to a holder that OUTLIVES the lane body.
+  /// Moves [key]'s byte charge off the DECODE ledger and onto [tail], the
+  /// encode/publish tail ledger, returning the charge the new holder must
+  /// release exactly once.
   ///
-  /// The off-lane encode continuation keeps the full-res frame alive after the
-  /// lane slot is freed, so releasing at lane-body end would leave
-  /// encode-width x one frame of live bytes uncharged (lead ruling C2, option
-  /// (b), 2026-09-06). Once transferred, `_runOne`'s `finally` releases
-  /// nothing; the new holder must call [releaseAdmission] exactly once.
-  LaneAdmission? takeAdmission(LaneKey key) {
+  /// S1.3: the decode ledger is what bounds DECODE concurrency, so it must be
+  /// free the moment the frame leaves the lane -- otherwise a `W+1`-frame
+  /// budget still caps decode concurrency below `W` whenever encodes are slow.
+  /// The frame itself is demonstrably still alive through the off-lane encode,
+  /// so the bytes are not forgotten, they are re-attributed.
+  ///
+  /// ORDER IS LOAD-BEARING and is why this is ONE method rather than two calls
+  /// at the call site: the tail is charged BEFORE the decode ledger is
+  /// released, so the accounted total never dips below the live byte count and
+  /// no decode is ever admitted against capacity a frame in encode still
+  /// occupies. Expressing it here makes the wrong order unrepresentable
+  /// instead of merely commented.
+  ///
+  /// The charge is the REAL post-decode size (lead ruling 2026-09-11), read off
+  /// the admission [adjustAdmission] already corrected -- never
+  /// `kNominalFullFrameBytes`, which would double the accounted tail on every
+  /// frame smaller than the nominal.
+  ///
+  /// Returns null when [key] holds no admission (no budget wired, or nothing
+  /// was admitted for it).
+  EncodePublishTailCharge? handOffAdmissionToTail(
+    LaneKey key,
+    InflightBytesBudget tail,
+  ) {
     final admission = _admitted.remove(key);
     if (admission == null) return null;
-    return LaneAdmission._(admission.bytes, admission.epoch);
-  }
-
-  /// Releases an admission taken by [takeAdmission] and re-pumps: the released
-  /// bytes may be exactly what a byte-blocked pending task was waiting for.
-  void releaseAdmission(LaneAdmission admission) {
+    final charge = EncodePublishTailCharge(
+      admission.bytes,
+      tail.chargeWithoutAdmission(admission.bytes),
+    );
     _budget?.release(admission.bytes, epoch: admission.epoch);
     if (_pending.isNotEmpty) _schedulePump();
+    return charge;
   }
 
   /// Starts the pump on a MICROTASK, never synchronously inside [enqueue].
@@ -271,8 +307,9 @@ class DecodeLane {
           // lane runnable.
         } finally {
           // Both resources are given back here, unless the byte admission was
-          // TRANSFERRED to a holder that outlives this body (the off-lane
-          // encode -- see [takeAdmission]). Releasing bytes re-pumps, because a
+          // HANDED OFF to the encode/publish tail ledger, whose holder outlives
+          // this body (see [handOffAdmissionToTail]). Releasing bytes re-pumps,
+          // because a
           // pending task may have been refused for exactly these bytes; without
           // that restart the queue would stall forever once the last runner
           // exits.
@@ -330,16 +367,6 @@ class DecodeLane {
     }
     return best;
   }
-}
-
-/// A byte admission that has left the lane's own bookkeeping, handed to a
-/// holder whose lifetime outlives the lane body ([DecodeLane.takeAdmission]).
-/// Carries its epoch, so a release landing after a `clear()` is a no-op rather
-/// than an over-release (TC-886 rule).
-class LaneAdmission {
-  const LaneAdmission._(this.bytes, this.epoch);
-  final int bytes;
-  final int epoch;
 }
 
 class _Admission {
