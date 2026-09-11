@@ -6,6 +6,8 @@
 // Dart contracts these must satisfy live in:
 //   lib/services/trash_service.dart             (halcyon/trash)
 //   lib/services/open_with_channel.dart         (halcyon/open_with)
+//   lib/services/platform/memory_pressure_monitor.dart
+//                                               (halcyon/memory_pressure)
 //
 // NOTHING IN THIS FILE OR ITS IMPLEMENTATION HAS BEEN COMPILED OR RUN.
 // It was written on a macOS host, which cannot build Windows targets. See
@@ -21,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace halcyon {
@@ -47,12 +50,12 @@ TrashResult TrashFile(const std::string& utf8_path);
 // Windows appends to the command line.
 std::string FirstExistingFileArgument(const std::vector<std::string>& arguments);
 
-// Owns Halcyon's two Windows MethodChannels for the lifetime of the engine.
+// Owns Halcyon's Windows MethodChannels for the lifetime of the engine.
 class Channels {
  public:
-  // Registers `halcyon/trash`'s handler immediately. `halcyon/open_with` is
-  // created but gets NO handler: like macOS (AppDelegate.swift:80-86) it is
-  // push-only, native -> Dart.
+  // Registers `halcyon/trash`'s handler immediately. `halcyon/open_with` and
+  // `halcyon/memory_pressure` are created but get NO handler: like macOS
+  // (AppDelegate.swift) they are push-only, native -> Dart.
   explicit Channels(flutter::BinaryMessenger* messenger);
   ~Channels();
 
@@ -65,9 +68,49 @@ class Channels {
   // is push-only (open_with_channel.dart:6-11).
   void PushOpenFile(const std::string& utf8_path);
 
+  // Sends a memory-pressure level to Dart as `memoryPressureLevelChanged`
+  // (memory_pressure_monitor.dart). |level| is one of "normal" / "warning";
+  // "critical" is macOS-only BY PLATFORM CAPABILITY, not by omission -- the
+  // Windows low-memory notification is a TWO-STATE signal and has no third
+  // level to map (lead ruling (e), 2026-09-11). Do not "complete" this by
+  // inventing a threshold Windows does not provide.
+  //
+  // MUST be called on the platform thread; the watcher thread below routes
+  // through a message-only window to guarantee that.
+  void PushMemoryPressureLevel(const char* level);
+
  private:
+  // Creates the message-only window, the notification handle and the watcher
+  // thread. Called from the constructor, i.e. on the platform thread.
+  void StartMemoryPressureWatch();
+
+  // Signals the shutdown event, joins the watcher and releases the handles.
+  // Called from the destructor BEFORE the channels are torn down.
+  void StopMemoryPressureWatch();
+
+  // Body of the low-memory watcher thread. See halcyon_channels.cpp for why a
+  // dedicated thread exists at all: CreateMemoryResourceNotification returns a
+  // waitable handle, not a callback.
+  void WatchMemoryPressure();
+
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> trash_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> open_with_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      memory_pressure_;
+
+  // Low-memory watcher. The shutdown event and the join in the destructor are
+  // MANDATORY, not tidy-up: a thread that outlives the engine's messenger is a
+  // use-after-free, the exact hazard the channel-ordering note in
+  // flutter_window.h already warns about.
+  void* memory_notification_ = nullptr;  // HANDLE
+  void* memory_watch_stop_ = nullptr;    // HANDLE (manual-reset event)
+  std::thread memory_watch_thread_;
+
+  // Message-only window used to hop from the watcher thread to the platform
+  // thread. MethodChannel::InvokeMethod is not thread-safe and must run where
+  // the engine lives.
+  void* pressure_window_ = nullptr;  // HWND
+  std::string last_pressure_level_;
 };
 
 }  // namespace halcyon

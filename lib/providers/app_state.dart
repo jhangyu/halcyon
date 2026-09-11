@@ -289,6 +289,24 @@ class AppState extends ChangeNotifier {
   /// never disagree.
   RetentionPolicy get retentionPolicy => _preloadController.retention;
 
+  // Memory-pressure seam (WP4.4 / S3.4). Three pure delegates, no state and no
+  // policy: the response policy lives in exactly one place,
+  // `MemoryPressureResponder`, and the derived budget is owned by the
+  // controller. Anything smarter here would be a second owner of one of those
+  // two things.
+
+  /// The payload budget the pipeline derives, ignoring any pressure override.
+  int get derivedPayloadByteBudget =>
+      _preloadController.derivedPayloadByteBudget;
+
+  /// Overrides the payload budget; null restores the derived value.
+  void setPayloadByteBudgetOverride(int? bytes) =>
+      _preloadController.setPayloadByteBudgetOverride(bytes);
+
+  /// Drops full-resolution pixels for items outside the full-resolution band.
+  void dropBeyondBandTierTwoPixels() =>
+      _preloadController.dropBeyondBandTierTwoPixels();
+
   bool get isRenaming => _renameCoordinator.isRenaming;
 
   void cancelRename() => _renameCoordinator.cancelRename();
