@@ -298,6 +298,27 @@ class AppState extends ChangeNotifier {
       // ignore: invalid_use_of_visible_for_testing_member
       _preloadController.debugMemoryLedgerSnapshot;
 
+  /// The retention slot ids the controller THIS `AppState` built is currently
+  /// holding -- the per-slot DIMENSIONS capture the compressed-residency v2
+  /// round could not produce (contract AC-1). Delegates rather than
+  /// re-deriving, for the same non-drift reason as
+  /// [debugMemoryLedgerSnapshot].
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  Set<String> get debugRetentionIds =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.debugRetentionIds;
+
+  /// The retained payload for [id] as the controller THIS `AppState` built
+  /// reports it -- the DIMENSIONS-capture companion to [debugRetentionIds]:
+  /// a slot id alone has no width/height/byte-length without reading back
+  /// through the payload it points at.
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  SourcePayload? debugPayloadFor(String? id) =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _preloadController.payloadFor(id);
+
   final PhotoExportService _exportService;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;

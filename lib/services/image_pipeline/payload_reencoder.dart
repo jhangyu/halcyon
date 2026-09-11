@@ -119,7 +119,15 @@ void resetReencodeCounters() {
 /// returns -- discarding a smaller-than-expected win by keeping the original
 /// bytes if the re-encoded result is not actually smaller than the input, on
 /// top of its own small-input passthrough before this function is ever
-/// called. See `normalizeEncodedPayload`'s dartdoc for both.
+/// called. A third route back to the original bytes also runs through this
+/// function without being one of ITS guards: if `normalizeEncodedPayload`'s
+/// decode step fails (its `EncodedRgbaDecoder` returns null), it still calls
+/// this function with `fullRes: null`, which lands on the `fullRes == null`
+/// exit below -- a decode failure that is therefore counted in
+/// [reencodeFallbacks], the shared counter, not in `normalizeFallbacks`
+/// (`payload_normalizer.dart`'s own counter, reserved for its post-hoc
+/// smaller-than-input refusal only). See `normalizeEncodedPayload`'s dartdoc
+/// for all three.
 Future<SourcePayload> reencodePayload({
   required PayloadEncoder encoder,
   /// A THUNK, not a value (WP1, gc-remediation 2026-09-06): building the
