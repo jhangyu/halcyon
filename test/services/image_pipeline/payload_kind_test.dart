@@ -65,7 +65,7 @@ void main() {
 
   group('payload_kind_test.dart', () {
     test(
-      'TC-A1 a cache holding one payload of each kind reports the per-kind '
+      'TC-1226 a cache holding one payload of each kind reports the per-kind '
       'split and a total that still equals the sum',
       () {
         final cache = PhotoPayloadCache();
@@ -88,7 +88,7 @@ void main() {
     );
 
     test(
-      'TC-A2 an EMPTY cache reports 0/0/0 from all three getters without '
+      'TC-1227 an EMPTY cache reports 0/0/0 from all three getters without '
       'throwing (the empty-map trap setByteBudget documents)',
       () {
         final cache = PhotoPayloadCache();
@@ -100,7 +100,7 @@ void main() {
     );
 
     test(
-      'TC-A3 a MemoryLedgerSnapshot taken from a controller retaining one '
+      'TC-1228 a MemoryLedgerSnapshot taken from a controller retaining one '
       'payload of each kind reports BOTH per-kind byte totals non-zero -- the '
       '"field present, always 0" failure mode is what this pins',
       () async {

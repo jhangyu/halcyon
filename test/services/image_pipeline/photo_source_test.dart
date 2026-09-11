@@ -1669,7 +1669,7 @@ void main() {
     });
 
     test(
-      'TC-A4 a PhotoSource bound to a THROWING encoder still yields the pixel '
+      'TC-1229 a PhotoSource bound to a THROWING encoder still yields the pixel '
       'fallback outcome -- the deleted encoder==null arm stays reachable per '
       'test, just never by omission (compressed-residency v2 Task 2)',
       () async {
