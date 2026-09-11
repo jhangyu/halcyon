@@ -277,164 +277,15 @@ void main() {
       dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
     );
 
-    Future<bool> tierOneResident(
-      ImagePreloadController controller,
-      String id, {
-      required int width,
-      required int height,
-    }) async {
-      final bytes = controller.imageBytesFor(id);
-      if (bytes == null) return false;
-      final key = await tierOneProviderFor(
-        bytes,
-        width: width,
-        height: height,
-      ).obtainKey(const ImageConfiguration());
-      return PaintingBinding.instance.imageCache.containsKey(key);
-    }
-
     setUp(clearImageCacheSetUp);
 
     // ---------------------------------------------------------------- AC2
 
-    testWidgets('TC-095 every slot of the -3..+5 retention window holds a '
-        'tier-1 entry (AC2)', (tester) async {
-      await tester.runAsync(() async {
-        final controller = cheapController();
-        addTearDown(controller.dispose);
-        controller.updateTargetSize(10, 10);
-
-        final photos = paddedItems(14);
-        const selected = 5;
-        await controller.preloadImages(
-          items: photos,
-          selectedItemId: photos[selected].id,
-          notifyLoaded: () {},
-        );
-        // PHASE 3 settle: the pass returns once the window is ISSUED, so the
-        // tier-1 entries it produces (now landing-driven) exist a few event-loop
-        // turns later. What is asserted below is unchanged.
-        await until(
-          () => controllerWindowFilled(controller, photos, selected),
-          reason: 'the whole cheap window to land',
-        );
-
-        // Derived from the retention constants, never hand-written: if the
-        // retention window ever moves, this test must move with it rather than
-        // silently keep checking the old span.
-        final first = selected - kRetentionBefore;
-        final last = selected + kRetentionAfter;
-        expect(
-          last - first + 1,
-          9,
-          reason: 'the window under test is nine slots',
-        );
-
-        for (var i = first; i <= last; i++) {
-          expect(
-            await tierOneResident(
-              controller,
-              photos[i].id,
-              width: 10,
-              height: 10,
-            ),
-            isTrue,
-            reason:
-                'slot $i (distance ${i - selected}) is inside -3..+5 and must '
-                'hold a tier-1 entry; before round 2 the span was +/-2, so '
-                'slots 2, 8, 9 and 10 had no ImageCache entry at all',
-          );
-        }
-      });
-    });
-
-    testWidgets('TC-096 an item at -3 and one at +5 keep their tier-1 entries '
-        'while in-window, and lose them on leaving (AC2 killer)', (
-      tester,
-    ) async {
-      await tester.runAsync(() async {
-        final controller = cheapController();
-        addTearDown(controller.dispose);
-        controller.updateTargetSize(10, 10);
-
-        final photos = paddedItems(20);
-        await controller.preloadImages(
-          items: photos,
-          selectedItemId: photos[5].id,
-          notifyLoaded: () {},
-        );
-        // PHASE 3 settle (see TC-095). Assertions below unchanged.
-        await until(
-          () => controllerWindowFilled(controller, photos, 5),
-          reason: 'the whole cheap window to land',
-        );
-
-        // The two extreme slots named by AC2's killer: -3 is index 2, +5 is
-        // index 10. Both are exactly ON the boundary, which is where an
-        // off-by-one in the span would show up.
-        expect(
-          await tierOneResident(
-            controller,
-            photos[2].id,
-            width: 10,
-            height: 10,
-          ),
-          isTrue,
-          reason: 'the -3 boundary slot must hold a tier-1 entry',
-        );
-        expect(
-          await tierOneResident(
-            controller,
-            photos[10].id,
-            width: 10,
-            height: 10,
-          ),
-          isTrue,
-          reason: 'the +5 boundary slot must hold a tier-1 entry',
-        );
-
-        // Step forward one. Index 2 becomes -4: outside retention entirely, so
-        // its payload AND its tier-1 entry must go. This is the other half of
-        // the guarantee -- "not evicted while in-window" is only meaningful if
-        // something IS evicted once out of window.
-        await controller.preloadImages(
-          items: photos,
-          selectedItemId: photos[6].id,
-          notifyLoaded: () {},
-        );
-        // PHASE 3 settle: index 11 enters the window with this pass and must be
-        // given time to land before the residency assertions below.
-        await until(
-          () => controllerWindowFilled(controller, photos, 6),
-          reason: 'the window at the new selection to land',
-        );
-        expect(
-          controller.payloadFor(photos[2].id),
-          isNull,
-          reason: 'index 2 is now -4 and must have left the retention window',
-        );
-        expect(
-          await tierOneResident(
-            controller,
-            photos[3].id,
-            width: 10,
-            height: 10,
-          ),
-          isTrue,
-          reason: 'index 3 is now -3 and is still in-window',
-        );
-        expect(
-          await tierOneResident(
-            controller,
-            photos[11].id,
-            width: 10,
-            height: 10,
-          ),
-          isTrue,
-          reason: 'index 11 is now +5 and must have gained a tier-1 entry',
-        );
-      });
-    });
+    // TC-095 and TC-096 (whole -3..+5 retention window holds a tier-1 entry)
+    // are DELETED: spec v2 / ruling R-B abolished window-resolution retention,
+    // so no tier-1 entry is held outside the +/-1 full-resolution band. The
+    // narrowed band set and its edges are pinned by TC-1223/TC-1224/TC-1225 in
+    // resolution_band_test.dart.
 
     // ---------------------------------------------------------------- AC3
 
@@ -880,13 +731,13 @@ void main() {
       // S3.1 (2026-09-11): the image-cache figure is no longer a fixed ceiling
       // constant; it is derived from the retention working set, so it is
       // pinned through the derivation function at the shipped floor rung.
-      expect(imageCacheBudgetBytes(), 534773760, reason: '510 MiB exactly');
+      expect(imageCacheBudgetBytes(), 400556032, reason: '382 MiB exactly');
       expect(kPayloadByteBudget, 268435456, reason: '256 MiB exactly');
       // The two are sized against OPPOSITE corpora -- the cache figure by the
       // cheap mix (two entries per item, full-size decode), the payload figure by
       // the expensive mix (window-resolution RGBA retained per slot). Neither can
       // sanity-check the other, so both are asserted independently.
-      expect(imageCacheBudgetBytes(), 510 * 1024 * 1024);
+      expect(imageCacheBudgetBytes(), 382 * 1024 * 1024);
       expect(kPayloadByteBudget, 256 * 1024 * 1024);
     });
 

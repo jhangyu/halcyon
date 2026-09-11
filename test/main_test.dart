@@ -27,12 +27,14 @@ void main() {
       configureImageCache();
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        534773760,
+        400556032,
         reason:
-            '510 MiB pinned as a RAW BYTE COUNT on purpose: the round-1 record '
-            'lost time to MB-vs-MiB drift. S3.1 (2026-09-11) derives this from '
-            'the floor retention window (9 slots, 3 of them full-resolution) '
-            'instead of a quarter of machine RAM clamped to 768 MiB',
+            '382 MiB pinned as a RAW BYTE COUNT on purpose: the round-1 '
+            'record lost time to MB-vs-MiB drift. Spec v2 (2026-09-11) '
+            'derives this from the +/-1 DECODED band (3 full-size + 3 '
+            'tier-1 window-resolution entries + thumbnail pool), not from '
+            'the 9-slot retention window: window-resolution retention is '
+            'abolished (ruling R-B)',
       );
     },
   );
@@ -44,16 +46,18 @@ void main() {
       configureImageCache(physicalMemoryBytes: 1536 * 1024 * 1024);
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        402653184,
+        400556032,
         reason:
-            '1.5 GiB / 4 = 384 MiB is BELOW the 510 MiB working-set budget, so '
-            'the safety ceiling binds on this small machine',
+            'THE CEILING NO LONGER BINDS: 1.5 GiB / 4 = 402,653,184 B is '
+            'ABOVE the 382 MiB working-set budget, so this small machine '
+            'gets the full derived budget. Before spec v2 the budget was '
+            '510 MiB and this row clamped to 384 MiB',
       );
 
       configureImageCache(physicalMemoryBytes: 64 * 1024 * 1024 * 1024);
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        534773760,
+        400556032,
         reason:
             'a large machine gets the SAME working-set budget: the ceiling '
             'never raises it, and surplus RAM is left to the OS file cache',
@@ -62,7 +66,7 @@ void main() {
       configureImageCache();
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
-        534773760,
+        400556032,
         reason: 'no reading means no ceiling applies at all',
       );
     },

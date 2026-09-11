@@ -1,5 +1,4 @@
 import 'prefetch_scheduler.dart';
-import 'retention_policy.dart';
 
 /// S3.1 (2026-09-11): the Flutter image-cache budget is derived from the
 /// WORKING SET this app must hold, not from a percentage of machine memory.
@@ -35,19 +34,29 @@ import 'retention_policy.dart';
 /// browse mixed corpora, while this pool must be sized against its WORST
 /// corpus, the cheap preview-bearing one (see below).
 ///
-/// DERIVATION (cheap, preview-bearing 24 MP corpus — the dear corpus for THIS
-/// pool; see `docs/logs/2026-08-28/cache-sizing-rederivation.md` §2.1, whose
-/// arithmetic these constants reproduce to the byte):
+/// DERIVATION (spec v2, 2026-09-11, ruling R-B — DECODED PIXELS ONLY):
 ///
 ///   requirement = fullResolutionBandSlotCount
 ///                   * (fullResolutionImageByteCost + windowResolutionImageByteCost)
-///               + windowResolutionOnlySlotCount * windowResolutionImageByteCost
 ///               + sidebarThumbnailPoolByteCost
 ///   budget      = roundUpToWholeMebibytes(requirement * safetyFactor)
 ///
-/// For a preview-bearing item the tier-1 and tier-2 entries are DIFFERENT cache
-/// keys that coexist, which is why every slot of the full-resolution band is
-/// charged both costs.
+/// For a preview-bearing item in the +/-1 band the tier-1 and tier-2 entries
+/// are DIFFERENT cache keys that coexist, which is why every slot of the
+/// band is charged both costs.
+///
+/// WHAT LEFT, AND WHY IT IS NOT COMING BACK. Until spec v2 this row also
+/// carried `windowResolutionOnlySlotCount * windowResolutionImageByteCost`
+/// — one window-resolution decoded entry for every retained slot outside
+/// the band. Ruling R-B abolished that tier: a retained slot outside the
+/// band now holds a full-size JPEG PAYLOAD and no decoded pixels at all.
+/// Its bytes are charged to `kPayloadByteBudget`, a SEPARATE pool (see
+/// below); re-introducing a payload term here would double-charge them and
+/// re-merge two pools that are deliberately sized against opposite corpora.
+///
+/// CONSEQUENCE: this budget is RUNG-INDEPENDENT. Every input is band-
+/// derived, so the retention policy no longer reaches it — which is why
+/// [imageCacheBudgetBytes] takes no `retention` argument.
 ///
 /// This budget is NOT interchangeable with `kPayloadByteBudget`
 /// (`photo_payload_cache.dart:43`): that one is sized against the OPPOSITE
@@ -119,7 +128,6 @@ const int _bytesPerMebibyte = 1 << 20;
 /// raises the result; the result never falls below [kImageCacheFloorBytes].
 int imageCacheBudgetBytesFromWorkingSet({
   required int fullResolutionBandSlotCount,
-  required int windowResolutionOnlySlotCount,
   required int fullResolutionImageByteCost,
   required int windowResolutionImageByteCost,
   required int sidebarThumbnailPoolByteCost,
@@ -129,7 +137,6 @@ int imageCacheBudgetBytesFromWorkingSet({
   final requirementBytes =
       fullResolutionBandSlotCount *
           (fullResolutionImageByteCost + windowResolutionImageByteCost) +
-      windowResolutionOnlySlotCount * windowResolutionImageByteCost +
       sidebarThumbnailPoolByteCost;
   final withHeadroomBytes = (requirementBytes * safetyFactor).ceil();
   final roundedUpToWholeMebibytes =
@@ -145,27 +152,20 @@ int imageCacheBudgetBytesFromWorkingSet({
       : afterSafetyCeiling;
 }
 
-/// The app's image-cache budget for [retention], which is the only thing that
-/// changes how many slots are held at once.
+/// The app's image-cache budget.
 ///
-/// The retention window sets the tier-1 slot count (`before + after + 1`); the
-/// first [kFullResolutionBandSlotCount] of those also hold a full-resolution
-/// entry, so the remainder are window-resolution only. [physicalMemoryBytes]
-/// is used solely as the downward safety ceiling described in
-/// [kMachineMemorySafetyCeilingDivisor]; a null reading (every platform except
-/// macOS today) simply means no ceiling applies.
+/// Takes no retention argument: since spec v2 every input is derived from
+/// the +/-1 full-resolution BAND, so a wider retention window changes how
+/// many JPEG PAYLOADS are held (`kPayloadByteBudget`'s business) and not
+/// how many decoded images are. [physicalMemoryBytes] is used solely as the
+/// downward safety ceiling described in
+/// [kMachineMemorySafetyCeilingDivisor]; a null reading (every platform
+/// except macOS today) simply means no ceiling applies.
 int imageCacheBudgetBytes({
-  RetentionPolicy retention = const RetentionPolicy.floor(),
   int? physicalMemoryBytes,
 }) {
-  final retentionSlotCount = retention.before + retention.after + 1;
-  final windowResolutionOnlySlotCount =
-      retentionSlotCount - kFullResolutionBandSlotCount;
   return imageCacheBudgetBytesFromWorkingSet(
     fullResolutionBandSlotCount: kFullResolutionBandSlotCount,
-    windowResolutionOnlySlotCount: windowResolutionOnlySlotCount < 0
-        ? 0
-        : windowResolutionOnlySlotCount,
     fullResolutionImageByteCost: kFullResolutionImageByteCost,
     windowResolutionImageByteCost: kWindowResolutionImageByteCost,
     sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,

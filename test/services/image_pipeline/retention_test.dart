@@ -213,59 +213,70 @@ void main() {
   group('cache_budget_test.dart', () {
     const gib = 1 << 30;
 
-    // TC-1182 (S3.1, 2026-09-11): the budget is WORKING-SET derived. Machine
-    // memory is a downward safety ceiling only, so the same retention window
-    // yields the same budget on a 4 GiB and a 64 GiB machine.
+    // TC-1182 (S3.1, 2026-09-11; re-derived under spec v2 the same day):
+    // the budget is WORKING-SET derived. Machine memory is a downward
+    // safety ceiling only, so the same band yields the same budget on a
+    // 4 GiB and a 64 GiB machine.
     test('TC-1182: budget is working-set derived, not RAM-proportional', () {
-      const floorBudget = 510 << 20; // 534,773,760 B
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: null), floorBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib), floorBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), floorBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 256 * gib), floorBudget,
+      const bandBudget = 400556032; // 382 MiB
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: null), bandBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib), bandBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), bandBudget);
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 256 * gib), bandBudget,
           reason: 'surplus RAM is left to the OS file cache, not claimed');
-      // Downward safety ceiling: a quarter of a small machine's memory.
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20), 384 << 20);
+      // THE CEILING STOPPED BINDING. 1.5 GiB / 4 = 402,653,184 B, which is
+      // now ABOVE the derived 400,556,032 B -- so a 1.5 GiB machine gets
+      // the full derived budget. This row used to read `384 << 20`. The
+      // change is not a literal refresh: it is a ceiling that no longer
+      // engages, which is exactly the kind of silent change a bare literal
+      // update would hide.
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20), bandBudget,
+          reason: '1.5 GiB / 4 = 402,653,184 B is ABOVE the 382 MiB '
+              'working-set budget, so the safety ceiling does not bind');
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 512 << 20),
-          kImageCacheFloorBytes); // never below the M5 guarantee floor
+          kImageCacheFloorBytes,
+          reason: '512 MiB / 4 = 134,217,728 B still binds, and is then '
+              'raised to the M5 guarantee floor');
     });
 
     // TC-1183: the derivation formula itself, pinned input-by-input so a
     // future reader can see WHY the number is what it is.
+    //
+    // SPEC V2 (2026-09-11, ruling R-B): the window-resolution RETENTION
+    // term is gone. What remains is DECODED PIXELS ONLY -- the +/-1 band's
+    // three full-size entries, the SAME band's three tier-1
+    // window-resolution entries (which survive the Task 6 narrowing and
+    // are still charged), and the thumbnail pool.
     test('TC-1183: working-set formula, every input named', () {
-      // Floor rung: 9 retention slots, 3 of them also full-resolution
-      // (S3.2's selected +/-1 band).
-      // 3*(96,000,000 + 19,440,000) + 6*19,440,000 + 1,677,722
-      //   = 464,637,722 B, * 1.15 = 534,333,381 B, rounded up to 510 MiB.
+      // 3*(96,000,000 + 19,440,000) + 1,677,722 = 347,997,722 B,
+      //   * 1.15 = 400,197,380.3 -> ceil 400,197,381 -> 382 MiB.
       expect(
         imageCacheBudgetBytesFromWorkingSet(
           fullResolutionBandSlotCount: 3,
-          windowResolutionOnlySlotCount: 6,
           fullResolutionImageByteCost: kFullResolutionImageByteCost,
           windowResolutionImageByteCost: kWindowResolutionImageByteCost,
           sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
           safetyFactor: kImageCacheSafetyFactor,
         ),
-        510 << 20,
+        400556032,
+        reason: '382 MiB exactly, pinned as a RAW BYTE COUNT: the round-1 '
+            'record lost time to MB-vs-MiB drift',
       );
-      // Wider retention windows raise the budget through the SLOT COUNT.
-      expect(
-        imageCacheBudgetBytes(
-          retention: retentionPolicyForTier(RetentionTier.balanced),
-        ),
-        574 << 20, // 12 slots
-      );
-      expect(
-        imageCacheBudgetBytes(
-          retention: retentionPolicyForTier(RetentionTier.generous),
-        ),
-        638 << 20, // 15 slots
-      );
-      // The safety factor is a multiplier on the requirement, not a constant
-      // addition: doubling it doubles the headroom above the same row.
+      expect(400556032, 382 * 1024 * 1024);
+      // RUNG INDEPENDENCE, asserted rather than assumed. The two rung
+      // rows TC-1183 used to carry (balanced -> 574 MiB, generous -> 638
+      // MiB) pinned a COUPLING BETWEEN RETENTION AND THE IMAGE-CACHE
+      // BUDGET THAT NO LONGER EXISTS; they are deleted, not re-valued,
+      // and this is their replacement. `imageCacheBudgetBytes` no longer
+      // takes a retention argument at all, so the independence is
+      // structural -- this assertion pins the consequence.
+      expect(imageCacheBudgetBytes(), 400556032);
+      // The safety factor is a multiplier on the requirement, not a
+      // constant addition: doubling it doubles the headroom above the
+      // same row.
       expect(
         imageCacheBudgetBytesFromWorkingSet(
           fullResolutionBandSlotCount: 1,
-          windowResolutionOnlySlotCount: 0,
           fullResolutionImageByteCost: 600 << 20,
           windowResolutionImageByteCost: 0,
           sidebarThumbnailPoolByteCost: 0,

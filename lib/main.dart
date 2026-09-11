@@ -17,20 +17,19 @@ import 'views/main_screen.dart';
 // decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
 // precaching needs headroom for several images at once.
 
-void configureImageCache({
-  RetentionPolicy retention = const RetentionPolicy.floor(),
-  int? physicalMemoryBytes,
-}) {
-  // S3.1 (2026-09-11): the budget is derived from the working set the
-  // retention window implies, NOT from a fraction of machine memory. The
-  // memory reading, when DeviceMemory supplies one (macOS only today; null
-  // everywhere else, and Platform.isX branches are forbidden by C-3), is now
-  // only a downward safety ceiling. Surplus memory is deliberately left to the
-  // operating system file cache, which accelerates this app's own reads. See
-  // lib/services/image_pipeline/cache_budget.dart for the full derivation and
-  // its attribution evidence.
+void configureImageCache({int? physicalMemoryBytes}) {
+  // S3.1 (2026-09-11), re-derived under spec v2 the same day: the budget is
+  // derived from the DECODED-PIXEL working set the +/-1 band implies, NOT
+  // from a fraction of machine memory and no longer from the retention
+  // window either (ruling R-B abolished window-resolution retention, so a
+  // wider retention window holds more JPEG payloads, not more decoded
+  // images). The memory reading, when DeviceMemory supplies one (macOS only
+  // today; null everywhere else, and Platform.isX branches are forbidden by
+  // C-3), is only a downward safety ceiling. Surplus memory is deliberately
+  // left to the operating system file cache, which accelerates this app's
+  // own reads. See lib/services/image_pipeline/cache_budget.dart for the
+  // full derivation and its attribution evidence.
   PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheBudgetBytes(
-    retention: retention,
     physicalMemoryBytes: physicalMemoryBytes,
   );
 }
@@ -49,15 +48,13 @@ Future<void> main() async {
   // reading would silently leave the app on the floor policy while looking
   // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
   final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
-  // Retention is resolved FIRST because the image-cache budget is derived from
-  // the retention window's slot count (S3.1), not from machine memory.
+  // Retention is resolved here for AppState. It no longer feeds the
+  // image-cache budget: spec v2 made that budget band-derived and
+  // rung-independent.
   final retention = retentionPolicyFor(
     physicalMemoryBytes: physicalMemoryBytes,
   );
-  configureImageCache(
-    retention: retention,
-    physicalMemoryBytes: physicalMemoryBytes,
-  );
+  configureImageCache(physicalMemoryBytes: physicalMemoryBytes);
   // D3 (docs/logs/2026-09-04/occupancy-attribution-contract.md): round-2
   // found the original build.stamp (in PerfLog.init) samples
   // imageCache.maximumSizeBytes BEFORE this call runs, so it always reads
