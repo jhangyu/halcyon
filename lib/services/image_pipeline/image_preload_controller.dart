@@ -166,7 +166,7 @@ class ImagePreloadController {
     // `AppState.forTesting`, which this file does not own) is unaffected
     // until the composition root chooses to pass one.
     DngOrientingFullDecoder? orientingDngDecoder,
-    PayloadEncoder? payloadEncoder = _encodeJpegNative,
+    PayloadEncoder payloadEncoder = _encodeJpegNative,
     PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
@@ -648,6 +648,9 @@ class ImagePreloadController {
     retainedPayloadBytes: _cache.totalByteCost,
     retainedPayloadByteBudget: _cache.byteBudget,
     decodeInflightByteBudget: _inflight.maxBytes,
+    payloadCachePixelEntryCount: _cache.pixelEntryCount,
+    payloadCachePixelByteTotal: _cache.pixelByteTotal,
+    payloadCacheEncodedByteTotal: _cache.encodedByteTotal,
   );
 
   /// How many lane dispatch attempts the BYTE budget refused (WP2). Zero means
@@ -2845,6 +2848,9 @@ class MemoryLedgerSnapshot {
     required this.retainedPayloadBytes,
     required this.retainedPayloadByteBudget,
     required this.decodeInflightByteBudget,
+    required this.payloadCachePixelEntryCount,
+    required this.payloadCachePixelByteTotal,
+    required this.payloadCacheEncodedByteTotal,
   });
 
   /// Bytes charged to decodes currently in flight (pre-decode nominal estimate
@@ -2867,11 +2873,29 @@ class MemoryLedgerSnapshot {
   /// The decode gate's ceiling, derived from the decode lane width.
   final int decodeInflightByteBudget;
 
+  /// How many retained entries are still in the PIXEL form, and their cost.
+  ///
+  /// AC-1 of spec v2 is a claim about this number being zero in steady state.
+  /// It is part of the schema (not a loose getter) because the capture harness
+  /// parses the schema, and a per-kind number read at a different instant from
+  /// [retainedPayloadBytes] would describe a state the app was never in.
+  final int payloadCachePixelEntryCount;
+  final int payloadCachePixelByteTotal;
+
+  /// Retained bytes in the ENCODED form. Its sum with
+  /// [payloadCachePixelByteTotal] is [retainedPayloadBytes]; a fall in the
+  /// total accompanied by a fall in BOTH terms is items disappearing, not the
+  /// pixel->encoded shift this round expects (invariant I9).
+  final int payloadCacheEncodedByteTotal;
+
   @override
   String toString() =>
       'MemoryLedgerSnapshot(decodeInflightBytes: $decodeInflightBytes, '
       'encodePublishTailBytes: $encodePublishTailBytes, '
       'retainedPayloadBytes: $retainedPayloadBytes, '
       'retainedPayloadByteBudget: $retainedPayloadByteBudget, '
-      'decodeInflightByteBudget: $decodeInflightByteBudget)';
+      'decodeInflightByteBudget: $decodeInflightByteBudget, '
+      'payloadCachePixelEntryCount: $payloadCachePixelEntryCount, '
+      'payloadCachePixelByteTotal: $payloadCachePixelByteTotal, '
+      'payloadCacheEncodedByteTotal: $payloadCacheEncodedByteTotal)';
 }

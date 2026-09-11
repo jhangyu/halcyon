@@ -16,12 +16,23 @@ import 'package:flutter/foundation.dart';
 /// where `grep -c "EncodedPayload\|PixelPayload"` == 0 is an acceptance
 /// criterion. These two subclasses live in this file, not that one, so that
 /// criterion is structural rather than a matter of discipline.
+/// WHICH retained form a payload is, without naming a subclass.
+///
+/// It exists so `photo_payload_cache.dart` can report a per-kind split while
+/// keeping `grep -c "EncodedPayload\|PixelPayload"` == 0 in that file (design
+/// §3.2's structural check, restated as invariant I8). Nothing branches on it
+/// for POLICY: retention is still decided on [SourcePayload.byteCost] alone.
+enum PayloadKind { encoded, pixels }
+
 @immutable
 sealed class SourcePayload {
   const SourcePayload();
 
   /// Resident size in bytes. Retention is decided on this number alone.
   int get byteCost;
+
+  /// Which retained form this is. Observation only -- see [PayloadKind].
+  PayloadKind get kind;
 }
 
 /// An encoded bitstream (JPEG, PNG, ...) ready for `MemoryImage`/`ResizeImage`.
@@ -36,6 +47,9 @@ class EncodedPayload extends SourcePayload {
 
   @override
   int get byteCost => bytes.lengthInBytes;
+
+  @override
+  PayloadKind get kind => PayloadKind.encoded;
 }
 
 /// Already-decoded RGBA8 pixels, downscaled to the display window at decode
@@ -64,4 +78,7 @@ class PixelPayload extends SourcePayload {
 
   @override
   int get byteCost => rgba.lengthInBytes;
+
+  @override
+  PayloadKind get kind => PayloadKind.pixels;
 }

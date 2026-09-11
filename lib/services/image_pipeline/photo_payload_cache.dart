@@ -137,6 +137,38 @@ class PhotoPayloadCache {
     return sum;
   }
 
+  /// How many entries are retained in the PIXEL form, and what they cost.
+  ///
+  /// Read-only observation for the AC-1 capture (spec v2 §6). They iterate
+  /// exactly as [totalByteCost] does and change no eviction, ordering or
+  /// budget behaviour. Deliberately expressed through [PayloadKind] rather
+  /// than a type test, so no payload subclass is named in this file (I8).
+  /// An empty map yields 0 from all three -- the same trap [setByteBudget]'s
+  /// `_entries.isNotEmpty` guard documents.
+  int get pixelEntryCount {
+    var count = 0;
+    for (final payload in _entries.values) {
+      if (payload.kind == PayloadKind.pixels) count++;
+    }
+    return count;
+  }
+
+  int get pixelByteTotal {
+    var sum = 0;
+    for (final payload in _entries.values) {
+      if (payload.kind == PayloadKind.pixels) sum += payload.byteCost;
+    }
+    return sum;
+  }
+
+  int get encodedByteTotal {
+    var sum = 0;
+    for (final payload in _entries.values) {
+      if (payload.kind == PayloadKind.encoded) sum += payload.byteCost;
+    }
+    return sum;
+  }
+
   int get length => _entries.length;
 
   Iterable<String> get ids => _entries.keys;
