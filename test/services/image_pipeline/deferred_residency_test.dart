@@ -79,7 +79,7 @@ void main() {
 
   group('deferred_residency_test.dart', () {
     test(
-      'TC-A5 (AC-5 liveness) a slot whose INLINE encode failed acquires a '
+      'TC-1232 (AC-5 liveness) a slot whose INLINE encode failed acquires a '
       'full-size JPEG payload through the deferred path, carrying the '
       "decoder's FULL-RESOLUTION dimensions",
       () async {
@@ -118,7 +118,7 @@ void main() {
     );
 
     test(
-      'TC-A6 (AC-5 never below full size) the deferred path publishes the '
+      'TC-1233 (AC-5 never below full size) the deferred path publishes the '
       'FULL-RESOLUTION frame, never the window-resolution downscale',
       () async {
         // 6000x4000 frame, 2800px preview long edge: if the job ever fed the
@@ -163,7 +163,7 @@ void main() {
     );
 
     test(
-      'TC-A7 (identity discipline) the replacement retires the tier-2 registry '
+      'TC-1234 (identity discipline) the replacement retires the tier-2 registry '
       'entry and the tier-1 key anchored on the OLD payload, and changes which '
       'ids are retained not at all',
       () async {
@@ -220,7 +220,7 @@ void main() {
     );
 
     test(
-      'TC-A8 (abandonment) each failure mode leaves the slot exactly as it '
+      'TC-1235 (abandonment) each failure mode leaves the slot exactly as it '
       'was, counts ONE abandonment, and never schedules a second job for the '
       'same payload object',
       () async {
@@ -300,7 +300,7 @@ void main() {
     );
 
     test(
-      'TC-A10 (AC-1 end to end) a controller whose INLINE encode throws and '
+      'TC-1237 (AC-1 end to end) a controller whose INLINE encode throws and '
       'whose deferred encode succeeds reaches a steady state with ZERO pixel '
       'entries retained and non-zero encoded bytes',
       () async {
@@ -344,7 +344,7 @@ void main() {
     );
 
     test(
-      'TC-A11 the INLINE success path records the full-resolution dimensions '
+      'TC-1238 the INLINE success path records the full-resolution dimensions '
       'it encoded at',
       () async {
         final controller = ImagePreloadController(
@@ -379,7 +379,7 @@ void main() {
     );
 
     test(
-      'TC-A12 with an encoder that throws on EVERY call the slot still '
+      'TC-1239 with an encoder that throws on EVERY call the slot still '
       'renders: the payload survives the deferred abandonment and no id '
       'leaves the retention window',
       () async {
@@ -417,7 +417,7 @@ void main() {
     );
 
     test(
-      'TC-A13 the deferred residency job COSTS one extra decode of the same '
+      'TC-1240 the deferred residency job COSTS one extra decode of the same '
       'path when the supplier is bound, and costs nothing at all when it is '
       'left at its default',
       () async {
@@ -499,7 +499,7 @@ void main() {
     );
 
     test(
-      'TC-A9 the deferred band is the LAST LaneGroup member, so every existing '
+      'TC-1236 the deferred band is the LAST LaneGroup member, so every existing '
       'priority band keeps the base it had',
       () {
         expect(LaneGroup.values.last, LaneGroup.deferredResidency);
