@@ -46,9 +46,10 @@ import 'prefetch_scheduler.dart';
 /// band is charged both costs.
 ///
 /// WHAT LEFT, AND WHY IT IS NOT COMING BACK. Until spec v2 this row also
-/// carried `windowResolutionOnlySlotCount * windowResolutionImageByteCost`
-/// — one window-resolution decoded entry for every retained slot outside
-/// the band. Ruling R-B abolished that tier: a retained slot outside the
+/// carried a per-slot charge for the retention window's window-resolution-
+/// only remainder (a decoded entry for every retained slot outside the
+/// band, at `windowResolutionImageByteCost` each). Ruling R-B abolished
+/// that tier: a retained slot outside the
 /// band now holds a full-size JPEG PAYLOAD and no decoded pixels at all.
 /// Its bytes are charged to `kPayloadByteBudget`, a SEPARATE pool (see
 /// below); re-introducing a payload term here would double-charge them and
