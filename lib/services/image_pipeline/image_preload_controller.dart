@@ -29,6 +29,7 @@ import 'retention_policy.dart';
 import 'sidebar_thumbnail_controller.dart';
 import 'stage_widths.dart';
 import 'decode_lane.dart';
+import 'deferred_full_size_encoder.dart';
 import 'lane_priority.dart';
 import 'encode_stage.dart';
 import 'inflight_bytes_budget.dart';
@@ -704,6 +705,27 @@ class ImagePreloadController {
   int get debugCatchUpEnqueueCount =>
       _tierTwoScheduler.debugCatchUpEnqueueCount;
 
+  /// Count of band-entry promotions that bought a decode of the ORIGINAL
+  /// FILE (see [TierTwoScheduler.debugBandEntryFileDecodeCount]). AC-3's
+  /// steady-state expectation is zero.
+  @visibleForTesting
+  int get debugBandEntryFileDecodeCount =>
+      _tierTwoScheduler.debugBandEntryFileDecodeCount;
+
+  /// The retained payload object for [id], for the residency tests. Read-only.
+  @visibleForTesting
+  SourcePayload? debugPayloadFor(String id) => _cache.peek(id);
+
+  @visibleForTesting
+  bool debugHasFullResEntryFor(String id, SourcePayload payload) =>
+      _tierTwo.hasFullResEntryFor(id, payload);
+
+  @visibleForTesting
+  int get debugDeferredCompletedCount => _deferredEncoder.debugCompletedCount;
+
+  @visibleForTesting
+  int get debugDeferredAbandonedCount => _deferredEncoder.debugAbandonedCount;
+
   /// Detail-path (tier-1/tier-2) production claims, keyed by BARE photo id.
   ///
   /// Same membership at every instant as the bare `Set<String>` of in-flight
@@ -1015,6 +1037,25 @@ class ImagePreloadController {
   late final TierTwoRegistry _tierTwo = TierTwoRegistry(
     currentPayloadFor: _cache.peek,
   );
+
+  /// The deferred full-size residency path (compressed-residency v2 Task 3).
+  ///
+  /// Lazy for the same reason [_tierTwo] is: every closure below reads `this`,
+  /// and an initialiser list cannot. `awaitIdleSlot` is the controller's
+  /// EXISTING composite gate -- in production that is
+  /// `IdlePublishScheduler.awaitSlot` (wired in `app_state.dart`), in tests
+  /// `immediateCompositeGate`, which is what keeps these jobs on a bounded,
+  /// wall-clock-free schedule under `flutter test`.
+  late final DeferredFullSizeEncoder _deferredEncoder = DeferredFullSizeEncoder(
+    lane: _decodeLane,
+    dngDecoder: () => _source.dngDecoder,
+    encoder: _source.payloadEncoder,
+    exifOrientationFor: (id) => _exifOrientations[id],
+    currentPayloadFor: _cache.peek,
+    isRetained: (id) => _retentionIds.contains(id),
+    onEncoded: _replaceRetainedPayload,
+    awaitIdleSlot: _compositeGate,
+  );
   late final TierTwoScheduler _tierTwoScheduler = TierTwoScheduler(
     registry: _tierTwo,
     lane: _decodeLane,
@@ -1269,6 +1310,7 @@ class ImagePreloadController {
     _navPriorityIds = [];
     _evictTierOneKeys();
     _decodeLane.clearPending();
+    _deferredEncoder.reset();
     _encodeStage.clear();
     _pacer.clear();
     _inflight.clear();
@@ -1314,6 +1356,7 @@ class ImagePreloadController {
     _disposeAllPayloadStates();
     _sidebar.dispose();
     _decodeLane.clearPending();
+    _deferredEncoder.reset();
     _encodeStage.clear();
     _pacer.clear();
     _inflight.clear();
@@ -2393,6 +2436,14 @@ class ImagePreloadController {
       // payload's bytes identity, so the batched sweep meeting the same
       // payload again is an ImageCache hit, not a second decode (pin B1).
       _precacheTierOneFor(id, payload, distance: distance);
+      // COMPRESSED RESIDENCY v2 (spec §3.1/§3.2): a retained PIXEL payload is
+      // a TEMPORARY holding form, never the slot's final one. Scheduling
+      // happens AFTER the `_cache.put` above, so the job's
+      // `identical(currentPayloadFor(id), previous)` guard is true the first
+      // time it runs.
+      if (payload.kind == PayloadKind.pixels) {
+        _deferredEncoder.schedule(item, previous: payload, distance: distance);
+      }
     } else if (!outcome.deferred) {
       // Every source failed, including the legacy fallback. Mark it so the
       // view can say "unreadable" instead of spinning forever, and so no
@@ -2566,6 +2617,52 @@ class ImagePreloadController {
           onSerialLane: true,
         );
       },
+    );
+  }
+
+  /// The ONE payload replacement path (spec v2 §4, replacement discipline).
+  ///
+  /// wp43-impl-plan §3's invariant I5 said payload identity is NEVER swapped
+  /// after publication. It is superseded to "swapped ONLY here", and the
+  /// ORDER below is what makes that safe:
+  ///
+  ///   1. refuse unless [previous] is still the retained object -- the slot
+  ///      may have been re-produced while the job ran;
+  ///   2. retire the tier-2 registry entry, which was anchored on [previous]
+  ///      and whose first-writer-wins guard would otherwise freeze against
+  ///      the new object;
+  ///   3. retire the tier-1 ImageCache key, whose provider was built from
+  ///      [previous]'s bytes identity;
+  ///   4. only THEN write [replacement], so no live registration ever points
+  ///      at a payload the cache no longer holds;
+  ///   5. re-precache tier-1 for the new object.
+  void _replaceRetainedPayload(
+    String id,
+    SourcePayload previous,
+    EncodedPayload replacement,
+  ) {
+    if (!identical(_cache.peek(id), previous)) return;
+    _tierTwo.evict(id);
+    final tierOneKey = _tierOneKeys.remove(id);
+    if (tierOneKey != null) {
+      PaintingBinding.instance.imageCache.evict(tierOneKey);
+    }
+    _cache.put(id, replacement);
+    _markStage(id, PayloadStage.tierOneReady);
+    // The sidebar's waiters take their tile from the RETAINED payload, never
+    // from a decode of their own (D5 decision 2) -- so they have to be told
+    // which object that now is.
+    _sidebar.onPayloadLanded(id, replacement);
+    // Distance is not carried through `onEncoded` (its signature is the
+    // frozen three-argument shape), and the controller keeps no id->distance
+    // memo. Only two things read it here: the pacer RANK and the selected
+    // slot's pacing EXEMPTION. The exemption is reproduced exactly by the
+    // selected-id test; the rank for any other slot is a within-band rank
+    // that, after Task 6, spans at most +/-1.
+    _precacheTierOneFor(
+      id,
+      replacement,
+      distance: id == _selectedId ? 0 : kFullResolutionBandRadius,
     );
   }
 

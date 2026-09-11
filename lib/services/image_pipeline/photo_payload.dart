@@ -41,9 +41,19 @@ sealed class SourcePayload {
 /// fallback all reduce to, so all three are literally the same cache citizen.
 @immutable
 class EncodedPayload extends SourcePayload {
-  const EncodedPayload(this.bytes);
+  const EncodedPayload(this.bytes, {this.width, this.height});
 
   final Uint8List bytes;
+
+  /// Pixel dimensions of the frame [bytes] encodes, when the producer knew
+  /// them. Null means "not recorded", NEVER "unknown size at display time":
+  /// the cheap/preview population (a JPG file's own bytes, an embedded
+  /// preview, `normalizeEncodedPayload`'s passthrough and its
+  /// not-actually-smaller refusal) comes from a bitstream this layer never
+  /// decoded, so there is nothing to record there. AC-1's full-size claim is
+  /// evaluated on the RAW re-encode population, which always records them.
+  final int? width;
+  final int? height;
 
   @override
   int get byteCost => bytes.lengthInBytes;

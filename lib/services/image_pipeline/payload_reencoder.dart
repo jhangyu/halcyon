@@ -77,9 +77,23 @@ const int kReencodeJpegQuality = kDisplayJpegQuality;
 @visibleForTesting
 int reencodeFallbacks = 0;
 
+/// How many full-size JPEGs were produced by the DEFERRED path rather than
+/// inline (compressed-residency v2 Task 3). Observability twin of
+/// [reencodeFallbacks]: with both at zero the round is a no-op, and with
+/// `reencodeFallbacks` high and this at zero the deferred path is wired but
+/// never lands -- two failures that look identical in a retention capture.
+///
+/// Deliberately NOT `@visibleForTesting`, unlike its twin: the increment site
+/// is `deferred_full_size_encoder.dart`, another `lib/` file, which the
+/// annotation forbids (the twin is only ever written inside THIS file). Same
+/// convention `TierTwoScheduler.debugCatchUpEnqueueCount` records at
+/// `tier_two_scheduler.dart:145-149`.
+int deferredFullSizeEncodes = 0;
+
 @visibleForTesting
 void resetReencodeCounters() {
   reencodeFallbacks = 0;
+  deferredFullSizeEncodes = 0;
 }
 
 /// Turns the FULL-RESOLUTION pixels produced by ONE RAW decode into the single

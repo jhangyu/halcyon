@@ -679,6 +679,12 @@ void main() {
             LaneGroup.fullRes,
             LaneGroup.sidebarVisible,
             LaneGroup.sidebarMargin,
+            // APPENDED by compressed-residency v2 Task 3, below every band
+            // above it. The five members before it keep both their order and
+            // their base -- which is the property this test exists to defend:
+            // appending cannot renumber anything, inserting would renumber
+            // everything (`laneBaseFor` is `index * kLaneBandGap`).
+            LaneGroup.deferredResidency,
           ]);
           expect(laneBaseFor(LaneGroup.selected), 0);
           expect(laneBaseFor(LaneGroup.navigationWindow), 1000);

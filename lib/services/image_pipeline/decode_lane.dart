@@ -35,6 +35,12 @@ enum LaneTaskKind {
   /// Upgrading an already-retained pixel payload to a full-resolution tier-2
   /// ImageCache entry.
   fullRes,
+
+  /// Producing the full-size JPEG for a slot still holding a TEMPORARY pixel
+  /// payload (compressed-residency v2 Task 3). A distinct kind, not a reuse of
+  /// [payload]: the slot already HAS a payload, so a navigation re-enqueue of
+  /// `(payload, id)` must not replace or be replaced by this job.
+  deferredEncode,
 }
 
 typedef LaneKey = (LaneTaskKind kind, String id);

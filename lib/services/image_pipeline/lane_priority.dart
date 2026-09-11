@@ -16,6 +16,7 @@
 /// | [LaneGroup.fullRes] | 2000 | tier-2 full-resolution upgrades |
 /// | [LaneGroup.sidebarVisible] (P3) | 3000 | sidebar rows on screen |
 /// | [LaneGroup.sidebarMargin] (P4) | 4000 | sidebar prefetch rows off screen |
+/// | [LaneGroup.deferredResidency] | 5000 | deferred full-size residency encodes |
 ///
 /// The full-res band sits BETWEEN payload production and sidebar work, not
 /// above everything. That placement is a user ruling (2026-08-26, recorded at
@@ -86,6 +87,13 @@ enum LaneGroup {
   /// P4 — payload production the sidebar asked for, for an off-screen
   /// prefetch (margin) row.
   sidebarMargin,
+
+  /// The lowest band: deferred full-size residency encodes
+  /// (compressed-residency v2 Task 3). Below even sidebar prefetch, because
+  /// this work changes nothing the user can currently see -- the slot already
+  /// renders from its temporary payload; the job only changes what the slot
+  /// COSTS. Appended, never inserted.
+  deferredResidency,
 }
 
 /// The base priority of [group]: strictly increasing with the enum's order.
@@ -126,6 +134,14 @@ int navigationPriorityFor(int signedDistance) => signedDistance == 0
 /// the selection.
 int fullResPriorityFor(int signedDistance) => lanePriorityFor(
   group: LaneGroup.fullRes,
+  withinGroupDistance: laneRankForDistance(signedDistance),
+);
+
+/// The deferred-residency priority for an item at [signedDistance] from the
+/// selection. Same near-to-far rank as every other band, one band lower than
+/// all of them.
+int deferredResidencyPriorityFor(int signedDistance) => lanePriorityFor(
+  group: LaneGroup.deferredResidency,
   withinGroupDistance: laneRankForDistance(signedDistance),
 );
 
