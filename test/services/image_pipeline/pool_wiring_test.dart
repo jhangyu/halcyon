@@ -39,40 +39,31 @@ void main() {
   );
 
   test(
-    'R6-AC3: the idle working-set trim is suppressed once the pool route owns '
-    'native buffers, while the folder-switch trim still runs',
-    () async {
+    'R6-AC3: the production init installs the shrink→trim hook, and the '
+    'folder-switch trim still runs',
+    () {
       ensureHalcyonDecodePoolConfigured();
+      addTearDown(() => CeyxNativeBufferPool.shared.onShrink = null);
 
+      final hook = CeyxNativeBufferPool.shared.onShrink;
       expect(
-        WorkingSetTrim.suppressed,
-        isTrue,
+        hook,
+        isNotNull,
         reason:
-            'idle-delayed trimming pages out exactly the idle pooled slots the '
-            'pool keeps resident for immediate reuse',
+            'without this hook a completed pool shrink hands nothing back to '
+            'the OS on Windows — the freed pages stay in the working set',
       );
 
-      // The idle path must not reach the platform call at all -- not even the
-      // rate-limit bookkeeping, which is what `debugTrimAttempts` counts.
-      //
-      // Real time, not FakeAsync: the delay must be long enough that an
-      // UNsuppressed request would have fired its zero-delay timer by now,
-      // otherwise this assertion could not fail and would prove nothing.
-      WorkingSetTrim.idleDelay = Duration.zero;
-      WorkingSetTrim.request();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(WorkingSetTrim.debugTrimAttempts, 0);
+      // Stand in for the pool: a completed shrink calls the hook with the
+      // number of buffers it freed.
+      hook!(3);
+      expect(WorkingSetTrim.debugShrinkTrimCalls, 1);
 
       // The folder-switch trim is a different event: it fires after the caches
       // have already been evicted and nothing is about to be re-read, so it
-      // stays enabled. Suppressing it too would be a bigger change than the
-      // ruling asked for.
+      // stays enabled and is untouched by this change.
       WorkingSetTrim.trimNow();
-      expect(
-        WorkingSetTrim.debugTrimAttempts,
-        1,
-        reason: 'trimNow is deliberately NOT suppressed',
-      );
+      expect(WorkingSetTrim.debugTrimNowCalls, 1);
     },
   );
 }

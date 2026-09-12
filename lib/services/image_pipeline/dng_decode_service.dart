@@ -137,10 +137,13 @@ bool _poolConfigured = false;
 ///    mutable, so a test helper that swapped in a small or instrumented pool
 ///    cannot leave production running on it.
 ///
-/// 2. **Suppresses the idle working-set trim.** See
-///    [WorkingSetTrim.suppressed]: idle trimming pages out exactly the idle
-///    pooled slots the pool keeps resident for immediate reuse. The
-///    folder-switch trim (`trimNow`) is deliberately left enabled.
+/// 2. **Installs the shrink→trim hook.** See [WorkingSetTrim.onPoolShrink]:
+///    the working-set trim is coupled to pool SHRINK COMPLETION, never to
+///    idleness — an idle-coupled trim pages out exactly the idle pooled slots
+///    the pool keeps resident for immediate reuse, while after a shrink those
+///    slots are already freed and returning their pages is unambiguously
+///    right. The folder-switch trim (`trimNow`, `AppState.loadFolder`) is
+///    unchanged.
 ///
 /// 3. **Routes pool events into the perf log and the console.** A silently
 ///    narrowed pool is exactly the defect class this loudness exists to
@@ -154,7 +157,10 @@ void ensureHalcyonDecodePoolConfigured() {
   // The latch guards only the closure allocations, which is all it was ever
   // for.
   CeyxDecodePool.nativeBufferPool = CeyxNativeBufferPool.shared;
-  WorkingSetTrim.suppressed = true;
+  // A top-level function reference, not a closure literal: repeated assignment
+  // is then identity-stable, so re-asserting it outside the latch cannot
+  // accumulate distinct closures.
+  CeyxNativeBufferPool.shared.onShrink = _trimAfterPoolShrink;
 
   if (_poolConfigured) return;
   _poolConfigured = true;
@@ -168,6 +174,11 @@ void ensureHalcyonDecodePoolConfigured() {
   // reaches the PERF| file through the logger wired above.
   CeyxDecodePool.materializeTimingEnabled = () => PerfLog.enabled;
 }
+
+/// The pool's shrink-completion listener: a completed shrink has just freed
+/// pooled slots, so this is the moment to hand their pages back to the OS.
+/// The freed count is informational only — the trim is unconditional.
+void _trimAfterPoolShrink(int freedBuffers) => WorkingSetTrim.onPoolShrink();
 
 /// Pushes the user's decode-lane width onto the pool, so N persistent workers
 /// tracks the runtime setting (default 2; the user stress-tests at 5).

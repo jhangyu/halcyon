@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:ffi' as ffi;
 import 'dart:io' show Platform;
 
@@ -38,10 +37,10 @@ typedef _GetCurrentProcessDart = int Function();
 /// `device_memory.dart`. Nothing else in `lib/` names Windows, kernel32 or the
 /// foreign-function interface: `working_set_trim.dart` is a facade holding one
 /// conditional export, and `working_set_trim_stub.dart` is its inert web
-/// counterpart. Every call site (see `AppState.loadFolder` and
-/// `AppState.selectItem`) calls an unconditional, platform-neutral method and
-/// contains no `Platform.isX`, no `dart:ffi` import and no Windows-specific
-/// naming. On every non-Windows platform the methods return immediately and
+/// counterpart. Every call site (see `AppState.loadFolder` and the
+/// pool shrink→trim hook installed by `ensureHalcyonDecodePoolConfigured`)
+/// calls an unconditional, platform-neutral method and contains no
+/// `Platform.isX`, no `dart:ffi` import and no Windows-specific naming. On every non-Windows platform the methods return immediately and
 /// report "not supported"; on the web build the stub does the same.
 ///
 /// Never throws. Any failure -- library missing, symbol missing, unexpected
@@ -51,58 +50,27 @@ typedef _GetCurrentProcessDart = int Function();
 class WorkingSetTrim {
   WorkingSetTrim._();
 
-  /// Quiet period a [request] waits out before trimming. Deliberately far
-  /// longer than the 250 ms tier-2 navigation debounce and on its OWN timer:
-  /// trimming at 250 ms of quiet would page out buffers the tier-2 sweep is
-  /// about to touch.
-  static const Duration defaultIdleDelay = Duration(seconds: 2);
-
-  /// Floor between two [request]-driven trims. A guard against pathological
-  /// repeat cost, not a scheduling policy -- the call sites decide when a trim
-  /// is wanted. [trimNow] bypasses it.
-  static const Duration defaultMinTrimInterval = Duration(seconds: 10);
-
+  /// Injectable platform predicate, so the Windows-only branches are testable
+  /// on a POSIX host. Mirrors the injectable-seam convention the pool uses for
+  /// its clock.
   @visibleForTesting
-  static Duration idleDelay = defaultIdleDelay;
-
-  @visibleForTesting
-  static Duration minTrimInterval = defaultMinTrimInterval;
-
-  /// Injectable clock so the rate limit is testable without real time.
-  @visibleForTesting
-  static DateTime Function() debugClock = DateTime.now;
-
-  @visibleForTesting
-  static int debugRequestCalls = 0;
+  static bool Function() debugPlatformIsWindows = () => Platform.isWindows;
 
   @visibleForTesting
   static int debugTrimNowCalls = 0;
 
-  /// Trims that got past the rate limit -- i.e. the platform call was reached.
-  /// Counted on every platform, so the debounce/rate-limit logic is testable
-  /// off Windows where the platform call itself is a no-op.
+  /// Trims that reached the platform branch. Counted on every platform, so
+  /// the wiring is testable off Windows where the platform call itself is a
+  /// no-op.
   @visibleForTesting
   static int debugTrimAttempts = 0;
 
-  /// Suppresses the IDLE-delayed trim ([request]) while something else owns
-  /// resident memory deliberately.
-  ///
-  /// Set true by `ensureHalcyonDecodePoolConfigured` once the ceyx native
-  /// buffer pool is wired in (R6, Task #9): that pool keeps a fixed set of
-  /// ~100MB RGBA slots resident precisely so a returned buffer is reusable
-  /// IMMEDIATELY, and an idle trim pages out exactly those slots — turning the
-  /// pool's whole reason for existing into a page-fault storm on the next
-  /// decode. The two mechanisms want opposite things about the same bytes, and
-  /// the pool is the one that has a measured job.
-  ///
-  /// Deliberately does NOT suppress [trimNow]: that fires at folder switch,
-  /// after the caches are already evicted and with nothing about to be
-  /// re-read, which is the one moment where releasing pages is unambiguously
-  /// right.
-  static bool suppressed = false;
+  /// [onPoolShrink] entries, counted on every platform — so "the hook is
+  /// installed and fired" is assertable separately from "the platform call
+  /// was reached" ([debugTrimAttempts]).
+  @visibleForTesting
+  static int debugShrinkTrimCalls = 0;
 
-  static Timer? _idleTimer;
-  static DateTime? _lastTrimAt;
   static bool _resolved = false;
   static bool _disabled = false;
   static _SetProcessWorkingSetSizeDart? _setProcessWorkingSetSize;
@@ -111,68 +79,60 @@ class WorkingSetTrim {
   /// True on Windows when the kernel32 bindings resolved. False everywhere
   /// else, and false once a failure has permanently disabled the mechanism.
   static bool get isSupported {
-    if (!Platform.isWindows || _disabled) return false;
+    if (!debugPlatformIsWindows() || _disabled) return false;
     _resolveBindings();
     return !_disabled &&
         _setProcessWorkingSetSize != null &&
         _getCurrentProcess != null;
   }
 
-  /// Fire-and-forget. Rate-limited and idle-debounced internally; safe to call
-  /// on any platform, at any frequency. Never throws.
-  static void request() {
-    debugRequestCalls++;
-    if (suppressed) {
-      // Cancel any timer armed before suppression turned on, so a trim already
-      // in flight cannot land after the pool took ownership.
-      _idleTimer?.cancel();
-      _idleTimer = null;
-      return;
-    }
-    _idleTimer?.cancel();
-    _idleTimer = Timer(idleDelay, () {
-      _idleTimer = null;
-      _performTrim(bypassRateLimit: false);
-    });
+  /// Called when the ceyx native buffer pool has COMPLETED an idle shrink and
+  /// really freed buffers (`CeyxNativeBufferPool.onShrink`). Never throws.
+  ///
+  /// The trim is coupled to shrink completion rather than to idleness, and
+  /// there is deliberately no idle-delayed entry point any more. The pool
+  /// keeps a fixed set of ~100MB RGBA slots resident precisely so a returned
+  /// buffer is reusable IMMEDIATELY; an idle-coupled trim pages out exactly
+  /// those slots and turns the pool's whole reason for existing into a
+  /// page-fault storm on the next decode. After a shrink the opposite holds:
+  /// those slots have just been freed, so nothing is about to re-touch them
+  /// and returning their pages to the OS is unambiguously right.
+  ///
+  /// No debounce and no rate limit: the caller is already the rare event (a
+  /// shrink needs 5 s of continuous decode quiescence plus a 1 s grow
+  /// lockout), and the contract is exactly one trim per shrink completion.
+  static void onPoolShrink() {
+    debugShrinkTrimCalls++;
+    _performTrim();
   }
 
-  /// Performs the trim NOW, bypassing the rate limit. Returns true only when
-  /// the platform call was made and reported success.
+  /// Performs the trim NOW. Returns true only when the platform call was made
+  /// and reported success.
   static bool trimNow() {
     debugTrimNowCalls++;
-    return _performTrim(bypassRateLimit: true);
+    return _performTrim();
   }
 
   @visibleForTesting
   static void debugReset() {
-    _idleTimer?.cancel();
-    _idleTimer = null;
-    _lastTrimAt = null;
     _resolved = false;
     _disabled = false;
     _setProcessWorkingSetSize = null;
     _getCurrentProcess = null;
-    idleDelay = defaultIdleDelay;
-    minTrimInterval = defaultMinTrimInterval;
-    debugClock = DateTime.now;
-    debugRequestCalls = 0;
+    debugPlatformIsWindows = () => Platform.isWindows;
     debugTrimNowCalls = 0;
     debugTrimAttempts = 0;
-    suppressed = false;
+    debugShrinkTrimCalls = 0;
   }
 
-  static bool _performTrim({required bool bypassRateLimit}) {
-    final now = debugClock();
-    final last = _lastTrimAt;
-    if (!bypassRateLimit &&
-        last != null &&
-        now.difference(last) < minTrimInterval) {
-      return false;
-    }
-    _lastTrimAt = now;
+  static bool _performTrim() {
+    // Bumped BEFORE the platform branch, which is what makes the counter
+    // meaningful off Windows (and on a POSIX host with the predicate forced
+    // true, where the kernel32 binding necessarily fails). Preserve this
+    // ordering.
     debugTrimAttempts++;
 
-    if (!Platform.isWindows || _disabled) return false;
+    if (!debugPlatformIsWindows() || _disabled) return false;
     try {
       _resolveBindings();
       final setSize = _setProcessWorkingSetSize;

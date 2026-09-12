@@ -11,47 +11,33 @@ import 'package:flutter/foundation.dart';
 class WorkingSetTrim {
   WorkingSetTrim._();
 
-  static const Duration defaultIdleDelay = Duration(seconds: 2);
-  static const Duration defaultMinTrimInterval = Duration(seconds: 10);
-
+  /// Surface parity with the real implementation's platform seam; there is no
+  /// Windows on this target, so it is a constant false.
   @visibleForTesting
-  static Duration idleDelay = defaultIdleDelay;
-
-  @visibleForTesting
-  static Duration minTrimInterval = defaultMinTrimInterval;
-
-  @visibleForTesting
-  static DateTime Function() debugClock = DateTime.now;
+  static bool Function() debugPlatformIsWindows = () => false;
 
   /// Present for surface parity only; this build never trims, so the counters
   /// stay at zero.
-  @visibleForTesting
-  static int debugRequestCalls = 0;
-
   @visibleForTesting
   static int debugTrimNowCalls = 0;
 
   @visibleForTesting
   static int debugTrimAttempts = 0;
 
-  /// Surface parity with the real implementation (see its dartdoc). Nothing
-  /// here ever trims, so the flag changes no behaviour on this target.
-  static bool suppressed = false;
+  @visibleForTesting
+  static int debugShrinkTrimCalls = 0;
 
   static bool get isSupported => false;
 
-  static void request() {}
+  static void onPoolShrink() {}
 
   static bool trimNow() => false;
 
   @visibleForTesting
   static void debugReset() {
-    idleDelay = defaultIdleDelay;
-    minTrimInterval = defaultMinTrimInterval;
-    debugClock = DateTime.now;
-    debugRequestCalls = 0;
+    debugPlatformIsWindows = () => false;
     debugTrimNowCalls = 0;
     debugTrimAttempts = 0;
-    suppressed = false;
+    debugShrinkTrimCalls = 0;
   }
 }

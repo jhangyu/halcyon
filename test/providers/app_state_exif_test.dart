@@ -34,10 +34,7 @@ void main() {
     // microtask, so its one `notifyListeners` lands deterministically inside
     // the construction settle and never leaks into the counts below.
     CeyxEncodeService.debugMarkUnavailableForTesting(null);
-    // `selectItem` arms a static working-set timer; keep it far out of the
-    // debounce window so it cannot fire mid-test.
     WorkingSetTrim.debugReset();
-    WorkingSetTrim.idleDelay = const Duration(minutes: 5);
   });
 
   tearDown(() {

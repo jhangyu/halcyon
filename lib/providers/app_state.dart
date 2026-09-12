@@ -893,10 +893,6 @@ class AppState extends ChangeNotifier {
 
       _viewDebounceTimer?.cancel();
       _viewDebounceTimer = Timer(const Duration(seconds: 5), _saveLastViewedId);
-      // Reuses this existing "the user has moved" site. The trim's own 2s idle
-      // delay plus 10s rate limit keep it off the navigation hot path; it is a
-      // no-op off Windows.
-      WorkingSetTrim.request();
 
       // PERF-INSTRUMENTATION
       PerfLog.log('selectItem.notify|$id|sinceEnter=${PerfLog.us - tEnter}');
