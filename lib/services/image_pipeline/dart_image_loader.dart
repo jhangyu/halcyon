@@ -220,7 +220,7 @@ int debugSidebarWalkCount = 0;
 ///   CAVEAT (F4): "never emitted for `export`" is a statement about this
 ///   function's `export` ARGUMENT, not about the export feature. The export
 ///   service enters through `purpose: preview`
-///   (`photo_export_service.dart:57-58`) precisely so that it DOES receive
+///   (`photo_export_service.dart:256`) precisely so that it DOES receive
 ///   this signal and can decode a preview-less RAW; nothing in `lib/` passes
 ///   `ImageRequestPurpose.export` to this loader at all.
 /// - This file stays free of `Platform` checks by construction (C-3). "No
@@ -419,22 +419,22 @@ Future<NativeImageResult> dartImageLoad(
     //
     // CORRECTION (round-1 reviewer finding F4). An earlier version of this
     // comment claimed the export FEATURE stays lenient. It does not, and never
-    // did: `photo_export_service.dart:57-58` calls this loader with
+    // did: `photo_export_service.dart:256` calls this loader with
     // `purpose: preview`, so the strict floor applies to exports too. Nothing
     // in `lib/` ever passes `ImageRequestPurpose.export` to the loader -- that
     // enum value is used only for its `targetSize`
-    // (`photo_export_service.dart:82`). The false claim predates the RAW
+    // (`photo_export_service.dart:280`). The false claim predates the RAW
     // generalisation: A-6's original "export is excluded because the escape
     // hatch is unreachable for it" was already wrong about the shipped path,
     // and this round faithfully carried the wrong premise forward.
     //
     // The BEHAVIOUR is deliberately left alone; only the claim is corrected.
     // Making export pass `ImageRequestPurpose.export` would look like it
-    // restores leniency, but it would kill `photo_export_service.dart:68`'s
+    // restores leniency, but it would kill `photo_export_service.dart:266`'s
     // `NativeImageNeedsRawDecode` branch, and exporting a preview-less RAW
     // would start returning null. The export service documents its
     // preview-purpose choice as deliberate for exactly that reason
-    // (`photo_export_service.dart:43-46`). Consequences of the floor applying
+    // (`photo_export_service.dart:236-239`). Consequences of the floor applying
     // to export, stated rather than papered over:
     //  - with a decoder available, the result is BETTER: a real decode
     //    downsized to 2048 beats an undersized embedded preview.

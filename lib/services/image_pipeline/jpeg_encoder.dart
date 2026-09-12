@@ -25,7 +25,7 @@ const int kDisplayJpegQuality = 70;
 // long-lived isolates behind the SAME exported function signature, so
 // neither call site (the sidebar codec, the payload re-encoder) changes
 // shape. The loop shape mirrors ceyx's `ceyxDecodeWorkerMain`
-// (`decode_pool.dart:1114+`): one `ReceivePort`, a `ready` handshake, then a
+// (`decode_pool.dart:1939+`): one `ReceivePort`, a `ready` handshake, then a
 // job loop until told to shut down.
 
 const String _kJpegMsgReady = 'ready';
@@ -290,7 +290,7 @@ class _JpegEncoderPool {
 
 /// Worker entry point: receives jobs off its [ReceivePort] and JPEG-encodes
 /// each one, until told to shut down. Loop shape copied from
-/// `ceyxDecodeWorkerMain` (`decode_pool.dart:1114+`) -- this pool has no
+/// `ceyxDecodeWorkerMain` (`decode_pool.dart:1939+`) -- this pool has no
 /// native library to load, so there is no per-worker init step beyond the
 /// ready handshake.
 void _jpegEncoderWorkerMain(SendPort poolPort) {

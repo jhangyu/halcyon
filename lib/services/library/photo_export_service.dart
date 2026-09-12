@@ -294,21 +294,19 @@ class PhotoExportService {
       // hand raw RGBA to the native encoder with an EXIF block attached.
       // JPEG keeps its historical decode-mutate-re-encode path below,
       // unchanged.
-      final resized = await Isolate.run<(Uint8List, int, int)?>(() {
-        final frame = _decodeAndResizeFrame(
-          encodedSource: encodedSource,
-          rgba: rgba,
-          rgbaWidth: rgbaWidth,
-          rgbaHeight: rgbaHeight,
-          quarterTurnsCw: quarterTurnsCw,
-          mirrored: mirrored,
-          maxEdge: maxEdge,
-        );
-        if (frame == null) return null;
-        return (frame.getBytes(order: img.ChannelOrder.rgba), frame.width, frame.height);
-      });
+      final resized = await _decodeResizeInIsolate(
+        encodedSource: encodedSource,
+        rgba: rgba,
+        rgbaWidth: rgbaWidth,
+        rgbaHeight: rgbaHeight,
+        quarterTurnsCw: quarterTurnsCw,
+        mirrored: mirrored,
+        maxEdge: maxEdge,
+        encodeToJpeg: false,
+        quality: quality,
+      );
       if (resized == null) return null;
-      final (rgbaBytes, width, height) = resized;
+      final (rgbaBytes, width, height) = resized as (Uint8List, int, int);
 
       // Orientation is forced to 1: the pixels above are already rotated, so
       // a carried-over Orientation tag would rotate them a second time.
@@ -335,20 +333,19 @@ class PhotoExportService {
       }
     }
 
-    final jpeg = await Isolate.run<Uint8List?>(() {
-      final frame = _decodeAndResizeFrame(
-        encodedSource: encodedSource,
-        rgba: rgba,
-        rgbaWidth: rgbaWidth,
-        rgbaHeight: rgbaHeight,
-        quarterTurnsCw: quarterTurnsCw,
-        mirrored: mirrored,
-        maxEdge: maxEdge,
-      );
-      if (frame == null) return null;
-      return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
-    });
-    if (jpeg == null) return null;
+    final jpegResult = await _decodeResizeInIsolate(
+      encodedSource: encodedSource,
+      rgba: rgba,
+      rgbaWidth: rgbaWidth,
+      rgbaHeight: rgbaHeight,
+      quarterTurnsCw: quarterTurnsCw,
+      mirrored: mirrored,
+      maxEdge: maxEdge,
+      encodeToJpeg: true,
+      quality: quality,
+    );
+    if (jpegResult == null) return null;
+    final jpeg = jpegResult as Uint8List;
 
     // EXIF is re-attached AFTER the isolate hop: `_attachSourceExif` reads
     // the ORIGINAL file with `package:exif` and mutates an img.Image, and an
@@ -364,11 +361,47 @@ class PhotoExportService {
     return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
   }
 
+  /// Shared isolate wrapper for both the JPEG and non-JPEG export paths:
+  /// runs [_decodeAndResizeFrame] on a worker isolate, then finishes the
+  /// resulting frame into a sendable value without leaving the isolate
+  /// (an `img.Image` itself is not sendable). [encodeToJpeg] selects which
+  /// finish step runs; the two call sites in [exportBytesFor] differ only
+  /// in that flag and in the value they cast the result to
+  /// ((Uint8List, int, int) for non-JPEG, Uint8List for JPEG).
+  static Future<Object?> _decodeResizeInIsolate({
+    required Uint8List? encodedSource,
+    required Uint8List? rgba,
+    required int rgbaWidth,
+    required int rgbaHeight,
+    required int quarterTurnsCw,
+    required bool mirrored,
+    required int maxEdge,
+    required bool encodeToJpeg,
+    required int quality,
+  }) {
+    return Isolate.run<Object?>(() {
+      final frame = _decodeAndResizeFrame(
+        encodedSource: encodedSource,
+        rgba: rgba,
+        rgbaWidth: rgbaWidth,
+        rgbaHeight: rgbaHeight,
+        quarterTurnsCw: quarterTurnsCw,
+        mirrored: mirrored,
+        maxEdge: maxEdge,
+      );
+      if (frame == null) return null;
+      if (encodeToJpeg) {
+        return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
+      }
+      return (frame.getBytes(order: img.ChannelOrder.rgba), frame.width, frame.height);
+    });
+  }
+
   /// Shared decode -> orient -> resize step for both the JPEG and WebP
-  /// export paths (extracted round-2b so the two isolate closures below stay
-  /// in sync instead of hand-duplicating this logic). Only sendable
-  /// arguments (nullable `Uint8List`s, ints, a bool) so it can run inside
-  /// either `Isolate.run` closure unchanged.
+  /// export paths (extracted round-2b so the two callers of
+  /// [_decodeResizeInIsolate] stay in sync instead of hand-duplicating this
+  /// logic). Only sendable arguments (nullable `Uint8List`s, ints, a bool)
+  /// so it can run inside the `Isolate.run` closure above unchanged.
   static img.Image? _decodeAndResizeFrame({
     required Uint8List? encodedSource,
     required Uint8List? rgba,

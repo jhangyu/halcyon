@@ -2,19 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/platform/file_retry.dart';
 import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-AppState _testState() {
-  return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList(<int>[1, 2, 3]));
-    },
-  );
-}
+import '../support/app_state_fixtures.dart';
 
 Future<void> _touch(Directory dir, String name) async {
   await File('${dir.path}${Platform.pathSeparator}$name').writeAsBytes(
@@ -45,7 +37,7 @@ void main() {
     await _touch(dir, 'IMG_0001.jpg');
     await _touch(dir, 'IMG_0002.jpg');
 
-    final state = _testState();
+    final state = testState();
     addTearDown(state.dispose);
     await state.loadFolder(dir);
 

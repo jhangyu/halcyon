@@ -81,7 +81,7 @@ const DngFullDecoder halcyonDngFullDecoder = decodeDngFull;
 ///   not swap). Nothing here needs to re-check that: [DngImage] already did.
 /// * **pool arm with the new dylib** -- `appliedOrientation` mirrors what the
 ///   decoder actually did, and the residual collapses to identity for the RAW
-///   route (spec §1.4), which is what lets `photo_source.dart:615`'s
+///   route (spec §1.4), which is what lets `photo_source.dart:634`'s
 ///   `usePointer` gate flip to true with zero edits to that line.
 Future<DecodedRgba> decodeDngFullOriented(
   String path, {

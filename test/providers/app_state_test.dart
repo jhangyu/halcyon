@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
 import '../support/fixture_files.dart';
 import '../support/fs_permissions.dart';
@@ -38,7 +39,7 @@ void main() {
         await _touch(dir, '._IMG_0002.dng');
         await _touch(dir, 'notes.txt');
 
-        final state = _testState();
+        final state = testState();
         await state.loadFolder(dir);
 
         expect(state.items.map((item) => item.id), ['IMG_0001', 'IMG_0002']);
@@ -55,7 +56,7 @@ void main() {
       });
       await _touch(dir, 'IMG_0001.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       expect(state.status, isNull, reason: 'writable folder stays quiet');
 
@@ -82,7 +83,7 @@ void main() {
         }),
       );
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       expect(state.selectedItemID, 'IMG_0002');
@@ -102,7 +103,7 @@ void main() {
       addTempDirTeardown(dir);
       await _touch(dir, 'P1000001.rw2');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       expect(state.items, hasLength(1));
@@ -119,7 +120,7 @@ void main() {
       await _touch(dir, 'IMG_0003.jpg');
       await _touch(dir, 'IMG_0003.orf');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       expect(state.items.map((item) => item.id), [
@@ -142,7 +143,7 @@ void main() {
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0002.jpg');
 
-        final state = _testState();
+        final state = testState();
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
         state.markCurrent(PhotoStatus.starred);
@@ -190,7 +191,7 @@ void main() {
         await _touch(dir, 'IMG_0001.jpg');
         await _touch(dir, 'IMG_0002.jpg');
 
-        final state = _testState();
+        final state = testState();
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
 
@@ -217,7 +218,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       state.nextPhoto();
@@ -237,7 +238,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
-      final state = _testState();
+      final state = testState();
       addTearDown(state.dispose);
       await state.loadFolder(dir);
       state.selectItem('IMG_0001');
@@ -254,7 +255,7 @@ void main() {
       addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
 
-      final state = _testState();
+      final state = testState();
       addTearDown(state.dispose);
       await state.loadFolder(dir);
       state.selectItem('IMG_0001');
@@ -274,7 +275,7 @@ void main() {
       // Block the destination path with a DIRECTORY so the copy throws.
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
 
-      final state = _testState();
+      final state = testState();
       addTearDown(state.dispose);
       await state.loadFolder(src);
       state.markCurrent(PhotoStatus.starred);
@@ -353,7 +354,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.dng');
 
-      final state = _testState();
+      final state = testState();
       await state.openPhotoAtPath(p.join(dir.path, 'IMG_0002.dng'));
 
       expect(state.currentDir?.path, dir.path);
@@ -371,7 +372,7 @@ void main() {
       addTempDirTeardown(other);
       await _touch(other, 'notes.txt');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       await state.openPhotoAtPath(p.join(other.path, 'notes.txt'));
 
@@ -387,7 +388,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0001.dng');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       expect(state.recycleMode, isTrue);
@@ -399,7 +400,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
 
       expect(state.recycleMode, isFalse);
@@ -410,7 +411,7 @@ void main() {
       addTempDirTeardown(dir);
       await _touch(dir, 'IMG_0001.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       var notifications = 0;
       state.addListener(() => notifications++);
@@ -529,7 +530,7 @@ void main() {
       await _touch(src, 'IMG_0002.jpg');
       await _touch(src, 'IMG_0003.jpg');
 
-      final state = _testState();
+      final state = testState();
       addTearDown(state.dispose);
       await state.loadFolder(src);
 
@@ -754,14 +755,6 @@ void main() {
 
 Future<void> _touch(Directory dir, String name) =>
     writeFixtureBytes(dir, name, const <int>[1, 2, 3]);
-
-AppState _testState() {
-  return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-    },
-  );
-}
 
 class _ThrowingScanner extends PhotoLibraryScanner {
   _ThrowingScanner(this.error);

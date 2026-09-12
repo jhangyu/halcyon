@@ -9,11 +9,9 @@ import 'darkroom_palette.dart';
 /// headline / sentence / hairline / Open Folder button / drop hint all on one
 /// centred vertical axis.
 ///
-/// NOT YET WIRED into `PhotoViewport`'s empty-state branch
-/// (`lib/views/layout/common/photo_viewport.dart:87-89`), which currently
-/// special-cases only `LayoutThemeId.gallery` — that file is shared and
-/// outside this task's ownership. Per team-lead: the branch for
-/// `LayoutThemeId.darkroom` is added during registry wiring (task #14).
+/// Wired into `PhotoViewport`'s empty-state branch
+/// (`lib/views/layout/common/photo_viewport.dart:100`) for
+/// `LayoutThemeId.darkroom`.
 class DarkroomEmptyState extends StatelessWidget {
   const DarkroomEmptyState({super.key});
 

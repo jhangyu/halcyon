@@ -1,11 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
-import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// F-16 "Open With" entry point coverage for [AppState.openPhotoAtPath].
@@ -28,7 +26,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       final before = state.items.map((item) => item.id).toList();
 
@@ -47,7 +45,7 @@ void main() {
         addTempDirTeardown(dir);
         await _touch(dir, 'IMG_0001.jpg');
 
-        final state = _testState();
+        final state = testState();
         await state.loadFolder(dir);
 
         await state.openPhotoAtPath(
@@ -66,7 +64,7 @@ void main() {
       await _touch(dir, 'IMG_0001.jpg');
       await _touch(dir, 'IMG_0002.dng');
 
-      final state = _testState();
+      final state = testState();
       await state.openPhotoAtPath(p.join(dir.path, 'IMG_0002.dng'));
 
       expect(state.currentDir?.path, dir.path);
@@ -82,7 +80,7 @@ void main() {
       addTempDirTeardown(other);
       await _touch(other, 'notes.txt');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       await state.openPhotoAtPath(p.join(other.path, 'notes.txt'));
 
@@ -96,10 +94,3 @@ Future<void> _touch(Directory dir, String name) {
   return File(p.join(dir.path, name)).writeAsBytes(<int>[1, 2, 3]);
 }
 
-AppState _testState() {
-  return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-    },
-  );
-}

@@ -1155,7 +1155,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Preload sliding window: Previous 3, Current, Next 5
+  // Preload sliding window: before/after counts come from the active
+  // RetentionPolicy (e.g. 3/5 for the conservative tier; wider for others),
+  // not a fixed 3/5 for every tier -- see RetentionPolicy in
+  // retention_policy.dart.
   Future<void> _preloadImages() async {
     final selectedId = _selectedItemID;
     if (selectedId == null) return;

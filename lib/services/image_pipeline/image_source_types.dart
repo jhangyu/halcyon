@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
-/// Pure types for the `NativeImageLoad` seam (`photo_source.dart:76-80`).
+/// Pure types for the `NativeImageLoad` seam (defined below, line 162;
+/// consumed as `PhotoSource.loader`, `photo_source.dart:202`).
 ///
 /// M6 P3.3: split out of `native_thumbnail_service.dart` when its native
 /// thumbnail `MethodChannel` service was deleted. These types have

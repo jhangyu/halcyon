@@ -7,7 +7,7 @@ import 'dng_decode_contract.dart';
 /// deliberately: same length check, same StateError shape.
 
 /// The single place the RGBA geometry invariant is enforced on the JXL path,
-/// mirroring `heif_decode_service.dart:17` for the HEIC path.
+/// mirroring `heif_decode_service.dart:16` for the HEIC path.
 ///
 /// `PixelPayload`'s assert and `_imageFromPixels`' invariant both depend on
 /// `rgba.length == width * height * 4`.

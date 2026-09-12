@@ -1,24 +1,14 @@
 // TC-860: folder-wide starred/trashed aggregates, and the PhotoIdentity
 // fields that carry them to a layout theme. Data path only — no widget here.
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
-
-AppState _testState() {
-  return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-    },
-  );
-}
 
 Future<void> _touch(Directory dir, String name) async {
   await File('${dir.path}${Platform.pathSeparator}$name').writeAsBytes([0]);
@@ -31,7 +21,7 @@ void main() {
 
   group('TC-860 AppState aggregate starred/trashed counts', () {
     test('both counts are 0 before any folder is loaded', () {
-      final state = _testState();
+      final state = testState();
       expect(state.starredCount, 0);
       expect(state.trashedCount, 0);
     });
@@ -44,7 +34,7 @@ void main() {
       await _touch(dir, 'IMG_0003.jpg');
       await _touch(dir, 'IMG_0004.jpg');
 
-      final state = _testState();
+      final state = testState();
       await state.loadFolder(dir);
       expect(state.items, hasLength(4));
       expect(state.starredCount, 0, reason: 'a fresh scan marks nothing');

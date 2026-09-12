@@ -977,7 +977,9 @@ class ImagePreloadController {
   // load completes so the UI never strands on a permanent spinner.
   final Map<String, List<VoidCallback>> _pendingPreviewNotifies = {};
 
-  // The navigation demand: the current -3..+5 window. Async source completions
+  // The navigation demand: the current retention window (-3..+5 on the floor
+  // rung; wider forward-only on balanced/generous, see retention_policy.dart).
+  // Async source completions
   // re-check membership before writing, so a late arrival cannot resurrect an
   // item the user has already navigated away from.
   Set<String> _navRetentionIds = {};
