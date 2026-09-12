@@ -2,7 +2,7 @@
 Type=Application
 Name=Halcyon
 Comment=RAW/JPG photo triage tool
-Exec=photo_selector_flutter
+Exec=halcyon
 Icon=halcyon
 Terminal=false
 Categories=Graphics;Photography;
