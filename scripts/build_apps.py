@@ -1784,31 +1784,59 @@ def ceyx_fetch_is_due(ft, layout, args):
     return bool(stale)
 
 
+def _ceyx_pin_digest_by_artifact(assets, ft):
+    entry = assets.get(ft) if isinstance(assets, dict) else None
+    libraries = entry.get("libraries") if isinstance(entry, dict) else None
+    return {
+        lib["artifact"]: lib["sha256"]
+        for lib in (libraries or [])
+        if isinstance(lib, dict) and "artifact" in lib and "sha256" in lib
+    }
+
+
 def ceyx_check_pin(layout):
     """S-A4: network-free digest preflight over every CEYX_FETCH_SPECS member
     that has a placement destination. Prints one PIN-* line per artifact plus
-    a PIN-SUMMARY, and returns True iff there was at least one mismatch (the
-    caller decides the exit code). Reuses _ceyx_stale_members() so the
-    preflight and the fetch gate (ceyx_fetch_is_due) can never drift into two
-    different notions of "stale" - the same "one instrument, two readers"
-    discipline assertions.py:921-926 applies to check_symbol. PIN-ABSENT is
-    printed but is NOT treated as a mismatch: Linux legitimately ships only a
-    .gitkeep locally until fetched, and "assertion skipped must be visible"
-    is satisfied by printing the line, not by failing the run over it."""
+    a PIN-SUMMARY, and returns True iff there was at least one GENUINE
+    mismatch (the caller decides the exit code). Reuses _ceyx_stale_members()
+    so the preflight and the fetch gate (ceyx_fetch_is_due) can never drift
+    into two different notions of "stale" - the same "one instrument, two
+    readers" discipline assertions.py:921-926 applies to check_symbol.
+    PIN-ABSENT is printed but is NOT treated as a mismatch: Linux legitimately
+    ships only a .gitkeep locally until fetched, and "assertion skipped must
+    be visible" is satisfied by printing the line, not by failing the run
+    over it.
+
+    OTHER-ARCH (2026-09-12 fix, reviewer-mandated): macos-arm64 and
+    macos-x86_64 share ONE on-disk path per artifact (dng_ffi_artifacts.json
+    documents this - only one architecture's bytes can be on disk at a
+    time). Before this fix, whichever arch was NOT currently staged always
+    read PIN-MISMATCH against its own pin entry, even though the on-disk
+    bytes were legitimately the OTHER arch's pinned bytes - making a clean,
+    single-arch-fetched tree unable to ever report RC=0. A stale artifact
+    whose observed digest matches ANOTHER fetch-target sharing the same
+    physical path is reclassified from PIN-MISMATCH to OTHER-ARCH: visible
+    (never silent) and NOT counted in `mismatched`. A stale artifact matching
+    NO sibling group's pin at all is still a genuine PIN-MISMATCH."""
     _tag, assets, _lock = load_ceyx_pin()
-    checked = mismatched = absent = uncovered = 0
+
+    # Map each physical path to every (ft, artifact) pair that names it, so a
+    # mismatch on one ft can be checked against every sibling sharing the path.
+    path_groups = {}
+    for ft, spec in CEYX_FETCH_SPECS.items():
+        if spec.get("dest") is None:
+            continue
+        dest_dir = layout.decoder / spec["dest"]
+        for m in spec["members"]:
+            path_groups.setdefault(dest_dir / m["artifact"], []).append((ft, m["artifact"]))
+
+    checked = mismatched = absent = uncovered = other_arch = 0
     for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
         if spec.get("dest") is None:
             continue
         dest_dir = layout.decoder / spec["dest"]
         stale_by_artifact = {a: (o, e) for a, o, e in _ceyx_stale_members(ft, layout)}
-        entry = assets.get(ft) if isinstance(assets, dict) else None
-        libraries = entry.get("libraries") if isinstance(entry, dict) else None
-        digest_by_artifact = {
-            lib["artifact"]: lib["sha256"]
-            for lib in (libraries or [])
-            if isinstance(lib, dict) and "artifact" in lib and "sha256" in lib
-        }
+        digest_by_artifact = _ceyx_pin_digest_by_artifact(assets, ft)
         for m in spec["members"]:
             artifact = m["artifact"]
             checked += 1
@@ -1819,8 +1847,21 @@ def ceyx_check_pin(layout):
                 continue
             if artifact in stale_by_artifact:
                 observed, expected = stale_by_artifact[artifact]
-                print(f"PIN-MISMATCH {ft}/{artifact} on-disk {observed} != pinned {expected}")
-                mismatched += 1
+                sibling_match = False
+                for sib_ft, sib_artifact in path_groups.get(path, []):
+                    if sib_ft == ft:
+                        continue
+                    sib_expected = _ceyx_pin_digest_by_artifact(assets, sib_ft).get(sib_artifact)
+                    if sib_expected is not None and sib_expected == observed:
+                        sibling_match = True
+                        break
+                if sibling_match:
+                    print(f"OTHER-ARCH {ft}/{artifact} on-disk {observed} matches a "
+                          "different pinned group sharing this path")
+                    other_arch += 1
+                else:
+                    print(f"PIN-MISMATCH {ft}/{artifact} on-disk {observed} != pinned {expected}")
+                    mismatched += 1
                 continue
             if artifact not in digest_by_artifact:
                 print(f"PIN-UNCOVERED {ft}/{artifact}")
@@ -1829,7 +1870,7 @@ def ceyx_check_pin(layout):
             observed = sha256_of(path)
             print(f"PIN-OK {ft}/{artifact} {observed[:12]}...")
     print(f"PIN-SUMMARY checked={checked} mismatched={mismatched} "
-          f"absent={absent} uncovered={uncovered}")
+          f"absent={absent} uncovered={uncovered} other_arch={other_arch}")
     return mismatched > 0
 
 

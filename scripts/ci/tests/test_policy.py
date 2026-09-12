@@ -806,6 +806,123 @@ class CeyxFetchGateTests(unittest.TestCase):
                 "a member missing a pinned digest must skip its "
                 "checksum-mismatch check, not force a refetch")
 
+    def test_check_pin_other_arch_when_sibling_group_matches(self):
+        """S-A4 fix (2026-09-12): two fetch-targets sharing ONE on-disk path
+        (like macos-arm64/macos-x86_64) must not both report PIN-MISMATCH
+        when the on-disk bytes are legitimately one of the two pinned groups.
+        The non-matching group's row is OTHER-ARCH (visible, not counted),
+        the matching group's row is PIN-OK, and the preflight is CLEAN
+        (return False / no genuine mismatch)."""
+        import contextlib  # noqa: PLC0415
+        import hashlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest = Path("shared") / "Libraries"
+            dest_dir = decoder_dir / dest
+            dest_dir.mkdir(parents=True)
+            artifact = "shared_decoder.dylib"
+            on_disk_bytes = b"group-a's pinned bytes"
+            (dest_dir / artifact).write_bytes(on_disk_bytes)
+            digest_a = hashlib.sha256(on_disk_bytes).hexdigest()
+            digest_b = hashlib.sha256(b"group-b's DIFFERENT pinned bytes").hexdigest()
+
+            fake_specs = {
+                "group-a": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
+                "group-b": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
+            }
+
+            def fake_load_ceyx_pin():
+                return (
+                    "v0.0.0-test",
+                    {
+                        "group-a": {"libraries": [
+                            {"member": artifact, "artifact": artifact, "sha256": digest_a}]},
+                        "group-b": {"libraries": [
+                            {"member": artifact, "artifact": artifact, "sha256": digest_b}]},
+                    },
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig_specs = build_apps.CEYX_FETCH_SPECS
+            orig_pin = build_apps.load_ceyx_pin
+            build_apps.CEYX_FETCH_SPECS = fake_specs
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    mismatched = build_apps.ceyx_check_pin(self._make_layout(decoder_dir))
+            finally:
+                build_apps.CEYX_FETCH_SPECS = orig_specs
+                build_apps.load_ceyx_pin = orig_pin
+
+            output = buf.getvalue()
+            self.assertFalse(mismatched, "a same-path sibling match must not count as a mismatch")
+            self.assertIn("PIN-OK group-a/shared_decoder.dylib", output)
+            self.assertIn("OTHER-ARCH group-b/shared_decoder.dylib", output)
+            self.assertNotIn("PIN-MISMATCH", output)
+            self.assertIn("PIN-SUMMARY checked=2 mismatched=0 absent=0 uncovered=0 other_arch=1",
+                          output)
+
+    def test_check_pin_genuine_mismatch_not_reclassified(self):
+        """A stale artifact matching NO sibling group's pin at all must stay
+        a genuine PIN-MISMATCH, not be swallowed by the OTHER-ARCH path."""
+        import contextlib  # noqa: PLC0415
+        import hashlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest = Path("shared") / "Libraries"
+            dest_dir = decoder_dir / dest
+            dest_dir.mkdir(parents=True)
+            artifact = "shared_decoder.dylib"
+            (dest_dir / artifact).write_bytes(b"corrupted, matches neither pin")
+            digest_a = hashlib.sha256(b"group-a's pinned bytes").hexdigest()
+            digest_b = hashlib.sha256(b"group-b's DIFFERENT pinned bytes").hexdigest()
+
+            fake_specs = {
+                "group-a": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
+                "group-b": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
+            }
+
+            def fake_load_ceyx_pin():
+                return (
+                    "v0.0.0-test",
+                    {
+                        "group-a": {"libraries": [
+                            {"member": artifact, "artifact": artifact, "sha256": digest_a}]},
+                        "group-b": {"libraries": [
+                            {"member": artifact, "artifact": artifact, "sha256": digest_b}]},
+                    },
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig_specs = build_apps.CEYX_FETCH_SPECS
+            orig_pin = build_apps.load_ceyx_pin
+            build_apps.CEYX_FETCH_SPECS = fake_specs
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    mismatched = build_apps.ceyx_check_pin(self._make_layout(decoder_dir))
+            finally:
+                build_apps.CEYX_FETCH_SPECS = orig_specs
+                build_apps.load_ceyx_pin = orig_pin
+
+            output = buf.getvalue()
+            self.assertTrue(mismatched, "bytes matching neither pinned group is a genuine mismatch")
+            self.assertIn("PIN-MISMATCH group-a/shared_decoder.dylib", output)
+            self.assertIn("PIN-MISMATCH group-b/shared_decoder.dylib", output)
+            self.assertNotIn("OTHER-ARCH", output)
+            self.assertIn("PIN-SUMMARY checked=2 mismatched=2 absent=0 uncovered=0 other_arch=0",
+                          output)
+
 
 class TestWi15MemberSetEqual(unittest.TestCase):
     """WI-15 step 15.4 (S-H2): _member_set_equal is the literal
