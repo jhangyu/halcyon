@@ -150,9 +150,23 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # that moves, never the test. Recomputed with the SAME CRLF-normalizing method
 # test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
 # sha256), never transcribed by hand.
+#
+# Re-pinned v0.1.22 -> v0.1.23 (P4b): decoder archive digest changed for
+# android, linux, macos-arm64, macos-x86_64 and windows (the two macOS
+# entries' LC_UUIDs moved with them); libjxl-dist-windows's jxl.lib and
+# libwebp-dist-windows's libwebp.lib also changed. Byte-identical between
+# v0.1.22 and v0.1.23 and therefore unchanged here: the android
+# libheif.so/libde265.so pair, the heif-dist-windows heif.dll/libde265.dll
+# pair (and the windows decoder archive's copies of them), libjxl-dist-linux's
+# libjxl.a, and all five macOS auxiliary dylibs (lcms2/jpeg/heif/de265/omp).
+# The windows decoder archive digest (dng_decoder_native.dll) DID change --
+# the on-disk fetched Libraries copy no longer matches this pin and must be
+# re-fetched (see step 5 of this task). Recomputed with the SAME
+# CRLF-normalizing method test_pin_file_untouched itself uses (read_bytes,
+# replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "087c0b8aec0a2229f6522c6a4817001f48ca1d5456ad1d124f8e4aa2ac259ad9"
+    "67ac6faddbed9c9eb5ab5f5b07d3f38d9720ebed7d5918061755a117c4cd3231"
 )
 
 
