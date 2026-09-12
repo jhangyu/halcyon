@@ -2,7 +2,8 @@
 Type=Application
 Name=Halcyon
 Comment=RAW/JPG photo triage tool
-Exec=halcyon
+Exec=halcyon %U
 Icon=halcyon
 Terminal=false
 Categories=Graphics;Photography;
+MimeType=image/jpeg;image/png;image/webp;image/tiff;image/heic;image/heif;image/avif;image/jxl;image/x-adobe-dng;image/x-sony-arw;image/x-canon-cr3;image/x-canon-cr2;image/x-nikon-nef;image/x-fuji-raf;image/x-panasonic-rw2;image/x-olympus-orf;image/x-pentax-pef;image/x-sigma-x3f;image/x-minolta-mrw;

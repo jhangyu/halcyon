@@ -6,10 +6,13 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "halcyon_channels.h"
 
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  HalcyonChannels* channels;
+  gchar* pending_open_file;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -100,6 +103,20 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  // Halcyon's own channels live on the engine messenger, not in a plugin --
+  // mirroring macos/Runner/AppDelegate.swift and
+  // windows/runner/halcyon_channels.cpp:46-94.
+  self->channels = halcyon_channels_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)));
+
+  // Dart has certainly not registered its halcyon/open_with handler yet; the
+  // channel is push-only precisely so Flutter buffers this until it does
+  // (open_with_channel.dart:5-11).
+  if (self->pending_open_file != nullptr) {
+    halcyon_channels_push_open_file(self->channels, self->pending_open_file);
+    g_clear_pointer(&self->pending_open_file, g_free);
+  }
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -108,6 +125,22 @@ static gboolean my_application_local_command_line(GApplication* application, gch
   MyApplication* self = MY_APPLICATION(application);
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
+
+  // "Open With" from a file manager runs `halcyon <uri-or-path>` via the
+  // .desktop Exec= field code. g_file_new_for_commandline_arg accepts both a
+  // file:// URI (%U) and a plain path; a non-local URI yields no path and is
+  // dropped rather than pushed (open_with_channel.dart:21-23 ignores paths
+  // that do not exist, so dropping is safe).
+  for (gchar** arg = *arguments + 1; *arg != nullptr; arg++) {
+    if ((*arg)[0] == '-') continue;
+    g_autoptr(GFile) file = g_file_new_for_commandline_arg(*arg);
+    g_autofree gchar* local_path = g_file_get_path(file);
+    if (local_path != nullptr) {
+      g_clear_pointer(&self->pending_open_file, g_free);
+      self->pending_open_file = g_steal_pointer(&local_path);
+    }
+    break;
+  }
 
   g_autoptr(GError) error = nullptr;
   if (!g_application_register(application, nullptr, &error)) {
@@ -144,6 +177,11 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_pointer(&self->pending_open_file, g_free);
+  if (self->channels != nullptr) {
+    halcyon_channels_free(self->channels);
+    self->channels = nullptr;
+  }
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
