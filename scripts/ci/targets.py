@@ -35,9 +35,10 @@ platform name would have silently disabled that rule for the whole leg.
 ``app_executable`` is the basename of the Flutter runner binary inside the
 shipped artefact, and it is NOT the same string on every platform: only macOS
 is named after the product ("Halcyon"); Windows is lowercase ("halcyon.exe")
-and Linux still carries the pre-rename project name
-("photo_selector_flutter"). ``archive_name`` above names the *zip/tarball* and
-is deliberately product-branded on all targets — the two must not be conflated.
+and Linux is lowercase too ("halcyon") — the remaining difference is
+capitalisation and the ".exe" suffix, not a stale project name.
+``archive_name`` above names the *zip/tarball* and is deliberately
+product-branded on all targets — the two must not be conflated.
 """
 
 from __future__ import annotations
@@ -186,10 +187,8 @@ TARGETS: dict = {
         # The arch segment is host-dependent (build_apps.py:1748-1751), hence glob.
         "artifact_kind": "glob_dir",
         "artifact_path": "build/linux/*/release/bundle",
-        # linux/CMakeLists.txt:7 — set(BINARY_NAME "photo_selector_flutter").
-        # The Linux runner was never renamed to the product name; the bundle
-        # ships bundle/photo_selector_flutter.
-        "app_executable": "photo_selector_flutter",
+        # linux/CMakeLists.txt:7 — set(BINARY_NAME "halcyon").
+        "app_executable": "halcyon",
         "archive_name": "Halcyon-linux-x64-{version}.tar.gz",
         "archive_format": "gztar",
         "assertions": [

@@ -73,22 +73,37 @@ jobs:
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
 
-  # Two macOS legs, one per architecture. BOTH run on macos-14 (Apple silicon):
-  # the x64 leg is a CROSS-COMPILE (`--macos-arch x86_64`, rendered by
-  # scripts/ci/targets.py), not an Intel runner. That is deliberate — it matches
-  # how the capability was first proved locally and avoids depending on the
-  # retiring macos-13 Intel image — and it has a stated cost: the functional FFI
-  # probe cannot load an x86_64 dylib from an arm64 process, so the x64 leg's
-  # assertion list omits it in data and gates on Mach-O header + nm symbol
-  # checks instead. A green x64 leg therefore does NOT claim runtime loadability
-  # on real Intel hardware. See the "assertions" comment in targets.py.
+  # Four legs: two macOS architectures plus windows and linux, all built and
+  # asserted on every push/pull_request (not just at release tag), so the
+  # compile claim stays continuously maintained. The macOS pair BOTH run on
+  # macos-14 (Apple silicon): the x64 leg is a CROSS-COMPILE (`--macos-arch
+  # x86_64`, rendered by scripts/ci/targets.py), not an Intel runner. That is
+  # deliberate — it matches how the capability was first proved locally and
+  # avoids depending on the retiring macos-13 Intel image — and it has a
+  # stated cost: the functional FFI probe cannot load an x86_64 dylib from an
+  # arm64 process, so the x64 leg's assertion list omits it in data and gates
+  # on Mach-O header + nm symbol checks instead. A green x64 leg therefore
+  # does NOT claim runtime loadability on real Intel hardware. See the
+  # "assertions" comment in targets.py. The windows/linux legs build through
+  # the same three ci.py one-liners release.yml uses; a green run here proves
+  # compile-time capability only, not verified runtime loadability (see WI-3's
+  # "unverified at runtime" labelling — this comment must not contradict it).
   build:
     name: Build ${{ matrix.target }} (release)
     strategy:
-      fail-fast: false        # lets the sibling arch leg finish; a leg still fails when it fails
+      fail-fast: false        # lets sibling matrix legs finish; a leg still fails when it fails
       matrix:
-        target: [macos, macos-x64]
-    runs-on: macos-14
+        include:
+          - {os: macos-14,       target: macos}
+          - {os: macos-14,       target: macos-x64}
+          - {os: windows-latest, target: windows}
+          - {os: ubuntu-latest,  target: linux}
+    runs-on: ${{ matrix.os }}
+    env:
+      # Same rationale as the verify job's PYTHONUTF8 (ci.yml:35-40): this job
+      # now runs on windows-latest too, where Python defaults text I/O to the
+      # console codepage (cp1252) instead of UTF-8 without this.
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
         with:

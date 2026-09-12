@@ -476,6 +476,69 @@ class TestReleaseMatrixMatchesTargets(unittest.TestCase):
         )
 
 
+class TestCiBuildMatrixMatchesTargets(unittest.TestCase):
+    """ci.yml's build matrix and scripts/ci/targets.py must agree (WI-6 clause 5).
+
+    ci.yml's `include:` entries have no `archive:` key (nothing is packaged in
+    ci.yml), so this uses a separate regex from
+    TestReleaseMatrixMatchesTargets's. The failure this prevents: a future
+    target gains a non-empty "assertions" list in targets.py (i.e. it claims
+    to be capability-checked) but nobody adds it to ci.yml's per-PR matrix, so
+    it silently never builds/asserts on ordinary pushes/PRs and only gets
+    exercised at release time.
+    """
+
+    MATRIX_LINE_RE = re.compile(
+        r"^\s*-\s*\{os:\s*([\w.-]+)\s*,\s*target:\s*([\w.-]+)\s*\}"
+    )
+
+    def _ci_matrix_entries(self):
+        path = WORKFLOWS_DIR / "ci.yml"
+        if not path.is_file():
+            self.skipTest(f"{path} not present")
+        entries = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            m = self.MATRIX_LINE_RE.match(line)
+            if m:
+                entries.append((m.group(1), m.group(2)))
+        self.assertTrue(entries, "no ci.yml build matrix include entries parsed")
+        return entries
+
+    def _targets_module(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import ci.targets as targets  # noqa: PLC0415
+
+        return targets
+
+    def test_ci_build_matrix_covers_every_assertion_carrying_target(self):
+        targets = self._targets_module()
+        expected = sorted(t for t, s in targets.TARGETS.items() if s["assertions"])
+        observed = sorted(target for _os, target in self._ci_matrix_entries())
+        self.assertEqual(
+            expected,
+            observed,
+            "ci.yml's per-PR build matrix must build every target that carries "
+            "capability assertions in targets.py, or a new capability-checked "
+            "target could go unbuilt on ordinary pushes/PRs",
+        )
+
+    def test_ci_matrix_runner_matches_targets_runs_on(self):
+        targets = self._targets_module()
+        for runner, target in self._ci_matrix_entries():
+            with self.subTest(target=target):
+                spec = targets.spec(target)  # KeyError -> unknown target
+                self.assertEqual(
+                    runner,
+                    spec["runs_on"],
+                    f"ci.yml runs {target!r} on {runner!r} but targets.py "
+                    f"declares runs_on={spec['runs_on']!r}",
+                )
+
+
 class TestNoTestExecutionInCI(unittest.TestCase):
     """CLAUDE.md (2026-08-31 decree): "CI is compile-only ... Functional
     tests ... are NOT run in CI." No argv list literal anywhere under
