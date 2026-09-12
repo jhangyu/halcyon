@@ -1,6 +1,13 @@
 // IFileOperation-backed implementation of the `halcyon/trash` channel.
 //
-// UNCOMPILED AND UNTESTED: authored on a macOS host.
+// COMPILE STATUS: compiled by the `windows` leg of .github/workflows/ci.yml on
+// every change (and by .github/workflows/release.yml at release tags). Last
+// verified green: run 34673442889, 2026-09-12 -- see
+// docs/logs/2026-09-12/wi3-windows-compile-history.md.
+//
+// RUNTIME STATUS: UNTESTED. Authored on a macOS host; CI is compile-only by
+// project decree, so nothing here has executed. See
+// docs/logs/2026-08-21/windows-verification-runbook.md before trusting it.
 
 #include "halcyon_native.h"
 

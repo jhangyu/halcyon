@@ -12,8 +12,8 @@ G_BEGIN_DECLS
 // COMPILE/RUNTIME STATUS: compiled by the `linux` leg of
 // .github/workflows/ci.yml on every change. Runtime behaviour (Trash,
 // "Open With", and the PSI-driven memory-pressure push below) is verified
-// manually; see docs/logs/<date>/wi1-linux-runbook.md and, for the PSI push
-// specifically, the standalone docs/logs/<date>/wi1-linux-psi-runbook.md.
+// manually; see docs/logs/2026-09-12/wi1-linux-runbook.md and, for the PSI
+// push specifically, the standalone docs/logs/2026-09-12/wi1-linux-psi-runbook.md.
 typedef struct _HalcyonChannels HalcyonChannels;
 
 // Registers halcyon/trash (handler), halcyon/open_with and

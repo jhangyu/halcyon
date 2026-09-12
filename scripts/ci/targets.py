@@ -84,6 +84,8 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS",
+            "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "macos-arm64",
     },
@@ -136,6 +138,16 @@ TARGETS: dict = {
         # file fine on any host, because it parses the file rather than loading
         # it). Runtime loadability on real Intel hardware is therefore NOT
         # measured by this leg and must not be claimed from a green run.
+        # H-CEYX-SYMBOLS (the multi-symbol functional probe, clause 10) is
+        # DELIBERATELY ABSENT here for the identical reason: it is `_run_probe`
+        # with the full CEYX_SYMBOLS set, still `dart run` + DynamicLibrary.open,
+        # so an arm64 dart process still cannot load this leg's x86_64 dylib.
+        # A Rosetta-2-based functional probe for this leg was evaluated and
+        # rejected by user ruling 2026-09-12
+        # (docs/logs/2026-09-12/platform-parity-user-rulings.md, OQ-C3): the
+        # extra x86_64 Dart SDK download per run is not worth it, and Intel
+        # runtime proof remains a disclosed limitation of this leg. No spike
+        # was run. Do not re-open without new grounds.
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
@@ -172,6 +184,7 @@ TARGETS: dict = {
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
+            "H-CEYX-SYMBOLS",
         ],
         "pin_platform": "windows",
     },
@@ -202,6 +215,8 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS",
+            "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "linux",
     },

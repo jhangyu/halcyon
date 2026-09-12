@@ -9,8 +9,15 @@
 //   lib/services/platform/memory_pressure_monitor.dart
 //                                               (halcyon/memory_pressure)
 //
-// NOTHING IN THIS FILE OR ITS IMPLEMENTATION HAS BEEN COMPILED OR RUN.
-// It was written on a macOS host, which cannot build Windows targets. See
+// COMPILE STATUS: this header is compiled into the runner target by way of
+// its two includers, halcyon_channels.cpp and halcyon_trash.cpp, both listed
+// as sources in windows/runner/CMakeLists.txt and built by the `windows` leg
+// of .github/workflows/ci.yml and .github/workflows/release.yml. Last
+// verified green: run 34673442889, 2026-09-12 -- see
+// docs/logs/2026-09-12/wi3-windows-compile-history.md.
+//
+// RUNTIME STATUS: NEVER RUN ON WINDOWS. It was written on a macOS host; CI is
+// compile-only by project decree, so nothing here has executed. See
 // docs/logs/2026-08-21/windows-verification-runbook.md before trusting it.
 
 #ifndef RUNNER_HALCYON_NATIVE_H_

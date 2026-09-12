@@ -1,6 +1,14 @@
 // MethodChannel registration for Halcyon's Windows native bridges.
 //
-// UNCOMPILED AND UNTESTED: authored on a macOS host.
+// COMPILE STATUS: compiled by the `windows` leg of .github/workflows/ci.yml on
+// every change (and by .github/workflows/release.yml at release tags). Last
+// verified green: run 34673442889, 2026-09-12 -- see
+// docs/logs/2026-09-12/wi3-windows-compile-history.md.
+//
+// RUNTIME STATUS: NEVER RUN ON WINDOWS. CI is compile-only by project decree,
+// so nothing here has executed. Runtime behaviour is proved manually; see
+// docs/logs/2026-08-21/windows-verification-runbook.md. Do not report these
+// bridges as working on the strength of a green build.
 //
 // Channel names, method names, argument keys and result shapes here must match
 // the Dart side byte for byte. A mismatched string does not raise an error --
@@ -96,10 +104,14 @@ Channels::Channels(flutter::BinaryMessenger* messenger) {
 // ---------------------------------------------------------------------------
 // Low-memory watch (WP4.4 / spec S3.4)
 //
-// UNVERIFIED-ON-WINDOWS: everything from here to PushMemoryPressureLevel was
-// authored on a macOS host and has NEVER been compiled or run on Windows,
-// inheriting the status this file's header already declares. The macOS live
-// proof of the pressure path says nothing about this code. Do not report it as
+// COMPILE STATUS: compiled along with the rest of this file by the `windows`
+// leg of .github/workflows/ci.yml and .github/workflows/release.yml -- see
+// docs/logs/2026-09-12/wi3-windows-compile-history.md.
+//
+// RUNTIME STATUS: everything from here to PushMemoryPressureLevel was
+// authored on a macOS host and has NEVER been run on Windows, inheriting the
+// runtime status this file's header already declares. The macOS live proof of
+// the pressure path says nothing about this code. Do not report it as
 // working; see docs/logs/2026-08-21/windows-verification-runbook.md.
 //
 // CreateMemoryResourceNotification(LowMemoryResourceNotification) does NOT

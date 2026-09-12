@@ -153,9 +153,12 @@ SUITE = {
         id="H-DECODER-DEPS",
         measures=(
             "every ceyx library the pin declares for this platform is in the "
-            "artefact TOGETHER (on Windows: the decoder plus heif.dll and "
-            "libde265.dll; on macOS: the decoder plus lcms2, jpeg, heif, de265 "
-            "and omp — six interdependent dylibs, ceyx.podspec vendored_libraries)"
+            "artefact TOGETHER (on Windows: the decoder plus its declared "
+            "companions — heif.dll, libde265.dll, and libomp140.x86_64.dll "
+            "once the pin's Windows group grows to 4 (WI-4, OQ-N2 ruled SHIP); "
+            "on macOS: the decoder plus its declared companions per "
+            "ceyx.podspec vendored_libraries, currently five (lcms2, jpeg, "
+            "heif, de265, omp), dropping to four once WI-5/OQ-N4 lands)"
         ),
         valid_on=("windows", "macos"),
         why_valid=(
@@ -171,8 +174,9 @@ SUITE = {
             "time naming only the decoder, never the missing companion."
         ),
         red_state=(
-            "delete heif.dll from a staging copy of the archive: the assertion "
-            "fails naming heif.dll"
+            "delete any one pinned member from a staging copy of the archive: "
+            "the assertion fails naming that member (e.g. heif.dll, or, once "
+            "the pin's Windows group carries it, libomp140.x86_64.dll)"
         ),
         expected="all pinned library artifact names present in the artefact",
     ),
@@ -366,6 +370,38 @@ SUITE = {
             "assertion fails naming exactly which symbols were missing"
         ),
         expected="all of " + ", ".join(CEYX_SYMBOLS) + " occur in the captured nm output",
+    ),
+    "H-CEYX-SYMBOLS": Assertion(
+        id="H-CEYX-SYMBOLS",
+        measures=(
+            "EVERY entry point the Dart side looks up — "
+            + ", ".join(CEYX_SYMBOLS)
+            + " — is REACHABLE at runtime in the shipped decoder"
+        ),
+        valid_on=("macos", "linux", "windows"),
+        why_valid=(
+            "Same instrument and same validity argument as H-SIZED-SYMBOL: "
+            "scripts/ci/probe/ffi_probe.dart performs DynamicLibrary.open + "
+            "lookup, which asks the platform loader the same question the app "
+            "asks, so it is capability, not proxy, and it is format-agnostic — "
+            "which is exactly why it, and not nm/dumpbin, is valid on Windows "
+            "(OQ-1 ruling c — the 2026-08/09 ci-rewrite campaign's OQ-1, "
+            "already cited at assertions.py:266 and ffi_probe.dart:1; NOT this "
+            "campaign's OQ-C1). It exists because a guarded FFI lookup nulls "
+            "out the ENTIRE binding when ANY one symbol is missing, so a "
+            "decoder carrying only the historical symbol ships a silently "
+            "absent feature — the 2026-09-06 incident. Checking the whole SET "
+            "functionally, not just the symbol table, is what closes that gap "
+            "on Windows too, where the symbol table is not a valid instrument."
+        ),
+        red_state=(
+            "append a bogus symbol to the probe invocation against the real "
+            "shipped decoder: exit 1 with PROBE-FAIL naming that symbol "
+            "(demonstrated: docs/logs/2026-09-12/red-ceyx-symbols.txt, green "
+            "control docs/logs/2026-09-12/green-ceyx-symbols.txt)"
+        ),
+        expected="probe exits 0 printing one PROBE-OK line per symbol in "
+        + ", ".join(CEYX_SYMBOLS),
     ),
 }
 
@@ -879,7 +915,12 @@ def _decoder_disk_path(ctx):
     return matches[0].resolve(), None
 
 
-def _assert_sized_symbol(ctx):
+def _run_probe(ctx, symbols):
+    """Shared body of H-SIZED-SYMBOL and H-CEYX-SYMBOLS.
+
+    ``symbols`` is appended to the probe argv; an empty list preserves
+    ffi_probe.dart's own default (the single historical SYMBOL).
+    """
     if ctx["host"] != ctx["artefact_platform"]:
         return "skip", (
             f"a {ctx['artefact_platform']} library cannot be loaded on a "
@@ -897,15 +938,25 @@ def _assert_sized_symbol(ctx):
     probe_env = dict(os.environ)
     probe_env["PATH"] = dll_dir + os.pathsep + probe_env.get("PATH", "")
     result = run(
-        [dart, "run", os.fspath(probe.resolve()), os.fspath(path)],
+        [dart, "run", os.fspath(probe.resolve()), os.fspath(path), *symbols],
         cwd=dll_dir,
         env=probe_env,
     )
     output = (result.stdout + result.stderr).strip().splitlines()
-    tail = output[-1] if output else "(no output)"
+    ok_count = sum(1 for line in output if line.startswith("PROBE-OK:"))
+    stderr_lines = result.stderr.strip().splitlines()
+    tail = stderr_lines[-1] if stderr_lines else (output[-1] if output else "(no output)")
     if result.returncode != 0:
-        return "fail", f"probe exited {result.returncode}: {tail}"
-    return "pass", tail
+        return "fail", f"probe exited {result.returncode}: {tail} ({ok_count} PROBE-OK seen)"
+    return "pass", tail if tail != "(no output)" else f"{ok_count} PROBE-OK line(s)"
+
+
+def _assert_sized_symbol(ctx):
+    return _run_probe(ctx, [])
+
+
+def _assert_ceyx_symbols(ctx):
+    return _run_probe(ctx, list(CEYX_SYMBOLS))
 
 
 def _assert_sized_symbol_nm(ctx):
@@ -1019,6 +1070,7 @@ _IMPLEMENTATIONS = {
     "H-SIZED-SYMBOL-NM": _assert_sized_symbol_nm,
     "H-DECODER-ARCH": _assert_decoder_arch,
     "H-CEYX-SYMBOLS-NM": _assert_ceyx_symbols_nm,
+    "H-CEYX-SYMBOLS": _assert_ceyx_symbols,
 }
 
 
