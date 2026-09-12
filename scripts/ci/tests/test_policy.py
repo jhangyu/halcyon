@@ -164,9 +164,15 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # re-fetched (see step 5 of this task). Recomputed with the SAME
 # CRLF-normalizing method test_pin_file_untouched itself uses (read_bytes,
 # replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
+#
+# 2026-09-12 (WI-15 step 15.5, S-H3): every asset entry gained "placed"
+# (bool) and, when false, "not_placed_reason" (one line), and the
+# `_comment` paragraph that used to restate this per-asset prose was
+# shortened to point at those fields instead. Recomputed with the same
+# CRLF-normalizing recipe, never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "67ac6faddbed9c9eb5ab5f5b07d3f38d9720ebed7d5918061755a117c4cd3231"
+    "ad68c8733e69d1a85915cec9633f0bba105bdff73b0ec52dda49ed10a867b276"
 )
 
 
