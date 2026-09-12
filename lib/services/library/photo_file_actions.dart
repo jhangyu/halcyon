@@ -30,10 +30,18 @@ class RecycleOutcome {
 /// aborts on the first error, and [failures] entries are
 /// `"<filename>: <error message>"` and MUST be surfaced to the user.
 class BatchFileOutcome {
-  const BatchFileOutcome({required this.processedCount, required this.failures});
+  const BatchFileOutcome({
+    required this.processedCount,
+    required this.failures,
+    this.bridgeUnavailable = false,
+  });
 
   final int processedCount;
   final List<String> failures;
+
+  /// True when the batch was aborted early because the system-trash bridge
+  /// is absent on this machine; the caller should recycle the remainder.
+  final bool bridgeUnavailable;
 }
 
 class PhotoFileActions {
@@ -97,6 +105,18 @@ class PhotoFileActions {
         try {
           await _trashFile(file);
           processed++;
+        } on TrashException catch (e) {
+          // A missing bridge is a fact about the machine, not about this
+          // file: stop rather than emit one identical failure string per
+          // photo, and let the caller finish the batch via recycleTrashed().
+          if (e.bridgeUnavailable) {
+            return BatchFileOutcome(
+              processedCount: processed,
+              failures: failures,
+              bridgeUnavailable: true,
+            );
+          }
+          failures.add('${p.basename(file.path)}: $e');
         } catch (e) {
           failures.add('${p.basename(file.path)}: $e');
         }
