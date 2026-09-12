@@ -807,6 +807,134 @@ class CeyxFetchGateTests(unittest.TestCase):
                 "checksum-mismatch check, not force a refetch")
 
 
+class TestWi15MemberSetEqual(unittest.TestCase):
+    """WI-15 step 15.4 (S-H2): _member_set_equal is the literal
+    "archive members == pin members" comparison, factored out of
+    update_ceyx_pin_latest so it is testable without a network download --
+    extract_ceyx_archive's own guards make the real CLI path structurally
+    unable to reach a False here (they fail() one step earlier on any real
+    mismatch), so this unit test is where the red/green proof for S-H2
+    actually lives."""
+
+    def _build_apps_module(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import build_apps  # noqa: PLC0415
+
+        return build_apps
+
+    def test_green_equal_sets(self):
+        build_apps = self._build_apps_module()
+        self.assertTrue(
+            build_apps._member_set_equal(
+                ["heif.dll", "libde265.dll"], ["libde265.dll", "heif.dll"]
+            ),
+            "same members in different order must compare equal (set, not "
+            "list, comparison)",
+        )
+
+    def test_red_archive_missing_a_pin_member(self):
+        build_apps = self._build_apps_module()
+        self.assertFalse(
+            build_apps._member_set_equal(
+                ["dng_decoder_native.dll", "heif.dll", "libde265.dll"],
+                ["dng_decoder_native.dll", "heif.dll"],
+            ),
+            "an archive missing a member the pin names must not compare equal",
+        )
+
+    def test_red_archive_has_an_extra_member(self):
+        build_apps = self._build_apps_module()
+        self.assertFalse(
+            build_apps._member_set_equal(
+                ["libdng_decoder_native.so"],
+                ["libdng_decoder_native.so", "libcanary.so"],
+            ),
+            "an archive carrying a member the pin does not name must not "
+            "compare equal",
+        )
+
+
+class TestWi15PlacedField(unittest.TestCase):
+    """WI-15 step 15.5 (S-H3): every asset in the committed pin has an
+    explicit 'placed' bool, and 'not_placed_reason' is present (non-empty)
+    iff placed is False."""
+
+    def test_every_asset_has_placed_and_consistent_reason(self):
+        import json  # noqa: PLC0415
+
+        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
+        for name, entry in data["assets"].items():
+            with self.subTest(asset=name):
+                self.assertIn("placed", entry, f"{name} has no 'placed' field")
+                self.assertIsInstance(entry["placed"], bool)
+                reason = entry.get("not_placed_reason")
+                if entry["placed"]:
+                    self.assertFalse(
+                        reason,
+                        f"{name}: placed=true but not_placed_reason={reason!r}",
+                    )
+                else:
+                    self.assertTrue(
+                        reason and isinstance(reason, str),
+                        f"{name}: placed=false needs a non-empty "
+                        f"not_placed_reason, got {reason!r}",
+                    )
+
+    def test_load_ceyx_pin_rejects_missing_placed(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import build_apps  # noqa: PLC0415
+
+        import json  # noqa: PLC0415
+
+        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
+        del data["assets"]["linux"]["placed"]
+        orig_path = build_apps.CEYX_PIN_PATH
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            broken = Path(td) / "ceyx_release_pin.json"
+            broken.write_text(json.dumps(data), encoding="utf-8")
+            build_apps.CEYX_PIN_PATH = broken
+            try:
+                with self.assertRaises(SystemExit):
+                    build_apps.load_ceyx_pin()
+            finally:
+                build_apps.CEYX_PIN_PATH = orig_path
+
+    def test_load_ceyx_pin_rejects_placed_false_without_reason(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import build_apps  # noqa: PLC0415
+
+        import json  # noqa: PLC0415
+
+        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
+        data["assets"]["android"]["not_placed_reason"] = ""
+        orig_path = build_apps.CEYX_PIN_PATH
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            broken = Path(td) / "ceyx_release_pin.json"
+            broken.write_text(json.dumps(data), encoding="utf-8")
+            build_apps.CEYX_PIN_PATH = broken
+            try:
+                with self.assertRaises(SystemExit):
+                    build_apps.load_ceyx_pin()
+            finally:
+                build_apps.CEYX_PIN_PATH = orig_path
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6

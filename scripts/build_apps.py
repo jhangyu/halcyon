@@ -495,6 +495,10 @@ CEYX_FETCH_SPECS = {
         "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "destination plugin/android/src/main/jniLibs is a committed "
+            "upstream tree build_apps.py must not overwrite"
+        ),
         "members": [
             {"member": "libdng_decoder_native.so",
              "artifact": "libdng_decoder_native.so"},
@@ -514,6 +518,11 @@ CEYX_FETCH_SPECS = {
         "archive": "heif-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build, not a halcyon build; "
+            "heif's runtime DLLs already travel inside the windows decoder "
+            "archive above"
+        ),
         "atomic_group": True,
         "members": [
             {"member": "bin/heif.dll",     "artifact": "heif.dll"},
@@ -524,6 +533,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libwebp-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libwebp is a STATIC-ONLY "
+            "dist (.lib) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/libwebp.lib", "artifact": "libwebp.lib"},
         ],
@@ -532,6 +546,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libjxl-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libjxl is a STATIC-ONLY "
+            "dist (.lib) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/jxl.lib", "artifact": "jxl.lib"},
         ],
@@ -540,6 +559,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libjxl-dist-linux-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libjxl is a STATIC-ONLY "
+            "dist (.a) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/libjxl.a", "artifact": "libjxl.a"},
         ],
@@ -1563,6 +1587,34 @@ def load_ceyx_pin():
             if not lib.get("member") or not lib.get("artifact") or not lib.get("sha256"):
                 fail(f"{CEYX_PIN_PATH} '{plat}' library record needs member, "
                      f"artifact and sha256: {lib}")
+        # "placed" (WI-15 S-H3) mirrors CEYX_FETCH_SPECS[ft]["place"]: whether
+        # build_apps.py copies this asset's extracted libraries into a
+        # plugin/<platform> tree it owns. "not_placed_reason" is the one-line
+        # reason and must be present (non-empty) exactly when placed is False;
+        # for placed=True it is either absent or null, never a value that
+        # disagrees with "placed" (single writer: update_ceyx_pin_latest).
+        placed = entry.get("placed")
+        if not isinstance(placed, bool):
+            fail(
+                f"{CEYX_PIN_PATH} '{plat}' is missing a boolean 'placed' field.",
+                hints=["Every asset entry must declare whether build_apps.py "
+                       "places it; re-derive with --ceyx-release latest."],
+            )
+        reason = entry.get("not_placed_reason")
+        if placed:
+            if reason:
+                fail(
+                    f"{CEYX_PIN_PATH} '{plat}' has placed=true but also a "
+                    f"'not_placed_reason' ({reason!r}) - the two disagree.",
+                )
+        else:
+            if not reason or not isinstance(reason, str):
+                fail(
+                    f"{CEYX_PIN_PATH} '{plat}' has placed=false but no "
+                    "non-empty 'not_placed_reason'.",
+                    hints=["Add a one-line reason explaining why this asset "
+                           "is verified but not placed."],
+                )
     return tag, assets, lock
 
 
@@ -1989,6 +2041,29 @@ def resolve_latest_ceyx_release():
     return tag
 
 
+def _archive_library_members(archive_path, extensions):
+    """Real member names inside `archive_path` (a .tar.gz), basename-only,
+    filtered to `extensions` (lowercase suffixes, e.g. (".dll",)). Used by
+    step 15.4's S-H2 check to compare what the archive ACTUALLY contains
+    against what CEYX_FETCH_SPECS/the pin claim it contains."""
+    with tarfile.open(archive_path, "r:gz") as tf:
+        return [
+            os.path.basename(n) for n in tf.getnames()
+            if n.lower().endswith(extensions)
+        ]
+
+
+def _member_set_equal(pin_members, archive_members):
+    """S-H2's literal check: the pin's member artifact names and the
+    archive's real member names, as sets, are equal. Factored out of
+    update_ceyx_pin_latest so it is unit-testable without a network
+    download - extract_ceyx_archive's own "missing expected member(s)" /
+    "unpinned native library" guards already make this False unreachable on
+    a real --ceyx-release run (they fail first), so red/green for this
+    helper is proven by a unit test, not a live CLI run."""
+    return sorted(pin_members) == sorted(archive_members)
+
+
 def update_ceyx_pin_latest(layout, tag=None):
     """--ceyx-release latest|<tag>: resolve the release, download every archive
     this script consumes, record their real sha256 (plus artifacts.lock's own
@@ -2055,6 +2130,26 @@ def update_ceyx_pin_latest(layout, tag=None):
         extracted = extract_ceyx_archive(
             archive_path, spec["members"], staging,
             atomic_group=spec.get("atomic_group", False))
+        # Step 15.4 (S-H2): print the positive record unconditionally - that
+        # the gate ran and what it saw - not just fail loudly on mismatch.
+        # extract_ceyx_archive's own guards above already turned any real
+        # mismatch into a fail() one step earlier, so MEMBER_SET_EQUAL is
+        # expected True here on every real run; see _member_set_equal's
+        # docstring for how the False path is exercised (unit test).
+        pin_members = sorted(m["artifact"] for m in spec["members"])
+        exts = tuple(sorted({Path(m["artifact"]).suffix.lower()
+                              for m in spec["members"]}))
+        archive_members = sorted(_archive_library_members(archive_path, exts))
+        equal = _member_set_equal(pin_members, archive_members)
+        step(f"    PIN_MEMBERS({ft})={pin_members}")
+        step(f"    ARCHIVE_MEMBERS({ft})={archive_members}")
+        step(f"    MEMBER_SET_EQUAL={equal}")
+        if not equal:
+            fail(
+                f"{archive}: pin members and archive members disagree for '{ft}'.",
+                hints=[f"PIN_MEMBERS({ft}): {pin_members}",
+                       f"ARCHIVE_MEMBERS({ft}): {archive_members}"],
+            )
         by_name = {p.name: p for p in extracted}
         libs = []
         for m in spec["members"]:
@@ -2074,8 +2169,16 @@ def update_ceyx_pin_latest(layout, tag=None):
             step(f"    {m['member']} -> {m['artifact']}  sha256 {d}"
                  + (f"  uuid {record['uuid']}" if "uuid" in record else ""))
             libs.append(record)
-        new_assets[ft] = {"archive": archive, "sha256": digest,
-                          "libraries": libs}
+        # placed/not_placed_reason (WI-15 S-H3): written FROM CEYX_FETCH_SPECS
+        # so the pin and the code cannot disagree (single writer). Omit the
+        # key entirely when placed is True - load_ceyx_pin() accepts absent
+        # or null there, never a value.
+        new_entry = {"archive": archive, "sha256": digest,
+                     "placed": bool(spec["place"])}
+        if not spec["place"]:
+            new_entry["not_placed_reason"] = spec["not_placed_reason"]
+        new_entry["libraries"] = libs
+        new_assets[ft] = new_entry
 
     # Preserve the file's comment block; only tag/lock/assets are machine-managed.
     try:
