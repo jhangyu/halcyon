@@ -1697,7 +1697,8 @@ def ceyx_fetch_is_due(ft, layout, args):
         observed = sha256_of(dest_dir / artifact)
         if observed != expected:
             warn(f"CEYX-PIN-MISMATCH: {artifact} sha256 differs from the pin "
-                 f"- refetching (on-disk {observed} != pinned {expected})")
+                 f"- refetching (on-disk {observed} != pinned {expected}) "
+                 "(use --native always to keep a locally built library)")
             return True
     return False
 
@@ -2571,10 +2572,16 @@ def verify_placed_macos_arch(layout, args):
     ceyx checkout must be the architecture this build asked for.
 
     Why this is separate from the post-fetch architecture check in
-    build_target(): a fetch is due only when a destination file is ABSENT
-    (ceyx_fetch_is_due), never when a file of the WRONG ARCHITECTURE is
-    present. So `--macos-arch x86_64` against an already-staged arm64 dylib
-    used to skip the fetch, skip the post-fetch check (which lives inside
+    build_target(): ceyx_fetch_is_due() now also re-fetches on a sha256
+    mismatch against the pin (see CEYX-PIN-MISMATCH, win-parity-plan.md P4a),
+    which incidentally catches a wrong-architecture dylib too when the pin
+    carries a digest for that entry - but that check degrades to a warning
+    and "no fetch due" when the pin has no per-artifact digest coverage for
+    a given asset, and it never runs at all on `--native always` (local
+    compile wins over auto-fetch). Neither case re-verifies the ALREADY
+    STAGED file's architecture once the fetch step has been skipped. So
+    `--macos-arch x86_64` against an already-staged arm64 dylib can still
+    skip the fetch, skip the post-fetch check (which lives inside
     `if fetch_due:`), build an x86_64 app around an arm64 decoder, and exit 0
     - the only complaint being verify_macos_slices()'s warn() after the fact.
     That ships an Intel app whose RAW decoder cannot load on any Intel Mac.

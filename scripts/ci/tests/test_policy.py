@@ -643,6 +643,86 @@ class CeyxFetchGateTests(unittest.TestCase):
                 self._make_args(native="always"))
             self.assertFalse(due, "native=='always' must force False regardless")
 
+    def test_pin_entry_without_libraries_degrades_to_absent_only(self):
+        """A pin asset entry with no (or empty) 'libraries' list must not hard
+        fail the --check path (which stays network-free): ceyx_fetch_is_due
+        degrades to the old absent-only staleness detection and returns False
+        for a PRESENT artifact, regardless of its actual bytes."""
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            dest_dir.mkdir(parents=True)
+            member = spec["members"][0]
+            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
+
+            def fake_load_ceyx_pin_no_libraries():
+                return (
+                    "v0.0.0-test",
+                    {ft: {"libraries": []}},
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig = build_apps.load_ceyx_pin
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin_no_libraries
+            try:
+                due = build_apps.ceyx_fetch_is_due(
+                    ft, self._make_layout(decoder_dir), self._make_args())
+            finally:
+                build_apps.load_ceyx_pin = orig
+            self.assertFalse(
+                due,
+                "an entry with no per-artifact digests must degrade to "
+                "absent-only detection, not force a refetch or hard-fail")
+
+    def test_member_without_digest_degrades_to_no_refetch_for_that_artifact(self):
+        """A 'libraries' entry present for the fetch-target but missing a
+        digest for THIS SPECIFIC member must skip the checksum-mismatch check
+        for that artifact only (warn-and-continue), not force a refetch."""
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            dest_dir.mkdir(parents=True)
+            member = spec["members"][0]
+            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
+
+            def fake_load_ceyx_pin_no_digest_for_member():
+                return (
+                    "v0.0.0-test",
+                    {
+                        ft: {
+                            "libraries": [
+                                # "artifact" present but "sha256" missing --
+                                # digest_by_artifact filters this entry out.
+                                {"member": member["member"],
+                                 "artifact": member["artifact"]},
+                            ],
+                        },
+                    },
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig = build_apps.load_ceyx_pin
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin_no_digest_for_member
+            try:
+                due = build_apps.ceyx_fetch_is_due(
+                    ft, self._make_layout(decoder_dir), self._make_args())
+            finally:
+                build_apps.load_ceyx_pin = orig
+            self.assertFalse(
+                due,
+                "a member missing a pinned digest must skip its "
+                "checksum-mismatch check, not force a refetch")
+
 
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
