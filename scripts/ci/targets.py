@@ -179,7 +179,12 @@ TARGETS: dict = {
         "build_target": "linux",
         "assert_platform": "linux",
         "runs_on": "ubuntu-latest",
-        "build_flags": [],
+        # --fetch-native, not plain auto: same rationale as the windows entry
+        # above — auto-fetch only fires when the destination is ABSENT, so a
+        # stale .so left in plugin/linux/Libraries/ by a future dev or runner
+        # would otherwise be shipped silently (rootcause-native-capability.md
+        # §A3, S-A3).
+        "build_flags": ["--fetch-native"],
         "provision": [
             ["sudo", "apt-get", "update"],
             ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],

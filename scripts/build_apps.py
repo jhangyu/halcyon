@@ -495,6 +495,10 @@ CEYX_FETCH_SPECS = {
         "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "destination plugin/android/src/main/jniLibs is a committed "
+            "upstream tree build_apps.py must not overwrite"
+        ),
         "members": [
             {"member": "libdng_decoder_native.so",
              "artifact": "libdng_decoder_native.so"},
@@ -514,6 +518,11 @@ CEYX_FETCH_SPECS = {
         "archive": "heif-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build, not a halcyon build; "
+            "heif's runtime DLLs already travel inside the windows decoder "
+            "archive above"
+        ),
         "atomic_group": True,
         "members": [
             {"member": "bin/heif.dll",     "artifact": "heif.dll"},
@@ -524,6 +533,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libwebp-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libwebp is a STATIC-ONLY "
+            "dist (.lib) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/libwebp.lib", "artifact": "libwebp.lib"},
         ],
@@ -532,6 +546,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libjxl-dist-windows-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libjxl is a STATIC-ONLY "
+            "dist (.lib) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/jxl.lib", "artifact": "jxl.lib"},
         ],
@@ -540,6 +559,11 @@ CEYX_FETCH_SPECS = {
         "archive": "libjxl-dist-linux-x86_64.tar.gz",
         "dest": None,
         "place": False,
+        "not_placed_reason": (
+            "consumed by ceyx's own native build; libjxl is a STATIC-ONLY "
+            "dist (.a) linked at ceyx build time, nothing for halcyon to "
+            "place"
+        ),
         "members": [
             {"member": "lib/libjxl.a", "artifact": "libjxl.a"},
         ],
@@ -1563,6 +1587,34 @@ def load_ceyx_pin():
             if not lib.get("member") or not lib.get("artifact") or not lib.get("sha256"):
                 fail(f"{CEYX_PIN_PATH} '{plat}' library record needs member, "
                      f"artifact and sha256: {lib}")
+        # "placed" (WI-15 S-H3) mirrors CEYX_FETCH_SPECS[ft]["place"]: whether
+        # build_apps.py copies this asset's extracted libraries into a
+        # plugin/<platform> tree it owns. "not_placed_reason" is the one-line
+        # reason and must be present (non-empty) exactly when placed is False;
+        # for placed=True it is either absent or null, never a value that
+        # disagrees with "placed" (single writer: update_ceyx_pin_latest).
+        placed = entry.get("placed")
+        if not isinstance(placed, bool):
+            fail(
+                f"{CEYX_PIN_PATH} '{plat}' is missing a boolean 'placed' field.",
+                hints=["Every asset entry must declare whether build_apps.py "
+                       "places it; re-derive with --ceyx-release latest."],
+            )
+        reason = entry.get("not_placed_reason")
+        if placed:
+            if reason:
+                fail(
+                    f"{CEYX_PIN_PATH} '{plat}' has placed=true but also a "
+                    f"'not_placed_reason' ({reason!r}) - the two disagree.",
+                )
+        else:
+            if not reason or not isinstance(reason, str):
+                fail(
+                    f"{CEYX_PIN_PATH} '{plat}' has placed=false but no "
+                    "non-empty 'not_placed_reason'.",
+                    hints=["Add a one-line reason explaining why this asset "
+                           "is verified but not placed."],
+                )
     return tag, assets, lock
 
 
@@ -1636,10 +1688,61 @@ def fetch_ceyx_asset(tag, asset, expected_sha256, layout):
     return cached
 
 
+def _ceyx_stale_members(ft, layout):
+    """Per-artifact staleness for fetch-target `ft`'s ALREADY-PRESENT members:
+    returns a list of (artifact, observed, expected) tuples for every member
+    whose on-disk sha256 disagrees with the pin. Empty means either every
+    present member matches the pin, or the pin has no per-artifact digests
+    for this fetch-target/artifact (degrades to a warning, not staleness -
+    see below). Callers must check member EXISTENCE separately; this
+    function assumes the caller already handled the absent case, and it is
+    itself network-free so it stays safe to call from --check and from the
+    --ceyx-check-pin preflight alike (2026-09-12, S-A2/S-A4)."""
+    spec = CEYX_FETCH_SPECS[ft]
+    dest_dir = layout.decoder / spec["dest"]
+    try:
+        _tag, assets, _lock = load_ceyx_pin()
+    except SystemExit:
+        raise
+    entry = assets.get(ft) if isinstance(assets, dict) else None
+    libraries = entry.get("libraries") if isinstance(entry, dict) else None
+    if not isinstance(libraries, list) or not libraries:
+        warn(f"ceyx pin has no per-artifact digests for '{ft}'; skipping the "
+             "checksum-mismatch check for this fetch-target (falling back to "
+             "absent-only staleness detection).")
+        return []
+    digest_by_artifact = {
+        lib["artifact"]: lib["sha256"]
+        for lib in libraries
+        if isinstance(lib, dict) and "artifact" in lib and "sha256" in lib
+    }
+    stale = []
+    for m in spec["members"]:
+        artifact = m["artifact"]
+        path = dest_dir / artifact
+        if not path.exists():
+            continue
+        expected = digest_by_artifact.get(artifact)
+        if expected is None:
+            warn(f"ceyx pin has no digest for '{artifact}' under '{ft}'; "
+                 "skipping the checksum-mismatch check for this artifact.")
+            continue
+        observed = sha256_of(path)
+        if observed != expected:
+            stale.append((artifact, observed, expected))
+    return stale
+
+
 def ceyx_fetch_is_due(ft, layout, args):
     """Whether to obtain the prebuilt library for fetch-target `ft` from the
     release. Precedence, documented so it is not emergent:
       * --fetch-native  -> always fetch and OVERWRITE (explicit force).
+      * --native always -> an explicit local-compile request wins over
+                           auto-fetch, but if a present local artifact is
+                           checksum-stale against the pin the user is WARNED
+                           (never silently) that the library they are about
+                           to compile over is not the pinned one (S-A2,
+                           2026-09-12) - the return is still False.
       * auto (default)  -> fetch when the destination library is ABSENT, or
                            when a PRESENT destination library's sha256 no
                            longer matches the pin (stale/corrupt local file -
@@ -1653,54 +1756,122 @@ def ceyx_fetch_is_due(ft, layout, args):
     committed libraries it replaces."""
     if args.fetch_native:
         return True
-    if args.native == "always":
-        # An explicit local-compile request wins over auto-fetch; --fetch-native
-        # (handled above) is the way to force the download instead.
-        return False
-    # ANY missing artifact makes the fetch due. Checking only the decoder would
-    # report "nothing to do" on every checkout that predates the HEIF rollout --
-    # they have dng_decoder_native.dll and neither of its two dependency DLLs --
-    # and then ship an application that cannot load its decoder at all.
+    # ANY missing artifact makes the fetch due (when not --native always).
+    # Checking only the decoder would report "nothing to do" on every
+    # checkout that predates the HEIF rollout -- they have
+    # dng_decoder_native.dll and neither of its two dependency DLLs -- and
+    # then ship an application that cannot load its decoder at all.
     spec = CEYX_FETCH_SPECS[ft]
     dest_dir = layout.decoder / spec["dest"]
-    if any(not (dest_dir / m["artifact"]).exists() for m in spec["members"]):
+    missing = any(not (dest_dir / m["artifact"]).exists() for m in spec["members"])
+    stale = _ceyx_stale_members(ft, layout)
+    if args.native == "always":
+        # An explicit local-compile request wins over auto-fetch, but the
+        # user must be told the on-disk library is NOT the pinned one (S-A2)
+        # - the digest comparison above already ran before this early return.
+        for artifact, observed, expected in stale:
+            warn(f"CEYX-PIN-MISMATCH (fetch refused under --native always): "
+                 f"{artifact} on-disk {observed} != pinned {expected}")
+        return False
+    if missing:
         return True
-    # All members present. Compare each present artifact's sha256 against the
-    # pin - a checksum-mismatched local library (stale build, hand-edited,
-    # partially corrupted) must never be silently consumed. Missing pin
-    # coverage degrades to the old absent-only behaviour + a warning, not to
-    # a hard failure: this function also runs on the --check path, which must
-    # stay network-free and must not abort a build over pin bookkeeping.
-    try:
-        _tag, assets, _lock = load_ceyx_pin()
-    except SystemExit:
-        raise
+    # All members present. A checksum-mismatched local library (stale build,
+    # hand-edited, partially corrupted) must never be silently consumed.
+    for artifact, observed, expected in stale:
+        warn(f"CEYX-PIN-MISMATCH: {artifact} sha256 differs from the pin "
+             f"- refetching (on-disk {observed} != pinned {expected}) "
+             "(use --native always to keep a locally built library)")
+    return bool(stale)
+
+
+def _ceyx_pin_digest_by_artifact(assets, ft):
     entry = assets.get(ft) if isinstance(assets, dict) else None
     libraries = entry.get("libraries") if isinstance(entry, dict) else None
-    if not isinstance(libraries, list) or not libraries:
-        warn(f"ceyx pin has no per-artifact digests for '{ft}'; skipping the "
-             "checksum-mismatch check for this fetch-target (falling back to "
-             "absent-only staleness detection).")
-        return False
-    digest_by_artifact = {
+    return {
         lib["artifact"]: lib["sha256"]
-        for lib in libraries
+        for lib in (libraries or [])
         if isinstance(lib, dict) and "artifact" in lib and "sha256" in lib
     }
-    for m in spec["members"]:
-        artifact = m["artifact"]
-        expected = digest_by_artifact.get(artifact)
-        if expected is None:
-            warn(f"ceyx pin has no digest for '{artifact}' under '{ft}'; "
-                 "skipping the checksum-mismatch check for this artifact.")
+
+
+def ceyx_check_pin(layout):
+    """S-A4: network-free digest preflight over every CEYX_FETCH_SPECS member
+    that has a placement destination. Prints one PIN-* line per artifact plus
+    a PIN-SUMMARY, and returns True iff there was at least one GENUINE
+    mismatch (the caller decides the exit code). Reuses _ceyx_stale_members()
+    so the preflight and the fetch gate (ceyx_fetch_is_due) can never drift
+    into two different notions of "stale" - the same "one instrument, two
+    readers" discipline assertions.py:921-926 applies to check_symbol.
+    PIN-ABSENT is printed but is NOT treated as a mismatch: Linux legitimately
+    ships only a .gitkeep locally until fetched, and "assertion skipped must
+    be visible" is satisfied by printing the line, not by failing the run
+    over it.
+
+    OTHER-ARCH (2026-09-12 fix, reviewer-mandated): macos-arm64 and
+    macos-x86_64 share ONE on-disk path per artifact (dng_ffi_artifacts.json
+    documents this - only one architecture's bytes can be on disk at a
+    time). Before this fix, whichever arch was NOT currently staged always
+    read PIN-MISMATCH against its own pin entry, even though the on-disk
+    bytes were legitimately the OTHER arch's pinned bytes - making a clean,
+    single-arch-fetched tree unable to ever report RC=0. A stale artifact
+    whose observed digest matches ANOTHER fetch-target sharing the same
+    physical path is reclassified from PIN-MISMATCH to OTHER-ARCH: visible
+    (never silent) and NOT counted in `mismatched`. A stale artifact matching
+    NO sibling group's pin at all is still a genuine PIN-MISMATCH."""
+    _tag, assets, _lock = load_ceyx_pin()
+
+    # Map each physical path to every (ft, artifact) pair that names it, so a
+    # mismatch on one ft can be checked against every sibling sharing the path.
+    path_groups = {}
+    for ft, spec in CEYX_FETCH_SPECS.items():
+        if spec.get("dest") is None:
             continue
-        observed = sha256_of(dest_dir / artifact)
-        if observed != expected:
-            warn(f"CEYX-PIN-MISMATCH: {artifact} sha256 differs from the pin "
-                 f"- refetching (on-disk {observed} != pinned {expected}) "
-                 "(use --native always to keep a locally built library)")
-            return True
-    return False
+        dest_dir = layout.decoder / spec["dest"]
+        for m in spec["members"]:
+            path_groups.setdefault(dest_dir / m["artifact"], []).append((ft, m["artifact"]))
+
+    checked = mismatched = absent = uncovered = other_arch = 0
+    for ft, spec in sorted(CEYX_FETCH_SPECS.items()):
+        if spec.get("dest") is None:
+            continue
+        dest_dir = layout.decoder / spec["dest"]
+        stale_by_artifact = {a: (o, e) for a, o, e in _ceyx_stale_members(ft, layout)}
+        digest_by_artifact = _ceyx_pin_digest_by_artifact(assets, ft)
+        for m in spec["members"]:
+            artifact = m["artifact"]
+            checked += 1
+            path = dest_dir / artifact
+            if not path.exists():
+                print(f"PIN-ABSENT {ft}/{artifact}")
+                absent += 1
+                continue
+            if artifact in stale_by_artifact:
+                observed, expected = stale_by_artifact[artifact]
+                sibling_match = False
+                for sib_ft, sib_artifact in path_groups.get(path, []):
+                    if sib_ft == ft:
+                        continue
+                    sib_expected = _ceyx_pin_digest_by_artifact(assets, sib_ft).get(sib_artifact)
+                    if sib_expected is not None and sib_expected == observed:
+                        sibling_match = True
+                        break
+                if sibling_match:
+                    print(f"OTHER-ARCH {ft}/{artifact} on-disk {observed} matches a "
+                          "different pinned group sharing this path")
+                    other_arch += 1
+                else:
+                    print(f"PIN-MISMATCH {ft}/{artifact} on-disk {observed} != pinned {expected}")
+                    mismatched += 1
+                continue
+            if artifact not in digest_by_artifact:
+                print(f"PIN-UNCOVERED {ft}/{artifact}")
+                uncovered += 1
+                continue
+            observed = sha256_of(path)
+            print(f"PIN-OK {ft}/{artifact} {observed[:12]}...")
+    print(f"PIN-SUMMARY checked={checked} mismatched={mismatched} "
+          f"absent={absent} uncovered={uncovered} other_arch={other_arch}")
+    return mismatched > 0
 
 
 def fetch_ceyx_lock(tag, layout, expected_sha256):
@@ -1911,6 +2082,29 @@ def resolve_latest_ceyx_release():
     return tag
 
 
+def _archive_library_members(archive_path, extensions):
+    """Real member names inside `archive_path` (a .tar.gz), basename-only,
+    filtered to `extensions` (lowercase suffixes, e.g. (".dll",)). Used by
+    step 15.4's S-H2 check to compare what the archive ACTUALLY contains
+    against what CEYX_FETCH_SPECS/the pin claim it contains."""
+    with tarfile.open(archive_path, "r:gz") as tf:
+        return [
+            os.path.basename(n) for n in tf.getnames()
+            if n.lower().endswith(extensions)
+        ]
+
+
+def _member_set_equal(pin_members, archive_members):
+    """S-H2's literal check: the pin's member artifact names and the
+    archive's real member names, as sets, are equal. Factored out of
+    update_ceyx_pin_latest so it is unit-testable without a network
+    download - extract_ceyx_archive's own "missing expected member(s)" /
+    "unpinned native library" guards already make this False unreachable on
+    a real --ceyx-release run (they fail first), so red/green for this
+    helper is proven by a unit test, not a live CLI run."""
+    return sorted(pin_members) == sorted(archive_members)
+
+
 def update_ceyx_pin_latest(layout, tag=None):
     """--ceyx-release latest|<tag>: resolve the release, download every archive
     this script consumes, record their real sha256 (plus artifacts.lock's own
@@ -1977,6 +2171,26 @@ def update_ceyx_pin_latest(layout, tag=None):
         extracted = extract_ceyx_archive(
             archive_path, spec["members"], staging,
             atomic_group=spec.get("atomic_group", False))
+        # Step 15.4 (S-H2): print the positive record unconditionally - that
+        # the gate ran and what it saw - not just fail loudly on mismatch.
+        # extract_ceyx_archive's own guards above already turned any real
+        # mismatch into a fail() one step earlier, so MEMBER_SET_EQUAL is
+        # expected True here on every real run; see _member_set_equal's
+        # docstring for how the False path is exercised (unit test).
+        pin_members = sorted(m["artifact"] for m in spec["members"])
+        exts = tuple(sorted({Path(m["artifact"]).suffix.lower()
+                              for m in spec["members"]}))
+        archive_members = sorted(_archive_library_members(archive_path, exts))
+        equal = _member_set_equal(pin_members, archive_members)
+        step(f"    PIN_MEMBERS({ft})={pin_members}")
+        step(f"    ARCHIVE_MEMBERS({ft})={archive_members}")
+        step(f"    MEMBER_SET_EQUAL={equal}")
+        if not equal:
+            fail(
+                f"{archive}: pin members and archive members disagree for '{ft}'.",
+                hints=[f"PIN_MEMBERS({ft}): {pin_members}",
+                       f"ARCHIVE_MEMBERS({ft}): {archive_members}"],
+            )
         by_name = {p.name: p for p in extracted}
         libs = []
         for m in spec["members"]:
@@ -1996,8 +2210,16 @@ def update_ceyx_pin_latest(layout, tag=None):
             step(f"    {m['member']} -> {m['artifact']}  sha256 {d}"
                  + (f"  uuid {record['uuid']}" if "uuid" in record else ""))
             libs.append(record)
-        new_assets[ft] = {"archive": archive, "sha256": digest,
-                          "libraries": libs}
+        # placed/not_placed_reason (WI-15 S-H3): written FROM CEYX_FETCH_SPECS
+        # so the pin and the code cannot disagree (single writer). Omit the
+        # key entirely when placed is True - load_ceyx_pin() accepts absent
+        # or null there, never a value.
+        new_entry = {"archive": archive, "sha256": digest,
+                     "placed": bool(spec["place"])}
+        if not spec["place"]:
+            new_entry["not_placed_reason"] = spec["not_placed_reason"]
+        new_entry["libraries"] = libs
+        new_assets[ft] = new_entry
 
     # Preserve the file's comment block; only tag/lock/assets are machine-managed.
     try:
@@ -2188,24 +2410,21 @@ def native_is_due(target, layout, mode):
 # the contract; on Windows ceyx_encode_webp_rgba8 is deliberately NOT gated
 # (it is exported even when compiled as a stub), same as CI.
 FFI_EXPORT_SYMBOLS = {
-    "macos": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8",
-              "ceyx_encode_webp_rgba8"],
-    "windows": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8",
+    "macos": ["ceyx_encode_jpeg_rgba8", "ceyx_encode_webp_rgba8"],
+    "windows": ["ceyx_encode_jpeg_rgba8",
                 "heif_probe", "heif_decode_rgba", "heif_release",
                 "heif_error_name"],
-    "android": ["dng_decode_and_process", "ceyx_encode_jpeg_rgba8"],
+    "android": ["ceyx_encode_jpeg_rgba8"],
 }
+# No "linux" key, deliberately: Linux is FETCH-ONLY (no NATIVE_SPECS entry, so
+# native_target_for() never returns "linux"). Its provenance is gated at the pin's
+# per-asset sha256, its exports upstream by ceyx linux_build.yml AC-L3/L5 and
+# downstream by H-SIZED-SYMBOL / H-SIZED-SYMBOL-NM on the linux CI leg. Adding a
+# key here would declare a gate for a code path that never runs — the shape
+# build_apps.py:334-338 already regrets for the Windows/Linux HEIF rows.
 
 
-def _export_listing_commands(nt, built):
-    """The command(s) that can read this artifact's export table, in
-    preference order — exactly the tools ceyx CI uses per platform."""
-    if nt == "macos":
-        return [["nm", "-gU", str(built)]]
-    if nt == "windows":
-        # dumpbin needs the MSVC environment; llvm-nm ships beside clang-cl.
-        return [["dumpbin", "-exports", str(built)],
-                ["llvm-nm", "--extern-only", "--defined-only", str(built)]]
+def _android_export_listing_commands(built):
     # android: a cross-compiled ELF needs the NDK's own llvm-nm, not host nm.
     ndk = os.environ.get("ANDROID_NDK_HOME", "")
     exe = "llvm-nm.exe" if host_os() == "windows" else "llvm-nm"
@@ -2213,6 +2432,29 @@ def _export_listing_commands(nt, built):
         (Path(ndk) / "toolchains" / "llvm" / "prebuilt").glob(f"*/bin/{exe}")
     ) if ndk else []
     return [[str(c), "-D", str(built)] for c in candidates]
+
+
+def _export_listing_commands(nt, built):
+    """The command(s) that can read this artifact's export table, in
+    preference order — exactly the tools ceyx CI uses per platform.
+
+    Explicit dict, no fall-through: a native target with no entry here is a
+    LOUD error, never a silently wrong instrument. (Before 2026-09-12 any
+    non-macos/windows target inherited the Android NDK llvm-nm branch.)
+    """
+    builders = {
+        "macos":   lambda: [["nm", "-gU", str(built)]],
+        "windows": lambda: [["dumpbin", "-exports", str(built)],
+                            ["llvm-nm", "--extern-only", "--defined-only", str(built)]],
+        "android": lambda: _android_export_listing_commands(built),
+    }
+    try:
+        return builders[nt]()
+    except KeyError:
+        raise ValueError(
+            f"no export-listing instrument declared for native target {nt!r}; "
+            f"known targets: {', '.join(sorted(builders))}"
+        ) from None
 
 
 def assert_ffi_exports(nt, built):
@@ -2244,8 +2486,8 @@ def assert_ffi_exports(nt, built):
             "UNVERIFIED, refusing to place the library.",
         )
     # Match semantics mirror ceyx CI: plain substring on macOS/android (Mach-O
-    # exports carry a leading underscore — `_dng_decode_and_process` — which a
-    # word-boundary match would reject), `grep -w` word match on Windows.
+    # exports carry a leading underscore — e.g. `_ceyx_encode_jpeg_rgba8` —
+    # which a word-boundary match would reject), `grep -w` word match on Windows.
     if nt == "windows":
         missing = [s for s in FFI_EXPORT_SYMBOLS[nt]
                    if re.search(rf"\b{re.escape(s)}\b", listing) is None]
@@ -3063,6 +3305,11 @@ def make_parser():
                         "download + sha256 + artifacts.lock cross-check + extract "
                         "path for every pinned archive into a staging dir and "
                         "exits, writing nothing into the ceyx checkout.")
+    p.add_argument("--ceyx-check-pin", action="store_true",
+                   help="Network-free preflight: for every CEYX_FETCH_SPECS member with an "
+                        "on-disk copy, compare its sha256 against the pin and print "
+                        "PIN-OK/PIN-MISMATCH/PIN-ABSENT/PIN-UNCOVERED plus a PIN-SUMMARY line. "
+                        "Builds nothing, fetches nothing. Exits non-zero on any mismatch.")
     p.add_argument("--clean", action="store_true",
                    help="Delete this target's build output before building (needed after a CMake "
                         "target rename - a cached target name cannot be updated in place).")
@@ -3137,6 +3384,18 @@ def main():
     step(f"halcyon: {layout.halcyon}")
     step(f"decoder: {layout.decoder}")
     step(f"host:    {host_os()}/{host_arch()}  mode: {mode}")
+
+    if args.ceyx_check_pin:
+        # Same early-exit shape as --check: network-free, builds nothing.
+        mismatched = ceyx_check_pin(layout)
+        print()
+        print("=" * 62)
+        if mismatched:
+            print(" DONE - ceyx pin preflight found mismatch(es). No build ran.")
+        else:
+            print(" DONE - ceyx pin preflight clean. No build ran.")
+        print("=" * 62)
+        sys.exit(1 if mismatched else 0)
 
     if args.ceyx_release == "verify":
         # Mechanism proof only: verifies the pinned archives end-to-end and

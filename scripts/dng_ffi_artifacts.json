@@ -1,6 +1,6 @@
 {
-  "_comment": "Manifest for scripts/check_dng_ffi_artifacts.py. Data only — adding or flipping a platform must never require editing the checker script. Governance: per-feature preference cascade (C-8/P-1) stands (2026-08-24). RAW decoder ships macOS+Windows+Android today. Linux .so is open item P-2, not a blocker. No iOS entry — iOS FFI is superseded by the future general raw_decoder effort (see plan Dropped section), not part of this manifest.",
-  "symbol": "dng_decode_and_process_sized",
+  "_comment": "Manifest for scripts/check_dng_ffi_artifacts.py. Data only — adding or flipping a platform must never require editing the checker script. Governance: per-feature preference cascade (C-8/P-1) stands (2026-08-24). RAW decoder ships macOS+Windows+Android+Linux today. No iOS entry — iOS FFI is superseded by the future general raw_decoder effort (see plan Dropped section), not part of this manifest.",
+  "symbol": "ceyx_decode_into_buffer_oriented",
   "platforms": {
     "macos": {
       "path": "../ceyx/plugin/macos/Libraries/libdng_decoder_native.dylib",
@@ -19,7 +19,7 @@
           "macos"
         ],
         "why_valid": "Mach-O with permissive default visibility: an exported symbol really is reachable via dlopen/dlsym, so the symbol table agrees with the runtime. The functional FFI probe (scripts/ci/probe/ffi_probe.dart) is the primary instrument regardless; nm is a secondary cross-check only.",
-        "red_state": "point the checker at a dylib built without dng_decode_and_process_sized, or delete the dylib: symbol=absent / present=False and RC=1",
+        "red_state": "point the checker at a dylib built without ceyx_decode_into_buffer_oriented, or delete the dylib: symbol=absent / present=False and RC=1",
         "expected": "present=True and symbol=present"
       },
       "expected": true
@@ -42,7 +42,7 @@
         ],
         "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-SIZED-SYMBOL is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
         "red_state": "fetch the macos-arm64 pin entry for this leg (or build without --macos-arch x86_64): H-DECODER-ARCH / H-ARCH fail naming expected x86_64 vs observed arm64",
-        "expected": "present=True, arch=x86_64 for both the app executable and the decoder, and all of dng_decode_and_process_sized / ceyx_probe_output_size / ceyx_decode_into_buffer listed by nm"
+        "expected": "present=True, arch=x86_64 for both the app executable and the decoder, and all of ceyx_decode_into_buffer_oriented / ceyx_probe_output_size / ceyx_decode_into_buffer listed by nm"
       },
       "expected": true
     },
@@ -97,7 +97,7 @@
       "tool_args": [
         "-D"
       ],
-      "comment": "Open item P-2: Linux .so does not exist yet. Flip 'expected' to true the day it lands; no script changes needed.",
+      "comment": "Fetched from the pinned ceyx release (assets.linux.libraries pins libdng_decoder_native.so); the Linux release leg ships it. Closed 2026-09-12.",
       "ci_target": "linux",
       "decoder_artifact": "libdng_decoder_native.so",
       "expected_arch": "x86_64",
@@ -108,9 +108,9 @@
         ],
         "why_valid": "ELF dynamic symbol table with default visibility: nm -D lists exactly what dlopen/dlsym can resolve. The functional FFI probe remains the primary instrument; nm is a secondary cross-check.",
         "red_state": "delete the .so or point at one built without the symbol: present=False / symbol=absent and RC=1",
-        "expected": "expected=false today (P-2): absent is not a failure until the .so lands"
+        "expected": "present=True and symbol=present"
       },
-      "expected": false
+      "expected": true
     }
   }
 }
