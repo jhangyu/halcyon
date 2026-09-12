@@ -17,152 +17,6 @@ Layouts understood (both auto-detected, override with --root):
     <zip root>/build_apps.py               with Halcyon/ + ceyx/
 
 Python 3 stdlib only. Run `python3 scripts/build_apps.py --help` for usage.
-
-
-===============================================================================
-CAPABILITY MAP (acceptance A6) - every capability of the two predecessors
-===============================================================================
-
---- scripts/build.sh (224 lines, main) -------------------------------------
-build.sh:5    default target macos                              REPRODUCED (main:TARGET default)
-build.sh:6    BUILD_MODE env var, default release                REPRODUCED (resolve_mode)
-build.sh:8    usage/--help text listing targets                  REPRODUCED (argparse + TARGET_HELP)
-build.sh:35   log()/fail() formatting ("==> ", "Error: ")        REPRODUCED (log/fail)
-build.sh:44   macos_config_name Debug/Profile/Release            REPRODUCED (macos_config_name)
-build.sh:52   print_output_hint per target                       REPRODUCED+FIXED (verify_flutter_artifact
-                                                                 resolves the REAL path and fails if it is
-                                                                 missing; build.sh printed a hard-coded
-                                                                 "photo_selector_flutter.app" that has been
-                                                                 wrong since PRODUCT_NAME became Halcyon -
-                                                                 macos/Runner/Configs/AppInfo.xcconfig:8)
-build.sh:77   host_os() Darwin/Linux/MINGW mapping               REPRODUCED (host_os)
-build.sh:86   configure_android_java JDK 25 -> 21 -> 17          REPRODUCED (configure_android_java,
-                                                                 same three paths, same order)
-build.sh:108  supports_target host gating                        REPRODUCED (supports_target)
-build.sh:125  hard fail on unsupported target                    REPRODUCED (build_target)
-build.sh:129  flutter build macos/apk/appbundle/web/windows/linux REPRODUCED (FLUTTER_BUILD_ARGS)
-build.sh:135  android / android-apk / android-aab aliases        REPRODUCED (TARGETS)
-build.sh:169  all = every host-supported target, skip others     REPRODUCED (build_all, same 5-target list,
-                                                                 same skip-not-fail semantics)
-build.sh:182  arg parsing --debug/--profile/--release anywhere   REPRODUCED (argparse mode flags)
-build.sh:211  "Flutter is not available in PATH" precheck        REPRODUCED (check_target, and now also
-                                                                 covered by --check)
-build.sh:213  cd to repo root before building                    REPRODUCED (cwd= on every run)
-build.sh:216  flutter pub get before building                    REPRODUCED (phase 2)
-DROPPED: nothing.
-
---- windows-port:scripts/windows/build_windows.py (624 lines) ---------------
-bw:42    Halide commit/asset/URL pin                             REPRODUCED (HALIDE_COMMIT/HALIDE_URL),
-                                                                 generalised to every host arch using the
-                                                                 same table as the upstream
-                                                                 native/scripts/fetch_halide_v21_dist.sh
-bw:50    phase/step/ok/warn/fail + warning counter               REPRODUCED
-bw:80    decode_bytes utf-8/mbcs fallback                        REPRODUCED
-bw:96    _read_registry_env / refresh_env_from_registry          REPRODUCED (Windows-only, winreg imported
-                                                                 lazily - the original's module-level
-                                                                 `import winreg` made the file unimportable
-                                                                 on macOS/Linux, which is why it could not
-                                                                 be the single entry point)
-bw:134   locate_vs_install via vswhere                           REPRODUCED
-bw:155   ensure_msvc_env, vcvars64.bat via shell=True            REPRODUCED (comment on why shell=True is
-                                                                 unavoidable kept verbatim in intent)
-bw:200   run_checked, .bat/.cmd -> shell=True, streamed output   REPRODUCED (run_checked)
-bw:244   download_with_progress                                  REPRODUCED
-bw:269   extract_halide skipping share/doc/*                     REPRODUCED (+ tar.gz support for POSIX
-                                                                 hosts, which the original never needed)
-bw:285   ensure_halide + lib/Release/Halide.lib mirroring        REPRODUCED (ensure_halide)
-bw:334   third_party/halide/VERSION provenance stamp             REPRODUCED
-bw:344   --root                                                  REPRODUCED
-bw:345   --cfa-sample-dng colour gate (runbook S4)               REPRODUCED
-bw:346   --skip-flutter-build                                    REPRODUCED
-bw:347   --native-target T... iteration aid                      REPRODUCED
-bw:364   packaged layout Halcyon/ + ceyx/                        REPRODUCED (resolve_layout, and the
-                                                                 in-repo sibling layout as well)
-bw:380   CMakePresets.json windows-vulkan presence check         REPRODUCED, generalised: the preset name
-                                                                 required is the one for the target being
-                                                                 built (NATIVE_SPECS)
-bw:400   clang-cl / cmake>=3.14 / ninja / VULKAN_SDK checks      REPRODUCED (check_native, Windows rows)
-bw:444   vulkaninfo / nasm soft warnings                         REPRODUCED
-bw:456   flutter presence (soft if --skip-flutter-build)         REPRODUCED
-bw:482   cmake --preset / --build --preset --target              REPRODUCED (build_native)
-bw:502   built-DLL existence assertion                           REPRODUCED
-bw:532   copy artifact into plugin/<os>/Libraries/               REPRODUCED, generalised to
-                                                                 macos/.dylib, windows/.dll,
-                                                                 android/jniLibs/arm64-v8a/.so
-bw:538   "this tree is not a git checkout" commit note           DELIBERATELY DROPPED: in-repo runs (the
-                                                                 normal case now) can and should commit
-                                                                 normally; the note is printed only when
-                                                                 the packaged layout is detected.
-bw:550   flutter pub get + flutter build windows --release       REPRODUCED, mode is no longer hard-coded
-                                                                 to --release (--debug/--profile work).
-bw:553   DLL-next-to-exe packaging check + S5 diagnostics        REPRODUCED (verify_windows_bundle)
-bw:590   Phase 3 manual verification protocol print              REPRODUCED (print_windows_protocol)
-bw:614   exit banner with warning count                          REPRODUCED
-DROPPED: only bw:538 (see above).
-
---- Added here, in neither predecessor -------------------------------------
-  * ios target (build.sh had none).
-  * --check: host/tool preflight with a non-zero exit, runnable standalone.
-  * --native auto|always|never: one rule for "is a native rebuild due?".
-  * Native builds for macos/android, not just windows.
-
---- Reconciliation with docs/logs/2026-08-22/review-halcyon-winport-buildscript.md
-B1  colour gate skipped -> green exit + library placed   FIXED: skipping the gate now
-                                                         requires --no-colour-gate, and the
-                                                         acknowledged skip still exits 2
-                                                         (build_native / finish)
-B2  top-level `import winreg`                            FIXED: lazy, Windows-only
-S1  Halide fetched with no integrity check               PARTIAL: optional --halide-sha256,
-                                                         the observed sha256 is recorded in
-                                                         VERSION and read back on later runs
-                                                         (stale/drift detection), one-top-level
-                                                         assert, archive errors -> fail(),
-                                                         socket timeout. No pinned hash ships:
-                                                         nobody has a trustworthy one yet.
-S2  MSVC env accepted without an arch check              FIXED: VSCMD_ARG_TGT_ARCH must be x64
-S3  PATH precedence inverted, %VARS% unexpanded          FIXED: process > user > machine,
-                                                         expandvars per entry
-S4  checks that degrade instead of failing               FIXED: unparseable cmake version now
-                                                         fails; Libraries parent is validated,
-                                                         not fabricated; SubprocessError caught;
-                                                         vswhere -requires; vulkaninfo is really
-                                                         run and apiVersion parsed
-S5  run_checked not actually streaming, stdin open       FIXED: text mode + line buffering,
-                                                         stdin=DEVNULL, resolved exe reused
-S6  shell=True + argv leaves cmd metacharacters          FIXED: .bat/.cmd arguments carrying cmd
-                                                         metacharacters are refused, loudly
-S7  "every phase is idempotent" hint is false            FIXED: hint reworded; --clean added;
-                                                         a stale photo_selector_flutter CMake
-                                                         cache is detected and named
-S8  nasm warn claims SIMD-off is safe                    FIXED: wording admits the parity
-                                                         question is unverified; the standard
-                                                         install location is probed
-S9  package_windows.sh / README drift                    NOT MINE: that is the merge-time
-                                                         cleanup of files I must not edit
-r21 vulkaninfo advisory that checks nothing              FIXED (made real)
-r33 unconditional "not a git checkout" advisory          FIXED (packaged layout only)
-r41 Windows Developer Mode / symlink pre-check           ADDED
-r42 --clean / stale target-name detection                ADDED
-r43 host-OS assertion before platform phases             ADDED (supports_target)
-
---- User rulings, round 2 (contract "User decisions - round 2")
-B1 severity downgraded (the shipped DLL's colour output was compared against
-   macOS by the user), but the mechanism stands: a run whose correctness gate
-   never executed must not report success. Unchanged here.
-S1 accepted: HALIDE_SHA256 pins every asset this script can fetch; verified
-   after download and before extraction; a mismatch quarantines the file.
-PL-6: macOS DEFAULTS to arm64 (MACOS_DEFAULT_ARCH). Intel was parked when the
-   prebuilt decoder dylib was arm64-only, so a universal app's x86_64 slice
-   linked without the native decoder - ld only WARNS about that, which is how
-   it went unnoticed. verify_macos_slices() fails the build instead.
-   SUPERSEDED 2026-09-06: the ceyx release now publishes separate macos-arm64
-   and macos-x86_64 assets, both pinned by digest, so `--macos-arch x86_64` is
-   supported and Intel is no longer parked. `universal` still is: there is no
-   fat archive to fetch, so fetch_target_for() rejects it instead of guessing.
-   The same round closed the inverse hazard - a fetch was due only when the
-   destination was ABSENT, never when the WRONG ARCHITECTURE was present, so an
-   x86_64 build against a staged arm64 dylib succeeded with a mere warning.
-   verify_placed_macos_arch() now hard-fails that before the build starts.
 """
 import argparse
 import hashlib
@@ -267,14 +121,13 @@ MACOS_DEFAULT_ARCH = "arm64"
 # can invalidate it (enforce_macos_arch_stamp).
 MACOS_ARCH_STAMP = ".halcyon-macos-arch"
 
-# JDK search order copied verbatim from scripts/build.sh:87-89.
 MACOS_JDK_CANDIDATES = [
     ("25", "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home"),
     ("21", "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"),
     ("17", "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
 ]
 
-# target -> flutter build arguments (build.sh:129-161)
+# target -> flutter build arguments
 FLUTTER_BUILD_ARGS = {
     "macos": ["macos"],
     "ios": ["ios"],
@@ -299,9 +152,9 @@ TARGET_HELP = [
 ]
 TARGETS = [name for name, _ in TARGET_HELP]
 
-# build.sh:171 - `all` is this list, host-filtered, skipping (not failing on)
-# what this host cannot build. ios is intentionally NOT in it: build.sh never
-# had it, and an unattended `all` should not need signing decisions.
+# `all` is this list, host-filtered, skipping (not failing on) what this host
+# cannot build. ios is intentionally NOT in it - an unattended `all` should not
+# need signing decisions.
 ALL_TARGETS = ["macos", "android-apk", "web", "windows", "linux"]
 
 # Which native library each target needs, and how to build it. A target absent
@@ -559,7 +412,7 @@ COLOUR_GATE_SKIPPED = False
 
 
 # --------------------------------------------------------------------------
-# Output helpers (build.sh:35 log/fail, build_windows.py:50-77 phase/step/ok)
+# Output helpers
 # --------------------------------------------------------------------------
 def phase(name):
     global CURRENT_PHASE
@@ -608,7 +461,7 @@ def decode_bytes(b):
 
 
 # --------------------------------------------------------------------------
-# Host detection (build.sh:77)
+# Host detection
 # --------------------------------------------------------------------------
 def host_os():
     s = sys.platform
@@ -631,7 +484,7 @@ def host_arch():
 
 
 def supports_target(target):
-    """build.sh:108 - windows/linux/macos/ios only build on their own OS."""
+    """windows/linux/macos/ios only build on their own OS."""
     host = host_os()
     if target in ("macos", "ios"):
         return host == "macos"
@@ -694,7 +547,7 @@ def resolve_layout(root_arg):
 # Environment bootstrap
 # --------------------------------------------------------------------------
 def configure_android_java():
-    """build.sh:86 - pick a JDK for Gradle on macOS. Same paths, same order."""
+    """Pick a JDK for Gradle on macOS."""
     if host_os() != "macos":
         return
     for label, home in MACOS_JDK_CANDIDATES:
@@ -703,8 +556,6 @@ def configure_android_java():
             os.environ["PATH"] = os.path.join(home, "bin") + os.pathsep + os.environ.get("PATH", "")
             log(f"Using JDK {label} for Android build: {home}")
             return
-    # build.sh fell through silently here; a warning is cheap and the Gradle
-    # failure it prevents is not.
     warn("no Temurin 25 / openjdk@21 / openjdk@17 found - falling back to the JDK already on PATH.")
 
 
@@ -729,7 +580,7 @@ def _read_registry_env(root, subkey):
 
 def refresh_env_from_registry():
     """Windows: this process's inherited env can be stale relative to tools
-    installed after the parent shell started (build_windows.py:113)."""
+    installed after the parent shell started."""
     if host_os() != "windows":
         return
     import winreg  # type: ignore[import]
@@ -740,10 +591,10 @@ def refresh_env_from_registry():
     )
     user = _read_registry_env(winreg.HKEY_CURRENT_USER, "Environment")
 
-    # Precedence is process > user > machine (build_windows.py:120-125 had it
-    # inverted, so a toolchain the user deliberately front-loaded in their shell
-    # lost to the machine-wide PATH). REG_EXPAND_SZ values arrive verbatim, so
-    # %SystemRoot%-style entries must be expanded or they are inert.
+    # Precedence is process > user > machine: a toolchain the user deliberately
+    # front-loaded in their shell must win over the machine-wide PATH.
+    # REG_EXPAND_SZ values arrive verbatim, so %SystemRoot%-style entries must
+    # be expanded or they are inert.
     seen = set()
     entries = []
     for chunk in (os.environ.get("Path", ""), user.get("Path", ""), machine.get("Path", "")):
@@ -842,7 +693,7 @@ def arch_is_x64():
 
 
 # --------------------------------------------------------------------------
-# Subprocess helper (build_windows.py:200)
+# Subprocess helper
 # --------------------------------------------------------------------------
 CMD_METACHARACTERS = set("&|<>^%\"")
 
@@ -1221,8 +1072,8 @@ def check_target(target, layout, args, native_due):
     if args.cfa_sample_dng and not Path(args.cfa_sample_dng).exists():
         problems.append(f"--cfa-sample-dng file not found: {args.cfa_sample_dng}")
     if native_due and not args.cfa_sample_dng and not args.no_colour_gate:
-        # B1: build_windows.py warned and shipped the library anyway, under a
-        # green exit code. Runbook S4 orders the gate BEFORE placement.
+        # Runbook S4 orders the colour gate BEFORE native-library placement;
+        # skipping it must never exit green.
         problems.append(
             "a native build is due but no --cfa-sample-dng was given, so the runbook S4 colour "
             "gate (blue-sky B >> R) cannot run. Pass a sample, or pass --no-colour-gate to "
@@ -2430,8 +2281,7 @@ def macos_config_name(mode):
 
 
 def flutter_artifact(target, mode, halcyon):
-    """Where the artifact really is, plus a human label. build.sh printed a
-    hard-coded macOS bundle name; this resolves it instead."""
+    """Where the artifact really is, plus a human label."""
     b = halcyon / "build"
     if target == "macos":
         d = b / "macos" / "Build" / "Products" / macos_config_name(mode)

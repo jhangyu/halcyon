@@ -166,7 +166,7 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "67ac6faddbed9c9eb5ab5f5b07d3f38d9720ebed7d5918061755a117c4cd3231"
+    "c9b835647c7a68c790a88d4758cf6fabcc0f3c72adda2ac5cc4009f33e6128bd"
 )
 
 

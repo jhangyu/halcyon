@@ -103,15 +103,16 @@ DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 class GoldenArgvTestCase(unittest.TestCase):
-    """Base: skip (not fail) if phases.py is not yet implemented — see E1."""
+    """Base: skip (not fail) if phases.py or print_plan is absent — regression
+    guard, not a currently-exercised path: both are implemented today."""
 
     def _plans_for(self, target):
         try:
             rc, output = _capture_print_plan(target)
         except (ModuleNotFoundError, ImportError) as exc:
-            self.skipTest(f"scripts/ci/phases.py not present yet (WP-B pending): {exc}")
+            self.skipTest(f"scripts/ci/phases.py not present: {exc}")
         except NotImplementedError as exc:
-            self.skipTest(f"phases.print_plan not yet implemented (WP-B pending): {exc}")
+            self.skipTest(f"phases.print_plan not implemented: {exc}")
         self.assertEqual(rc, 0, f"--print-plan --target {target} must exit 0, got {rc}")
         plans = _parse_plan_lines(output)
         self.assertIn(
