@@ -41,16 +41,19 @@ decoding engine, Halcyon the application built on it.
 
 - **JPG-speed full-resolution RAW decoding.** The RAW decode pipeline is a from-scratch
   rewrite of libraw/Adobe DNG SDK logic in Halide, offloading the heavy compute to the
-  idle GPU wherever possible. Measured: a single RAW file decodes in 56ms, and batch mode
-  sustains 32 RAW decodes per second.
+  idle GPU wherever possible. Measured on local storage: a 24 MP RAW costs ~56 ms of
+  decode compute, and a batch sustains ~30–34 decodes per second — see
+  [Measured performance](#measured-performance).
 - **True cross-platform desktop.** Built with Flutter for Windows, macOS, and Linux. The
   decode kernel is C++/Halide, accelerated via Metal or Vulkan depending on platform.
   Android already compiles (phone-sized UI not yet designed) and iOS support remains open.
-- **Full RAW format coverage.** GPU acceleration is enabled for every RAW format libraw
-  supports, including hand-tuned fast paths for the notoriously slow Fuji X-Trans and
-  Sigma Foveon sensors — both over 4x faster than stock libraw. Halcyon also corrects
-  libraw's default washed-out tone curve so RAW previews track a camera's own JPEG
-  rendering more closely.
+- **Broad RAW format coverage.** Ten RAW containers decode all the way to full resolution
+  on the GPU, including dedicated Halide kernels for the notoriously slow Fuji X-Trans
+  6x6 mosaic and Sigma Foveon linear-RGB layouts rather than a CPU fallback; three older
+  containers (CR2, IIQ, MRW) are browsable from their embedded previews only — see
+  [RAW format support and decode routing](#raw-format-support-and-decode-routing). Halcyon
+  also corrects libraw's default washed-out tone curve so RAW previews track a camera's
+  own JPEG rendering more closely.
 - **Display-aware decode routing.** Halcyon always prefers an existing JPG, or a RAW/DNG
   file's embedded full-size JPEG preview, for display. The full hardware-accelerated
   RAW decode path only runs when no full-size preview is embedded.
@@ -601,38 +604,26 @@ what's actually been recorded.
 
 | What's being measured | Time | Conditions |
 |---|---|---|
+| Native decoder alone, 24 MP Sony ARW, uncontended | ~73 ms wall (~56 ms inside the decoder: ~19 ms RAW decompress + ~37 ms Halide pipeline) | Mac Studio (28-core), local SSD, headless bench, 2026-09-08 |
+| Native decoder concurrency ceiling | ~30–34 decodes/s locally (plateaus width 4–16, in-native Halide contention) | Mac Studio, headless bench, 2026-09-08 |
+| Tier-2 full-size re-decode, 24 MP Sony ARW (production route) | median 171–173 ms, p95 ~208–285 ms (n=20) | macOS, external drive, 2026-09-03 |
 | Full RAW decode, key-press to full-res on screen (12 MP phone DNG) | cold 491–601 ms; warm 150–159 ms | macOS release build, 2026-08-17, machine not recorded |
 | Sidebar thumbnail decode, bare-sensor DNG (no built-in preview) | warm ~56–100 ms per photo | Test harness, target 200 px long edge |
 | Sidebar thumbnail, DNG *with* a built-in preview (fast path) | warm ~0.3–0.4 ms | Same harness |
 | Sidebar thumbnail, JPEG files | warm ~22–26 ms | Same harness |
-| Ceyx full decode, 24 MP DNG, lossless | ~177 ms | macOS (Metal), warm |
-| Ceyx full decode, 24 MP DNG, lossy | ~105 ms | macOS (Metal), warm |
-| Ceyx cold first decode in a GUI app, 24 MP (6000×4000) lossless DNG | 291 ms | Apple M3 Ultra, macOS 15.6.1, release, **cold** |
 | Switching between JPEG-preview photos (no RAW decode) | 2.8 ms (was 127.5 ms before optimisation) | Historical baseline, kept to show the size of the win |
 
 ### The one number to remember
 
-If you want a single figure, it's **about 300 ms for a cold, GPU-accelerated full RAW
-decode** — from one clean recorded run: Ceyx cold-decoding a 24 MP lossless DNG inside a
-real app, 291 ms on an Apple M3 Ultra.
+The decoder itself is fast: **~73 ms, uncontended, for a 24 MP RAW file on local
+storage.** Of that, ~56 ms is inside the decoder itself — ~19 ms RAW decompression plus
+~37 ms in the Halide processing pipeline — with the remainder being IPC and buffer
+hand-back. That per-image cost scales well with concurrency: 2.75× throughput going from
+1 to 8 decodes in flight, reaching ~30–34 decodes/s on local storage.
 
-Everything else in the table answers a slightly different question, and the differences
-are worth keeping in mind:
-
-- **Warm decode is roughly half that.** The one full end-to-end run that reached
-  full-res paint measured 150–159 ms warm, and Ceyx's warm figures sit at 105–177 ms for
-  24 MP. A photographer flicking back and forth across a handful of frames lives in this
-  warm regime, not the cold one.
-- **A cold decode on an older/unrecorded machine ran higher** — 491–601 ms in one 2026
-  run. Treat that as a weak data point (its own notes flag it for a re-run that never
-  happened), not a contradiction of the 300 ms figure.
-- **Most files never decode at all.** A RAW carrying a usable built-in JPEG preview skips
-  the decoder entirely and appears in single-digit milliseconds. The 300 ms figure only
-  describes the expensive path, which is the minority of files in a normal folder.
-
-Honest summary: quote **~300 ms cold / ~150 ms warm** for full RAW decode, and don't treat
-either as a universal benchmark — no measurement here cleanly separates cold from warm
-across a range of machines and sensor sizes.
+Full end-to-end paint naturally costs more than the bare decoder number, once Dart-side
+resizing and encoding are included: the warm figures in the table above sit at 150–173 ms,
+and a cold first decode — nothing cached, kernels not yet warm — runs 491–601 ms.
 
 ### What hasn't been measured
 
@@ -640,8 +631,6 @@ A few things simply have no recorded number yet, and it's better to say so than 
 
 - Full-decode timing for large-sensor RAW files (full-frame, 40+ MP) running through
   Halcyon's own pipeline. The recorded samples top out around 24 MP.
-- The machine (chip, RAM) behind most of the Halcyon-side figures — only the 291 ms M3
-  Ultra data point names its hardware.
 - Export timing (decode → resize → re-encode JPEG).
 - Interactive switch-latency and memory usage under real UI navigation — these are
   reserved for the project owner to measure personally rather than in automated runs.
@@ -667,11 +656,16 @@ work while you're moving.
 
 ### Two levels of detail for the main image
 
-The main preview is drawn in two passes:
+The main preview is drawn in two passes, but only for the photo you're on and
+its immediate neighbour on each side — one step back, one step forward. That
+narrow band is what actually gets decoded to pixels; everything else you're
+holding onto (see "Keeping only what's nearby" below) sits as compressed JPEG
+bytes until you arrive next to it.
 
-- **Tier one — instant.** As soon as you land on a photo, Halcyon shows it
-  decoded to your window's resolution. This is quick, so rapid arrow-key
-  browsing stays smooth and every photo shows something immediately.
+- **Tier one — instant.** The moment a photo enters that band — including the
+  one you just landed on — Halcyon shows it decoded to your window's
+  resolution. This is quick, so rapid arrow-key browsing stays smooth and
+  every nearby photo shows something immediately, without waiting for a pause.
 - **Tier two — full quality.** If you stop on a photo for about a quarter of a
   second, Halcyon decodes the full-resolution version and swaps it in. Because
   it waits for that brief pause, blowing past a hundred photos never kicks off
@@ -712,22 +706,46 @@ that lightweight form, so the sidebar stays cheap even for a big folder.
 
 ### Keeping only what's nearby
 
-Rather than holding every photo you've opened, Halcyon keeps a moving window of
-photos around the one you're on — a few behind you and a few more ahead, since
-browsing runs overwhelmingly forward. As you move, photos entering the window
-are loaded and photos falling out the back are released. This window is also
-capped by an overall memory budget, so even with unusually large files the app
-releases the oldest held photo first and stays within bounds. The net effect:
-memory use stays roughly flat no matter how long the folder is or how long you
-browse.
+There are two windows in play here, and they are deliberately different sizes.
+
+The **retention window** is the wide one: a moving range of photos around the
+one you're on — a few behind you and several more ahead, since browsing runs
+overwhelmingly forward. On the smallest machines that's 3 behind and 5 ahead;
+on a machine with more RAM it widens (up to 3 behind and 11 ahead) and its
+byte budget grows with it, so a bigger machine holds more of the folder before
+anything has to be dropped. Everything in this window is a compressed JPEG
+(the photo's own file, or a re-encoded version of a RAW) — cheap to hold, but
+not yet decoded to pixels.
+
+The **decode band** is much narrower and fixed regardless of machine: only the
+selected photo and its immediate neighbour on each side. Stepping a photo into
+that one-either-side band decodes its compressed JPEG to pixels on the spot —
+fast, because JPEG decode is far cheaper than a RAW decode — while stepping it
+back out just drops the decoded copy and keeps the compressed one. This is
+what keeps the memory bill flat: the app is sized around the small number of
+images it actually paints pixels for, not the much larger number it merely
+holds in reserve to avoid re-reading the file from disk.
+
+When the retention window's budget is exceeded, photos are dropped
+farthest-from-your-position first, so the one you're looking at is always the
+last thing to go — but "farthest" is judged over a slightly wider stretch than
+the decode band itself (one photo behind, three ahead), so a couple of photos
+just outside the decode band are treated as still-close and protected from
+early eviction along with it.
+
+If macOS or Windows reports that the system as a whole is low on memory,
+Halcyon reacts immediately rather than waiting for you to hit its own budget:
+it halves how many compressed photos it's holding and drops any decoded
+full-resolution frames outside that immediate band, then restores the normal
+budget once the pressure clears.
 
 ### Summary
 
 | Lane | What it holds | How much is kept | When it's released |
 |---|---|---|---|
 | Sidebar thumbnails | Small thumbnail images for the filmstrip | The rows on screen plus a margin above and below | Trimmed to what's currently needed on every update |
-| Main image, both tiers | The photos near the one you're viewing | A moving window: a few behind, a few more ahead, capped by a memory budget | Oldest / farthest photo released first as you move or when over budget |
-| Decoded frames | The window-resolution and full-resolution images being shown | Bounded by a share of the machine's memory | Released automatically once a photo leaves the active window |
+| Main image, retention window | Compressed JPEG bytes for photos near the one you're viewing | A moving window, sized to the machine's memory (3 behind / 5–11 ahead) | Farthest-from-selection photo released first when the budget is exceeded |
+| Main image, decoded pixels | The window-resolution and full-resolution images actually on screen | Only the selected photo and its immediate neighbour on each side | Dropped the moment a photo leaves that immediate band, or under OS memory pressure |
 
 ---
 
@@ -786,7 +804,7 @@ Paired with it, `image_source_types.dart` declares a sealed class with exactly t
 **Single-owner invariants.** Two classes each hold exactly one piece of tier-2 state, so it can be reasoned about and tested in one place instead of drifting across call sites:
 
 - `TierTwoRegistry` (`lib/services/image_pipeline/tier_two_registry.dart:26`) is the single holder of tier-two *readiness* bookkeeping — which ids have a full-size cache entry, which payload object it was decoded for, and whether that decode has failed.
-- `TierTwoScheduler` (`lib/services/image_pipeline/tier_two_scheduler.dart:58`) is the single holder of tier-two *scheduling* — the ±2 window, the 250ms navigation debounce, and the serialized decode queue.
+- `TierTwoScheduler` (`lib/services/image_pipeline/tier_two_scheduler.dart:115`) is the single holder of tier-two *scheduling* — the ±1 full-resolution decode band (`kFullResolutionBandRadius`, `prefetch_scheduler.dart:23`), the 250ms navigation debounce, and the serialized decode queue.
 
 **Native bridges.** `macos/Runner/AppDelegate.swift` registers exactly two `MethodChannel`s:
 
@@ -820,6 +838,8 @@ Halcyon/
 ├── scripts/
 │   └── build_apps.py          # the single build entry point for all six targets
 ├── docs/
+│   ├── images/                 # README screenshots
+│   ├── legal/                  # THIRD_PARTY_LICENSES.md
 │   ├── logs/YYYY-MM-DD/       # dated task logs; recorded measurements live here
 │   └── sop/                   # untracked internal maintenance docs; absent from a fresh clone
 └── README.md
@@ -1026,18 +1046,18 @@ flowchart TD
   PixelPayloadNode["decodedRgbaToPixelPayload()<br/>orient + downscale to window size"]:::service
   CeyxDecode --> PixelPayloadNode
 
-  PayloadCache[["PhotoPayloadCache<br/>-3..+5 retention window,<br/>byteCost-only eviction"]]:::cache
+  PayloadCache[["PhotoPayloadCache<br/>retention window sized to RAM<br/>(-3..+5 floor, wider per tier),<br/>distance-priority eviction"]]:::cache
   Bytes --> PayloadCache
   PixelPayloadNode --> PayloadCache
 
-  TierOne["Tier-1 decode<br/>tierOneProviderFor()<br/>ResizeImage @ window resolution"]:::service
+  TierOne["Tier-1 decode<br/>tierOneProviderFor()<br/>ResizeImage @ window resolution,<br/>only for the +/-1 band"]:::service
   PayloadCache --> TierOne
 
-  Debounce{"250ms navigation-quiet<br/>debounce elapsed?"}
+  Debounce{"250ms navigation-quiet<br/>debounce elapsed?<br/>(band entrants decode immediately)"}
   class Debounce decision
   PayloadCache --> Debounce
 
-  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -2..+2 window"]:::service
+  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -1..+1 window"]:::service
   Debounce -->|yes, TierTwoScheduler.schedule| TierTwo
 
   ImageCacheNode[["Flutter ImageCache<br/>(tier-1 + tier-2 keys,<br/>separate namespaces)"]]:::cache
@@ -1056,10 +1076,11 @@ When you select an item, a bounded content probe runs before any decode and
 sorts the file into cheap or expensive. Cheap files — JPEGs, or DNGs whose
 embedded preview is already large enough — skip the native decoder entirely,
 while a DNG with no usable preview crosses into Ceyx's GPU decoder on a worker
-isolate. Every decoded result, whether encoded bytes or downscaled pixels,
-lands in a single byte-budgeted retention cache, and the display path always
-paints from there: window resolution (tier-1) right away, then an upgrade to
-full size (tier-2) once navigation has been quiet for 250ms.
+isolate. Every result lands in a single byte-budgeted retention cache as
+compressed bytes; only the selected item and its immediate neighbour on each
+side (the +/-1 band) are additionally decoded to pixels — window resolution
+(tier-1) as soon as the item enters that band, then an upgrade to full size
+(tier-2) once navigation has been quiet for 250ms.
 
 **Evidence:**
 - Sibling grouping by `basenameWithoutExtension` —
@@ -1068,16 +1089,34 @@ full size (tier-2) once navigation has been quiet for 250ms.
 - The probe-first content classification and its cost/orientation dual output
   — `lib/services/image_pipeline/photo_source.dart:274-317`.
 - The three-way `NativeImageResult` routing (bytes / needs-raw-decode /
-  failure) — `lib/services/image_pipeline/image_source_types.dart:48-87`, and
+  failure) — `lib/services/image_pipeline/image_source_types.dart:52-118`, and
   the switch that acts on it — `lib/services/image_pipeline/photo_source.dart:116-201`.
 - The Ceyx crossing — `lib/services/image_pipeline/dng_decode_service.dart:12-14`.
 - Tier-1/tier-2 provider factories and the identity/key-match requirement —
   `lib/services/image_pipeline/image_preload_controller.dart:28-49`.
-- The 250ms navigation debounce constant —
-  `lib/services/image_pipeline/image_preload_controller.dart:49`.
-- The -3..+5 retention window and byteCost-only eviction —
-  `lib/services/image_pipeline/photo_payload_cache.dart:6-10` (window) and
-  class doc at `lib/services/image_pipeline/photo_payload_cache.dart:36-49`.
+- The 250ms navigation debounce constant, and the immediate (non-debounced)
+  decode for an item newly entering the +/-1 band —
+  `lib/services/image_pipeline/image_preload_controller.dart:115` (the constant
+  itself) and `lib/services/image_pipeline/tier_two_scheduler.dart:412-427,449-505`.
+- The +/-1 full-resolution band radius —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:23`.
+- The retention window (-3..+5 floor, wider on higher-RAM tiers) and
+  distance-priority eviction (farthest from the selection is evicted first)
+  — `lib/services/image_pipeline/photo_payload_cache.dart:6-10,99-108,226-251`,
+  tier table at `lib/services/image_pipeline/retention_policy.dart:73,99-116`.
+- Eviction distance is ranked over a THIRD, separate band (-1 behind..+3
+  ahead) from the +/-1 decode band above — frozen at the pre-2026-08-30 decode
+  band values on purpose, so narrowing the decode band did not also narrow
+  which nearby ids are protected from early eviction —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:25-39`,
+  ranking implementation at
+  `lib/services/image_pipeline/image_preload_controller.dart:1784-1797`.
+- Retained slots outside the +/-1 band hold a compressed payload only, no
+  decoded pixels (window-resolution retention was abolished) —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:41-52`.
+- The image cache's own decode-pixel budget is derived from the +/-1 band's
+  working set, not a percentage of machine memory —
+  `lib/services/image_pipeline/cache_budget.dart:130-178`.
 - Sidebar thumbnails use a separate cache/miss set from the detail path —
   `lib/services/image_pipeline/image_preload_controller.dart:91,173`.
 - `displayProvider` picks tier-2 when ready, else tier-1 —
@@ -1215,7 +1254,10 @@ Halcyon's declared minimum macOS version is 11. The bundled native decoder stack
 ships with, however, requires **macOS 15 on Apple silicon and macOS 14 on Intel** at
 runtime — the two are separate facts, not a correction of one by the other: the
 application's own declared minimum is unchanged, and the higher figure describes what
-the bundled decoder libraries themselves need to load.
+the bundled decoder libraries themselves need to load. The floor is measured from the
+libraries' own version load commands, not inferred: on Apple silicon the binding
+constraint is the bundled OpenMP runtime's macOS 15 requirement, while on Intel the
+highest requirement in the set is macOS 14.
 
 ---
 
@@ -1233,7 +1275,7 @@ the bundled decoder libraries themselves need to load.
 
 <!-- evidence: pubspec.yaml:22 (sdk constraint), flutter --version output 2026-08-26 -->
 <!-- evidence: pubspec.yaml:46-47 (ceyx path dependency) -->
-<!-- evidence: scripts/build_apps.py:232-234 (JDK search order), scripts/build_apps.py:448 (PATH fallback warning) -->
+<!-- evidence: scripts/build_apps.py:271-274 (JDK search order), scripts/build_apps.py:708 (PATH fallback warning) -->
 <!-- evidence: android/gradle/wrapper/gradle-wrapper.properties:5, android/settings.gradle.kts:22-23 -->
 
 **The Ceyx sibling checkout is not optional.** `pubspec.yaml` declares the decoder as a
@@ -1241,6 +1283,24 @@ relative path dependency on `../ceyx/plugin`, so `flutter pub get` fails outrigh
 directory is missing. Clone Ceyx next to Halcyon, not inside it.
 
 <!-- evidence: pubspec.yaml:46-47 -->
+
+For `linux` and `windows`, the native decoder is not compiled locally by default: the
+build script fetches the prebuilt library (Windows ships three — the decoder plus
+`heif.dll`/`libde265.dll`) from a pinned Ceyx GitHub release, verifying each asset's
+sha256 against `scripts/ceyx_release_pin.json`. A fetch happens automatically when a
+destination library is absent **or its on-disk sha256 no longer matches the pin**, so
+both a first checkout and a locally-modified or stale cached library get replaced.
+`--fetch-native` forces a re-fetch that overwrites any committed copy; `--native always`
+compiles from source instead. If a pin entry doesn't carry a digest for every asset on
+a platform, the mismatch check degrades to absent-only-plus-a-warning rather than
+silently trusting whatever is on disk, and the warning it prints points at
+`--native always` as the way to keep a locally built library instead of the fetched one.
+To move the pin itself to a newer Ceyx release, run
+`python3 scripts/build_apps.py --ceyx-release latest`: it resolves the latest tag and
+rewrites the pin's digests, then stops without building, so the diff can be reviewed
+before committing.
+
+<!-- evidence: scripts/build_apps.py:1642-1695 (fetch-due decision, checksum-mismatch re-fetch, degrade branches), scripts/build_apps.py:1884-1929 (--ceyx-release latest), scripts/ceyx_release_pin.json -->
 
 Android builds additionally require compatibility mode to be left enabled —
 `android.newDsl=false` and `android.builtInKotlin=false` in `android/gradle.properties` —
@@ -1272,7 +1332,7 @@ python3 scripts/build_apps.py all          # every target this host can build
 python3 scripts/build_apps.py --check      # toolchain check only, builds nothing
 ```
 
-<!-- evidence: scripts/build_apps.py:249-266 (target table), scripts/build_apps.py:1599 (target argument) -->
+<!-- evidence: scripts/build_apps.py:289-305 (target table), scripts/build_apps.py:3014 (target argument) -->
 
 Targets are `macos`, `ios`, `android` / `android-apk` / `android-aab`, `web`, `windows`,
 `linux`, and `all`. The `all` target is host-filtered and skips rather than fails on
@@ -1280,7 +1340,7 @@ targets this host cannot build; `ios` is deliberately excluded from it so that a
 unattended run never has to make a code-signing decision. `windows` and `linux` must be
 built on their own operating system.
 
-<!-- evidence: scripts/build_apps.py:249-266 -->
+<!-- evidence: scripts/build_apps.py:289-305 -->
 
 ### The colour gate
 
@@ -1293,7 +1353,7 @@ refuses to place an ungated library.
 - `--no-colour-gate` is the loud opt-out. A run that uses it **exits 2, never 0**, and the
   resulting library is marked unvalidated.
 
-<!-- evidence: scripts/build_apps.py:927-932 (Phase 0 refusal), scripts/build_apps.py:1220-1226 (skip warning), scripts/build_apps.py:1622-1624 (--no-colour-gate exits 2), scripts/build_apps.py:1721 -->
+<!-- evidence: scripts/build_apps.py:1223-1230 (Phase 0 refusal), scripts/build_apps.py:2330 (skip warning), scripts/build_apps.py:3037-3039 (--no-colour-gate exits 2) -->
 
 ### Build outputs and what is source
 
@@ -1303,13 +1363,25 @@ Build outputs land under the root `build/` directory. The `android/`, `ios/`, `m
 
 ### A note on the Windows path
 
-`scripts/build_apps.py` has never driven the Windows native build end to end. Treat the
-first real Windows run of the script as first contact rather than a regression test. The
-underlying CMake/MSVC path itself is not unproven — an upstream commit added it and built
-the shipped `dng_decoder_native.dll` by hand on a real Windows machine — but that build
-recorded no S4 colour-gate run, so the DLL is trust-on-first-use.
+On Windows, `scripts/build_apps.py` does not compile the decoder at all. It downloads the
+three prebuilt DLLs — `dng_decoder_native.dll` plus the `heif.dll` and `libde265.dll` it
+dynamically imports — from the Ceyx release pinned in `scripts/ceyx_release_pin.json`, and
+refuses to place any file whose SHA-256 does not match that pin. Those DLLs are produced by
+Ceyx's own Windows CI, which asserts the expected exported symbols and runs a functional
+codec-capability probe against the built DLL before publishing.
 
-<!-- evidence: CLAUDE.md, Commands section -->
+What that CI does *not* run is a colour gate. The runbook S4 check (decode a CFA sample,
+assert blue-sky B ≫ R) only guards a library compiled locally on this host; for a fetched
+prebuilt the integrity control is the pinned digest, not a rendered image. So the pinned
+Windows DLL is verified to be the exact bytes the release published and to export the
+capabilities Halcyon needs, but its colour output has not been gated on Windows itself.
+
+<!-- evidence: scripts/ceyx_release_pin.json (tag v0.1.23, "windows" atomic three-DLL group
+     with per-member sha256); scripts/build_apps.py:1650-1653 ("The runbook S4 colour gate is
+     NOT consulted here: it gates LOCALLY COMPILED libraries"); ../ceyx/.github/workflows/
+     windows_build.yml:475-816 (symbol assertions, codec_capability_probe.py G1, functional
+     probe_codecs CI-T3) — no S4/cfa-colour step exists in any ceyx workflow (grep "S4",
+     "cfa_color" over .github/workflows returns nothing). -->
 
 ---
 
@@ -1322,11 +1394,11 @@ flutter test test/providers/app_state_test.dart   # a single file
 flutter test --coverage
 ```
 
-The suite is 45 test files under `test/`, organised to mirror `lib/`: `models/`,
+The suite is 108 test files under `test/`, organised to mirror `lib/`: `models/`,
 `providers/`, `services/`, `views/`, `perf/`, plus shared fakes in `test/support/`. Each
 test carries a 10-second timeout.
 
-<!-- evidence: dart_test.yaml:1, test/ directory listing 2026-08-26 -->
+<!-- evidence: dart_test.yaml:1, test/ directory listing 2026-09-12 (108 *_test.dart files) -->
 
 `flutter analyze` reporting zero issues is a gate, not a preference — work is not
 considered done while it reports anything. Note that analysis covers `lib/`, `test/` **and**
@@ -1336,12 +1408,9 @@ considered done while it reports anything. Note that analysis covers `lib/`, `te
 
 ### What makes the suite possible
 
-`AppState` receives every collaborator through its constructor — the library scanner, the
-status store, the file actions, the preload controller, the image-loading function and the
-optional full decoder. Tests substitute fakes for all of them, so the application logic is
-exercised without touching the filesystem or a platform channel. The decoder seam is the
-same story: the pipeline is tested against a fake decoder rather than by loading the real
-native library.
+`AppState`'s constructor-injected collaborators (see [Architecture](#architecture)) are
+what let this suite substitute fakes instead of touching a filesystem or platform
+channel; the decoder seam is tested the same way.
 
 <!-- evidence: lib/providers/app_state.dart constructor; lib/services/image_pipeline/dng_decode_contract.dart -->
 

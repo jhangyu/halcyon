@@ -39,14 +39,17 @@ Halcyon 與 Ceyx 都是翠鳥屬名。希臘神話中，阿爾庫俄涅（Alcyon
 ### 核心特色
 
 - **以 JPG 等級的速度解碼全解析度 RAW。** 解碼引擎以 Halide 從零重寫 libraw / Adobe DNG SDK
-  的解碼邏輯，儘可能將高運算負載轉移到閒置的 GPU 上。實測單張 RAW 檔可在 56 毫秒內完成解碼，
-  批次模式下每秒可處理 32 張。
+  的解碼邏輯，儘可能將高運算負載轉移到閒置的 GPU 上。在本機儲存裝置上實測：一張 24 MP RAW
+  的解碼運算成本約 56 毫秒，批次模式下每秒可持續處理約 30–34 張——詳見
+  [實測效能](#實測效能)。
 - **真正的跨平台桌面應用。** 以 Flutter 開發，同時支援 Windows、macOS、Linux 三大平台；
   解碼核心以 C++ / Halide 撰寫，依平台使用 Metal 或 Vulkan 進行硬體加速。Android 已可編譯
   （手機版介面尚未設計），iOS 支援亦保留未來可能性。
-- **全格式 RAW 支援。** libraw 支援的所有 RAW 格式皆已啟用硬體加速，並針對素以解碼緩慢著稱的
-  Fuji X-Trans 與 Sigma Foveon 感光元件額外調校加速路徑——兩者皆比原生 libraw 快 4 倍以上。
-  同時修正了 libraw 預設偏灰、偏暗的色調曲線，讓 RAW 預覽的明暗更貼近相機自身的 JPEG 出圖。
+- **廣泛的 RAW 格式支援。** 十種 RAW 容器格式皆可在 GPU 上完整解碼至全解析度，其中針對素以
+  解碼緩慢著稱的 Fuji X-Trans 6x6 馬賽克與 Sigma Foveon 線性 RGB 排列，分別配有專屬的 Halide
+  核心，而非退回 CPU 處理；另外三種較舊的容器格式（CR2、IIQ、MRW）目前僅能透過內嵌預覽圖瀏覽
+  ——詳見 [RAW 格式支援與解碼路由](#raw-格式支援與解碼路由)。同時 Halcyon 也修正了 libraw
+  預設偏灰、偏暗的色調曲線，讓 RAW 預覽的明暗更貼近相機自身的 JPEG 出圖。
 - **依顯示需求選擇解碼路徑。** Halcyon 一律優先使用現成的 JPG，或 RAW/DNG 檔內嵌的全尺寸
   JPEG 預覽來顯示；只有在檔案未內嵌全尺寸預覽時，才會啟動完整的硬體加速 RAW 解碼路徑。
 - **精心調校的預載策略，實現零延遲瀏覽。** 在 1:1 放大模式下於多張 RAW 檔間快速切換完全
@@ -537,35 +540,25 @@ flowchart TD
 
 | 量測的是什麼 | 時間 | 條件 |
 |---|---|---|
+| 原生解碼器單獨計時，24 MP Sony ARW，無並發競爭 | ~73 毫秒總時間（其中約 56 毫秒在解碼器內：約 19 毫秒 RAW 解壓縮＋約 37 毫秒 Halide 管線） | Mac Studio（28 核心），本機 SSD，headless 基準測試，2026-09-08 |
+| 原生解碼器的並發吞吐上限 | 本機約每秒 30–34 張（並發數 4–16 之間出現高原，受限於原生 Halide 內部競爭） | Mac Studio，headless 基準測試，2026-09-08 |
+| 第二階全解析度重新解碼，24 MP Sony ARW（正式路徑） | 中位數 171–173 毫秒，p95 約 208–285 毫秒（n=20） | macOS，外接硬碟，2026-09-03 |
 | 完整 RAW 解碼，從按鍵到全解析度上屏（12 MP 手機 DNG） | 冷啟動 491–601 毫秒；暖啟動 150–159 毫秒 | macOS release 建置，2026-08-17，未記錄機型 |
 | 側欄縮圖解碼，裸感光元件 DNG（無內嵌預覽） | 暖啟動每張約 56–100 毫秒 | 測試環境，目標長邊 200 px |
 | 側欄縮圖，*含*內嵌預覽的 DNG（快速路徑） | 暖啟動約 0.3–0.4 毫秒 | 同一套量測工具 |
 | 側欄縮圖，JPEG 檔案 | 暖啟動約 22–26 毫秒 | 同一套量測工具 |
-| Ceyx 完整解碼，24 MP DNG，無損 | ~177 毫秒 | macOS（Metal），暖啟動 |
-| Ceyx 完整解碼，24 MP DNG，有損 | ~105 毫秒 | macOS（Metal），暖啟動 |
-| Ceyx 在 GUI app 內的冷啟動首次解碼，24 MP（6000×4000）無損 DNG | 291 毫秒 | Apple M3 Ultra，macOS 15.6.1，release，**冷啟動** |
 | 在 JPEG 預覽照片之間切換（無 RAW 解碼） | 2.8 毫秒（優化前為 127.5 毫秒） | 歷史基準值，保留以呈現優化幅度 |
 
 ### 該記住哪個數字
 
-若只能給一個數字，答案是 **GPU 加速的完整 RAW 解碼在冷啟動下約 300 毫秒**——來自一次乾淨
-記錄的執行：Ceyx 在真實 app 內冷啟動解碼一張 24 MP 無損 DNG，於 Apple M3 Ultra 上量得
-291 毫秒。
+解碼器本身很快：**24 MP RAW 檔案在本機儲存裝置上、無並發競爭時約 73 毫秒。** 其中約
+56 毫秒花在解碼器內部——約 19 毫秒 RAW 解壓縮，加上約 37 毫秒的 Halide 處理管線——其餘則是
+IPC 與緩衝區交還的開銷。這個單張成本隨並發數擴展得相當好：從 1 個並發解碼提升到 8 個，
+輸送量成長 2.75 倍，在本機儲存裝置上可達每秒約 30–34 張。
 
-上表其餘數字回答的是略有不同的問題，這些差異值得記住：
-
-- **暖啟動大約是它的一半。** 唯一一次完整跑到全解析度上屏的端到端執行，暖啟動量得
-  150–159 毫秒；Ceyx 的暖啟動數字在 24 MP 下落在 105–177 毫秒。攝影師在少數幾張照片之間
-  來回快速翻看時，落在的是暖啟動這一區，不是冷啟動。
-- **在較舊／未記錄機型上的冷啟動量得更高**——某次 2026 年執行量得 491–601 毫秒。請把它
-  當作一個證據力較弱的資料點（其註記標明需要重跑，但一直沒發生），而不是對 300 毫秒這個
-  數字的反證。
-- **大多數檔案根本不會進入解碼。** 帶有可用內嵌 JPEG 預覽的 RAW 完全跳過解碼器，落在個位數
-  毫秒。300 毫秒只描述昂貴路徑，而那在一般資料夾裡只是少數檔案。
-
-誠實的總結：完整 RAW 解碼引用 **冷啟動約 300 毫秒／暖啟動約 150 毫秒**，且不要把任何一個
-當成通用基準——現有量測都無法在跨機型、跨感光元件尺寸的條件下，把冷啟動與暖啟動乾淨地
-分離開來。
+完整端到端上屏的成本自然會比純解碼器數字更高，因為還包含了 Dart 端的縮放與編碼：上表中
+的暖啟動數字落在 150–173 毫秒之間，而冷啟動首次解碼——什麼都還沒快取、核心也還沒暖機——
+則要 491–601 毫秒。
 
 ### 尚未量測的項目
 
@@ -573,8 +566,6 @@ flowchart TD
 
 - 大片幅 RAW 檔案（全片幅、40+ MP）在 Halcyon 自身管線中的完整解碼計時。現有記錄的樣本
   大約止於 24 MP。
-- 大多數 Halcyon 端數字背後的機型（晶片、記憶體）——只有那筆 291 毫秒的 M3 Ultra 資料點
-  指明了硬體。
 - 匯出計時（解碼 → 縮放 → 重新編碼為 JPEG）。
 - 真實 UI 導覽下的切換延遲與記憶體用量——這些保留給專案擁有者親自量測，而非自動化執行。
 
@@ -596,10 +587,14 @@ Halcyon 的做法是：只保留你目光附近的照片，依你當下的動作
 
 ### 主圖用兩種清晰度顯示
 
-主要預覽分兩趟畫出來：
+主要預覽分兩趟畫出來，但只針對你目前所在的照片，以及它前後緊鄰的各一張——
+往前一步、往後一步。真正會被解碼成像素的只有這條窄帶；其餘你手上還留著的
+照片（見下文「只留下附近的照片」）則以壓縮過的 JPEG 位元組形式存著，直到你
+走到它旁邊為止。
 
-- **第一層——即時。** 你一停到某張照片，Halcyon 就先以你視窗的解析度顯示它。
-  這一步很快，所以連續按方向鍵瀏覽依然順滑，每張照片都立刻有畫面。
+- **第一層——即時。** 一張照片一進入這條窄帶——包括你剛停到的那張——Halcyon
+  就會以你視窗的解析度顯示它。這一步很快，所以連續按方向鍵瀏覽依然順滑，
+  附近的每張照片都立刻有畫面，不必等停頓。
 - **第二層——全品質。** 如果你在某張照片上停留約四分之一秒，Halcyon 就解碼出
   全解析度版本並換上去。正因為它要等這個短暫的停頓，掃過上百張照片時，並不會
   為你只是瞥過的影像同時啟動上百次粗重的全畫面解碼。
@@ -636,19 +631,38 @@ flowchart TD
 
 ### 只留下附近的照片
 
-Halcyon 不會把你開過的每一張照片都留著，而是圍繞你當下這張，保留一個會移動的
-視窗——後面留幾張、前面多留幾張，因為瀏覽絕大多數是往前走。當你移動時，進入
-視窗的照片會被載入，落到後方的則被釋放。這個視窗同時還受一個整體記憶體預算的
-上限約束，所以即使遇到特別大的檔案，app 也會先釋放最舊的那張、維持在界線內。
-最終效果是：不論資料夾多長、你瀏覽多久，記憶體使用量大致維持平穩。
+這裡其實有兩種視窗在同時運作，而且刻意設計成不同大小。
+
+**保留視窗**是比較寬的那個：圍繞你當下這張照片、會移動的一個範圍——後面留幾張、
+前面多留幾張，因為瀏覽絕大多數是往前走。在記憶體最小的機器上是後面 3 張、前面
+5 張；記憶體較多的機器上會加寬（最多後面 3 張、前面 11 張），其位元組預算也會
+跟著變大，因此配備較好的機器能在需要釋放任何東西之前，多保留一部分資料夾內容。
+這個視窗裡的所有內容都是壓縮過的 JPEG（照片自己的檔案，或是 RAW 的重新編碼版本）
+——保留成本低，但還沒解碼成像素。
+
+**解碼帶**則窄得多，而且不論機器規格一律固定：只有目前選取的照片，以及它前後
+緊鄰的各一張。一張照片一踏進這個「前後各一張」的帶狀範圍，就會立刻把它的壓縮
+JPEG 解碼成像素——速度很快，因為 JPEG 解碼遠比 RAW 解碼便宜——而一旦它退出這個
+帶狀範圍，就只會丟掉解碼後的副本，繼續保留壓縮版本。這正是讓記憶體帳單維持平坦
+的關鍵：app 的規模是依照它實際要畫出像素的少數幾張照片來設計的，而不是依照它為
+了避免重新從磁碟讀檔而多留在手邊的、大得多的那個數字。
+
+當保留視窗的預算被用完時，會先釋放離你目前位置最遠的照片，因此你正在看的那張
+永遠是最後才會被丟的——但「最遠」的判斷範圍會比解碼帶本身再寬一點（後面一張、
+前面三張），所以緊貼在解碼帶外的幾張照片，仍會被視為「還算接近」而受到保護，
+一併免於過早被淘汰。
+
+如果 macOS 或 Windows 回報整個系統記憶體吃緊，Halcyon 不會等到自己的預算被用完
+才反應，而是立刻行動：把手上保留的壓縮照片數量砍半，並丟掉那個即時帶狀範圍以外
+的任何已解碼全解析度影格，等壓力解除後再恢復正常預算。
 
 ### 摘要
 
 | 通道 | 保留什麼 | 保留多少 | 何時釋放 |
 |---|---|---|---|
 | 側邊欄縮圖 | 膠捲用的小張縮圖 | 畫面上的列，加上上下各一段邊界 | 每次更新都修剪成目前實際所需 |
-| 主圖，兩個層級 | 你正在看的那張附近的照片 | 一個移動視窗：後面幾張、前面多幾張，受記憶體預算上限約束 | 移動時或超出預算時，先釋放最舊／距離最遠的那張 |
-| 已解碼影格 | 實際正在顯示的視窗解析度與全解析度影像 | 受機器記憶體的一部分約束 | 照片一離開作用中的視窗就自動釋放 |
+| 主圖，保留視窗 | 你正在看的那張附近照片的壓縮 JPEG 位元組 | 一個會移動的視窗，大小依機器記憶體而定（後面 3 張／前面 5–11 張） | 超出預算時先釋放離選取位置最遠的照片 |
+| 主圖，已解碼像素 | 實際正顯示在畫面上的視窗解析度與全解析度影像 | 只有目前選取的照片，以及它前後緊鄰的各一張 | 一旦照片離開那個即時帶狀範圍，或系統記憶體吃緊時立即丟棄 |
 
 ---
 
@@ -707,7 +721,7 @@ typedef DngFullDecoder = Future<DecodedRgba> Function(String path);
 **單一持有者不變量。** 兩個類別各自持有恰好一份第二層狀態，讓不變量能在單一位置推理與測試，不至於散落到各個呼叫點：
 
 - `TierTwoRegistry`（`lib/services/image_pipeline/tier_two_registry.dart:26`）是第二層*就緒狀態*記帳的唯一持有者——哪些 id 有全尺寸快取項目、它是針對哪個 payload 物件解碼的，以及該次解碼是否已失敗。
-- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:58`）是第二層*排程*的唯一持有者——±2 視窗、250ms 導覽 debounce，以及序列化的解碼佇列。
+- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:115`）是第二層*排程*的唯一持有者——±1 全解析度解碼帶（`kFullResolutionBandRadius`，`prefetch_scheduler.dart:23`）、250ms 導覽 debounce，以及序列化的解碼佇列。
 
 **原生橋接。** `macos/Runner/AppDelegate.swift` 恰好註冊兩個 `MethodChannel`：
 
@@ -741,6 +755,8 @@ Halcyon/
 ├── scripts/
 │   └── build_apps.py          # the single build entry point for all six targets
 ├── docs/
+│   ├── images/                 # README 截圖
+│   ├── legal/                  # THIRD_PARTY_LICENSES.md
 │   ├── logs/YYYY-MM-DD/       # dated task logs; recorded measurements live here
 │   └── sop/                   # 未受版控追蹤的內部維護文件；全新 clone 不會包含
 └── README.md
@@ -933,18 +949,18 @@ flowchart TD
   PixelPayloadNode["decodedRgbaToPixelPayload()<br/>orient + downscale to window size"]:::service
   CeyxDecode --> PixelPayloadNode
 
-  PayloadCache[["PhotoPayloadCache<br/>-3..+5 retention window,<br/>byteCost-only eviction"]]:::cache
+  PayloadCache[["PhotoPayloadCache<br/>retention window sized to RAM<br/>(-3..+5 floor, wider per tier),<br/>distance-priority eviction"]]:::cache
   Bytes --> PayloadCache
   PixelPayloadNode --> PayloadCache
 
-  TierOne["Tier-1 decode<br/>tierOneProviderFor()<br/>ResizeImage @ window resolution"]:::service
+  TierOne["Tier-1 decode<br/>tierOneProviderFor()<br/>ResizeImage @ window resolution,<br/>only for the +/-1 band"]:::service
   PayloadCache --> TierOne
 
-  Debounce{"250ms navigation-quiet<br/>debounce elapsed?"}
+  Debounce{"250ms navigation-quiet<br/>debounce elapsed?<br/>(band entrants decode immediately)"}
   class Debounce decision
   PayloadCache --> Debounce
 
-  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -2..+2 window"]:::service
+  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -1..+1 window"]:::service
   Debounce -->|yes, TierTwoScheduler.schedule| TierTwo
 
   ImageCacheNode[["Flutter ImageCache<br/>(tier-1 + tier-2 keys,<br/>separate namespaces)"]]:::cache
@@ -958,7 +974,7 @@ flowchart TD
   ImageCacheNode --> Render
 ```
 
-**圖說：** 掃描階段會把 RAW／JPG 的同名檔案併成一個 `PhotoItem`。選取某個項目時，會先做一次有邊界的內容探測，據此把檔案分成「便宜」或「昂貴」再決定怎麼解碼：便宜的檔案（JPEG，或內嵌預覽圖已經夠大的 DNG）完全不經過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界交給 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個解碼結果——不論是編碼位元組還是縮小過的像素——都會落進同一個有位元組預算上限的保留快取，而顯示路徑一律從這裡取圖繪製：先立刻顯示視窗解析度（第一階），等導覽靜止 250 毫秒後，再升級到完整解析度（第二階）。
+**圖說：** 掃描階段會把 RAW／JPG 的同名檔案併成一個 `PhotoItem`。選取某個項目時，會先做一次有邊界的內容探測，據此把檔案分成「便宜」或「昂貴」再決定怎麼解碼：便宜的檔案（JPEG，或內嵌預覽圖已經夠大的 DNG）完全不經過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界交給 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個結果都會以壓縮位元組形式落進同一個有位元組預算上限的保留快取；只有目前選取的項目，以及它前後緊鄰的各一張（即「前後各一張」帶狀範圍），才會額外解碼成像素——一進入這個帶狀範圍就立刻解碼出視窗解析度（第一階），等導覽靜止 250 毫秒後，再升級到完整解析度（第二階）。
 
 **證據：**
 - 依 `basenameWithoutExtension` 分組同名檔案 —
@@ -967,16 +983,32 @@ flowchart TD
 - 先探測再分類的內容判斷邏輯，以及它同時輸出成本與方向的設計
   — `lib/services/image_pipeline/photo_source.dart:274-317`。
 - 三分支的 `NativeImageResult` 路由（位元組／需要 RAW 解碼／
-  失敗）— `lib/services/image_pipeline/image_source_types.dart:48-87`，以及
+  失敗）— `lib/services/image_pipeline/image_source_types.dart:52-118`，以及
   據此執行動作的 switch — `lib/services/image_pipeline/photo_source.dart:116-201`。
 - 跨越到 Ceyx 的邊界 — `lib/services/image_pipeline/dng_decode_service.dart:12-14`。
 - 第一階／第二階的 provider 工廠函式，以及物件身分／快取鍵必須一致的要求 —
   `lib/services/image_pipeline/image_preload_controller.dart:28-49`。
-- 250 毫秒導覽防抖動常數 —
-  `lib/services/image_pipeline/image_preload_controller.dart:49`。
-- -3..+5 保留視窗與僅以 byteCost 決定的淘汰策略 —
-  `lib/services/image_pipeline/photo_payload_cache.dart:6-10`（視窗大小）與
-  `lib/services/image_pipeline/photo_payload_cache.dart:36-49` 的類別說明文件。
+- 250 毫秒導覽防抖動常數，以及一張照片新進入「前後各一張」帶狀範圍時的立即
+  （不受 debounce 影響）解碼路徑 —
+  `lib/services/image_pipeline/image_preload_controller.dart:115`（常數本身）與
+  `lib/services/image_pipeline/tier_two_scheduler.dart:412-427,449-505`。
+- 「前後各一張」全解析度帶狀範圍的半徑 —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:23`。
+- 保留視窗（下限 -3..+5，記憶體較多的等級會更寬）與距離優先淘汰策略
+  （離選取位置最遠者先被淘汰）—
+  `lib/services/image_pipeline/photo_payload_cache.dart:6-10,99-108,226-251`，
+  等級對照表見 `lib/services/image_pipeline/retention_policy.dart:73,99-116`。
+- 淘汰時判斷「多遠算遠」用的是與上述解碼帶不同的第三個獨立帶狀範圍
+  （後方 -1..前方 +3）——刻意凍結在 2026-08-30 前的解碼帶數值，
+  這樣縮窄解碼帶時不會連帶縮窄「哪些鄰近 id 受保護、不會提早被淘汰」的範圍 —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:25-39`，
+  排序邏輯見 `lib/services/image_pipeline/image_preload_controller.dart:1784-1797`。
+- 「前後各一張」帶狀範圍以外保留的插槽只存壓縮後的 payload，不含任何已解碼
+  像素（視窗解析度保留已被廢除）—
+  `lib/services/image_pipeline/prefetch_scheduler.dart:41-52`。
+- 影像快取自身的已解碼像素預算，是依「前後各一張」帶狀範圍的實際工作集推導，
+  而非機器記憶體的固定百分比 —
+  `lib/services/image_pipeline/cache_budget.dart:130-178`。
 - 側欄縮圖使用與詳細檢視路徑各自獨立的快取／未命中集合 —
   `lib/services/image_pipeline/image_preload_controller.dart:91,173`。
 - `displayProvider` 在第二階就緒時選用第二階，否則使用第一階 —
@@ -1100,7 +1132,9 @@ Intel Mac 版本，得先備妥 x86_64 的解碼器。
 **Halcyon 宣告支援的最低 macOS 版本是 11，但隨附的原生解碼器函式庫在 Apple Silicon
 上實際需要 macOS 15、Intel 上需要 macOS 14。** 這是兩件分開的事實，不是誰修正誰：
 應用程式本身宣告的最低版本沒有改變，較高的版本數字描述的只是隨附解碼器函式庫本身
-載入時的需求。
+載入時的需求。這個門檻是直接從各函式庫自己的版本 load command 量出來的，不是推測
+出來的：在 Apple Silicon 上，真正卡住下限的是隨附 OpenMP runtime 要求的 macOS 15；
+在 Intel 上，整組函式庫裡最高的需求則是 macOS 14。
 
 ---
 
@@ -1118,12 +1152,27 @@ Intel Mac 版本，得先備妥 x86_64 的解碼器。
 
 <!-- evidence: pubspec.yaml:22 (sdk constraint), flutter --version output 2026-08-26 -->
 <!-- evidence: pubspec.yaml:46-47 (ceyx path dependency) -->
-<!-- evidence: scripts/build_apps.py:232-234 (JDK search order), scripts/build_apps.py:448 (PATH fallback warning) -->
+<!-- evidence: scripts/build_apps.py:271-274 (JDK search order), scripts/build_apps.py:708 (PATH fallback warning) -->
 <!-- evidence: android/gradle/wrapper/gradle-wrapper.properties:5, android/settings.gradle.kts:22-23 -->
 
 **Ceyx 必須簽出在相鄰目錄，這不是可有可無的。** `pubspec.yaml` 把解碼器宣告成指向 `../ceyx/plugin` 的相對路徑相依套件，只要該目錄不存在，`flutter pub get` 就會直接失敗。請把 Ceyx 複製到 Halcyon 隔壁，而不是放進 Halcyon 裡面。
 
 <!-- evidence: pubspec.yaml:46-47 -->
+
+對 `linux` 與 `windows` 而言，原生解碼器預設不會在本機編譯：建置腳本會從一個釘定
+版本的 Ceyx GitHub release 下載預先建好的函式庫（Windows 一次下載三個檔案——解碼器
+本體加上 `heif.dll`/`libde265.dll`），並依 `scripts/ceyx_release_pin.json` 逐一驗證
+每個檔案的 sha256。只要目的地函式庫不存在，**或它現存的 sha256 已經對不上釘定版
+本**，就會自動觸發下載——這同時涵蓋了第一次簽出，以及本機函式庫被改過或快取過期
+這兩種情況。`--fetch-native` 會強制重新下載並覆蓋任何已提交的副本；`--native
+always` 則改成從原始碼編譯。如果某個平台的釘定項目沒有替每個檔案都附上雜湊值，
+校驗和不符的檢查會退化成「只在檔案不存在時才下載＋印出警告」，而不是默默相信磁碟
+上現有的檔案，這時印出的警告會指向 `--native always`，作為想保留本機編譯版本時的
+逃生出口。若要把釘定版本本身移到較新的 Ceyx release，執行
+`python3 scripts/build_apps.py --ceyx-release latest`：它會解析最新的 tag 並重寫
+釘定檔裡的雜湊值，然後在建置前就停下來，讓這份 diff 可以先被審閱再提交。
+
+<!-- evidence: scripts/build_apps.py:1642-1695 (fetch-due decision, checksum-mismatch re-fetch, degrade branches), scripts/build_apps.py:1884-1929 (--ceyx-release latest), scripts/ceyx_release_pin.json -->
 
 Android 建置還要求保留相容模式——`android/gradle.properties` 中的 `android.newDsl=false` 與 `android.builtInKotlin=false`——因為 Flutter 的 Gradle 外掛還不支援 AGP 9 的新 DSL，拿掉這兩行 Android 就建置不起來。
 
@@ -1150,11 +1199,11 @@ python3 scripts/build_apps.py all          # every target this host can build
 python3 scripts/build_apps.py --check      # toolchain check only, builds nothing
 ```
 
-<!-- evidence: scripts/build_apps.py:249-266 (target table), scripts/build_apps.py:1599 (target argument) -->
+<!-- evidence: scripts/build_apps.py:289-305 (target table), scripts/build_apps.py:3014 (target argument) -->
 
 可用的目標平台有 `macos`、`ios`、`android` / `android-apk` / `android-aab`、`web`、`windows`、`linux`，以及 `all`。`all` 會依主機能力過濾，這台主機建置不出來的目標會跳過而不是報錯失敗；`ios` 被刻意排除在 `all` 之外，讓無人值守的執行永遠不必做程式碼簽署的決定。`windows` 與 `linux` 則必須在各自的作業系統上建置。
 
-<!-- evidence: scripts/build_apps.py:249-266 -->
+<!-- evidence: scripts/build_apps.py:289-305 -->
 
 ### 色彩閘門
 
@@ -1163,7 +1212,7 @@ python3 scripts/build_apps.py --check      # toolchain check only, builds nothin
 - 每次需要跑原生建置，就透過 `--cfa-sample-dng <file>` 傳入一張藍天 DNG 樣本。
 - `--no-colour-gate` 是刻意張揚的跳過選項：用了它的執行**一律以 exit code 2 結束、絕不會是 0**，產出的函式庫也會被標記為未經驗證。
 
-<!-- evidence: scripts/build_apps.py:927-932 (Phase 0 refusal), scripts/build_apps.py:1220-1226 (skip warning), scripts/build_apps.py:1622-1624 (--no-colour-gate exits 2), scripts/build_apps.py:1721 -->
+<!-- evidence: scripts/build_apps.py:1223-1230 (Phase 0 refusal), scripts/build_apps.py:2330 (skip warning), scripts/build_apps.py:3037-3039 (--no-colour-gate exits 2) -->
 
 ### 建置產出物與哪些屬於原始碼
 
@@ -1171,9 +1220,24 @@ python3 scripts/build_apps.py --check      # toolchain check only, builds nothin
 
 ### 關於 Windows 路徑的說明
 
-`scripts/build_apps.py` 從未真正端到端跑過 Windows 原生建置，該腳本第一次在 Windows 上實際執行，請當成初次接觸看待，而不是回歸測試。底層的 CMake/MSVC 路徑倒不是完全沒驗證過——上游有個 commit 加入了這條路徑，並在一台真實 Windows 機器上手動建出目前隨附的 `dng_decoder_native.dll`——只是那次建置沒留下 S4 色彩閘門的執行紀錄，因此這個 DLL 目前屬於「先用再驗」（trust-on-first-use）狀態。
+在 Windows 上，`scripts/build_apps.py` 完全不會編譯解碼器。它會從
+`scripts/ceyx_release_pin.json` 釘定的 Ceyx release 下載三個預先建好的 DLL——
+`dng_decoder_native.dll`，以及它動態匯入的 `heif.dll` 與 `libde265.dll`——並拒絕
+放入任何 SHA-256 對不上釘定值的檔案。這些 DLL 由 Ceyx 自己的 Windows CI 產生，
+CI 會在發佈前斷言預期匯出的符號，並對建好的 DLL 跑一次功能性的 codec 能力探測。
 
-<!-- evidence: CLAUDE.md, Commands section -->
+但那條 CI 並不會跑色彩閘門。runbook S4 檢查（解碼一張 CFA 樣本，斷言藍天 B ≫ R）
+只守護在本機編譯出來的函式庫；對於下載來的預建函式庫，完整性控管靠的是釘定的
+雜湊值，不是渲染出來的影像。所以這個釘定的 Windows DLL 已驗證過是 release 發佈
+的原始位元組、也匯出了 Halcyon 需要的能力，但它的色彩輸出並未在 Windows 上被
+色彩閘門驗證過。
+
+<!-- evidence: scripts/ceyx_release_pin.json (tag v0.1.23, "windows" atomic three-DLL group
+     with per-member sha256); scripts/build_apps.py:1650-1653 ("The runbook S4 colour gate is
+     NOT consulted here: it gates LOCALLY COMPILED libraries"); ../ceyx/.github/workflows/
+     windows_build.yml:475-816 (symbol assertions, codec_capability_probe.py G1, functional
+     probe_codecs CI-T3) — no S4/cfa-colour step exists in any ceyx workflow (grep "S4",
+     "cfa_color" over .github/workflows returns nothing). -->
 
 ---
 
@@ -1186,9 +1250,9 @@ flutter test test/providers/app_state_test.dart   # a single file
 flutter test --coverage
 ```
 
-測試套件在 `test/` 下共有 45 個測試檔案，結構對照 `lib/`：`models/`、`providers/`、`services/`、`views/`、`perf/`，另外 `test/support/` 下還有共用的假物件（fake）。每個測試都設有 10 秒逾時限制。
+測試套件在 `test/` 下共有 108 個測試檔案，結構對照 `lib/`：`models/`、`providers/`、`services/`、`views/`、`perf/`，另外 `test/support/` 下還有共用的假物件（fake）。每個測試都設有 10 秒逾時限制。
 
-<!-- evidence: dart_test.yaml:1, test/ directory listing 2026-08-26 -->
+<!-- evidence: dart_test.yaml:1, test/ directory listing 2026-09-12 (108 *_test.dart files) -->
 
 `flutter analyze` 回報零問題是硬性閘門，不是偏好——只要它報出任何問題，工作就還沒完成。注意靜態分析的範圍涵蓋 `lib/`、`test/` **以及** `tool/`，所以只掃過 `lib/` 與 `test/` 的符號重新命名，仍然會讓這道閘門過不了。
 
@@ -1196,7 +1260,8 @@ flutter test --coverage
 
 ### 是什麼讓這套測試成為可能
 
-`AppState` 透過建構子接收每一個協作物件——資料庫掃描器、狀態儲存區、檔案操作、預先載入控制器、影像載入函式，以及可選的完整解碼器。測試把這些全部換成假物件，應用程式邏輯因此不必碰觸檔案系統或平台通道就能執行。解碼器介面也是同一套做法：這條管線測的是假解碼器，不需要載入真正的原生函式庫。
+`AppState` 透過建構子注入的協作物件（詳見[架構](#架構)），就是這套測試能用假物件
+取代檔案系統或平台通道的原因；解碼器介面也是用同一套做法測試的。
 
 <!-- evidence: lib/providers/app_state.dart constructor; lib/services/image_pipeline/dng_decode_contract.dart -->
 
