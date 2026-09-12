@@ -58,12 +58,18 @@ class BatchDeleteResult {
     required this.movedCount,
     required this.failures,
     this.trashDirPath,
+    this.mixedDestination = false,
   });
 
   final bool recycled;
   final int movedCount;
   final List<String> failures;
   final String? trashDirPath;
+
+  /// True when the batch began deleting through the system trash and only
+  /// finished in `.trash/` because the bridge went away mid-batch. Callers
+  /// must not report "moved to system trash" when this is true.
+  final bool mixedDestination;
 }
 
 /// A transient line shown at the bottom of the window (see `StatusLine`).
@@ -414,6 +420,11 @@ class AppState extends ChangeNotifier {
   // Per-folder, deliberately NOT persisted: every loadFolder re-detects, so
   // a new card always starts from the safe default.
   bool _recycleMode = false;
+
+  // Latched for the process lifetime once a delete proves this machine has no
+  // system-trash bridge. Deliberately NOT persisted, same as _recycleMode: a
+  // fresh process re-discovers it on its first delete.
+  bool _bridgeUnavailableLatched = false;
 
   // The status line's current message. [_statusSeq] bumps on every show so the
   // view can restart its timer even when the same text repeats.
@@ -824,7 +835,8 @@ class AppState extends ChangeNotifier {
       _items = await _scanner.scan(dir);
       // A folder holding same-name sibling groups is a camera card being
       // culled: default to recycling so a mis-click can't take the RAW with it.
-      _recycleMode = _items.any((item) => item.files.length > 1);
+      _recycleMode = _bridgeUnavailableLatched ||
+          _items.any((item) => item.files.length > 1);
       if (!await _statusStore.isWritable(dir)) {
         showStatus(const StatusMessage('此卷宗為*唯讀*，標記不會被儲存（檢查記憶卡的防寫鎖）'));
       }
@@ -1270,6 +1282,8 @@ class AppState extends ChangeNotifier {
     var movedCount = 0;
     final failures = <String>[];
     String? trashDirPath;
+    var recycledResult = tookRecycleBranch;
+    var mixed = false;
 
     try {
       if (tookRecycleBranch) {
@@ -1280,6 +1294,23 @@ class AppState extends ChangeNotifier {
       } else {
         final outcome = await _fileActions.deleteTrashed(_items);
         failures.addAll(outcome.failures);
+        if (outcome.bridgeUnavailable) {
+          _bridgeUnavailableLatched = true;
+          if (dir != null) {
+            // Finish the batch where it CAN land. Files already in the
+            // system trash stay there; both destinations are recoverable,
+            // but the result must not claim a single destination (S2.4).
+            trashDirPath = p.join(dir.path, '.trash');
+            final fallback = await _fileActions.recycleTrashed(_items, dir);
+            movedCount = fallback.movedCount;
+            failures.addAll(fallback.failures);
+            recycledResult = true;
+            mixed = outcome.processedCount > 0;
+          } else {
+            // No folder in view: nowhere to recycle to. Report as before.
+            failures.add('Trash service is unavailable');
+          }
+        }
       }
     } catch (e) {
       // Previously this only debugPrint()ed, so a card where the system trash
@@ -1292,10 +1323,11 @@ class AppState extends ChangeNotifier {
     }
 
     return BatchDeleteResult(
-      recycled: tookRecycleBranch,
+      recycled: recycledResult,
       movedCount: movedCount,
       failures: failures,
       trashDirPath: trashDirPath,
+      mixedDestination: mixed,
     );
   }
 

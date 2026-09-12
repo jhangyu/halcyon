@@ -35,9 +35,10 @@ platform name would have silently disabled that rule for the whole leg.
 ``app_executable`` is the basename of the Flutter runner binary inside the
 shipped artefact, and it is NOT the same string on every platform: only macOS
 is named after the product ("Halcyon"); Windows is lowercase ("halcyon.exe")
-and Linux still carries the pre-rename project name
-("photo_selector_flutter"). ``archive_name`` above names the *zip/tarball* and
-is deliberately product-branded on all targets — the two must not be conflated.
+and Linux is lowercase too ("halcyon") — the remaining difference is
+capitalisation and the ".exe" suffix, not a stale project name.
+``archive_name`` above names the *zip/tarball* and is deliberately
+product-branded on all targets — the two must not be conflated.
 """
 
 from __future__ import annotations
@@ -83,6 +84,8 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS",
+            "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "macos-arm64",
     },
@@ -135,6 +138,16 @@ TARGETS: dict = {
         # file fine on any host, because it parses the file rather than loading
         # it). Runtime loadability on real Intel hardware is therefore NOT
         # measured by this leg and must not be claimed from a green run.
+        # H-CEYX-SYMBOLS (the multi-symbol functional probe, clause 10) is
+        # DELIBERATELY ABSENT here for the identical reason: it is `_run_probe`
+        # with the full CEYX_SYMBOLS set, still `dart run` + DynamicLibrary.open,
+        # so an arm64 dart process still cannot load this leg's x86_64 dylib.
+        # A Rosetta-2-based functional probe for this leg was evaluated and
+        # rejected by user ruling 2026-09-12
+        # (docs/logs/2026-09-12/platform-parity-user-rulings.md, OQ-C3): the
+        # extra x86_64 Dart SDK download per run is not worth it, and Intel
+        # runtime proof remains a disclosed limitation of this leg. No spike
+        # was run. Do not re-open without new grounds.
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
@@ -171,6 +184,7 @@ TARGETS: dict = {
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
+            "H-CEYX-SYMBOLS",
         ],
         "pin_platform": "windows",
     },
@@ -178,7 +192,12 @@ TARGETS: dict = {
         "build_target": "linux",
         "assert_platform": "linux",
         "runs_on": "ubuntu-latest",
-        "build_flags": [],
+        # --fetch-native, not plain auto: same rationale as the windows entry
+        # above — auto-fetch only fires when the destination is ABSENT, so a
+        # stale .so left in plugin/linux/Libraries/ by a future dev or runner
+        # would otherwise be shipped silently (rootcause-native-capability.md
+        # §A3, S-A3).
+        "build_flags": ["--fetch-native"],
         "provision": [
             ["sudo", "apt-get", "update"],
             ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],
@@ -186,10 +205,8 @@ TARGETS: dict = {
         # The arch segment is host-dependent (build_apps.py:1748-1751), hence glob.
         "artifact_kind": "glob_dir",
         "artifact_path": "build/linux/*/release/bundle",
-        # linux/CMakeLists.txt:7 — set(BINARY_NAME "photo_selector_flutter").
-        # The Linux runner was never renamed to the product name; the bundle
-        # ships bundle/photo_selector_flutter.
-        "app_executable": "photo_selector_flutter",
+        # linux/CMakeLists.txt:7 — set(BINARY_NAME "halcyon").
+        "app_executable": "halcyon",
         "archive_name": "Halcyon-linux-x64-{version}.tar.gz",
         "archive_format": "gztar",
         "assertions": [
@@ -198,6 +215,8 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS",
+            "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "linux",
     },

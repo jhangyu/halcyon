@@ -1,5 +1,6 @@
-// Functional FFI probe for H-SIZED-SYMBOL (OQ-1 ruling c). Format-agnostic: it
-// tests the CAPABILITY (symbol reachable at runtime), not a symbol-table proxy.
+// Functional FFI probe for H-SIZED-SYMBOL / H-CEYX-SYMBOLS (OQ-1 ruling c).
+// Format-agnostic: it tests the CAPABILITY (symbol reachable at runtime), not
+// a symbol-table proxy.
 //
 // Why not nm/dumpbin: symbol-table presence is valid on Mach-O/ELF only by the
 // coincidence of permissive default visibility, and is structurally invalid on
@@ -11,12 +12,16 @@
 // from lib/, and adds no pubspec dependency (載體中立).
 //
 // Usage: dart run scripts/ci/probe/ffi_probe.dart <path-to-decoder-library>
-//                                                  [symbol-name]
-// The optional second argument overrides the symbol looked up. CI never passes
-// it; it exists so the RED state of this probe can be demonstrated against the
-// very library CI is green on (pass a name that cannot exist), instead of
-// having to keep a deliberately broken library around.
-// Exit 0 = symbol reachable; 1 = not reachable / library not loadable; 2 = usage.
+//                                                  [symbol...]
+// Zero or more trailing symbol names may be given; each is looked up and
+// reported with its own PROBE-OK/PROBE-FAIL line. With no symbols given, the
+// probe checks _defaultSymbol only (today's single-symbol behaviour). CI can
+// pass the full CEYX_SYMBOLS set to functionally probe every entry point the
+// Dart side looks up, or a name that cannot exist to demonstrate the RED
+// state against the very library CI is green on, instead of having to keep a
+// deliberately broken library around.
+// Exit 0 = all given symbols reachable; 1 = any unresolved / library not
+// loadable; 2 = usage.
 import 'dart:ffi';
 import 'dart:io';
 
@@ -27,19 +32,31 @@ import 'dart:io';
 const _defaultSymbol = 'ceyx_decode_into_buffer_oriented';
 
 void main(List<String> args) {
-  if (args.isEmpty || args.length > 2) {
-    stderr.writeln('usage: ffi_probe.dart <library-path> [symbol-name]');
+  if (args.isEmpty) {
+    stderr.writeln('usage: ffi_probe.dart <library-path> [symbol...]');
     exit(2);
   }
   final path = args.first;
-  final symbol = args.length == 2 ? args[1] : _defaultSymbol;
+  final symbols = args.length > 1 ? args.sublist(1) : const [_defaultSymbol];
+  final DynamicLibrary lib;
   try {
-    final lib = DynamicLibrary.open(path);
-    lib.lookup<NativeFunction<Void Function()>>(symbol);
-    stdout.writeln('PROBE-OK: $symbol reachable in $path');
-    exit(0);
+    lib = DynamicLibrary.open(path);
   } catch (e) {
     stderr.writeln('PROBE-FAIL: $path: $e');
     exit(1);
   }
+  final unresolved = <String>[];
+  for (final symbol in symbols) {
+    try {
+      lib.lookup<NativeFunction<Void Function()>>(symbol);
+      stdout.writeln('PROBE-OK: $symbol reachable in $path');
+    } catch (e) {
+      unresolved.add('$symbol ($e)');
+    }
+  }
+  if (unresolved.isNotEmpty) {
+    stderr.writeln('PROBE-FAIL: $path: unresolved: ${unresolved.join('; ')}');
+    exit(1);
+  }
+  exit(0);
 }
