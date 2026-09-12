@@ -1640,10 +1640,13 @@ def ceyx_fetch_is_due(ft, layout, args):
     """Whether to obtain the prebuilt library for fetch-target `ft` from the
     release. Precedence, documented so it is not emergent:
       * --fetch-native  -> always fetch and OVERWRITE (explicit force).
-      * auto (default)  -> fetch only when the destination library is ABSENT.
-                           An already-committed library wins, for reproducibility
-                           (you build exactly what is committed); pass
-                           --fetch-native to replace it with the pinned release.
+      * auto (default)  -> fetch when the destination library is ABSENT, or
+                           when a PRESENT destination library's sha256 no
+                           longer matches the pin (stale/corrupt local file -
+                           see win-parity-plan.md P4a). A checksum-mismatched
+                           local library must never be silently consumed by a
+                           build; pass --fetch-native to force the download
+                           unconditionally instead.
     The runbook S4 colour gate is NOT consulted here: it gates LOCALLY COMPILED
     libraries, and a fetched prebuilt is not compiled on this host. Its integrity
     control is the pinned per-asset sha256 instead - the same trust model as the
@@ -1660,8 +1663,43 @@ def ceyx_fetch_is_due(ft, layout, args):
     # and then ship an application that cannot load its decoder at all.
     spec = CEYX_FETCH_SPECS[ft]
     dest_dir = layout.decoder / spec["dest"]
-    return any(not (dest_dir / m["artifact"]).exists()
-               for m in spec["members"])
+    if any(not (dest_dir / m["artifact"]).exists() for m in spec["members"]):
+        return True
+    # All members present. Compare each present artifact's sha256 against the
+    # pin - a checksum-mismatched local library (stale build, hand-edited,
+    # partially corrupted) must never be silently consumed. Missing pin
+    # coverage degrades to the old absent-only behaviour + a warning, not to
+    # a hard failure: this function also runs on the --check path, which must
+    # stay network-free and must not abort a build over pin bookkeeping.
+    try:
+        _tag, assets, _lock = load_ceyx_pin()
+    except SystemExit:
+        raise
+    entry = assets.get(ft) if isinstance(assets, dict) else None
+    libraries = entry.get("libraries") if isinstance(entry, dict) else None
+    if not isinstance(libraries, list) or not libraries:
+        warn(f"ceyx pin has no per-artifact digests for '{ft}'; skipping the "
+             "checksum-mismatch check for this fetch-target (falling back to "
+             "absent-only staleness detection).")
+        return False
+    digest_by_artifact = {
+        lib["artifact"]: lib["sha256"]
+        for lib in libraries
+        if isinstance(lib, dict) and "artifact" in lib and "sha256" in lib
+    }
+    for m in spec["members"]:
+        artifact = m["artifact"]
+        expected = digest_by_artifact.get(artifact)
+        if expected is None:
+            warn(f"ceyx pin has no digest for '{artifact}' under '{ft}'; "
+                 "skipping the checksum-mismatch check for this artifact.")
+            continue
+        observed = sha256_of(dest_dir / artifact)
+        if observed != expected:
+            warn(f"CEYX-PIN-MISMATCH: {artifact} sha256 differs from the pin "
+                 f"- refetching (on-disk {observed} != pinned {expected})")
+            return True
+    return False
 
 
 def fetch_ceyx_lock(tag, layout, expected_sha256):

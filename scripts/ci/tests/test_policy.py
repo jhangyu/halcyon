@@ -498,6 +498,152 @@ class TestNoTestExecutionInCI(unittest.TestCase):
         )
 
 
+class CeyxFetchGateTests(unittest.TestCase):
+    """P4a (win-parity-plan.md): ceyx_fetch_is_due must re-fetch when a
+    PRESENT destination artifact's sha256 mismatches the pin, not just when
+    the artifact is absent. Frozen precedence order:
+      1. args.fetch_native -> True
+      2. args.native == "always" -> False
+      3. auto -> True if any member artifact is ABSENT
+      4. auto -> True if any PRESENT member artifact's sha256 != pinned digest
+    """
+
+    def _build_apps_module(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import build_apps  # noqa: PLC0415
+
+        return build_apps
+
+    def _make_layout(self, decoder_dir):
+        import types  # noqa: PLC0415
+
+        return types.SimpleNamespace(decoder=decoder_dir)
+
+    def _make_args(self, fetch_native=False, native="auto"):
+        import types  # noqa: PLC0415
+
+        return types.SimpleNamespace(fetch_native=fetch_native, native=native)
+
+    def test_present_but_wrong_sha_triggers_refetch(self):
+        import hashlib  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            dest_dir.mkdir(parents=True)
+            member = spec["members"][0]
+            path = dest_dir / member["artifact"]
+            path.write_bytes(b"not the pinned bytes")
+            wrong_digest = hashlib.sha256(b"not the pinned bytes").hexdigest()
+            pinned_digest = hashlib.sha256(b"the real pinned bytes").hexdigest()
+            self.assertNotEqual(wrong_digest, pinned_digest)
+
+            def fake_load_ceyx_pin():
+                return (
+                    "v0.0.0-test",
+                    {
+                        ft: {
+                            "libraries": [
+                                {"member": member["member"],
+                                 "artifact": member["artifact"],
+                                 "sha256": pinned_digest},
+                            ],
+                        },
+                    },
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig = build_apps.load_ceyx_pin
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin
+            try:
+                due = build_apps.ceyx_fetch_is_due(
+                    ft, self._make_layout(decoder_dir), self._make_args())
+            finally:
+                build_apps.load_ceyx_pin = orig
+            self.assertTrue(due, "mismatched present artifact must trigger a refetch")
+
+    def test_present_and_matching_sha_does_not_refetch(self):
+        import hashlib  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            dest_dir.mkdir(parents=True)
+            member = spec["members"][0]
+            path = dest_dir / member["artifact"]
+            path.write_bytes(b"the real pinned bytes")
+            pinned_digest = hashlib.sha256(b"the real pinned bytes").hexdigest()
+
+            def fake_load_ceyx_pin():
+                return (
+                    "v0.0.0-test",
+                    {
+                        ft: {
+                            "libraries": [
+                                {"member": member["member"],
+                                 "artifact": member["artifact"],
+                                 "sha256": pinned_digest},
+                            ],
+                        },
+                    },
+                    {"asset": "artifacts.lock", "sha256": "ignored"},
+                )
+
+            orig = build_apps.load_ceyx_pin
+            build_apps.load_ceyx_pin = fake_load_ceyx_pin
+            try:
+                due = build_apps.ceyx_fetch_is_due(
+                    ft, self._make_layout(decoder_dir), self._make_args())
+            finally:
+                build_apps.load_ceyx_pin = orig
+            self.assertFalse(due, "matching present artifact must not refetch")
+
+    def test_fetch_native_flag_forces_true_regardless(self):
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            dest_dir.mkdir(parents=True)
+            member = spec["members"][0]
+            (dest_dir / member["artifact"]).write_bytes(b"anything")
+            due = build_apps.ceyx_fetch_is_due(
+                ft, self._make_layout(decoder_dir),
+                self._make_args(fetch_native=True))
+            self.assertTrue(due, "--fetch-native must force True regardless of hash state")
+
+    def test_native_always_forces_false_regardless(self):
+        import tempfile  # noqa: PLC0415
+
+        build_apps = self._build_apps_module()
+        ft = "linux"
+        spec = build_apps.CEYX_FETCH_SPECS[ft]
+        with tempfile.TemporaryDirectory() as td:
+            decoder_dir = Path(td)
+            dest_dir = decoder_dir / spec["dest"]
+            # Deliberately leave the artifact absent -- native=="always" must
+            # win even over the absence branch.
+            due = build_apps.ceyx_fetch_is_due(
+                ft, self._make_layout(decoder_dir),
+                self._make_args(native="always"))
+            self.assertFalse(due, "native=='always' must force False regardless")
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6
