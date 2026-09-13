@@ -37,11 +37,12 @@
     "                      Absent for non-Mach-O members (Windows/Linux); a",
     "                      missing/mismatched uuid on a Mach-O member whose",
     "                      sha256 also mismatches is a hard FAIL, same as today.",
-    "                      All six macOS entries carry a uuid, not only the two",
-    "                      that get re-signed -- but stage 3 only ever runs for",
-    "                      a library whose stage-1 digest mismatched. For the",
-    "                      four whose sha256 still matches (decoder, lcms2,",
-    "                      jpeg, omp), their uuid is UNEXERCISED DATA: nothing",
+    "                      All five macOS members carry a uuid (liblcms2.2.dylib",
+    "                      was removed at the v0.1.24 repin, 2026-09-13 -- see",
+    "                      below), not only the two that get re-signed -- but",
+    "                      stage 3 only ever runs for a library whose stage-1",
+    "                      digest mismatched. For the three whose sha256 still",
+    "                      matches (decoder, jpeg, omp), their uuid is UNEXERCISED DATA: nothing",
     "                      currently checks it, so its mere presence must not",
     "                      be read as evidence that it was verified. It is",
     "                      recorded for completeness/future use only.",
@@ -51,13 +52,26 @@
     "re-published cannot pass by rewriting just one of the two records. The lock's",
     "own digest is pinned so a substituted lock cannot satisfy the cross-check.",
     "",
-    "Windows is an ATOMIC GROUP of three DLLs shipped inside one archive: the",
+    "Windows is an ATOMIC GROUP of four DLLs shipped inside one archive: the",
     "decoder plus heif.dll and libde265.dll, which it dynamically imports (LGPL-3",
     "requires libheif/libde265 stay separate shared libraries -- see ceyx",
-    "native/third_party/heif-dist-windows/PROVENANCE.md). A Windows install",
-    "missing either dependency fails at DynamicLibrary.open with an error naming",
-    "only the decoder, so all three are extracted and verified together or none",
-    "is placed. Linux uses a one-element list so there is exactly one code path.",
+    "native/third_party/heif-dist-windows/PROVENANCE.md), plus libomp140.x86_64.dll",
+    "(added 2026-09-13, v0.1.24 repin) for the same reason: the decoder DLL",
+    "imports it too, and this was a PRE-EXISTING latent gap -- v0.1.23's decoder",
+    "already imported it but the v0.1.23 archive did not carry it, so shipping",
+    "Windows builds relied on it being present from an MSVC/VC++ redistributable",
+    "on the target machine; v0.1.24 ships the DLL inside the archive for the",
+    "first time, closing that one gap -- but NOT making the placed set",
+    "self-contained: libomp140.x86_64.dll itself imports VCRUNTIME140.dll and",
+    "VCRUNTIME140_1.dll (verified via `objdump -p` against the published",
+    "asset), and NEITHER is in the archive or an OS default; both still",
+    "require a Visual C++ redistributable on the target machine. This is a",
+    "strict improvement (one of two missing runtime deps closed), not a",
+    "complete fix. A Windows install",
+    "missing any of these dependencies fails at DynamicLibrary.open with an error",
+    "naming only the decoder, so all four are extracted and verified together or",
+    "none is placed. Linux uses a one-element list so there is exactly one code",
+    "path.",
     "",
     "Everything except 'linux', 'windows', 'macos-arm64' and 'macos-x86_64' is",
     "VERIFIED BUT NOT PLACED. For 'android' the destination",
@@ -100,8 +114,11 @@
     "FUTURE substitution, not one predating this date.",
     "",
     "macOS is now PINNED (HALCYON-MIGRATION campaign, 2026-09, tag v0.1.8): the",
-    "release asset itself carries all six interdependent dylibs (decoder +",
-    "lcms2 + jpeg + heif + de265 + omp), already @rpath-wired to each other,",
+    "release asset itself carries five interdependent dylibs (decoder + jpeg +",
+    "heif + de265 + omp; liblcms2.2.dylib was REMOVED at the v0.1.24 repin,",
+    "2026-09-13, following upstream's announced lcms2 removal -- the archive",
+    "originally carried six, decoder + lcms2 + jpeg + heif + de265 + omp),",
+    "already @rpath-wired to each other,",
     "so the release asset is self-contained in the same way the Linux/Windows",
     "assets already are. Two entries, macos-arm64 and macos-x86_64, cover the",
     "two architectures the release publishes separately (there is no",
@@ -117,36 +134,41 @@
     "",
     "MINIMUM-OS REQUIREMENT of the bundled native stack (measured from the",
     "actual LC_VERSION_MIN/LC_BUILD_VERSION load commands, not inferred from a",
-    "linker warning): the six-dylib set requires macOS 15 on Apple silicon and",
-    "macOS 14 on Intel at runtime. This is NOT a regression introduced by this",
-    "migration -- the bundled OpenMP runtime already required macOS 15 (both",
-    "architectures) in the previously-committed set, so the real floor was",
-    "never actually 11; the decoder itself moves from 11 to 14 (Apple",
-    "silicon)/14 (Intel), which is the only file whose own minimum changes,",
-    "while lcms2 and jpeg both IMPROVE (15->14) and heif/de265 are unchanged",
-    "(11). Halcyon's own declared application-level minimum (macOS 11,",
+    "linker warning; figures below are as measured at the original six-dylib",
+    "set -- liblcms2.2.dylib was later REMOVED at the v0.1.24 repin, 2026-09-13,",
+    "so its own figure is no longer part of the shipped set, but the",
+    "requirement it did not drive is unaffected): the six-dylib set required",
+    "macOS 15 on Apple silicon and macOS 14 on Intel at runtime. This was NOT a",
+    "regression introduced by that migration -- the bundled OpenMP runtime",
+    "already required macOS 15 (both architectures) in the previously-committed",
+    "set, so the real floor was never actually 11; the decoder itself moves from",
+    "11 to 14 (Apple silicon)/14 (Intel), which is the only file whose own",
+    "minimum changes, while jpeg IMPROVES (15->14) and heif/de265 are unchanged",
+    "(11) -- lcms2 also improved (15->14) before its removal, but that fact no",
+    "longer describes the shipped set. Halcyon's own declared application-level",
+    "minimum (macOS 11,",
     "macos/Runner/Configs/AppInfo.xcconfig / Info.plist LSMinimumSystemVersion)",
     "is a SEPARATE, application-layer concern this migration does not alter",
     "and is not corrected by anything in this file -- by user ruling, native",
     "stack requirements and the application's declared minimum are not to be",
     "conflated."
   ],
-  "tag": "v0.1.23",
+  "tag": "v0.1.24",
   "lock": {
     "asset": "artifacts.lock",
-    "sha256": "e0d1205a8495c41e1464f129a723b94fed186ce4d74e8176cebc39ceee6eebfb"
+    "sha256": "e9adcfe1571c8c1278af42d8e4b30fcc0bf8bf0f59d40cdb2a759e27d5283afd"
   },
   "assets": {
     "android": {
       "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
-      "sha256": "0497e02865a9424f7f0b669c96cdd110e36be7cd390d6dd93a43454ea458c689",
+      "sha256": "d32f2298a21d1418b7e0fe395e0b0a964873fd7f7d8bbebdd9652ecf734c01d9",
       "placed": false,
       "not_placed_reason": "destination plugin/android/src/main/jniLibs is a committed upstream tree build_apps.py must not overwrite",
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "3b748f83e59bf11efb4a74cf12020c34fbe3a3cffbd514bfd7657e847f119152"
+          "sha256": "5ede0c60ee4d9038c3d3afebbced1cf89b1d52e2de87983bec34585c200783a8"
         },
         {
           "member": "libheif.so",
@@ -162,7 +184,7 @@
     },
     "heif-dist-windows": {
       "archive": "heif-dist-windows-x86_64.tar.gz",
-      "sha256": "1b3b0734eef02cce31baa417ea16d48b41d05250a288ceebaad7b4082a149cde",
+      "sha256": "04df2b3e3f9a98772b4f2b51c329d196b2ced91048fa1818b8f7563ce7aa01aa",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build, not a halcyon build; heif's runtime DLLs already travel inside the windows decoder archive above",
       "libraries": [
@@ -180,71 +202,145 @@
     },
     "libjxl-dist-linux": {
       "archive": "libjxl-dist-linux-x86_64.tar.gz",
-      "sha256": "b2699dc748509dc5b856dc31e2bc85fde95330b64b7301049693c31b6cb62efb",
+      "sha256": "1ec8cd3453ed9632c9af8d801f6f659b3d14cc8422f19e516bc3c9f1a28b6c1b",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libjxl is a STATIC-ONLY dist (.a) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
         {
           "member": "lib/libjxl.a",
           "artifact": "libjxl.a",
-          "sha256": "a0d335302f25ab584bc885b31bb71bd5e6f1b06b2ef760ab5f2605eab3ddb0cb"
+          "sha256": "d0545bcd05a4d6a280a5a414788a19e8914082403befa9f35f36b170ae5a29da"
+        },
+        {
+          "member": "lib/libbrotlicommon.a",
+          "artifact": "libbrotlicommon.a",
+          "sha256": "c7a99a291671035b601eedc46dd81559f847995480e13a60cb3a2547759983f9"
+        },
+        {
+          "member": "lib/libbrotlidec.a",
+          "artifact": "libbrotlidec.a",
+          "sha256": "3d80db837e199429c85c58965df3dd7f94d67d9b31c98b8e6d8c10377823a7c6"
+        },
+        {
+          "member": "lib/libbrotlienc.a",
+          "artifact": "libbrotlienc.a",
+          "sha256": "16267ea6903a91aa490a8ced55a7dea72e070101cdef38b7ea46e75cc876e314"
+        },
+        {
+          "member": "lib/libhwy.a",
+          "artifact": "libhwy.a",
+          "sha256": "fe6c257f3d0e8d6ff906d9ef2a41e918e44bd407b601416aebd63652f1dbbdeb"
+        },
+        {
+          "member": "lib/libjxl_cms.a",
+          "artifact": "libjxl_cms.a",
+          "sha256": "6afafcd7904b14595b23808300a7865d828b019ad65ef0430b8da16134a282cd"
+        },
+        {
+          "member": "lib/libjxl_threads.a",
+          "artifact": "libjxl_threads.a",
+          "sha256": "19f7f6f943cc2124942983e094663a3f7f9bf31de5aafb1aa9912300184fb02d"
         }
       ]
     },
     "libjxl-dist-windows": {
       "archive": "libjxl-dist-windows-x86_64.tar.gz",
-      "sha256": "ce311db04b114283dd1fe4ce0b0497b7fd7d93b72a048ec0d1c614af4a23ef31",
+      "sha256": "2bf02c1e0b329cccff8be2dbcdcc2c22b298b95b743c8b52138d6b96b35c3e69",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libjxl is a STATIC-ONLY dist (.lib) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
         {
           "member": "lib/jxl.lib",
           "artifact": "jxl.lib",
-          "sha256": "fb12cd4133516c34e953df8ca9f1af75022233f538e1274350708bea0c614faa"
+          "sha256": "5af22f0d82f29eefdf396ea2d39a30b749b85791e2ed3e35dd0304fc0890e585"
+        },
+        {
+          "member": "lib/brotlicommon.lib",
+          "artifact": "brotlicommon.lib",
+          "sha256": "405a5ddb6feb6e86a0674e2993fa375b65819daaf28a6bc8b2d38a9cf22a4c73"
+        },
+        {
+          "member": "lib/brotlidec.lib",
+          "artifact": "brotlidec.lib",
+          "sha256": "b2f91eaf4d69faace106c7bcd78c91a14cdef548025e510e4b4d3d2f3179ea74"
+        },
+        {
+          "member": "lib/brotlienc.lib",
+          "artifact": "brotlienc.lib",
+          "sha256": "630c9e5911ec50284184b9ea9289a701b9ab9e3129b33d567a4b7af7b47cf3ba"
+        },
+        {
+          "member": "lib/hwy.lib",
+          "artifact": "hwy.lib",
+          "sha256": "1d1e93d023cfdd9285069e64b190ca82939d24f8ebd706ff624b858b42da4d16"
+        },
+        {
+          "member": "lib/jxl_cms.lib",
+          "artifact": "jxl_cms.lib",
+          "sha256": "a31e6adc509cd2f75c9273e62a9c4e80c78c51def140cf97694308df97a84027"
+        },
+        {
+          "member": "lib/jxl_threads.lib",
+          "artifact": "jxl_threads.lib",
+          "sha256": "b6285568fe42daa1887e217ed4ac4b9ed552e47771ebee0ce16db183a9ad2a38"
         }
       ]
     },
     "libwebp-dist-windows": {
       "archive": "libwebp-dist-windows-x86_64.tar.gz",
-      "sha256": "ce9840340c7abde8c7e77a40ef127baaa693c1420510f7e783c9dcc2220aa01b",
+      "sha256": "ffffef14265db9c739c7bc09b5d1daa87bc41462f11d2b982917d65bc06c16b5",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libwebp is a STATIC-ONLY dist (.lib) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
         {
           "member": "lib/libwebp.lib",
           "artifact": "libwebp.lib",
-          "sha256": "db09a17b529aeca71e5649575112b544f30dbb0a4f300b4509953a7957c3b45d"
+          "sha256": "40a74bbcb00e89c311739d3cd7df1d10dd5e5d92b9b6000aed5152a403c6e548"
+        },
+        {
+          "member": "lib/libsharpyuv.lib",
+          "artifact": "libsharpyuv.lib",
+          "sha256": "691b3554ec93230380b2241170a49702118f39eda628f535307ffb489fdc462d"
+        },
+        {
+          "member": "lib/libwebpdecoder.lib",
+          "artifact": "libwebpdecoder.lib",
+          "sha256": "ac97ae35be729e46338536a0399f8254870aa9ec70e22c51818f6215288b9fbb"
+        },
+        {
+          "member": "lib/libwebpdemux.lib",
+          "artifact": "libwebpdemux.lib",
+          "sha256": "3a3bbecfe93b646b42114504af7caaaa3e831c8c699ad8b6f38309349467581f"
+        },
+        {
+          "member": "lib/libwebpmux.lib",
+          "artifact": "libwebpmux.lib",
+          "sha256": "ae2f997bcf9b3164c9cd7cc3d6eca7bd9f2a2b9295bdb233dd03e39cbeb1306f"
         }
       ]
     },
     "linux": {
       "archive": "dng_decoder_native-linux-x86_64.tar.gz",
-      "sha256": "5e71cd5eecf02701dc2c25f4934b8421b3eb8a16390024f5a5ef9af0b3158ef3",
+      "sha256": "02182c2643c32e345305ba982124c59fb71307ea2a89a4a2069af70676ee134d",
       "placed": true,
       "libraries": [
         {
           "member": "libdng_decoder_native.so",
           "artifact": "libdng_decoder_native.so",
-          "sha256": "35c4151af48376b745fd02e0cac853d3b3138263a927b5902a987209b4447b1c"
+          "sha256": "2cd9cce85e50f0ceb7322c62a41fa14a9765633f0574717df19664f591e16ad2"
         }
       ]
     },
     "macos-arm64": {
       "archive": "dng_decoder_native-macos-arm64.tar.gz",
-      "sha256": "0e62864be245c8d785178618e8eb530645bffd6c61d6c05dc3da6896d32dbb72",
+      "sha256": "028ed7a4d76e9f64a5a7bf6cc20ca60526c17f7dcbebf9cbbc86abbc3b5fbf90",
       "placed": true,
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "e28a0cb6f24b237832ad9f0cc43cbfacbd98eb1149d82b83a2227c020d5fc343",
-          "uuid": "E159DEF0-B902-333B-895D-725C3F7F9D37"
-        },
-        {
-          "member": "liblcms2.2.dylib",
-          "artifact": "liblcms2.2.dylib",
-          "sha256": "7f925ba0cdb4b8d90e7977d71713f0d515aaa8cfb50ccd99433deae00197b9b9",
-          "uuid": "F83030F7-305B-364B-AD85-5B9E45975172"
+          "sha256": "d6a9a817bbbd9f1a475104b7751b43ac117a7bf84272b609a84349fec6bde211",
+          "uuid": "4EF60C18-0C4F-3C4A-94E5-207F9F69AB0E"
         },
         {
           "member": "libjpeg.8.dylib",
@@ -274,20 +370,14 @@
     },
     "macos-x86_64": {
       "archive": "dng_decoder_native-macos-x86_64.tar.gz",
-      "sha256": "7e9f27543ae1503a09afa12af2fac2f4ac7e8433684f628b4e0ea1a1487a3dbd",
+      "sha256": "ff33e3259cfae8f6a6568f26e7f6b3dfeed32311d521964638d56c4121f186e2",
       "placed": true,
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "2389f6838dce36a9a6d2a307545abb9f48ce9b5ca3d1c152ffb53dc86fc4fa9c",
-          "uuid": "D0BDCCE2-0C81-3D32-BF9B-AB8D014C10EA"
-        },
-        {
-          "member": "liblcms2.2.dylib",
-          "artifact": "liblcms2.2.dylib",
-          "sha256": "5b4398425ecd41a18f1d4672c1b78b95cd3dbd7a77cdfaf2a02f6e2c3b5f4e4d",
-          "uuid": "662E966A-C196-3F07-9DFB-1DAF1840DC66"
+          "sha256": "dafad7df9a7754f287396b65b60781f4bd45a63a98858eabe73a638430fd19a4",
+          "uuid": "1D1009F2-A35F-31AA-9409-631963CE5687"
         },
         {
           "member": "libjpeg.8.dylib",
@@ -317,13 +407,13 @@
     },
     "windows": {
       "archive": "dng_decoder_native-windows-x86_64.tar.gz",
-      "sha256": "81fb74fa5d7fd36d42bb2d1be3fb42dd427c14adffc654bd633ddc450d2b5793",
+      "sha256": "e84c26f214132764d74ba3b9b23f0d0add0dd77242d0588156f94d169575addc",
       "placed": true,
       "libraries": [
         {
           "member": "dng_decoder_native.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "b20830ecd1e29602e93a90c5e0a40d76ee80a535b39b795cdc6e1cbdd7bb61b9"
+          "sha256": "c023e3cba3b3eb508aa1742b7c43127eee69fbce780d42a12c938f85b3c97b85"
         },
         {
           "member": "heif.dll",
@@ -334,6 +424,11 @@
           "member": "libde265.dll",
           "artifact": "libde265.dll",
           "sha256": "7974e31e2eec2dcce16d88122f3a44e239aa0fbb4e787965c7735ad25c09e765"
+        },
+        {
+          "member": "libomp140.x86_64.dll",
+          "artifact": "libomp140.x86_64.dll",
+          "sha256": "4a20c1e5c115c29771a12324513eb109badac72180f79481527ad79d996ffb33"
         }
       ]
     }

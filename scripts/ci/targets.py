@@ -50,8 +50,9 @@ TARGETS: dict = {
         "runs_on": "macos-14",
         # --fetch-native: as of the HALCYON-MIGRATION campaign (2026-09, tag
         # v0.1.8) macOS is fetched from the ceyx release pin, the same as
-        # windows/linux, rather than keeping its six dylibs committed. This CI
-        # leg is a single fixed architecture (Apple silicon, runs_on above), so
+        # windows/linux, rather than keeping its dylibs committed (six at the
+        # v0.1.8 tag; five since the v0.1.24 repin removed liblcms2.2.dylib).
+        # This CI leg is a single fixed architecture (Apple silicon, runs_on above), so
         # it consumes the "macos-arm64" pin entry via pin_platform below — the
         # same one-leg-one-key shape windows/linux already use, not a new
         # architecture-aware mechanism. See scripts/ceyx_release_pin.json's

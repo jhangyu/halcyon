@@ -175,9 +175,41 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # resolved by keeping both prose paragraphs (platform placement rule +
 # placed/not_placed_reason field description). Recomputed with the same
 # CRLF-normalizing recipe, never transcribed by hand.
+#
+# 2026-09-13 (ceyx v0.1.24 re-pin): tag v0.1.23 -> v0.1.24; artifacts.lock
+# sha256 e0d1205a8495c41e1464f129a723b94fed186ce4d74e8176cebc39ceee6eebfb ->
+# e9adcfe1571c8c1278af42d8e4b30fcc0bf8bf0f59d40cdb2a759e27d5283afd. All nine
+# archive digests moved (android, heif-dist-windows, libjxl-dist-linux,
+# libjxl-dist-windows, libwebp-dist-windows, linux, macos-arm64,
+# macos-x86_64, windows) -- derived by diffing this file against the
+# previously committed pin, never transcribed by hand. Per-library digests:
+# the decoder itself changed for android, linux, macos-arm64, macos-x86_64
+# and windows. Byte-identical to v0.1.23 and therefore unchanged here: the
+# android libheif.so/libde265.so pair, the heif-dist-windows
+# heif.dll/libde265.dll pair (and the windows decoder archive's copies of
+# them), and the macOS libjpeg.8.dylib/libheif.1.dylib/libde265.0.dylib/
+# libomp.dylib quartet on both macos-arm64 and macos-x86_64.
+#
+# Structural changes this repin made to the PIN's declared library lists
+# (these are pin-declaration completions, not archive-content drift):
+# liblcms2.2.dylib was REMOVED from both macOS entries, following upstream's
+# announced lcms2 removal; libomp140.x86_64.dll was ADDED to the Windows
+# group (now 4 members); libjxl-dist-linux, libjxl-dist-windows and
+# libwebp-dist-windows were each completed from a single placeholder member
+# (libjxl.a / jxl.lib / libwebp.lib respectively) to their full declared
+# member sets -- these three were pre-existing gaps in the pin, not new
+# drift introduced by v0.1.24.
+#
+# The Android dist archives were considered and deliberately NOT pinned at
+# this repin (user ruling A'): the pin's 9 entries are the complete intended
+# set, not an omission.
+#
+# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
+# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
+# transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "388eb8d5e41fa504c4cb900155477ba25edff51bad3dd97eb18add6955771893"
+    "26947736207f7f9c9ad615a3d64e433b81f7f062f79d019dae5b2e67a3b61fbb"
 )
 
 

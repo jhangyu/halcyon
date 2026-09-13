@@ -102,9 +102,12 @@ HALIDE_SHA256 = {
 # Apple-silicon runner builds. `universal` remains unsupported: there is no fat
 # release archive, and fetch_target_for() rejects it rather than guess an arch.
 #
-# RUNTIME FLOOR, and it differs by architecture: the bundled six-dylib native
-# stack requires macOS 15 on Apple silicon and macOS 14 on Intel (measured from
-# the dylibs' own LC_BUILD_VERSION load commands; see the MINIMUM-OS section in
+# RUNTIME FLOOR, and it differs by architecture: the bundled native stack
+# (five dylibs as of the v0.1.24 repin, 2026-09-13 - liblcms2.2.dylib was
+# REMOVED that release; the floor itself is unaffected since it was already
+# driven by the bundled OpenMP runtime, not lcms2) requires macOS 15 on Apple
+# silicon and macOS 14 on Intel (measured from the dylibs' own
+# LC_BUILD_VERSION load commands; see the MINIMUM-OS section in
 # scripts/ceyx_release_pin.json). Halcyon's own declared application minimum is
 # macOS 11 (macos/Runner/Configs/AppInfo.xcconfig, Info.plist
 # LSMinimumSystemVersion). That gap is REAL and deliberately left open here: by
@@ -213,16 +216,19 @@ HEIF_VERIFIED_TARGETS = ("macos",)
 # "android" entry below).
 #
 # macOS was EXCLUDED until the CI-T11/HALCYON-MIGRATION campaign (2026-09):
-# its plugin vendors six interdependent dylibs (ceyx.podspec vendored_libraries
-# - decoder + lcms2 + jpeg + heif + de265 + omp) with install-name wiring that
-# earlier ceyx releases, which published only the bare decoder, could not
-# satisfy. As of ceyx tag v0.1.8 the release asset itself carries all six
-# dylibs, already @rpath-wired to each other (verified independently: lipo
-# reports a single, consistent architecture per file within each of the two
-# per-architecture archives; `otool -L` on the decoder names all five
-# companions via @rpath with no non-system, non-rpath load command), so the
-# release asset is self-contained and there is no longer a technical reason to
-# keep macOS on committed libraries. Codesigning the release asset is a
+# its plugin vendors interdependent dylibs (ceyx.podspec vendored_libraries)
+# with install-name wiring that earlier ceyx releases, which published only
+# the bare decoder, could not satisfy. As of ceyx tag v0.1.8 the release asset
+# itself carried all SIX dylibs (decoder + lcms2 + jpeg + heif + de265 + omp),
+# already @rpath-wired to each other (verified independently: lipo reports a
+# single, consistent architecture per file within each of the two
+# per-architecture archives; `otool -L` on the decoder named all five
+# companions via @rpath with no non-system, non-rpath load command). As of the
+# v0.1.24 repin (2026-09-13), liblcms2.2.dylib was REMOVED upstream, so the
+# shipped set is now FIVE dylibs (decoder + jpeg + heif + de265 + omp) - still
+# a self-contained set for the same @rpath reason, just one member smaller.
+# There is no longer a technical reason to keep macOS on committed libraries.
+# Codesigning the release asset is a
 # SEPARATE, DEFERRED concern (parking-lot, user-ruled) and does not block this
 # migration: this script does not codesign what it fetches for any platform
 # today, so macOS fetching an unsigned-but-verified dylib set is consistent
@@ -256,13 +262,18 @@ CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 #   atomic_group documents (and asserts) a set that is useless unless all of it
 #                arrives.
 #
-# The Windows decoder archive is an atomic group of three DLLs because
-# dng_decoder_native.dll dynamically imports heif.dll and libde265.dll
-# (upstream's real runtime name - heif.dll's import table names it, so it must
-# not be renamed; LGPL-3 keeps libheif/libde265 as separate shared libraries).
-# Placing only the decoder produces an installation that fails at
-# DynamicLibrary.open with an error naming the decoder and nothing else. Linux
-# uses a one-element list so there is exactly one code path here.
+# The Windows decoder archive is an atomic group of FOUR DLLs (corrected
+# 2026-09-13, v0.1.24 repin - this was three before libomp140.x86_64.dll
+# joined the group; see the windows entry's "members" list below for why)
+# because dng_decoder_native.dll dynamically imports heif.dll, libde265.dll,
+# and libomp140.x86_64.dll (upstream's real runtime name - heif.dll's import
+# table names it, so it must not be renamed; LGPL-3 keeps libheif/libde265 as
+# separate shared libraries). Placing only the decoder produces an
+# installation that fails at DynamicLibrary.open with an error naming the
+# decoder and nothing else. libomp140.x86_64.dll's own further runtime
+# dependencies (VCRUNTIME140.dll/VCRUNTIME140_1.dll, still not self-contained)
+# are recorded once, in the pin's `_comment` - not restated here. Linux uses a
+# one-element list so there is exactly one code path here.
 #
 # macOS is now fetched too (ceyx tag v0.1.8 onward - see the module comment
 # above for why the earlier exclusion no longer applies). It is keyed by
@@ -274,9 +285,11 @@ CEYX_PIN_PATH = Path(__file__).resolve().parent / "ceyx_release_pin.json"
 # fetch_target_for() below) - never the host's own architecture, since this
 # script already supports cross-building macOS for an architecture other than
 # the one it runs on (MACOS_DEFAULT_ARCH / PL-6), and a host-arch guess would
-# silently fetch the wrong slice on exactly that cross-build. Six-file
-# atomic_group for the same reason windows is: a partial set fails at
-# dlopen/DynamicLibrary.open naming only the decoder.
+# silently fetch the wrong slice on exactly that cross-build. FIVE-file
+# atomic_group (corrected 2026-09-13, v0.1.24 repin - this was six before
+# liblcms2.2.dylib was removed upstream; see the macos-arm64 entry's
+# "members" list below) for the same reason windows is: a partial set fails
+# at dlopen/DynamicLibrary.open naming only the decoder.
 CEYX_FETCH_SPECS = {
     "linux": {
         "archive": "dng_decoder_native-linux-x86_64.tar.gz",
@@ -296,6 +309,22 @@ CEYX_FETCH_SPECS = {
             {"member": "dng_decoder_native.dll", "artifact": "dng_decoder_native.dll"},
             {"member": "heif.dll",               "artifact": "heif.dll"},
             {"member": "libde265.dll",           "artifact": "libde265.dll"},
+            # libomp140.x86_64.dll (2026-09-13, v0.1.24 repin): the decoder DLL
+            # imports it (PE import directory, verified against the published
+            # asset) - this was a PRE-EXISTING latent gap (v0.1.23's decoder
+            # already imported it but the v0.1.23 archive did not carry it;
+            # shipping Windows builds relied on it being present from an
+            # MSVC/VC++ redistributable on the target machine). v0.1.24 ships
+            # the DLL inside the archive for the first time, closing that one
+            # gap - but NOT making the placed set self-contained: libomp140
+            # itself imports VCRUNTIME140.dll and VCRUNTIME140_1.dll (verified
+            # via `objdump -p` against the published asset), and NEITHER is in
+            # the archive or an OS default; both still require a Visual C++
+            # redistributable on the target machine. This is a strict
+            # improvement (one of two missing runtime deps closed), not a
+            # complete fix. Part of the atomic group for the same reason as
+            # heif.dll/libde265.dll above.
+            {"member": "libomp140.x86_64.dll",   "artifact": "libomp140.x86_64.dll"},
         ],
     },
     "macos-arm64": {
@@ -303,9 +332,14 @@ CEYX_FETCH_SPECS = {
         "dest": Path("plugin") / "macos" / "Libraries",
         "place": True,
         "atomic_group": True,
+        # liblcms2.2.dylib REMOVED (2026-09-13, v0.1.24 repin): upstream's
+        # announced lcms2 removal arrived in the artifact - the v0.1.24
+        # archive contains five members (decoder, jpeg, heif, de265, omp),
+        # not six. Leaving lcms2 in this list would make the unpinned-member
+        # guard's sibling check (a missing-member fail) trip in the other
+        # direction - CEYX_FETCH_SPECS must match the archive's real contents.
         "members": [
             {"member": "libdng_decoder_native.dylib", "artifact": "libdng_decoder_native.dylib"},
-            {"member": "liblcms2.2.dylib",             "artifact": "liblcms2.2.dylib"},
             {"member": "libjpeg.8.dylib",              "artifact": "libjpeg.8.dylib"},
             {"member": "libheif.1.dylib",              "artifact": "libheif.1.dylib"},
             {"member": "libde265.0.dylib",             "artifact": "libde265.0.dylib"},
@@ -317,9 +351,11 @@ CEYX_FETCH_SPECS = {
         "dest": Path("plugin") / "macos" / "Libraries",
         "place": True,
         "atomic_group": True,
+        # liblcms2.2.dylib REMOVED (2026-09-13, v0.1.24 repin) - see the
+        # macos-arm64 entry's comment above; same upstream change, same
+        # five-member archive shape, applies to both architectures.
         "members": [
             {"member": "libdng_decoder_native.dylib", "artifact": "libdng_decoder_native.dylib"},
-            {"member": "liblcms2.2.dylib",             "artifact": "liblcms2.2.dylib"},
             {"member": "libjpeg.8.dylib",              "artifact": "libjpeg.8.dylib"},
             {"member": "libheif.1.dylib",              "artifact": "libheif.1.dylib"},
             {"member": "libde265.0.dylib",             "artifact": "libde265.0.dylib"},
@@ -391,8 +427,17 @@ CEYX_FETCH_SPECS = {
             "dist (.lib) linked at ceyx build time, nothing for halcyon to "
             "place"
         ),
+        # Pre-existing gap, discovered at the v0.1.24 repin (2026-09-13): this
+        # list named only libwebp.lib since it was first written, but the
+        # archive has always carried 5 members (verified identical at v0.1.23
+        # and v0.1.24 - not new drift). The other 4 are libwebp's own
+        # transitive static deps, pulled in by ceyx's build the same way.
         "members": [
             {"member": "lib/libwebp.lib", "artifact": "libwebp.lib"},
+            {"member": "lib/libsharpyuv.lib", "artifact": "libsharpyuv.lib"},
+            {"member": "lib/libwebpdecoder.lib", "artifact": "libwebpdecoder.lib"},
+            {"member": "lib/libwebpdemux.lib", "artifact": "libwebpdemux.lib"},
+            {"member": "lib/libwebpmux.lib", "artifact": "libwebpmux.lib"},
         ],
     },
     "libjxl-dist-windows": {
@@ -404,8 +449,20 @@ CEYX_FETCH_SPECS = {
             "dist (.lib) linked at ceyx build time, nothing for halcyon to "
             "place"
         ),
+        # Pre-existing gap, discovered at the v0.1.24 repin (2026-09-13): this
+        # list named only jxl.lib since it was first written, but the archive
+        # has always carried 7 members (verified identical at v0.1.23 and
+        # v0.1.24 - not new drift). The other 6 are libjxl's own transitive
+        # static deps (brotli x3, highway, jxl_cms, jxl_threads), pulled in by
+        # ceyx's build the same way.
         "members": [
             {"member": "lib/jxl.lib", "artifact": "jxl.lib"},
+            {"member": "lib/brotlicommon.lib", "artifact": "brotlicommon.lib"},
+            {"member": "lib/brotlidec.lib", "artifact": "brotlidec.lib"},
+            {"member": "lib/brotlienc.lib", "artifact": "brotlienc.lib"},
+            {"member": "lib/hwy.lib", "artifact": "hwy.lib"},
+            {"member": "lib/jxl_cms.lib", "artifact": "jxl_cms.lib"},
+            {"member": "lib/jxl_threads.lib", "artifact": "jxl_threads.lib"},
         ],
     },
     "libjxl-dist-linux": {
@@ -417,10 +474,37 @@ CEYX_FETCH_SPECS = {
             "dist (.a) linked at ceyx build time, nothing for halcyon to "
             "place"
         ),
+        # Pre-existing gap, discovered at the v0.1.24 repin (2026-09-13): this
+        # list named only libjxl.a since it was first written, but the archive
+        # has always carried 7 members (verified identical at v0.1.23 and
+        # v0.1.24 - not new drift). The other 6 are libjxl's own transitive
+        # static deps (brotli x3, highway, jxl_cms, jxl_threads), pulled in by
+        # ceyx's build the same way.
         "members": [
             {"member": "lib/libjxl.a", "artifact": "libjxl.a"},
+            {"member": "lib/libbrotlicommon.a", "artifact": "libbrotlicommon.a"},
+            {"member": "lib/libbrotlidec.a", "artifact": "libbrotlidec.a"},
+            {"member": "lib/libbrotlienc.a", "artifact": "libbrotlienc.a"},
+            {"member": "lib/libhwy.a", "artifact": "libhwy.a"},
+            {"member": "lib/libjxl_cms.a", "artifact": "libjxl_cms.a"},
+            {"member": "lib/libjxl_threads.a", "artifact": "libjxl_threads.a"},
         ],
     },
+    # No Android dist entries here (heif-dist-android / libjxl-dist-android /
+    # libwebp-dist-android intentionally absent - user ruling A', 2026-09-13):
+    # this is not an oversight. build_apps.py has no Android *fetch* path for
+    # native libraries at all (see the "Android is out of scope" note at
+    # build_apps.py:211) - a Halcyon Android build links against the
+    # committed plugin/android/src/main/jniLibs tree, never anything
+    # downloaded via this dict, so there is no integrity surface for those
+    # three archives to join. They are also structurally unlike their
+    # Windows/Linux siblings above: the libjxl/libwebp android archives ship
+    # their entire build-staging tree, not just the linkable artifacts
+    # (libjxl-dist-android is 227 MB vs 3.3 MB for the Linux dist of the same
+    # library), so folding them into CEYX_FETCH_SPECS would mean pinning and
+    # digest-verifying ~230 MB of files this repo never reads. If Android
+    # ever gains a real fetch path, re-add these as their own change with a
+    # pin regeneration - don't restore this comment's absence silently.
 }
 
 # The provenance file every release carries: asset -> {sha256, size} for every

@@ -154,29 +154,33 @@ SUITE = {
         measures=(
             "every ceyx library the pin declares for this platform is in the "
             "artefact TOGETHER (on Windows: the decoder plus its declared "
-            "companions — heif.dll, libde265.dll, and libomp140.x86_64.dll "
-            "once the pin's Windows group grows to 4 (WI-4, OQ-N2 ruled SHIP); "
-            "on macOS: the decoder plus its declared companions per "
-            "ceyx.podspec vendored_libraries, currently five (lcms2, jpeg, "
-            "heif, de265, omp), dropping to four once WI-5/OQ-N4 lands)"
+            "companions — heif.dll, libde265.dll, and libomp140.x86_64.dll — "
+            "the Windows group grew to 4 at the v0.1.24 repin (2026-09-13, "
+            "WI-4/OQ-N2 ruled SHIP); on macOS: the decoder plus its declared "
+            "companions per ceyx.podspec vendored_libraries, currently four "
+            "(jpeg, heif, de265, omp) — liblcms2.2.dylib was removed at the "
+            "v0.1.24 repin (2026-09-13) following upstream's lcms2 removal, "
+            "which is the drop WI-5/OQ-N4 anticipated)"
         ),
         valid_on=("windows", "macos"),
         why_valid=(
             "The expected list is read as data from ceyx_release_pin.json's "
             "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so "
-            "adding a fourth DLL to the pin automatically extends the gate. It "
+            "adding a fourth DLL to the pin extended the gate automatically, "
+            "with no change to this assertion. It "
             "measures the exact failure ceyx_release_pin.json:11-16 describes: "
             "a Windows install missing a dynamic import fails at "
             "DynamicLibrary.open with an error naming only the decoder. On "
-            "macOS the same shape applies to the six-dylib atomic group added "
-            "by the HALCYON-MIGRATION campaign (2026-09, tag v0.1.8): a "
+            "macOS the same shape applies to the macOS atomic group added "
+            "by the HALCYON-MIGRATION campaign (2026-09, tag v0.1.8) — six "
+            "dylibs then, five since the v0.1.24 repin: a "
             "partial fetch/package would produce an app that fails at load "
             "time naming only the decoder, never the missing companion."
         ),
         red_state=(
             "delete any one pinned member from a staging copy of the archive: "
-            "the assertion fails naming that member (e.g. heif.dll, or, once "
-            "the pin's Windows group carries it, libomp140.x86_64.dll)"
+            "the assertion fails naming that member (e.g. heif.dll, or "
+            "libomp140.x86_64.dll, which the pin's Windows group now carries)"
         ),
         expected="all pinned library artifact names present in the artefact",
     ),
