@@ -878,6 +878,7 @@ class TierTwoScheduler {
     OrientedFullRes fullRes,
     VoidCallback? notifyLoaded, {
     required int distance,
+    VoidCallback? onPixelsConsumed,
   }) async {
     final supplied = fullRes.image;
     // Taken SYNCHRONOUSLY, before any await (invariant I4). These are the
@@ -921,6 +922,14 @@ class TierTwoScheduler {
         },
       );
       image = await completer.future;
+      // SR-3 (mem8 T7): the engine has now COPIED the pixels out of
+      // `fullRes.rgba`, so on the identity path -- where that buffer IS the
+      // pooled native slot -- this is the last read and the slot can go back
+      // immediately, before the staleness re-check, the pacer and the publish
+      // below. The caller owns the release; this callback only reports "the
+      // pixels have been consumed", which is knowledge only this line has.
+      // Nothing after it reads `fullRes.rgba`.
+      onPixelsConsumed?.call();
       // Same post-await re-check as the catch-up path; releases in place.
       if (!_windowIds.contains(id) ||
           !identical(_currentPayloadFor(id), payload)) {

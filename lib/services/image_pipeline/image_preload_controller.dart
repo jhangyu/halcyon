@@ -586,7 +586,11 @@ class ImagePreloadController {
       image: fullRes.image,
       // WP6: the handle must survive the shrink -- `_finishOffLane`'s release
       // site reads `decode.fullRes`, but a dropped field here would still be a
-      // silent divergence between the two records.
+      // silent divergence between the two records. Since T7 (SR-3) it is
+      // normally ALREADY null on this branch: the rotated path returns its
+      // slot at the materialize point, so `decodedRgbaToOrientedFullRes` sets
+      // the field to null. The pass-through stays because this function must
+      // not be the place that decides ownership.
       releaseNative: fullRes.releaseNative,
     );
   }
@@ -2364,6 +2368,13 @@ class ImagePreloadController {
     // `_completeOutcome`'s signature: that method is also on WP7's and WP8's
     // paths and the value is already in scope one line above the call.
     SourcePayload? published;
+    // SR-3 (mem8 T7): true once the pooled slot has been handed back at its
+    // LAST READ -- the piggyback materialize. The `finally` below is the net
+    // for every path that never reaches that point (window-moved skip, encode
+    // throw, a refused publish, a null payload); the flag is what keeps the
+    // two from ever both firing. Not a second ownership rule: one rule, plus
+    // an exception-safety net.
+    var nativeReleased = false;
     try {
       // WP7, SECOND gate (N3): the window moved past this id while its
       // decode was in flight (no FFI decode is cancellable, so the decode
@@ -2427,6 +2438,16 @@ class ImagePreloadController {
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
         claim: claim,
+        // SR-3 (mem8 T7): the identity path's pooled slot goes back the
+        // instant the piggyback materialize has copied the pixels out --
+        // BEFORE the staleness re-check, the pacer wait and the publish, all
+        // of which the old `finally`-only release held the slot across (chain
+        // audit B.7a). `outcome.fullRes` is the record being published, which
+        // on the identity path is the same one `decode.fullRes` refers to.
+        onFullResPixelsConsumed: () {
+          nativeReleased = true;
+          decode.fullRes?.releaseNative?.call();
+        },
       );
     } catch (_) {
       // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
@@ -2444,19 +2465,39 @@ class ImagePreloadController {
       // boundary; that is S1.3, and it is what lets the next decode start while
       // this encode is still running.)
       //
-      // WP6. ORDER IS LOAD-BEARING (plan N1): reclaim native bytes BEFORE
-      // telling the budget they are free, so no admission is granted against
-      // capacity the pool has not actually reclaimed. No `await` may be
-      // introduced between these two statements.
+      // WP6 / SR-3. ORDER IS LOAD-BEARING (plan N1): the native bytes are
+      // reclaimed BEFORE the budget is told they are free, so no admission is
+      // ever granted against capacity the pool has not actually reclaimed.
+      // Since T7 that ordering is enforced by PROGRAM ORDER ACROSS TWO SITES
+      // rather than by statement adjacency -- the reclaim normally happens
+      // earlier, at the piggyback materialize, and the tail-budget release
+      // stays here. Anything that could release the tail budget before that
+      // materialize returns re-opens the hazard.
       //
-      // T6 (mem8 SR-2): the published payload never aliases this buffer --
-      // `decodedRgbaToPixelPayload`'s identity short-circuit returns an owned
-      // copy. The TRANSIENT aliasing survives: `decodedRgbaToOrientedFullRes`
-      // still hands out `decoded.rgba` itself as `fullRes.rgba`, and that
-      // record is exactly what this `finally` ends -- the release below is
-      // its last use, after `_completeOutcome` has already retained or
-      // dropped the payload.
-      if (canReleaseNativeBuffer(fullRes: decode.fullRes, published: published)) {
+      // WHERE THE SLOT ACTUALLY GOES BACK (T7, SR-3). Two sites, one rule:
+      //   * rotated path -- inside `decodedRgbaToOrientedFullRes`, right after
+      //     the materialize; that record's `releaseNative` is then null.
+      //   * identity path -- at the piggyback materialize, via the
+      //     `onFullResPixelsConsumed` callback threaded through
+      //     `_completeOutcome`. That is the LAST READ of the pooled buffer:
+      //     `decodedRgbaToOrientedFullRes` hands out `decoded.rgba` itself on
+      //     this path (transient aliasing, deliberately kept by T6), and
+      //     `ui.decodeImageFromPixels` is what finally copies it out.
+      // The release below is the NET for every path that reaches neither:
+      //   the window-moved skip, the encode throw, a publish refused by the
+      //   I4 pre-checks, and a null payload. `nativeReleased` is what stops
+      //   the net and the explicit release from both firing -- exactly one
+      //   release per outcome, which is what SR-4's grep asserts.
+      //
+      // The predicate still guards the net because the net covers paths where
+      // nothing was published at all; on the identity path it now reads true
+      // in production either way (T6 made the retained payload an owned copy).
+      // T8 deletes the predicate.
+      if (!nativeReleased &&
+          canReleaseNativeBuffer(
+            fullRes: decode.fullRes,
+            published: published,
+          )) {
         decode.fullRes?.releaseNative?.call();
       }
       if (encodePublishTailCharge != null) {
@@ -2497,6 +2538,7 @@ class ImagePreloadController {
     required int loadLongEdge,
     required int loadGeneration,
     required PayloadClaim claim,
+    VoidCallback? onFullResPixelsConsumed,
   }) async {
     final id = item.id;
 
@@ -2678,6 +2720,10 @@ class ImagePreloadController {
           fullRes,
           notifyLoaded,
           distance: distance,
+          // SR-3 (mem8 T7): forwarded, not acted on here. Only
+          // `_finishOffLane` owns the pooled slot, and only the materialize
+          // inside the publish knows when the pixels stop being read.
+          onPixelsConsumed: onFullResPixelsConsumed,
         );
         // PHASE 5: the one tier-2 landing whose id is known at the call site.
         // The registry -- not this line -- decides readiness; publishing can

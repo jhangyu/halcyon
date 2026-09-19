@@ -334,6 +334,22 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   await gate();
 
   final raw = await _imageFromPixels(decoded, src: 'fullres');
+  // SR-3 (mem8 T7), rotated path: THIS is the last read of the pooled native
+  // slot, so it goes back now rather than at the end of `_finishOffLane`.
+  // `_imageFromPixels` completes only when `ui.decodeImageFromPixels`'s
+  // callback has fired, i.e. when the ENGINE HAS COPIED the pixels out of
+  // `decoded.rgba`. That copy is the assumption this release rests on -- if it
+  // were wrong, the next decode into the same slot would tear the image we
+  // just materialized. It is pinned by a test (TC-1280: overwrite the source
+  // buffer with a sentinel after this point and assert the oriented image's
+  // pixels are unchanged), not by assumption, because the measured corpus is
+  // 0% rotated and would never exercise it.
+  //
+  // Unconditional, not in a `finally` around the transform: the failure paths
+  // below `rethrow`, and they must release too. Nothing past this line reads
+  // `decoded.rgba` -- `_applyTransform` reads `raw`, and the returned `rgba`
+  // is a fresh `toByteData` readback.
+  decoded.releaseNative?.call();
   ui.Image oriented;
   try {
     oriented = await _applyTransform(raw, transform);
@@ -350,9 +366,12 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: oriented.width,
       height: oriented.height,
       image: oriented,
-      // `rgba` here is a FRESH readback buffer, so nothing aliases the native
-      // one -- but the handle still has to travel to the single release site.
-      releaseNative: decoded.releaseNative,
+      // SR-3 (mem8 T7): NULL, because the slot was already returned at the
+      // materialize point above. `releaseToPool` is idempotent on the ceyx
+      // side so a second call would be harmless, but a null is what makes the
+      // single-owner rule readable and T8's grep-class acceptance decidable.
+      // `rgba` here is a FRESH readback buffer and aliases nothing native.
+      releaseNative: null,
     );
   } catch (_) {
     // A failure must not leak the handle the caller never received.

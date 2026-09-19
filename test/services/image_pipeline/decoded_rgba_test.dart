@@ -365,6 +365,80 @@ void main() {
       expect(payload.height, 2);
     });
 
+    // TC-1279 -- T7 (mem8 SR-3), rotated path: the pooled slot is returned at
+    // the MATERIALIZE point, before `decodedRgbaToOrientedFullRes` returns,
+    // and the record it hands back carries a null `releaseNative` because the
+    // slot is no longer its to return.
+    test('rotated path releases the pooled slot at materialize', () async {
+      var released = 0;
+      final rgba = Uint8List(2 * 3 * 4);
+      for (var i = 0; i < rgba.length; i += 4) {
+        rgba[i] = 0x40;
+        rgba[i + 1] = 0x80;
+        rgba[i + 2] = 0xC0;
+        rgba[i + 3] = 0xFF;
+      }
+      final src = DecodedRgba(
+        rgba: rgba,
+        width: 2,
+        height: 3,
+        releaseNative: () => released++,
+      );
+
+      final full = await decodedRgbaToOrientedFullRes(src, exifOrientation: 6);
+
+      expect(full.image, isNotNull, reason: 'orientation 6 must rotate');
+      expect(
+        released,
+        1,
+        reason: 'the slot must be back in the pool by the time this function '
+            'returns -- if it is 0 the release moved back to _finishOffLane',
+      );
+      expect(
+        full.releaseNative,
+        isNull,
+        reason: 'the record must not carry a handle to a slot it already '
+            'returned (single-owner rule, T8 grep acceptance)',
+      );
+      full.image!.dispose();
+    });
+
+    // TC-1280 -- T7 (mem8 SR-3): the assumption Step 7.1's release rests on.
+    // `ui.decodeImageFromPixels` COPIES out of the source buffer before its
+    // callback fires, so returning the slot at that point cannot tear the
+    // image. If that were false, the next decode into the same slot would
+    // corrupt an already-materialized frame -- silently, with no exception.
+    // The measured corpus is 0% rotated, so nothing but this test covers it.
+    test('rotated image survives a subsequent write into the source buffer',
+        () async {
+      final rgba = Uint8List(2 * 3 * 4);
+      for (var i = 0; i < rgba.length; i += 4) {
+        rgba[i] = 0x40;
+        rgba[i + 1] = 0x80;
+        rgba[i + 2] = 0xC0;
+        rgba[i + 3] = 0xFF;
+      }
+      final src = DecodedRgba(rgba: rgba, width: 2, height: 3);
+
+      final full = await decodedRgbaToOrientedFullRes(src, exifOrientation: 6);
+      final before =
+          await full.image!.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final expected = Uint8List.fromList(before!.buffer.asUint8List());
+
+      // Simulate the next decode landing in the same pooled slot.
+      rgba.fillRange(0, rgba.length, 0x5A);
+
+      final after =
+          await full.image!.toByteData(format: ui.ImageByteFormat.rawRgba);
+      expect(
+        after!.buffer.asUint8List(),
+        orderedEquals(expected),
+        reason: 'the engine must have copied at decodeImageFromPixels; if this '
+            'fails, T7 Step 7.1 is unsound and the release must move back',
+      );
+      full.image!.dispose();
+    });
+
     // TC-824a
     test('oriented full-res carries no handle for orientation 1', () async {
       final src = _sourceShort();
