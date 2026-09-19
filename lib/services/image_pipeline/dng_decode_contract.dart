@@ -49,19 +49,30 @@ class DecodedRgba {
   /// "nothing to release", NEVER "leak": every Dart-heap-backed decode and
   /// every fake decoder in the test suite leaves it null.
   ///
-  /// CALL SITES (four, kept in sync deliberately -- an earlier version of this
-  /// paragraph named ONE site while the code had three, which is the
-  /// 2026-09-06 "document updated in one place, its consumer not" failure
-  /// mode). Each releases at the LAST READ of the pooled bytes:
-  ///   * `decodedRgbaToOrientedFullRes` (rotated path) -- after the
-  ///     materialize; the record it returns then carries a null handle (T7).
-  ///   * `decodedRgbaToImage` -- after the materialize, covering the catch-up
-  ///     upgrade in `TierTwoScheduler._upgradeFullRes`, which had NO release
-  ///     site at all before T8.
+  /// CALL SITES (five, kept in sync deliberately -- an earlier version of this
+  /// paragraph named ONE site while the code had three, and the next named
+  /// four while the code had five, which is the 2026-09-06 "document updated
+  /// in one place, its consumer not" failure mode). Each releases at the LAST
+  /// READ of the pooled bytes:
+  ///   * `decodedRgbaToOrientedFullRes` (rotated path) -- in a `finally`
+  ///     around the gate and the materialize, so a refused pacing slot or a
+  ///     rejected buffer returns the slot too (T8 follow-up, reviewer SF-1);
+  ///     the record it returns then carries a null handle (T7).
+  ///   * `decodedRgbaToImage` -- the same `finally` shape, covering the
+  ///     catch-up upgrade in `TierTwoScheduler._upgradeFullRes`, which had NO
+  ///     release site at all before T8.
   ///   * `_finishOffLane`'s identity-path callback -- fired by the piggyback
   ///     materialize, the last read of the transiently aliased buffer (T7).
-  ///   * `DeferredFullSizeEncoder._run`'s `finally`.
-  /// `_finishOffLane`'s terminal `finally` is a NET, not a fifth owner: it
+  ///   * `DeferredFullSizeEncoder._run`'s `finally` -- the ORIENTED record's
+  ///     handle (null on the rotated path, the pooled slot on the identity
+  ///     one).
+  ///   * `DeferredFullSizeEncoder._run`'s `catch` around
+  ///     `decodedRgbaToOrientedFullRes` -- the DECODED frame's handle. It
+  ///     overlaps the provider's own `finally` for throws raised inside that
+  ///     function (harmless: `releaseToPool` is idempotent) and is the only
+  ///     release for a throw raised in its prologue, ABOVE the `try` --
+  ///     today `_assertDecodedBufferLength`.
+  /// `_finishOffLane`'s terminal `finally` is a NET, not a sixth owner: it
   /// covers the paths reaching none of the above (window-moved skip, encode
   /// throw, refused publish, null payload) and is suppressed by a flag when
   /// the callback already fired.

@@ -36,12 +36,24 @@ Future<ui.Image> decodedRgbaToImage(
     declared: exifOrientation,
     applied: rgba.appliedOrientation,
   );
-  if (!_ExifTransform.forOrientation(residual).isIdentity) {
-    await gate();
+  // SR-4 (mem8 T8 follow-up, reviewer SF-1): `finally`, not a bare line after
+  // the materialize. A throw from `gate()` (a refused pacing slot) or from
+  // `_imageFromPixels` (the buffer/dimension guard) used to leave the function
+  // ABOVE the release, so the slot came back only when the GC ran ceyx's
+  // safety-net `Finalizer` -- the GC-dependent return SR-4 deletes, surviving
+  // on the failure branch. On the success branch this releases at exactly the
+  // same point it did before.
+  late final ui.Image raw;
+  try {
+    if (!_ExifTransform.forOrientation(residual).isIdentity) {
+      await gate();
+    }
+    raw = await _imageFromPixels(rgba);
+  } finally {
+    rgba.releaseNative?.call();
   }
-  final raw = await _imageFromPixels(rgba);
   // SR-4 (mem8 T8), chain audit B.7b(1): the LAST READ of the pooled slot on
-  // the catch-up upgrade path, so it goes back here.
+  // the catch-up upgrade path, so it goes back at the `finally` above.
   //
   // Before this line nobody released it at all: `_upgradeFullRes`
   // (tier_two_scheduler.dart) decodes a RAW file, hands the frame here, and
@@ -59,7 +71,6 @@ Future<ui.Image> decodedRgbaToImage(
   // late-release shape SR-3 just removed, and would leave every future caller
   // of this function to remember the rule. `applyExifOrientation` below reads
   // `raw`, never `rgba.rgba`.
-  rgba.releaseNative?.call();
   late final ui.Image oriented;
   try {
     oriented = await applyExifOrientation(raw, residual);
@@ -356,11 +367,22 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
     );
   }
 
-  await gate();
-
-  final raw = await _imageFromPixels(decoded, src: 'fullres');
-  // SR-3 (mem8 T7), rotated path: THIS is the last read of the pooled native
-  // slot, so it goes back now rather than at the end of `_finishOffLane`.
+  // SR-4 (mem8 T8 follow-up, reviewer SF-1): the gate and the materialize live
+  // inside the `try` so a refused pacing slot or a rejected buffer returns the
+  // native slot too, instead of stranding it until the GC runs ceyx's
+  // safety-net `Finalizer`. The identity short-circuit returns ABOVE this and
+  // deliberately does NOT release: there the handle travels with the record to
+  // the piggyback materialize, which is still going to read the buffer.
+  late final ui.Image raw;
+  try {
+    await gate();
+    raw = await _imageFromPixels(decoded, src: 'fullres');
+  } finally {
+    decoded.releaseNative?.call();
+  }
+  // SR-3 (mem8 T7), rotated path: the materialize above is the last read of
+  // the pooled native slot, so it goes back at that `finally` rather than at
+  // the end of `_finishOffLane`.
   // `_imageFromPixels` completes only when `ui.decodeImageFromPixels`'s
   // callback has fired, i.e. when the ENGINE HAS COPIED the pixels out of
   // `decoded.rgba`. That copy is the assumption this release rests on -- if it
@@ -370,11 +392,10 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   // pixels are unchanged), not by assumption, because the measured corpus is
   // 0% rotated and would never exercise it.
   //
-  // Unconditional, not in a `finally` around the transform: the failure paths
-  // below `rethrow`, and they must release too. Nothing past this line reads
-  // `decoded.rgba` -- `_applyTransform` reads `raw`, and the returned `rgba`
-  // is a fresh `toByteData` readback.
-  decoded.releaseNative?.call();
+  // The `finally` does NOT extend around the transform below: the slot's last
+  // read is the materialize, and nothing past it reads `decoded.rgba` --
+  // `_applyTransform` reads `raw`, and the returned `rgba` is a fresh
+  // `toByteData` readback.
   ui.Image oriented;
   try {
     oriented = await _applyTransform(raw, transform);

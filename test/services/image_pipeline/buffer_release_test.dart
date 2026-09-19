@@ -9,6 +9,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
+import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -768,6 +769,106 @@ void main() {
               '"pixels consumed" moment to report; firing here would be a '
               'release the rotated site already performed',
         );
+      });
+
+      // TC-1288 / TC-1288b / TC-1289 -- T8 follow-up (reviewer SF-1), the
+      // ERROR PATH of the two provider-side release sites.
+      //
+      // SR-4 says no slot return may depend on the garbage collector. The
+      // release lines added by T7/T8 sit AFTER the materialize, unguarded: if
+      // `gate()` or `_imageFromPixels` throws, the exception leaves the
+      // function above them and the slot comes back only when ceyx's
+      // safety-net `Finalizer` runs -- the very shape SR-4 deletes, surviving
+      // on the failure branch. Counted with EXACT equality, because the fix
+      // must not turn the success-path release into a double release.
+      group('provider error paths return the pooled slot', () {
+        test('TC-1288: a throwing gate still returns the slot '
+            '(decodedRgbaToImage)', () async {
+          var released = 0;
+          final decoded = decodedFixture(releaseNative: () => released++);
+          await expectLater(
+            decodedRgbaToImage(
+              decoded,
+              // Non-identity, so the gate is actually bought.
+              exifOrientation: 6,
+              gate: () async => throw StateError('gate refused'),
+            ),
+            throwsStateError,
+          );
+          expect(
+            released,
+            1,
+            reason: 'SR-4: a refused pacing slot must not strand the pooled '
+                'buffer until the GC runs the safety-net Finalizer',
+          );
+        });
+
+        test('TC-1288b: a throwing materialize still returns the slot '
+            '(decodedRgbaToImage)', () async {
+          var released = 0;
+          // Dimensions disagree with the buffer, which
+          // `_assertDecodedBufferLength` rejects from INSIDE
+          // `_imageFromPixels` -- a throw at the materialize itself rather
+          // than at the gate.
+          final decoded = DecodedRgba(
+            rgba: Uint8List(4 * 4 * 4),
+            width: 8,
+            height: 8,
+            releaseNative: () => released++,
+          );
+          await expectLater(
+            decodedRgbaToImage(decoded, exifOrientation: 1),
+            throwsArgumentError,
+          );
+          expect(
+            released,
+            1,
+            reason: 'SR-4: a failed materialize must hand the slot back '
+                'explicitly, not leave it to the finalizer',
+          );
+        });
+
+        test('TC-1289: a throwing gate still returns the slot '
+            '(decodedRgbaToOrientedFullRes, rotated)', () async {
+          var released = 0;
+          final decoded = decodedFixture(releaseNative: () => released++);
+          await expectLater(
+            decodedRgbaToOrientedFullRes(
+              decoded,
+              // Rotated: the identity short-circuit returns ABOVE the gate and
+              // deliberately hands the handle to the caller instead of
+              // releasing, so only a rotated frame reaches the site under
+              // test.
+              exifOrientation: 6,
+              gate: () async => throw StateError('gate refused'),
+            ),
+            throwsStateError,
+          );
+          expect(
+            released,
+            1,
+            reason: 'SR-4: the rotated full-res path must return its slot on '
+                'the failure branch too',
+          );
+        });
+
+        test('TC-1289b: the identity short-circuit still does NOT release',
+            () async {
+          var released = 0;
+          final decoded = decodedFixture(releaseNative: () => released++);
+          final record = await decodedRgbaToOrientedFullRes(
+            decoded,
+            exifOrientation: 1,
+          );
+          expect(
+            released,
+            0,
+            reason: 'the identity path transfers the handle to the caller '
+                '(it travels on the record); releasing here would free a '
+                'buffer the piggyback materialize is about to read',
+          );
+          expect(record.releaseNative, isNotNull);
+        });
       });
     });
   });
