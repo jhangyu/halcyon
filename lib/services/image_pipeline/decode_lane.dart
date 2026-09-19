@@ -149,6 +149,27 @@ class DecodeLane {
   /// unknown until the decode returns, and [adjustAdmission] reconciles it.
   /// A re-enqueue that REPLACES a pending entry also replaces its estimate --
   /// nothing has been charged yet, because a pending entry holds no resources.
+  ///
+  /// EXCEPT that an UNCHARGED re-enqueue (the parameter's default 0) leaves an
+  /// existing non-zero estimate alone (Task #12, 2026-09-20). Three producers
+  /// share the `(payload, id)` key space and only one of them passes an
+  /// estimate: `image_preload_controller.dart:2752` charges
+  /// `kNominalFullFrameBytes`, while `tier_two_scheduler.dart:705`
+  /// (`_enqueueLoad`, whose body decodes a full frame INLINE via
+  /// `_ensurePayload(..., onSerialLane: true)`) and
+  /// `sidebar_thumbnail_controller.dart:399` (whose body also calls
+  /// `_ensurePayload`) pass none. A plain overwrite let either of those
+  /// silently zero a pending charged entry, so the task was then admitted
+  /// charging nothing and the byte gate stopped bounding a full frame it was
+  /// about to hold -- which makes SR-8's "charged" unsound, since a charge
+  /// that can be zeroed is not one. 0 means "this caller has no opinion", not
+  /// "this task is free"; a caller that really means free-and-authoritative
+  /// has no way to say so today and no site wants to. An EXPLICIT non-zero
+  /// re-estimate still wins in both directions (TC-1298).
+  ///
+  /// This is deliberately NOT a charging decision for those two sites: their
+  /// own enqueues stay uncharged, and this only stops them from destroying
+  /// someone else's charge.
   void enqueue(
     LaneKey key, {
     required int priority,
@@ -160,7 +181,7 @@ class DecodeLane {
       existing.priority = priority;
       existing.seq = ++_seq;
       existing.body = body;
-      existing.estimatedBytes = estimatedBytes;
+      if (estimatedBytes != 0) existing.estimatedBytes = estimatedBytes;
     } else {
       _pending[key] = _LaneTask(
         key: key,
