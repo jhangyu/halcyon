@@ -184,10 +184,12 @@ void main() {
     buildHarness(
       List<PhotoItem> items, {
       required RetentionPolicy retention,
-      // TC-1273: the default (6) always takes the rotated path, whose
-      // non-null `fullRes.image` already satisfies `canReleaseNativeBuffer`'s
-      // rotated-fallback clause regardless of the null-published clause under
-      // test. Orientation 1 forces the identity short-circuit
+      // TC-1273: the default (6) always takes the rotated path, which since
+      // T7 returns its slot inside `decodedRgbaToOrientedFullRes` itself, so
+      // it would release regardless of the net under test. (This used to say
+      // "already satisfies `canReleaseNativeBuffer`'s rotated-fallback
+      // clause"; T8/SR-4 deleted that predicate and the net is now
+      // unconditional.) Orientation 1 forces the identity short-circuit
       // (`fullRes.image == null`), which is the only way to isolate P1/P2.
       int exifOrientation = 6,
     }) {

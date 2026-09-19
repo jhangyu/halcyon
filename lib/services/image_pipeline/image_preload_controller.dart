@@ -141,52 +141,6 @@ const int thumbnailPrefetchMargin = 20;
 /// for the same thing the native bridge would have produced anyway.
 const int kDefaultPreviewLongEdge = 2800;
 
-/// True when the pooled native buffer behind [fullRes] has no remaining reader
-/// and may be handed back to `CeyxNativeBufferPool` now.
-///
-/// Deny by default: only the clauses below return true.
-///
-/// T6 (mem8 SR-2) removed the one case that used to read false here: the
-/// identity short-circuit in `decodedRgbaToPixelPayload` now returns an OWNED
-/// COPY, so a retained `PixelPayload` never aliases the pooled buffer and the
-/// final `identical` clause below is true on every production path. The clause
-/// is kept for now because deleting it is T8's step, not this one; a fake
-/// decoder or a test may still hand in an aliasing pair.
-///
-/// `fullRes.image != null` is the project-wide discriminator for "this RGBA is
-/// a fresh buffer, not the pooled one" -- the same test `photo_source.dart:634`
-/// uses to decide whether the pointer-encode path is valid. Full derivation:
-/// `docs/logs/2026-09-06/r6-cancel-return-spec.md` (facts F1..F8).
-///
-/// Both arms of `photo_source.dart`'s `buildFallback` on the identity path
-/// now yield an object-different buffer: the downscale arm was always a fresh
-/// GPU readback (r6 plan Task 5), and after T6 the short-circuit arm is a
-/// fresh copy.
-@visibleForTesting
-bool canReleaseNativeBuffer({
-  required OrientedFullRes? fullRes,
-  required SourcePayload? published,
-}) {
-  if (fullRes == null) return false;
-  // P1 (WP7 cancellation return) and P2 (the catch in `_finishOffLane`):
-  // nothing was published, the `ui.Image` was disposed, the lazy pixel
-  // fallback was dropped un-invoked and the encode future has already
-  // completed -- so no reader of these bytes exists. A normal null outcome
-  // never carries a non-null `fullRes` here (photo_source.dart: every
-  // payload-null arm sets fullRes: null).
-  if (published == null) return true;
-  if (published is EncodedPayload) return true;
-  // A rotated fallback's pixels are a fresh GPU readback.
-  if (fullRes.image != null) return true;
-  // image == null: identity path. The pooled buffer is fullRes.rgba/
-  // decoded.rgba. After T6 no production `PixelPayload` aliases it -- the
-  // short-circuit copies and the downscale arm is a fresh readback -- so this
-  // reads true in production. identical() is the exact test; no re-derivation
-  // of longEdge/dimensions is needed (r6 plan Task 5, 2026-09-19). T8 deletes
-  // the clause outright.
-  return published is PixelPayload && !identical(published.rgba, fullRes.rgba);
-}
-
 /// Orchestrates prefetch. It coordinates four collaborators and holds no
 /// file-type knowledge of its own:
 ///
@@ -2360,14 +2314,6 @@ class ImagePreloadController {
     // `InflightBytesBudget.clear()` can land between the admission and the
     // release below; releasing against a stale epoch is then a no-op instead of
     // an over-release (BUG 2026-09-03, TC-886).
-    //
-    // WP6: the payload `_completeOutcome` settled on, captured here because the
-    // `finally`'s pool-return guard needs it. Left null on the catch path and
-    // on the WP7 cancellation return, so the guard reads "no EncodedPayload was
-    // published" and does not release. NOT threaded through
-    // `_completeOutcome`'s signature: that method is also on WP7's and WP8's
-    // paths and the value is already in scope one line above the call.
-    SourcePayload? published;
     // SR-3 (mem8 T7): true once the pooled slot has been handed back at its
     // LAST READ -- the piggyback materialize. The `finally` below is the net
     // for every path that never reaches that point (window-moved skip, encode
@@ -2421,7 +2367,6 @@ class ImagePreloadController {
               fullRes: _shrinkAfterEncode(rawOutcome.fullRes!),
               failureCode: rawOutcome.failureCode,
             );
-      published = outcome.payload;
       PerfLog.log(
         'channel.preview|$id|bytes=${outcome.payload?.byteCost ?? -1}'
         '|roundtrip=${PerfLog.us - tCh}|notify=${notifyLoaded != null}'
@@ -2489,15 +2434,28 @@ class ImagePreloadController {
       //   the net and the explicit release from both firing -- exactly one
       //   release per outcome, which is what SR-4's grep asserts.
       //
-      // The predicate still guards the net because the net covers paths where
-      // nothing was published at all; on the identity path it now reads true
-      // in production either way (T6 made the retained payload an owned copy).
-      // T8 deletes the predicate.
-      if (!nativeReleased &&
-          canReleaseNativeBuffer(
-            fullRes: decode.fullRes,
-            published: published,
-          )) {
+      // UNCONDITIONAL since T8 (SR-4). This used to ask
+      // `canReleaseNativeBuffer(fullRes:, published:)`, a deny-by-default
+      // predicate whose last live clause refused to release when a published
+      // `PixelPayload` aliased `fullRes.rgba`. T6 deleted the only path that
+      // could construct that pair -- the identity short-circuit in
+      // `decodedRgbaToPixelPayload` returns an owned copy -- so the clause
+      // had become unreachable, and an unreachable guard on a release is
+      // indistinguishable from a leak waiting for the guard to come back.
+      //
+      // Deleting it also RESOLVES the disagreement the T7 review flagged:
+      // T7's `onFullResPixelsConsumed` release fires unconditionally while
+      // this net was still asking a predicate, so the two sites disagreed
+      // about when a slot may go back. They now agree, and `nativeReleased`
+      // -- not a payload-type test -- is the single thing preventing a double
+      // release. (Harmless even if it failed: ceyx's `releaseToPool` is
+      // idempotent. The flag is for readability, not for safety.)
+      //
+      // The `SourcePayload? published` local the predicate needed is gone
+      // with it -- it existed only to be fed to the guard. If a future outcome
+      // really does retain the pooled buffer, the fix is to stop aliasing it,
+      // NOT to reintroduce a predicate that skips the release.
+      if (!nativeReleased) {
         decode.fullRes?.releaseNative?.call();
       }
       if (encodePublishTailCharge != null) {

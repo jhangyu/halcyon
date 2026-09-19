@@ -40,6 +40,26 @@ Future<ui.Image> decodedRgbaToImage(
     await gate();
   }
   final raw = await _imageFromPixels(rgba);
+  // SR-4 (mem8 T8), chain audit B.7b(1): the LAST READ of the pooled slot on
+  // the catch-up upgrade path, so it goes back here.
+  //
+  // Before this line nobody released it at all: `_upgradeFullRes`
+  // (tier_two_scheduler.dart) decodes a RAW file, hands the frame here, and
+  // never had a release site -- the slot came back only when the garbage
+  // collector eventually ran ceyx's safety-net `Finalizer`. That is the
+  // GC-dependent return SR-4 exists to delete, and it is why
+  // `CeyxNativeBufferPool.debugFinalizerReleases` is a defect counter rather
+  // than a statistic.
+  //
+  // Placed HERE, not in a `finally` at the `_upgradeFullRes` call site: this
+  // is the same reasoning as T7's Step 7.1 in the sibling function below. The
+  // engine has copied the pixels by the time `_imageFromPixels` completes, so
+  // this is the earliest sound point; releasing at the call site instead would
+  // hold the slot across the compositing pass, re-creating in miniature the
+  // late-release shape SR-3 just removed, and would leave every future caller
+  // of this function to remember the rule. `applyExifOrientation` below reads
+  // `raw`, never `rgba.rgba`.
+  rgba.releaseNative?.call();
   late final ui.Image oriented;
   try {
     oriented = await applyExifOrientation(raw, residual);
@@ -325,8 +345,13 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       width: decoded.width,
       height: decoded.height,
       image: null,
-      // The buffer handed out here IS `decoded.rgba` -- the aliasing case the
-      // release guard in `_finishOffLane` exists for.
+      // The buffer handed out here IS `decoded.rgba` (transient aliasing,
+      // deliberately kept by T6). Since T7 its last read is the piggyback
+      // materialize, which reports back through `onPixelsConsumed`; the
+      // handle travels with the record so that single owner can return it.
+      // There is no longer a release GUARD to describe here -- T8 deleted
+      // `canReleaseNativeBuffer`, because the only pair it refused became
+      // unconstructible once T6 made the retained payload an owned copy.
       releaseNative: decoded.releaseNative,
     );
   }

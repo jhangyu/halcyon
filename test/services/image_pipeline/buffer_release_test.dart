@@ -9,7 +9,6 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
-import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -17,6 +16,8 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
+
+import '../../support/preload_fixtures.dart';
 
 /// WP6b (gc-remediation plan, Steps 7.7-7.11): the native buffer a pooled
 /// decode hands over is returned to `CeyxNativeBufferPool` at end-of-
@@ -264,107 +265,6 @@ void main() {
       );
     });
 
-    // TC-1270 -- the release decision, as a pure predicate. Today's semantics:
-    // only a published EncodedPayload frees the buffer.
-    group('canReleaseNativeBuffer (TC-1270)', () {
-      OrientedFullRes fullResWith({required bool rotated}) => (
-        rgba: Uint8List(4 * 4 * 4),
-        width: 4,
-        height: 4,
-        image: rotated ? _RotatedMarker.image : null,
-        releaseNative: () {},
-      );
-
-      test('no pooled buffer means nothing to release', () {
-        expect(
-          canReleaseNativeBuffer(fullRes: null, published: null),
-          isFalse,
-        );
-      });
-
-      test('an EncodedPayload releases on both paths', () {
-        final encoded = EncodedPayload(Uint8List.fromList([1, 2, 3]));
-        expect(
-          canReleaseNativeBuffer(
-            fullRes: fullResWith(rotated: false),
-            published: encoded,
-          ),
-          isTrue,
-        );
-      });
-
-      test('an aliasing PixelPayload does NOT release', () {
-        // MUST be the SAME rgba object as fullRes.rgba -- the predicate's
-        // identity path clause now discriminates on object identity
-        // (TC-1275/TC-1276), so a distinct buffer here would silently stop
-        // testing aliasing at all.
-        final aliased = fullResWith(rotated: false);
-        expect(
-          canReleaseNativeBuffer(
-            fullRes: aliased,
-            published: PixelPayload(
-              rgba: aliased.rgba,
-              width: 4,
-              height: 4,
-            ),
-          ),
-          isFalse,
-        );
-      });
-
-      // TC-1274 -- nothing published means no reader exists for the buffer.
-      test('TC-1274: nothing published means the buffer has no reader', () {
-        expect(
-          canReleaseNativeBuffer(
-            fullRes: fullResWith(rotated: false),
-            published: null,
-          ),
-          isTrue,
-        );
-      });
-
-      // TC-1275/TC-1276 -- the predicate's identity-path clause, exercised as
-      // a PURE function. Since T6 no production path can construct the
-      // TC-1276 pair any more (`decodedRgbaToPixelPayload` copies on the
-      // short-circuit and the downscale arm is a fresh readback), so these
-      // two document the clause itself until T8 deletes it. The
-      // production-level evidence that the identity path releases is
-      // TC-1278 above.
-      test(
-        'TC-1275: identity path, PixelPayload NOT aliasing fullRes.rgba '
-        '(downscale sub-case) -> releases',
-        () {
-          final aliased = fullResWith(rotated: false); // image: null
-          final freshRgba = Uint8List(64); // different object from aliased.rgba
-          expect(
-            canReleaseNativeBuffer(
-              fullRes: aliased,
-              published: PixelPayload(rgba: freshRgba, width: 4, height: 4),
-            ),
-            isTrue,
-          );
-        },
-      );
-
-      test(
-        'TC-1276: identity path, PixelPayload aliasing fullRes.rgba -> does '
-        'NOT release (unchanged P6 proper)',
-        () {
-          final aliased = fullResWith(rotated: false);
-          expect(
-            canReleaseNativeBuffer(
-              fullRes: aliased,
-              published: PixelPayload(
-                rgba: aliased.rgba,
-                width: 4,
-                height: 4,
-              ),
-            ),
-            isFalse,
-          );
-        },
-      );
-    });
 
     // -----------------------------------------------------------------------
     // T7 (mem8 SR-3): the identity path's pooled slot is returned at its LAST
@@ -576,6 +476,97 @@ void main() {
         expect(h.registry.keyIds, contains('a'));
       });
 
+      // TC-1287 -- T8 (mem8 SR-4), chain audit B.7b(1): the CATCH-UP upgrade
+      // path returns its pooled slot.
+      //
+      // `_upgradeFullRes` decodes a RAW file and hands the frame to
+      // `decodedRgbaToImage`, and before T8 NOBODY called `releaseNative` on
+      // it -- not the scheduler, not the provider. The slot came back only
+      // when Dart's garbage collector got around to running ceyx's safety-net
+      // Finalizer, which is precisely the GC-dependent return SR-4 deletes.
+      //
+      // Driven the way TC-1221 drives it: a band slot still holding a
+      // temporary PixelPayload buys a real file decode on band entry, which
+      // is the one route into `_upgradeFullRes` a unit test can take.
+      test('TC-1287: the catch-up upgrade path releases its pooled slot',
+          () async {
+        var released = 0;
+        final payloads = <String, SourcePayload>{};
+        final registry = TierTwoRegistry(
+          currentPayloadFor: (id) => payloads[id],
+        );
+        final scheduler = TierTwoScheduler(
+          registry: registry,
+          lane: DecodeLane(width: 5),
+          currentPayloadFor: (id) => payloads[id],
+          // The real production mapping, NOT a throwing stub: the five
+          // EncodedPayload band entrants legitimately ask for a provider, and
+          // a stub that throws makes this test fail for a reason that has
+          // nothing to do with slot release (it did, on the first run).
+          fullSizeProviderFor: (p) => switch (p) {
+            EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
+            PixelPayload() => throw StateError(
+              'the pixel slot must take the FILE DECODE route, not a provider',
+            ),
+          },
+          ensurePayload:
+              (
+                item, {
+                required int distance,
+                required VoidCallback? notifyLoaded,
+                bool onSerialLane = false,
+              }) async {},
+          // Identity orientation: without it `_upgradeFullRes` takes its
+          // markFullResFailure early return BEFORE the decode, and the spy
+          // would read 0 for the wrong reason.
+          exifOrientationFor: (id) => 1,
+          dngDecoder: () => (path) async {
+            final rgba = Uint8List(2 * 2 * 4);
+            // Opaque: the identity short-circuit in the provider asserts it.
+            for (var i = 3; i < rgba.length; i += 4) {
+              rgba[i] = 0xFF;
+            }
+            return DecodedRgba(
+              rgba: rgba,
+              width: 2,
+              height: 2,
+              releaseNative: () => released++,
+            );
+          },
+          navigationDebounce: const Duration(seconds: 10),
+        );
+        addTearDown(scheduler.cancelDebounce);
+        addTearDown(registry.clear);
+
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        for (final item in items) {
+          payloads[item.id] = item.id == 'a3'
+              ? PixelPayload(rgba: Uint8List(2 * 2 * 4), width: 2, height: 2)
+              : freshEncodedPayload();
+        }
+
+        scheduler.schedule(items, 2, () {});
+        await until(
+          () => scheduler.debugBandEntryFileDecodeCount > 0,
+          reason: "a3's pixel-state band entry to buy its file decode",
+        );
+        // The decode is bought BEFORE the release site; give the rest of the
+        // upgrade a bounded chance to run rather than asserting into a race.
+        await until(
+          () => released > 0,
+          reason: 'the upgrade path to return its pooled slot',
+        );
+
+        expect(
+          released,
+          1,
+          reason: 'SR-4: the catch-up upgrade must hand its slot back '
+              'EXPLICITLY. Reading 0 means the slot is returned only when the '
+              "GC runs ceyx's safety-net Finalizer -- a leak for as long as "
+              'the collector takes, and the defect chain audit B.7b(1) names.',
+        );
+      });
+
       // TC-1286 -- the CONTROLLER-level pin, and the only test here that goes
       // red when the B' wiring is removed.
       //
@@ -780,15 +771,4 @@ void main() {
       });
     });
   });
-}
-
-/// A single 1x1 handle used ONLY as a non-null marker for
-/// `OrientedFullRes.image` in predicate tests. The predicate never draws it.
-class _RotatedMarker {
-  static final ui.Image image = _make();
-  static ui.Image _make() {
-    final recorder = ui.PictureRecorder();
-    ui.Canvas(recorder);
-    return recorder.endRecording().toImageSync(1, 1);
-  }
 }

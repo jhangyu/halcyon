@@ -47,15 +47,33 @@ class DecodedRgba {
   /// `CeyxNativeBufferPool` at end-of-consumption; typically
   /// `DngImage.releaseToPool` (idempotent on the ceyx side). Null means
   /// "nothing to release", NEVER "leak": every Dart-heap-backed decode and
-  /// every fake decoder in the test suite leaves it null, and the pool's own
-  /// `NativeFinalizer` is the safety net for the buffers nobody releases
-  /// explicitly.
+  /// every fake decoder in the test suite leaves it null.
   ///
-  /// The single call site is `_finishOffLane`'s `finally`
-  /// (image_preload_controller.dart). Since T6 (mem8 SR-2) a retained
-  /// `PixelPayload` never aliases this buffer -- the identity short-circuit in
-  /// `decodedRgbaToPixelPayload` returns an owned copy -- so every outcome
-  /// releases.
+  /// CALL SITES (four, kept in sync deliberately -- an earlier version of this
+  /// paragraph named ONE site while the code had three, which is the
+  /// 2026-09-06 "document updated in one place, its consumer not" failure
+  /// mode). Each releases at the LAST READ of the pooled bytes:
+  ///   * `decodedRgbaToOrientedFullRes` (rotated path) -- after the
+  ///     materialize; the record it returns then carries a null handle (T7).
+  ///   * `decodedRgbaToImage` -- after the materialize, covering the catch-up
+  ///     upgrade in `TierTwoScheduler._upgradeFullRes`, which had NO release
+  ///     site at all before T8.
+  ///   * `_finishOffLane`'s identity-path callback -- fired by the piggyback
+  ///     materialize, the last read of the transiently aliased buffer (T7).
+  ///   * `DeferredFullSizeEncoder._run`'s `finally`.
+  /// `_finishOffLane`'s terminal `finally` is a NET, not a fifth owner: it
+  /// covers the paths reaching none of the above (window-moved skip, encode
+  /// throw, refused publish, null payload) and is suppressed by a flag when
+  /// the callback already fired.
+  ///
+  /// RELYING ON THE GARBAGE COLLECTOR IS A DEFECT, not a fallback. Pool-owned
+  /// buffers get no `NativeFinalizer` -- freeing one would take it away from
+  /// the pool -- so ceyx arms a Dart `Finalizer` safety net per checkout and
+  /// counts its reclaims separately in
+  /// `CeyxNativeBufferPool.debugFinalizerReleases`. That counter exists to be
+  /// asserted ZERO (mem8 SR-4, T8): a non-zero value means some path above
+  /// stopped releasing and the slot stayed out of circulation until a
+  /// collection that is not scheduled by anything the pipeline controls.
   final void Function()? releaseNative;
 
   /// The EXIF orientation the DECODER has already applied to [rgba], or 1
