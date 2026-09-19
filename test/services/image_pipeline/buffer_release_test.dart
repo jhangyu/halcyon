@@ -13,14 +13,13 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 /// WP6b (gc-remediation plan, Steps 7.7-7.11): the native buffer a pooled
 /// decode hands over is returned to `CeyxNativeBufferPool` at end-of-
-/// consumption -- but ONLY when the published payload does not alias it.
+/// consumption.
 ///
-/// The aliasing hazard is not hypothetical: `decodedRgbaToOrientedFullRes`'s
-/// identity short-circuit returns `decoded.rgba` ITSELF
-/// (decoded_rgba_image_provider.dart:259-264), so a RETAINED `PixelPayload`
-/// IS the native buffer. Returning it would hand live, displayed pixels to
-/// the next decode. On that branch ownership transfers to the cache and
-/// ceyx's NativeFinalizer safety net reclaims it later.
+/// Since T6 (mem8 SR-2) that is EVERY outcome: `decodedRgbaToPixelPayload`'s
+/// identity short-circuit returns an owned copy, so no retained payload
+/// aliases the pooled buffer. `decodedRgbaToOrientedFullRes` still hands out
+/// `decoded.rgba` itself, but only as the transient `fullRes` record whose
+/// last use is the release site.
 void main() {
   group('buffer_release_test.dart', () {
     /// A 4x4 OPAQUE RGBA frame, orientation 1 -- so the full-res path takes
@@ -134,27 +133,34 @@ void main() {
       );
     });
 
-    // TC-1053 -- encode-failure path: the retained PixelPayload aliases the
-    // native buffer, so it must NOT be returned to the pool.
-    // TC-1272 poison probe added: a wrong release corrupts the payload's
-    // pixels, not merely a wrong count.
-    test('a PixelPayload fallback does NOT release the aliased buffer',
-        () async {
-      var released = 0;
-      late Uint8List fixtureBytes;
+    // TC-1278 -- T6 (mem8 SR-2). The identity short-circuit now hands back an
+    // OWNED COPY, so an encode failure on a small frame publishes a
+    // PixelPayload that aliases nothing and the pooled slot goes back. This
+    // replaces TC-1053/TC-1272, which asserted the retained aliasing T6
+    // deleted.
+    //
+    // The 0xA5 poison probe is kept and flipped: it now proves the payload is
+    // a COPY. The release DOES fire, overwriting the decoder buffer; if the
+    // alias were still in place the retained payload's pixels would read
+    // 0xA5 instead of the fixture's 0x40.
+    test('a small frame + encode failure releases the pooled slot', () async {
+      final released = <String, int>{};
+      final fixtureBytes = <String, Uint8List>{};
+      final firstRelease = Completer<void>();
       final controller = buildController(
         decoder: (path) async {
           final decoded = decodedFixture(
-            // POISON PROBE (TC-1272): a wrong release is caught as
-            // CORRUPTION of the displayed payload, not merely as a count.
-            // This assertion still fires if someone deletes the
-            // `released == 0` check below.
+            // POISON PROBE: the release overwrites the decoder buffer, so a
+            // reintroduced alias is caught as CORRUPTION of the displayed
+            // payload, not merely as a count.
             releaseNative: () {
-              released++;
-              fixtureBytes.fillRange(0, fixtureBytes.length, 0xA5);
+              released[path] = (released[path] ?? 0) + 1;
+              final bytes = fixtureBytes[path]!;
+              bytes.fillRange(0, bytes.length, 0xA5);
+              if (!firstRelease.isCompleted) firstRelease.complete();
             },
           );
-          fixtureBytes = decoded.rgba;
+          fixtureBytes[path] = decoded.rgba;
           return decoded;
         },
         encoder:
@@ -169,21 +175,31 @@ void main() {
         selectedItemId: 'a',
         notifyLoaded: () {},
       );
+      await firstRelease.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'the pooled slot was never returned within 5s -- SR-2 requires it '
+          'to be released on the pixel-fallback outcome too',
+        ),
+      );
+      // Extra pumping AFTER the wait, so a spurious SECOND release would still
+      // be caught by the exactly-once assertion below.
       await pumpMicrotasks();
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
+      expect(released['/tmp/a.dng'], 1);
       expect(
-        released,
-        0,
-        reason: 'the retained PixelPayload aliases this buffer '
-            '(decoded_rgba_image_provider.dart:259-264)',
+        released.values,
+        everyElement(1),
+        reason: 'no buffer may be returned to the pool twice',
       );
       final payload = controller.payloadFor('a')! as PixelPayload;
       expect(
         payload.rgba.take(4),
         orderedEquals(<int>[0x40, 0x80, 0xC0, 0xFF]),
-        reason: 'TC-1272: the retained payload ALIASES the native buffer, so '
-            'a wrong release would have overwritten these pixels with 0xA5',
+        reason: 'the retained payload is an OWNED COPY; the release above '
+            'poisoned the decoder buffer with 0xA5, and seeing 0xA5 here '
+            'would mean the T6 alias is back',
       );
     });
 
@@ -300,16 +316,13 @@ void main() {
         );
       });
 
-      // TC-1275/TC-1276 -- P6 downscale sub-case (r6 plan Task 5, small-scope
-      // ruling): `photo_source.dart`'s `buildFallback` calls
-      // `decodedRgbaToPixelPayload` on the identity path, which has its OWN
-      // identity short-circuit gated on `longEdge`. When the decoded frame is
-      // larger than the requested long edge, that short-circuit is skipped and
-      // a fresh GPU readback runs -- `published.rgba` is then a DIFFERENT
-      // object from `fullRes.rgba`, not an alias of the pooled buffer.
-      // `identical()` is the exact, zero-cost discriminator; positive-control
-      // evidence against real production code:
-      // buffer_release_p6_downscale_test.dart.
+      // TC-1275/TC-1276 -- the predicate's identity-path clause, exercised as
+      // a PURE function. Since T6 no production path can construct the
+      // TC-1276 pair any more (`decodedRgbaToPixelPayload` copies on the
+      // short-circuit and the downscale arm is a fresh readback), so these
+      // two document the clause itself until T8 deletes it. The
+      // production-level evidence that the identity path releases is
+      // TC-1278 above.
       test(
         'TC-1275: identity path, PixelPayload NOT aliasing fullRes.rgba '
         '(downscale sub-case) -> releases',

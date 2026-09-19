@@ -52,10 +52,10 @@ class DecodedRgba {
   /// explicitly.
   ///
   /// The single call site is `_finishOffLane`'s `finally`
-  /// (image_preload_controller.dart), guarded by the aliasing rule: it fires
-  /// only when the published payload is an [EncodedPayload], because a
-  /// retained `PixelPayload` IS this buffer (the identity short-circuit in
-  /// `decodedRgbaToOrientedFullRes`).
+  /// (image_preload_controller.dart). Since T6 (mem8 SR-2) a retained
+  /// `PixelPayload` never aliases this buffer -- the identity short-circuit in
+  /// `decodedRgbaToPixelPayload` returns an owned copy -- so every outcome
+  /// releases.
   final void Function()? releaseNative;
 
   /// The EXIF orientation the DECODER has already applied to [rgba], or 1

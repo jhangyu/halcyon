@@ -279,18 +279,21 @@ void main() {
   group('decoded_rgba_shortcircuit_test.dart', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
-    // TC-819
-    test('identity orientation at longEdge 0 returns the decoder buffer itself',
+    // TC-819 -- INVERTED by T6 (mem8 SR-2): the short-circuit still skips the
+    // GPU round trip, but the buffer it hands back is an OWNED COPY, never the
+    // pooled decoder buffer. Asserting identity here would be asserting the
+    // retained-aliasing bug T6 deleted.
+    test('identity orientation at longEdge 0 short-circuits to an owned copy',
         () async {
       final src = _sourceShort();
       final payload =
           await decodedRgbaToPixelPayload(src, exifOrientation: 1, longEdge: 0);
-      expect(identical(payload.rgba, src.rgba), isTrue);
+      expect(identical(payload.rgba, src.rgba), isFalse);
       expect(payload.width, 2);
       expect(payload.height, 3);
     });
 
-    // TC-820
+    // TC-820 -- inverted for the same reason as TC-819.
     test('identity orientation with no downscale required short-circuits too',
         () async {
       final src = _sourceShort();
@@ -299,7 +302,31 @@ void main() {
         exifOrientation: 1,
         longEdge: 4096,
       );
-      expect(identical(payload.rgba, src.rgba), isTrue);
+      expect(identical(payload.rgba, src.rgba), isFalse);
+    });
+
+    // TC-1277 -- T6 (SR-2). BOTH halves are load-bearing: identity alone would
+    // also pass for a copy holding the wrong bytes, and equality alone would
+    // pass for the alias this task deletes.
+    test('identity short-circuit returns an owned copy, not the pooled buffer',
+        () async {
+      final src = _sourceShort();
+      final payload =
+          await decodedRgbaToPixelPayload(src, exifOrientation: 1, longEdge: 0);
+      expect(
+        identical(payload.rgba, src.rgba),
+        isFalse,
+        reason: 'the pooled slot must stay returnable on every outcome',
+      );
+      expect(
+        payload.rgba,
+        orderedEquals(src.rgba),
+        reason: 'the copy must be byte-identical to the buffer it copies',
+      );
+      // A copy, not a view onto the same store: mutating the source must not
+      // be visible through the payload.
+      src.rgba[0] = src.rgba[0] ^ 0xFF;
+      expect(payload.rgba[0], isNot(src.rgba[0]));
     });
 
     // TC-821 -- the short-circuit must be byte-equal to the GPU round trip it

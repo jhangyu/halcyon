@@ -171,8 +171,20 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
   // SHORT-CIRCUIT. With an identity transform and no downscale to apply, the
   // old code uploaded ~50MB to the GPU, drew nothing new, and read ~50MB back
   // -- to produce a buffer byte-equivalent to the one the caller already
-  // holds. Returning that buffer costs nothing and removes one full GPU round
-  // trip per decode for every non-rotated file.
+  // holds. This branch skips that entire GPU round trip for every non-rotated
+  // file; that, not zero cost, is why it is worth taking.
+  //
+  // It costs ONE memcpy (mem8 T6, SR-2). The returned buffer must be OWNED,
+  // never `decoded.rgba` itself: a retained `PixelPayload` that aliased the
+  // decoder's buffer would pin the pooled native slot for as long as the
+  // payload is cached, and the release site in `_finishOffLane`'s `finally`
+  // would have to skip it. With a copy the pooled slot is returnable on every
+  // outcome. The copy is bounded by the branch guard itself -- it fires only
+  // when `longestEdge <= longEdge`, so the frame is already at or below
+  // window resolution (~22MB at the production 2800px preview long edge,
+  // 31MB at the 2800x2800 worst case). A GPU downscale instead would buy an
+  // upload plus a readback to produce byte-identical output, so the copy is
+  // the cheaper of the two owned-buffer options.
   //
   // `swap` is false for an identity transform, so the oriented long edge is
   // just the source's long edge and the scale is decidable without an upload.
@@ -185,7 +197,7 @@ Future<PixelPayload> decodedRgbaToPixelPayload(
         'returned PREMULTIPLIED; the two agree only for opaque pixels',
       );
       return PixelPayload(
-        rgba: decoded.rgba,
+        rgba: Uint8List.fromList(decoded.rgba), // COPY -- see above (T6/SR-2)
         width: decoded.width,
         height: decoded.height,
       );

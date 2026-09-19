@@ -144,25 +144,24 @@ const int kDefaultPreviewLongEdge = 2800;
 /// True when the pooled native buffer behind [fullRes] has no remaining reader
 /// and may be handed back to `CeyxNativeBufferPool` now.
 ///
-/// Deny by default: only the clauses below return true. The ONE unsafe case is
-/// the identity short-circuit's retained pixels -- it returns `decoded.rgba`
-/// ITSELF as the payload's buffer
-/// (`decoded_rgba_image_provider.dart:283-291`), so a retained `PixelPayload`
-/// with `fullRes.image == null` IS the native buffer, and returning it would
-/// hand live, displayed pixels to the next decode.
+/// Deny by default: only the clauses below return true.
+///
+/// T6 (mem8 SR-2) removed the one case that used to read false here: the
+/// identity short-circuit in `decodedRgbaToPixelPayload` now returns an OWNED
+/// COPY, so a retained `PixelPayload` never aliases the pooled buffer and the
+/// final `identical` clause below is true on every production path. The clause
+/// is kept for now because deleting it is T8's step, not this one; a fake
+/// decoder or a test may still hand in an aliasing pair.
 ///
 /// `fullRes.image != null` is the project-wide discriminator for "this RGBA is
 /// a fresh buffer, not the pooled one" -- the same test `photo_source.dart:634`
 /// uses to decide whether the pointer-encode path is valid. Full derivation:
 /// `docs/logs/2026-09-06/r6-cancel-return-spec.md` (facts F1..F8).
 ///
-/// P6's downscale identity short-circuit sub-case (r6 plan Task 5, ruled
-/// small-scope) IS folded in below: `photo_source.dart`'s `buildFallback`
-/// calls `decodedRgbaToPixelPayload` on the identity path, which has its OWN
-/// identity short-circuit gated on `longEdge`; when the decoded frame is
-/// larger than the requested long edge that short-circuit is skipped and a
-/// fresh GPU readback runs, so `published.rgba` is a DIFFERENT object from
-/// `fullRes.rgba` -- not an alias of the pooled buffer.
+/// Both arms of `photo_source.dart`'s `buildFallback` on the identity path
+/// now yield an object-different buffer: the downscale arm was always a fresh
+/// GPU readback (r6 plan Task 5), and after T6 the short-circuit arm is a
+/// fresh copy.
 @visibleForTesting
 bool canReleaseNativeBuffer({
   required OrientedFullRes? fullRes,
@@ -177,16 +176,14 @@ bool canReleaseNativeBuffer({
   // payload-null arm sets fullRes: null).
   if (published == null) return true;
   if (published is EncodedPayload) return true;
-  // P5 vs P6: a rotated fallback's pixels are a fresh GPU readback; an
-  // identity fallback's pixels ARE the native buffer.
+  // A rotated fallback's pixels are a fresh GPU readback.
   if (fullRes.image != null) return true;
   // image == null: identity path. The pooled buffer is fullRes.rgba/
-  // decoded.rgba. A published PixelPayload aliases it UNLESS
-  // decodedRgbaToPixelPayload's own downscale branch ran (photo_source.dart
-  // buildFallback, fullRes.image==null arm) -- that branch returns a FRESH
-  // readback, object-different from fullRes.rgba. identical() is the exact
-  // test; no re-derivation of longEdge/dimensions needed (r6 plan Task 5,
-  // 2026-09-19).
+  // decoded.rgba. After T6 no production `PixelPayload` aliases it -- the
+  // short-circuit copies and the downscale arm is a fresh readback -- so this
+  // reads true in production. identical() is the exact test; no re-derivation
+  // of longEdge/dimensions is needed (r6 plan Task 5, 2026-09-19). T8 deletes
+  // the clause outright.
   return published is PixelPayload && !identical(published.rgba, fullRes.rgba);
 }
 
@@ -2452,12 +2449,13 @@ class ImagePreloadController {
       // capacity the pool has not actually reclaimed. No `await` may be
       // introduced between these two statements.
       //
-      // ALIASING GUARD: the identity short-circuit returns `decoded.rgba`
-      // ITSELF as the payload's buffer (decoded_rgba_image_provider.dart, the
-      // `image: null` literal), so a RETAINED `PixelPayload` IS this native
-      // buffer. Returning it to the pool would hand live, displayed pixels to
-      // the next decode. On that branch ownership transfers to the cache
-      // instead and ceyx's NativeFinalizer safety net reclaims it later.
+      // T6 (mem8 SR-2): the published payload never aliases this buffer --
+      // `decodedRgbaToPixelPayload`'s identity short-circuit returns an owned
+      // copy. The TRANSIENT aliasing survives: `decodedRgbaToOrientedFullRes`
+      // still hands out `decoded.rgba` itself as `fullRes.rgba`, and that
+      // record is exactly what this `finally` ends -- the release below is
+      // its last use, after `_completeOutcome` has already retained or
+      // dropped the payload.
       if (canReleaseNativeBuffer(fullRes: decode.fullRes, published: published)) {
         decode.fullRes?.releaseNative?.call();
       }
