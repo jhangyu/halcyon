@@ -75,6 +75,38 @@ class PublicationPacer {
   @visibleForTesting
   bool get debugHasFrameHook => _frameHook != null;
 
+  /// mem8 T9 (SR-5): the configured per-frame byte quota, so the PRODUCTION
+  /// wiring can be asserted. Every other pacer test builds its own pacer, so
+  /// whether the controller passes [perFrameBytes] at all is otherwise
+  /// invisible to the entire suite -- and that wiring is T9's deliverable.
+  @visibleForTesting
+  int get debugPerFrameBytes => _perFrameBytes;
+
+  /// mem8 T9 (SR-5), Step 9.3: sum of `byteCost` over the currently PARKED
+  /// (queued) entries.
+  ///
+  /// This REPORTS; nothing caps it. [debugBytesPublishedLastFrame] measures
+  /// the other side of the drain and cannot observe parking at all, which is
+  /// why a second observable is needed. Under the 2026-09-12 ruling (option A)
+  /// parked bytes stay bounded only by `maxQueued` as a COUNT -- `perFrameBytes`
+  /// bounds the per-frame publication burst, not queue depth. Do not promote
+  /// either observable into an enforced bound: that is a `maxQueued`-side
+  /// change and is NOT in SR-5.
+  @visibleForTesting
+  int get debugQueuedBytes =>
+      _queued.values.fold(0, (sum, e) => sum + e.byteCost);
+
+  /// High-water MARK of [debugQueuedBytes]. Never falls back with the live
+  /// value -- a "high-water" that tracks the current reading would read low
+  /// for exactly the clump it exists to report.
+  @visibleForTesting
+  int debugMaxQueuedBytes = 0;
+
+  void _recordQueuedBytesHighWater() {
+    final queued = debugQueuedBytes;
+    if (queued > debugMaxQueuedBytes) debugMaxQueuedBytes = queued;
+  }
+
   /// How many exempt claims were refused and queued instead. A production
   /// value above zero means some caller thinks a non-selected item deserves a
   /// synchronous publish -- the exact drift this predicate exists to catch.
@@ -139,6 +171,9 @@ class PublicationPacer {
       byteCost: byteCost,
     );
     _enforceCapacity();
+    // After capacity enforcement, so the mark records what is actually parked
+    // rather than a depth the queue never held.
+    _recordQueuedBytesHighWater();
     _arm();
   }
 
@@ -216,6 +251,7 @@ class PublicationPacer {
       batch++;
     }
     debugBytesPublishedLastFrame = bytesThisFrame;
+    _recordQueuedBytesHighWater();
     if (batch > 0) {
       debugBatchesDrained++;
       if (batch > debugMaxBatchSize) debugMaxBatchSize = batch;

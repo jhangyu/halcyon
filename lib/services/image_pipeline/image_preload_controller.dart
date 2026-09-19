@@ -579,6 +579,24 @@ class ImagePreloadController {
     // entry at all. Pacing is about WHEN a registration lands, never about
     // whether it lands.
     maxQueued: _retention.before + _retention.after + 1,
+    // mem8 T9 (SR-5): the BYTE half of the per-frame budget, which until now
+    // sat at the parameter's unbounded default in production. `maxQueued`
+    // above is a COUNT: at a window of 9 it admits up to 9 full-res frames,
+    // ~864 MB, and the count budget cannot tell a 200 KB thumbnail
+    // registration from a ~97 MB full-frame GPU upload (chain audit B8). This
+    // bounds the per-frame UPLOAD BURST at ~2 full-res frames.
+    //
+    // What it does NOT do (2026-09-12 user ruling, option A -- do not let this
+    // comment drift back): it does not cap PARKED bytes. Parked depth is still
+    // bounded by `maxQueued` as a count, so the pathological parked total is
+    // unchanged; deferring a publication can only make an entry stay parked
+    // LONGER. Parked bytes are REPORTED (`debugPacerMaxQueuedBytes`), never
+    // capped. The spec's "864 MB -> ~192 MB saving" claim is RETIRED.
+    //
+    // The selected item is unaffected: `submit`'s exempt branch returns before
+    // the queue, so the user's own item is charged against neither budget
+    // (pinned by TC-1291).
+    perFrameBytes: 2 * kNominalFullFrameBytes,
     // Deliverable 3: only the selected item may publish synchronously, and
     // that is now the pacer's rule rather than the call site's promise.
     isSelected: (id) => id == _selectedId,
@@ -587,6 +605,20 @@ class ImagePreloadController {
   @visibleForTesting
   // ignore: invalid_use_of_visible_for_testing_member
   bool get debugPacerHasFrameHook => _pacer.debugHasFrameHook;
+
+  /// mem8 T9 (SR-5): the per-frame publish byte quota THIS controller built
+  /// its pacer with. Exists because every pacer unit test constructs its own
+  /// pacer, so the production wiring -- T9's entire deliverable -- is
+  /// otherwise unobservable to the suite (TC-1290).
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  int get debugPacerPerFrameBytes => _pacer.debugPerFrameBytes;
+
+  /// mem8 T9 (SR-5), Step 9.3: the pacer's parked-byte high-water mark.
+  /// REPORTS only -- nothing caps parked bytes (2026-09-12 ruling, option A).
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  int get debugPacerMaxQueuedBytes => _pacer.debugMaxQueuedBytes;
 
   /// The pacing seam handed to every UI-isolate compositing step (contract
   /// deliverable 2). Held as a field only so [debugCompositeGateIsPaced] can
