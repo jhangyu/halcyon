@@ -7,6 +7,7 @@ import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'frame_bytes.dart';
 import 'idle_publish_scheduler.dart';
 import 'photo_payload.dart';
 import 'photo_payload_cache.dart';
@@ -160,6 +161,17 @@ class TierTwoScheduler {
   /// the `@visibleForTesting` annotation for the one call site that
   /// matters.
   int debugBandEntryFileDecodeCount = 0;
+
+  /// SR-8. Bytes this class has charged to the shared in-flight ledger at its
+  /// full-res-upgrade enqueue site, accumulated and never reset.
+  ///
+  /// DELIBERATELY NOT AGGREGATED with
+  /// `DeferredFullSizeEncoder.debugChargedBytes`: the spec's mechanical check
+  /// is that each off-ledger path is separately attributable, and a single
+  /// combined figure cannot distinguish "both paths charge" from "one path
+  /// charges twice". Same incremented-never-reset discipline as
+  /// [debugBandEntryFileDecodeCount].
+  int debugChargedBytes = 0;
 
   final TierTwoRegistry _registry;
 
@@ -768,12 +780,27 @@ class TierTwoScheduler {
     int distance,
     VoidCallback notifyLoaded,
   ) {
+    // SR-8. This body buys a full FFI decode of the original file
+    // (`_upgradeFullRes`, the `decoder(file.path)` call) and builds a
+    // full-resolution `ui.Image` from it, on the SAME lane and against the
+    // SAME budget as every other expensive decode -- but it used to enqueue
+    // with no estimate, so those bytes were invisible to the gate that exists
+    // to bound exactly them.
+    //
+    // Charged NOMINALLY, like the ordinary decode's own estimate at
+    // `image_preload_controller.dart:2761`. Unlike that path this one never
+    // reconciles to the real frame size via `InflightBytesBudget.adjust`;
+    // known limitation, out of scope here, and the nominal is within ~1% of a
+    // 24 MP frame.
+    const estimate = kNominalFullFrameBytes;
+    debugChargedBytes += estimate;
     _lane.enqueue(
       (LaneTaskKind.fullRes, item.id),
       // PHASE 4: the full-res band, from the one classifier. Its position --
       // after ALL payload production, before ALL sidebar work -- is a user
       // ruling (contract override S4), not a refactor choice.
       priority: fullResPriorityFor(distance),
+      estimatedBytes: estimate,
       body: () async {
         if (!_windowIds.contains(item.id)) return;
         if (!identical(_currentPayloadFor(item.id), payload)) return;

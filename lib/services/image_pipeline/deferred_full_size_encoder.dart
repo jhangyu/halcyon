@@ -4,6 +4,7 @@ import '../../models/photo_item.dart';
 import 'decode_lane.dart';
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'frame_bytes.dart';
 import 'lane_priority.dart';
 import 'payload_reencoder.dart';
 import 'photo_payload.dart';
@@ -17,9 +18,15 @@ import 'photo_payload.dart';
 /// until this job lands. "Temporarily" is bounded by this job's completion or
 /// abandonment -- never by navigation.
 ///
-/// It owns NO buffer sizing and NO concurrency of its own (S1 ledger-only): it
-/// runs on the SAME [DecodeLane] every other expensive decode queues on, in an
-/// appended, lowest band ([LaneGroup.deferredResidency]).
+/// It owns NO concurrency mechanism of its own: it runs on the SAME
+/// [DecodeLane] every other expensive decode queues on, in an appended, lowest
+/// band ([LaneGroup.deferredResidency]).
+///
+/// SR-8: it DOES declare its buffer cost. The enqueue in [schedule] charges
+/// `kNominalFullFrameBytes` to the lane's shared in-flight byte ledger,
+/// because the full-resolution decode at `_run` step (4) is real and is held
+/// for the whole body. An earlier revision charged nothing here; see the
+/// comment at that enqueue for why that was wrong and what it changes.
 class DeferredFullSizeEncoder {
   DeferredFullSizeEncoder({
     required DecodeLane lane,
@@ -72,6 +79,16 @@ class DeferredFullSizeEncoder {
   int _scheduled = 0;
   int _completed = 0;
   int _abandoned = 0;
+  int _chargedBytes = 0;
+
+  /// SR-8. Bytes this class has charged to the shared in-flight ledger at its
+  /// enqueue site, accumulated and never reset.
+  ///
+  /// DELIBERATELY NOT AGGREGATED with `TierTwoScheduler.debugChargedBytes`:
+  /// the spec's mechanical check is that each off-ledger path is separately
+  /// attributable, and a single combined figure cannot distinguish "both paths
+  /// charge" from "one path charges twice".
+  int get debugChargedBytes => _chargedBytes;
 
   // These three are deliberately NOT `@visibleForTesting`: they are forwarded
   // through `ImagePreloadController.debugDeferredCompletedCount` /
@@ -97,12 +114,34 @@ class DeferredFullSizeEncoder {
     if (_attempted[previous] == true) return;
     _attempted[previous] = true;
     _scheduled++;
+    // SR-8. This job DOES put a full frame in flight -- it decodes the
+    // ORIGINAL file at full resolution at `_run` step (4) and orients it at
+    // step (5) -- on the SAME lane and against the SAME budget as every other
+    // expensive decode. It was previously enqueued with no estimate, under
+    // the reasoning "S1 ledger-only ... an estimate charged here would make
+    // the byte gate refuse work it does not bound". That reasoning was wrong
+    // about its own path: the gate DOES bound this work, because the bytes
+    // are real and they are held for the whole body.
+    //
+    // CONSEQUENCE, stated rather than discovered later: this job runs at
+    // `LaneGroup.deferredResidency` (idle priority), so it can now be REFUSED
+    // ADMISSION while the user's own decodes hold the budget. That is
+    // intended for background work, and it is a scheduling change rather than
+    // a purely accounting one. `DecodeLane` takes the slot and the bytes
+    // all-or-nothing at dispatch, so this waits for budget instead of holding
+    // a lane slot while it waits.
+    //
+    // The charge stays NOMINAL: unlike the ordinary decode
+    // (`image_preload_controller.dart:2761`), this path never reconciles the
+    // estimate to the real frame size via `InflightBytesBudget.adjust`. Known
+    // limitation, deliberately not fixed here -- the nominal is within ~1% of
+    // a 24 MP frame.
+    const estimate = kNominalFullFrameBytes;
+    _chargedBytes += estimate;
     _lane.enqueue(
       (LaneTaskKind.deferredEncode, item.id),
       priority: deferredResidencyPriorityFor(distance),
-      // No `estimatedBytes`: S1 ledger-only. This task introduces no new
-      // byte sizing, and an estimate charged here would make the byte gate
-      // refuse work it does not bound.
+      estimatedBytes: estimate,
       body: () => _run(item, previous),
     );
   }

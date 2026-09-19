@@ -17,6 +17,8 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/deferred_full_size_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
+import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
@@ -495,6 +497,136 @@ void main() {
               'leaving the supplier at its default removes that decode and '
               'nothing else',
         );
+      },
+    );
+
+    test(
+      'TC-1294 (SR-8) the deferred re-encode CHARGES the in-flight ledger: the '
+      'budget is non-zero while its body runs, and the charge is attributed to '
+      "this path's own counter",
+      () async {
+        final budget = InflightBytesBudget(maxBytes: 4 * kNominalFullFrameBytes);
+        final lane = DecodeLane(width: 1, budget: budget);
+        final payload = _pixels(4, 4);
+        final cache = <String, SourcePayload>{'a': payload};
+        // Parks the body mid-decode so the ledger can be read WHILE the task
+        // is in flight. Reading it after completion would pass against a
+        // release-to-zero and prove nothing.
+        final decodeGate = Completer<void>();
+
+        final deferred = DeferredFullSizeEncoder(
+          lane: lane,
+          dngDecoder: () => (path) async {
+            await decodeGate.future;
+            return _frame(4, 4);
+          },
+          encoder:
+              (rgba, {required width, required height, required quality}) async =>
+                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+          exifOrientationFor: (id) => 1,
+          currentPayloadFor: (id) => cache[id],
+          isRetained: (id) => cache.containsKey(id),
+          onEncoded: (id, previous, replacement) => cache[id] = replacement,
+          awaitIdleSlot: () async {},
+        );
+
+        // The charge is taken at ENQUEUE, so this counter is already correct
+        // before the body has run at all.
+        deferred.schedule(
+          _rawItems(['a']).single,
+          previous: payload,
+          distance: 0,
+        );
+        expect(deferred.debugChargedBytes, kNominalFullFrameBytes);
+
+        await until(
+          () => budget.inFlightBytes > 0,
+          reason: 'the lane admitted the deferred task against the budget',
+        );
+        // The exact figure, not merely "non-zero": a wrong-sized charge is a
+        // wrong ledger, and `greaterThan(0)` would accept one byte.
+        expect(budget.inFlightBytes, kNominalFullFrameBytes);
+
+        decodeGate.complete();
+        await until(
+          () => deferred.debugCompletedCount == 1,
+          reason: 'the deferred job finished',
+        );
+        // Released on the way out -- a charge that is never released is a leak
+        // that would wedge the gate after a few background jobs.
+        expect(budget.inFlightBytes, 0);
+        expect(deferred.debugChargedBytes, kNominalFullFrameBytes);
+      },
+    );
+
+    test(
+      'TC-1296 (SR-8 consequence) a charged background task WAITS for budget '
+      'rather than over-committing, and the wait is the BYTE gate rather than '
+      'the lane slot',
+      () async {
+        // One frame of budget, but TWO lane slots. The width is the
+        // discrimination: at width 1 this test would pass even with the charge
+        // reverted, because the slot alone would serialise the two tasks.
+        final budget = InflightBytesBudget(maxBytes: kNominalFullFrameBytes);
+        final lane = DecodeLane(width: 2, budget: budget);
+
+        // A foreground decode holding the whole budget, charged exactly as
+        // `ImagePreloadController._enqueueSerialLoad` charges it.
+        final foregroundGate = Completer<void>();
+        var foregroundRan = false;
+        lane.enqueue(
+          (LaneTaskKind.payload, 'foreground'),
+          priority: 0,
+          estimatedBytes: kNominalFullFrameBytes,
+          body: () async {
+            foregroundRan = true;
+            await foregroundGate.future;
+          },
+        );
+        await until(() => foregroundRan, reason: 'the foreground task started');
+        expect(budget.inFlightBytes, kNominalFullFrameBytes);
+
+        final payload = _pixels(4, 4);
+        final cache = <String, SourcePayload>{'a': payload};
+        var deferredDecodeStarted = false;
+        final deferred = DeferredFullSizeEncoder(
+          lane: lane,
+          dngDecoder: () => (path) async {
+            deferredDecodeStarted = true;
+            return _frame(4, 4);
+          },
+          encoder:
+              (rgba, {required width, required height, required quality}) async =>
+                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+          exifOrientationFor: (id) => 1,
+          currentPayloadFor: (id) => cache[id],
+          isRetained: (id) => cache.containsKey(id),
+          onEncoded: (id, previous, replacement) => cache[id] = replacement,
+          awaitIdleSlot: () async {},
+        );
+        deferred.schedule(
+          _rawItems(['a']).single,
+          previous: payload,
+          distance: 0,
+        );
+
+        // Given time to dispatch, and it does not -- the free lane slot is
+        // there for the taking, so only the byte gate can be holding it.
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(
+          deferredDecodeStarted,
+          isFalse,
+          reason: 'the byte gate refused admission while the budget was held',
+        );
+        expect(deferred.debugCompletedCount, 0);
+
+        foregroundGate.complete();
+        await until(
+          () => deferred.debugCompletedCount == 1,
+          reason: 'releasing the foreground admission lets the background task '
+              'through',
+        );
+        expect(deferredDecodeStarted, isTrue);
       },
     );
 

@@ -20,7 +20,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
+import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
@@ -1793,6 +1795,88 @@ void main() {
         expect(h.scheduler.debugBandEntryFileDecodeCount, 0);
         expect(calls, isEmpty,
             reason: 're-entry rebuilds from the retained JPEG bytes');
+      },
+    );
+
+    test(
+      'TC-1295 (SR-8) the full-res upgrade CHARGES the in-flight ledger: the '
+      'budget is non-zero while its body runs, and the charge is attributed to '
+      "this path's own counter, separate from the deferred encoder's",
+      () async {
+        // A self-contained harness rather than `_BandEntryHarness`: that one's
+        // lane is `final` and carries no budget, and widening its contract for
+        // one test would change every other test sharing it.
+        final budget = InflightBytesBudget(maxBytes: 4 * kNominalFullFrameBytes);
+        final lane = DecodeLane(width: 5, budget: budget);
+        final payloads = <String, SourcePayload>{};
+        final registry = TierTwoRegistry(
+          currentPayloadFor: (id) => payloads[id],
+        );
+        // Parks the upgrade mid-decode so the ledger can be read WHILE the
+        // task is in flight; reading it afterwards would pass against a
+        // release-to-zero and prove nothing.
+        final decodeGate = Completer<void>();
+        final scheduler = TierTwoScheduler(
+          registry: registry,
+          lane: lane,
+          currentPayloadFor: (id) => payloads[id],
+          fullSizeProviderFor: (payload) => switch (payload) {
+            EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
+            PixelPayload() => throw StateError('not exercised here'),
+          },
+          ensurePayload:
+              (
+                item, {
+                required int distance,
+                required VoidCallback? notifyLoaded,
+                bool onSerialLane = false,
+              }) async {},
+          // Identity orientation, for the same reason TC-1221 sets it: without
+          // it `_upgradeFullRes` takes its early return BEFORE the charge site.
+          exifOrientationFor: (id) => 1,
+          dngDecoder: () => (path) async {
+            await decodeGate.future;
+            final rgba = Uint8List(2 * 2 * 4);
+            for (var i = 3; i < rgba.length; i += 4) {
+              rgba[i] = 0xFF;
+            }
+            return DecodedRgba(rgba: rgba, width: 2, height: 2);
+          },
+          navigationDebounce: const Duration(seconds: 10),
+        );
+        addTearDown(scheduler.cancelDebounce);
+        addTearDown(registry.clear);
+
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        for (final item in items) {
+          // 'a3' stays in its TEMPORARY pixel state, which is what makes band
+          // entry buy the full-res file decode this test is about (TC-1221's
+          // mechanism).
+          payloads[item.id] = item.id == 'a3'
+              ? PixelPayload(rgba: Uint8List(2 * 2 * 4), width: 2, height: 2)
+              : freshEncodedPayload();
+        }
+
+        scheduler.schedule(items, 2, () {});
+        await until(
+          () => scheduler.debugChargedBytes > 0,
+          reason: 'the full-res upgrade was enqueued with a charge',
+        );
+        // The exact figure, not merely "non-zero": a wrong-sized charge is a
+        // wrong ledger, and `greaterThan(0)` would accept one byte.
+        expect(scheduler.debugChargedBytes, kNominalFullFrameBytes);
+
+        await until(
+          () => budget.inFlightBytes > 0,
+          reason: 'the lane admitted the upgrade against the budget',
+        );
+        expect(budget.inFlightBytes, kNominalFullFrameBytes);
+
+        decodeGate.complete();
+        await until(
+          () => budget.inFlightBytes == 0,
+          reason: 'the admission is released when the upgrade finishes',
+        );
       },
     );
   });
