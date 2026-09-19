@@ -141,6 +141,55 @@ const int thumbnailPrefetchMargin = 20;
 /// for the same thing the native bridge would have produced anyway.
 const int kDefaultPreviewLongEdge = 2800;
 
+/// True when the pooled native buffer behind [fullRes] has no remaining reader
+/// and may be handed back to `CeyxNativeBufferPool` now.
+///
+/// Deny by default: only the clauses below return true. The ONE unsafe case is
+/// the identity short-circuit's retained pixels -- it returns `decoded.rgba`
+/// ITSELF as the payload's buffer
+/// (`decoded_rgba_image_provider.dart:283-291`), so a retained `PixelPayload`
+/// with `fullRes.image == null` IS the native buffer, and returning it would
+/// hand live, displayed pixels to the next decode.
+///
+/// `fullRes.image != null` is the project-wide discriminator for "this RGBA is
+/// a fresh buffer, not the pooled one" -- the same test `photo_source.dart:634`
+/// uses to decide whether the pointer-encode path is valid. Full derivation:
+/// `docs/logs/2026-09-06/r6-cancel-return-spec.md` (facts F1..F8).
+///
+/// P6's downscale identity short-circuit sub-case (r6 plan Task 5, ruled
+/// small-scope) IS folded in below: `photo_source.dart`'s `buildFallback`
+/// calls `decodedRgbaToPixelPayload` on the identity path, which has its OWN
+/// identity short-circuit gated on `longEdge`; when the decoded frame is
+/// larger than the requested long edge that short-circuit is skipped and a
+/// fresh GPU readback runs, so `published.rgba` is a DIFFERENT object from
+/// `fullRes.rgba` -- not an alias of the pooled buffer.
+@visibleForTesting
+bool canReleaseNativeBuffer({
+  required OrientedFullRes? fullRes,
+  required SourcePayload? published,
+}) {
+  if (fullRes == null) return false;
+  // P1 (WP7 cancellation return) and P2 (the catch in `_finishOffLane`):
+  // nothing was published, the `ui.Image` was disposed, the lazy pixel
+  // fallback was dropped un-invoked and the encode future has already
+  // completed -- so no reader of these bytes exists. A normal null outcome
+  // never carries a non-null `fullRes` here (photo_source.dart: every
+  // payload-null arm sets fullRes: null).
+  if (published == null) return true;
+  if (published is EncodedPayload) return true;
+  // P5 vs P6: a rotated fallback's pixels are a fresh GPU readback; an
+  // identity fallback's pixels ARE the native buffer.
+  if (fullRes.image != null) return true;
+  // image == null: identity path. The pooled buffer is fullRes.rgba/
+  // decoded.rgba. A published PixelPayload aliases it UNLESS
+  // decodedRgbaToPixelPayload's own downscale branch ran (photo_source.dart
+  // buildFallback, fullRes.image==null arm) -- that branch returns a FRESH
+  // readback, object-different from fullRes.rgba. identical() is the exact
+  // test; no re-derivation of longEdge/dimensions needed (r6 plan Task 5,
+  // 2026-09-19).
+  return published is PixelPayload && !identical(published.rgba, fullRes.rgba);
+}
+
 /// Orchestrates prefetch. It coordinates four collaborators and holds no
 /// file-type knowledge of its own:
 ///
@@ -2409,7 +2458,9 @@ class ImagePreloadController {
       // buffer. Returning it to the pool would hand live, displayed pixels to
       // the next decode. On that branch ownership transfers to the cache
       // instead and ceyx's NativeFinalizer safety net reclaims it later.
-      if (published is EncodedPayload) decode.fullRes?.releaseNative?.call();
+      if (canReleaseNativeBuffer(fullRes: decode.fullRes, published: published)) {
+        decode.fullRes?.releaseNative?.call();
+      }
       if (encodePublishTailCharge != null) {
         _encodePublishTailBytes.release(
           encodePublishTailCharge.bytes,

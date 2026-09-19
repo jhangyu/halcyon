@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -134,12 +136,27 @@ void main() {
 
     // TC-1053 -- encode-failure path: the retained PixelPayload aliases the
     // native buffer, so it must NOT be returned to the pool.
+    // TC-1272 poison probe added: a wrong release corrupts the payload's
+    // pixels, not merely a wrong count.
     test('a PixelPayload fallback does NOT release the aliased buffer',
         () async {
       var released = 0;
+      late Uint8List fixtureBytes;
       final controller = buildController(
-        decoder: (path) async =>
-            decodedFixture(releaseNative: () => released++),
+        decoder: (path) async {
+          final decoded = decodedFixture(
+            // POISON PROBE (TC-1272): a wrong release is caught as
+            // CORRUPTION of the displayed payload, not merely as a count.
+            // This assertion still fires if someone deletes the
+            // `released == 0` check below.
+            releaseNative: () {
+              released++;
+              fixtureBytes.fillRange(0, fixtureBytes.length, 0xA5);
+            },
+          );
+          fixtureBytes = decoded.rgba;
+          return decoded;
+        },
         encoder:
             (rgba, {required width, required height, required quality}) async =>
                 throw StateError('encoder down'),
@@ -161,6 +178,183 @@ void main() {
         reason: 'the retained PixelPayload aliases this buffer '
             '(decoded_rgba_image_provider.dart:259-264)',
       );
+      final payload = controller.payloadFor('a')! as PixelPayload;
+      expect(
+        payload.rgba.take(4),
+        orderedEquals(<int>[0x40, 0x80, 0xC0, 0xFF]),
+        reason: 'TC-1272: the retained payload ALIASES the native buffer, so '
+            'a wrong release would have overwritten these pixels with 0xA5',
+      );
+    });
+
+    /// A 4x4 opaque frame declared with EXIF orientation 6, so the full-res
+    /// path ROTATES: `decodedRgbaToOrientedFullRes` returns a fresh readback
+    /// plus a non-null `ui.Image` (decoded_rgba_image_provider.dart:308-316).
+    Future<NativeImageResult> rotatedLoader(
+      String path, {
+      required ImageRequestPurpose purpose,
+      int? targetLongEdge,
+    }) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
+
+    // TC-1271 -- rotated encode-failure path: the retained PixelPayload is a
+    // GPU readback, so the native buffer has no reader and goes back.
+    test('a rotated PixelPayload fallback DOES release the native buffer',
+        () async {
+      final released = <String, int>{};
+      final firstRelease = Completer<void>();
+      final controller = ImagePreloadController(
+        imageLoader: rotatedLoader,
+        dngDecoder: (path) async => decodedFixture(
+          releaseNative: () {
+            released[path] = (released[path] ?? 0) + 1;
+            if (!firstRelease.isCompleted) firstRelease.complete();
+          },
+        ),
+        payloadEncoder:
+            (rgba, {required width, required height, required quality}) async =>
+                throw StateError('encoder down'),
+        pointerPayloadEncoder: null,
+        decodeLaneWidth: 1,
+      );
+      addTearDown(controller.dispose);
+      controller.updateTargetSize(32, 32);
+
+      await controller.preloadImages(
+        items: twoRawItems(),
+        selectedItemId: 'a',
+        notifyLoaded: () {},
+      );
+      await firstRelease.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'the rotated fallback never returned the native buffer within 5s',
+        ),
+      );
+      await pumpMicrotasks();
+
+      expect(controller.payloadFor('a'), isA<PixelPayload>());
+      expect(released['/tmp/a.dng'], 1);
+      expect(
+        released.values,
+        everyElement(1),
+        reason: 'no buffer may be returned to the pool twice',
+      );
+    });
+
+    // TC-1270 -- the release decision, as a pure predicate. Today's semantics:
+    // only a published EncodedPayload frees the buffer.
+    group('canReleaseNativeBuffer (TC-1270)', () {
+      OrientedFullRes fullResWith({required bool rotated}) => (
+        rgba: Uint8List(4 * 4 * 4),
+        width: 4,
+        height: 4,
+        image: rotated ? _RotatedMarker.image : null,
+        releaseNative: () {},
+      );
+
+      test('no pooled buffer means nothing to release', () {
+        expect(
+          canReleaseNativeBuffer(fullRes: null, published: null),
+          isFalse,
+        );
+      });
+
+      test('an EncodedPayload releases on both paths', () {
+        final encoded = EncodedPayload(Uint8List.fromList([1, 2, 3]));
+        expect(
+          canReleaseNativeBuffer(
+            fullRes: fullResWith(rotated: false),
+            published: encoded,
+          ),
+          isTrue,
+        );
+      });
+
+      test('an aliasing PixelPayload does NOT release', () {
+        // MUST be the SAME rgba object as fullRes.rgba -- the predicate's
+        // identity path clause now discriminates on object identity
+        // (TC-1275/TC-1276), so a distinct buffer here would silently stop
+        // testing aliasing at all.
+        final aliased = fullResWith(rotated: false);
+        expect(
+          canReleaseNativeBuffer(
+            fullRes: aliased,
+            published: PixelPayload(
+              rgba: aliased.rgba,
+              width: 4,
+              height: 4,
+            ),
+          ),
+          isFalse,
+        );
+      });
+
+      // TC-1274 -- nothing published means no reader exists for the buffer.
+      test('TC-1274: nothing published means the buffer has no reader', () {
+        expect(
+          canReleaseNativeBuffer(
+            fullRes: fullResWith(rotated: false),
+            published: null,
+          ),
+          isTrue,
+        );
+      });
+
+      // TC-1275/TC-1276 -- P6 downscale sub-case (r6 plan Task 5, small-scope
+      // ruling): `photo_source.dart`'s `buildFallback` calls
+      // `decodedRgbaToPixelPayload` on the identity path, which has its OWN
+      // identity short-circuit gated on `longEdge`. When the decoded frame is
+      // larger than the requested long edge, that short-circuit is skipped and
+      // a fresh GPU readback runs -- `published.rgba` is then a DIFFERENT
+      // object from `fullRes.rgba`, not an alias of the pooled buffer.
+      // `identical()` is the exact, zero-cost discriminator; positive-control
+      // evidence against real production code:
+      // buffer_release_p6_downscale_test.dart.
+      test(
+        'TC-1275: identity path, PixelPayload NOT aliasing fullRes.rgba '
+        '(downscale sub-case) -> releases',
+        () {
+          final aliased = fullResWith(rotated: false); // image: null
+          final freshRgba = Uint8List(64); // different object from aliased.rgba
+          expect(
+            canReleaseNativeBuffer(
+              fullRes: aliased,
+              published: PixelPayload(rgba: freshRgba, width: 4, height: 4),
+            ),
+            isTrue,
+          );
+        },
+      );
+
+      test(
+        'TC-1276: identity path, PixelPayload aliasing fullRes.rgba -> does '
+        'NOT release (unchanged P6 proper)',
+        () {
+          final aliased = fullResWith(rotated: false);
+          expect(
+            canReleaseNativeBuffer(
+              fullRes: aliased,
+              published: PixelPayload(
+                rgba: aliased.rgba,
+                width: 4,
+                height: 4,
+              ),
+            ),
+            isFalse,
+          );
+        },
+      );
     });
   });
+}
+
+/// A single 1x1 handle used ONLY as a non-null marker for
+/// `OrientedFullRes.image` in predicate tests. The predicate never draws it.
+class _RotatedMarker {
+  static final ui.Image image = _make();
+  static ui.Image _make() {
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder);
+    return recorder.endRecording().toImageSync(1, 1);
+  }
 }

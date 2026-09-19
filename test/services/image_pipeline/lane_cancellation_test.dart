@@ -181,7 +181,16 @@ void main() {
       Map<String, Completer<DecodedRgba>> gates,
       List<String> encoderCalls,
     })
-    buildHarness(List<PhotoItem> items, {required RetentionPolicy retention}) {
+    buildHarness(
+      List<PhotoItem> items, {
+      required RetentionPolicy retention,
+      // TC-1273: the default (6) always takes the rotated path, whose
+      // non-null `fullRes.image` already satisfies `canReleaseNativeBuffer`'s
+      // rotated-fallback clause regardless of the null-published clause under
+      // test. Orientation 1 forces the identity short-circuit
+      // (`fullRes.image == null`), which is the only way to isolate P1/P2.
+      int exifOrientation = 6,
+    }) {
       final gates = <String, Completer<DecodedRgba>>{};
       final encoderCalls = <String>[];
       final controller = ImagePreloadController(
@@ -193,7 +202,7 @@ void main() {
         },
         pointerPayloadEncoder: null,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-            const NativeImageNeedsRawDecode(exifOrientation: 6),
+            NativeImageNeedsRawDecode(exifOrientation: exifOrientation),
         dngDecoder: (path) async {
           final id = path.split('/').last.split('.').first;
           final gate = gates.putIfAbsent(id, () => Completer<DecodedRgba>());
@@ -210,6 +219,16 @@ void main() {
       width: 2,
       height: 2,
     );
+
+    DecodedRgba tinyDecodedWith({void Function()? releaseNative}) =>
+        DecodedRgba(
+          rgba: Uint8List.fromList(
+            List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 255 : 0),
+          ),
+          width: 2,
+          height: 2,
+          releaseNative: releaseNative,
+        );
 
     test(
       'AC8.1/AC8.2: a window move drops stale queued requests (roster '
@@ -423,6 +442,82 @@ void main() {
 
         expect(controller.debugCancelledDownstreamCount, 0);
         expect(harness.encoderCalls, isNotEmpty);
+      },
+    );
+
+    // TC-1273 -- a decode the window moved past returns its pooled buffer
+    // immediately instead of waiting for the NativeFinalizer.
+    test(
+      'TC-1273: a cancelled in-flight decode returns its native buffer',
+      () async {
+        final items = paddedItems(2, extension: 'dng');
+        final harness = buildHarness(
+          items,
+          retention: const RetentionPolicy(
+            before: 0,
+            after: 1,
+            payloadByteBudget: 1 << 30,
+          ),
+          // Identity path (fullRes.image == null): isolates the
+          // null-published clause from the rotated-fallback clause.
+          exifOrientation: 1,
+        );
+        final controller = harness.controller;
+        addTearDown(controller.dispose);
+
+        var releases = 0;
+        final released = Completer<void>();
+
+        controller.preloadImages(
+          items: items,
+          selectedItemId: items[0].id,
+          notifyLoaded: () {},
+        );
+        await until(
+          () => harness.gates.containsKey(items[0].id),
+          reason: 'item 0\'s decode to start',
+        );
+
+        controller.setRetention(
+          const RetentionPolicy(before: 0, after: 0, payloadByteBudget: 1 << 30),
+        );
+        controller.preloadImages(
+          items: items,
+          selectedItemId: items[1].id,
+          notifyLoaded: () {},
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        harness.gates[items[0].id]!.complete(
+          tinyDecodedWith(releaseNative: () {
+            releases++;
+            if (!released.isCompleted) released.complete();
+          }),
+        );
+
+        // BOUNDED WAIT on the event itself, not a pump count: a release that
+        // never happens must fail loudly, and one that happens late must not
+        // flake.
+        await released.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => fail(
+            'the cancelled decode never returned its native buffer within 5s',
+          ),
+        );
+        await until(
+          () => controller.debugCancelledDownstreamCount == 1,
+          reason: 'the stale in-flight decode\'s downstream skip to run',
+        );
+        // Extra settling, so a spurious SECOND release is still caught.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(releases, 1, reason: 'exactly once, never twice');
+        expect(
+          harness.encoderCalls,
+          isEmpty,
+          reason: 'the encoder must never run for a cancelled item',
+        );
+        expect(controller.payloadFor(items[0].id), isNull);
       },
     );
   });
