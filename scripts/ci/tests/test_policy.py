@@ -204,12 +204,22 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # this repin (user ruling A'): the pin's 9 entries are the complete intended
 # set, not an omission.
 #
+# v0.1.24 -> v0.1.25 (2026-09-19): digest-only repin, tool-derived via
+# `python3 scripts/build_apps.py --ceyx-release latest`, never hand-typed.
+# sha256 26947736207f7f9c9ad615a3d64e433b81f7f062f79d019dae5b2e67a3b61fbb ->
+# 02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5. Every
+# archive's own sha256 and every declared library's sha256 moved (all 9
+# fetch-targets); tag, artifacts.lock digest and per-library UUIDs moved with
+# them. No structural change: no assets/libraries added or removed, no
+# `placed`/`not_placed_reason` changes, MEMBER_SET_EQUAL=True for every
+# fetch-target (tool-printed, not asserted here).
+#
 # Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
 # itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
 # transcribed by hand.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "26947736207f7f9c9ad615a3d64e433b81f7f062f79d019dae5b2e67a3b61fbb"
+    "02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5"
 )
 
 
