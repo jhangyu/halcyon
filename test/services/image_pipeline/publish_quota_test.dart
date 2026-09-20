@@ -118,7 +118,14 @@ void main() {
       addTearDown(controller.dispose);
       expect(
         controller.debugPacerPerFrameBytes,
-        2 * kNominalFullFrameBytes,
+        // FAMILY B (display), not family A. The pacer's CHARGES are
+        // `image.width * image.height * 4` ui.Image uploads, so its quota must
+        // be in display units — a quota and its charges must share units.
+        // These two constants were numerically equal until mem8 T15b moved the
+        // decode-output one to yuv420; this line read family A and only became
+        // observably wrong at that moment. TC-1341 pins the production side of
+        // the same rule.
+        2 * kNominalFullFrameDisplayBytes,
         reason: 'SR-5: ~2 full-res frames per frame. Reading 1 << 62 (the '
             "parameter's unbounded default) means Step 9.1 was reverted and "
             'the byte half of the quota is inert in production -- which no '
@@ -216,7 +223,11 @@ void main() {
     // would fail for a reason that is by design).
     test('TC-1293: across a burst, no frame publishes more than the quota '
         'unless its first entry alone exceeded it', () {
-      const quota = 2 * kNominalFullFrameBytes;
+      // FAMILY B (display): this models PUBLISHED frames, and published bytes
+      // are upconverted RGBA. Self-consistent either way, but since mem8 T15b
+      // the two families differ numerically, so a family-A label in a
+      // family-B role is a future red waiting for the next constant move.
+      const quota = 2 * kNominalFullFrameDisplayBytes;
       final published = <String>[];
       late VoidCallback drain;
       final pacer = PublicationPacer(
@@ -233,7 +244,7 @@ void main() {
         pacer.submit(
           id: 'f$i',
           rank: i,
-          byteCost: kNominalFullFrameBytes,
+          byteCost: kNominalFullFrameDisplayBytes,
           exempt: false,
           stillValid: () => true,
           publish: () => published.add('f$i'),

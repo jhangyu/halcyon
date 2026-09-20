@@ -68,11 +68,14 @@ void main() {
 
     // TC-1124
     test('re-floors at two frames when the memory ceiling is lower', () {
-      // 2 nominal frames = 193,924,608 B, so the ceiling has to sit BELOW
-      // that for the floor to be the thing under test: 512 MiB * 25% =
-      // 134,217,728 B. (1 GiB does not qualify -- its 25% is 256 MiB, which
-      // is already above two frames.)
-      const smallMachine = 512 * 1024 * 1024;
+      // 2 nominal frames = 72,721,728 B since mem8 T15b re-derived the
+      // decode-output constant to yuv420 (it was 193,924,608 at rgba8), so
+      // the machine satisfying this test's premise had to shrink with it:
+      // 256 MiB * 25% = 67,108,864 B, below the floor. 512 MiB no longer
+      // qualifies -- its 25% is 134,217,728 B, already ABOVE two yuv420
+      // frames. The premise assertion below is what caught that when the
+      // constant moved, instead of the test quietly measuring the ceiling.
+      const smallMachine = 256 * 1024 * 1024;
       expect(
         smallMachine * decodeInflightBudgetMemoryCeilingPercent ~/ 100,
         lessThan(2 * kNominalFullFrameBytes),
