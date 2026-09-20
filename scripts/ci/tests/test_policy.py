@@ -217,9 +217,20 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
 # itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
 # transcribed by hand.
+# v0.1.25 -> v0.1.26 (2026-09-20, mem8 T5): digest-only repin, tool-derived via
+# `python3 scripts/build_apps.py --ceyx-release latest`, never hand-typed.
+# sha256 02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5 ->
+# f4b10fd39c46660cdda80f560353b111b9befaf1effa8d14581c924fee5f4547. The diff is
+# 27 sha256 + 2 uuid + 1 tag and nothing else (classified mechanically, artifact
+# docs/logs/2026-09-20/t5-pin-diff.txt): no assets/libraries added or removed,
+# no `placed`/`not_placed_reason` changes, all 9 fetch-targets still present,
+# MEMBER_SET_EQUAL=True for every fetch-target (tool-printed, not asserted
+# here). Recomputed with the CRLF-normalizing method described above; the plain
+# and normalized digests are identical because the file contains no CRLF, and
+# both were computed rather than one being assumed from the other.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5"
+    "f4b10fd39c46660cdda80f560353b111b9befaf1effa8d14581c924fee5f4547"
 )
 
 
