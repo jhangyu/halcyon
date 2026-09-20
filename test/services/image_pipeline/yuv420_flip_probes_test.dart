@@ -72,65 +72,96 @@ void main() {
         'lib/services/image_pipeline/dng_decode_service.dart',
       };
 
-      // THE ONE ARGUED EXEMPTION (T15a, lead-approved 2026-09-20).
+      // THE ONE ARGUED EXEMPTION -- LEAD-RULED 2026-09-20 (mem8 T15a).
       //
-      // The rule this probe enforces is "no format branch anywhere", and the
-      // harm it names is the mixed-format lane problem: a DECODE PATH that
-      // chooses a format, so different lanes carry different layouts. The line
-      // below is categorically not that. It is the single dispatch INSIDE the
-      // one conversion function, and it exists because `materialiseRgba` must
-      // return an rgba8 frame untouched -- R-B preserves the rgba8 option, and
-      // the pure-Dart TIFF arm plus every fake decoder in the suite produce
-      // rgba8. Removing it means either converting rgba8 buffers pointlessly
-      // or pushing a conditional out to the three public producers, which is
-      // the per-path branching this rule actually exists to prevent.
+      // THE ARGUMENT, recorded so nobody widens this casually. This branch scan
+      // is R-N's enforcement, and R-N forbids PLATFORM DIVERGENCE: a per-path
+      // or per-platform format branch, where different lanes or different
+      // targets end up carrying different pixel layouts. The exempted line is
+      // categorically not that. It is the IDENTITY DISPATCH INSIDE the single
+      // conversion seam; it executes identically on every platform; and it is
+      // precisely what lets R-B (rgba8 stays a workable option -- the pure-Dart
+      // TIFF arm and every fake decoder in the suite produce rgba8) coexist
+      // with R-N. Exempting it does not contradict the rule's purpose; it names
+      // the one place the rule's purpose permits.
       //
-      // Matched on EXACT TEXT, not on a loosened pattern, and deliberately so:
-      // a widened regex would silently absolve the next branch someone adds,
-      // whereas this absolves precisely one line and fails the moment that
-      // line changes. A second entry here needs its own argument in writing.
+      // Removing it would mean either converting rgba8 buffers pointlessly or
+      // pushing a conditional out to the three public producers -- which is the
+      // per-path branching this rule actually exists to prevent.
+      //
+      // PINNED TO THE EXACT SITE, not to a pattern. A widened regex would
+      // silently absolve the next branch someone adds; this absolves one
+      // literal line in one named file, and the assertions below fail if that
+      // line stops existing, appears more than once, or appears anywhere else.
+      // A second format branch ANYWHERE -- including a second one in this same
+      // file -- still goes red. A second entry in this set needs its own
+      // written argument and its own ruling.
       //
       // HISTORY worth keeping: the flip's author first measured this with a
-      // narrower grep of his own that did not flag this line at all, and
-      // reported item 1 green on that basis. This probe -- written before the
-      // flip, by someone with no stake in its outcome -- disagreed. The probe
-      // was right to flag it; the exemption is the argument, made explicitly,
-      // rather than an instrument quietly tuned until it agreed.
+      // narrower grep of his own that did not flag the line at all, and
+      // reported acceptance item 1 green on that basis -- while this probe's
+      // branch assertion had in fact never executed, because the roster
+      // assertion above it threw first. This probe, written before the flip by
+      // someone with no stake in its outcome, was right to flag it. The answer
+      // is the argument, made explicitly, not an instrument tuned until it
+      // agreed.
+      const kExemptFile =
+          'lib/services/image_pipeline/decoded_rgba_image_provider.dart';
+      const kExemptLine =
+          'if (decoded.format == CeyxOutputFormat.rgba8) return decoded;';
       const kArguedFormatBranchExemptions = <String>{
-        'lib/services/image_pipeline/decoded_rgba_image_provider.dart: '
-            'if (decoded.format == CeyxOutputFormat.rgba8) return decoded;',
+        '$kExemptFile: $kExemptLine',
       };
 
       final mentions = <String>[];
       final branches = <String>[];
+      var exemptionHits = 0;
+      final exemptLineSightings = <String>[];
       for (final file in _libDartFiles()) {
         final code = _codeOf(file);
         if (code.contains('CeyxOutputFormat')) mentions.add(file.path);
         for (final line in code.split('\n')) {
+          // Condition 1: the exempted TEXT is tracked wherever it appears, not
+          // only where it is allowed to appear, so a copy of it in another file
+          // is visible rather than silently tolerated.
+          if (line.trim() == kExemptLine) {
+            exemptLineSightings.add(file.path);
+          }
           if (!line.contains('OutputFormat')) continue;
           // A branch on the format, in any of the three shapes Dart offers.
           if (line.contains('if (') ||
               line.contains('case ') ||
               line.contains('? ')) {
             final entry = '${file.path}: ${line.trim()}';
-            if (kArguedFormatBranchExemptions.contains(entry)) continue;
+            if (kArguedFormatBranchExemptions.contains(entry)) {
+              exemptionHits++;
+              continue;
+            }
             branches.add(entry);
           }
         }
       }
 
-      // The exemption list is itself pinned: an entry that stops matching any
-      // real line is a stale absolution, and it would sit here looking like
-      // diligence while protecting nothing.
-      final allCode = _libDartFiles().map(_codeOf).join('\n');
-      for (final exemption in kArguedFormatBranchExemptions) {
-        expect(
-          allCode.contains(exemption.split(': ').last),
-          isTrue,
-          reason: 'exemption no longer matches any line in lib/: '
-              '$exemption -- delete it rather than leaving a dead absolution',
-        );
-      }
+      // The exemption is pinned three ways: it must still match something (a
+      // dead absolution is worse than none), it must match EXACTLY ONCE, and
+      // the line must live only in the file it was argued for.
+      expect(
+        exemptionHits,
+        1,
+        reason: exemptionHits == 0
+            ? 'the exempted line no longer exists -- delete the exemption '
+                  'rather than leaving a dead absolution'
+            : 'the exempted line appears $exemptionHits times; the argument '
+                  'was made for ONE seam-internal dispatch, and a second copy '
+                  'is a new format branch that needs its own ruling',
+      );
+      expect(
+        exemptLineSightings,
+        [kExemptFile],
+        reason: 'the exempted line must exist exactly once and ONLY in the '
+            'file it was argued for; a copy elsewhere is a per-path branch '
+            'wearing the exemption\'s clothes',
+      );
 
       expect(
         mentions.toSet(),
