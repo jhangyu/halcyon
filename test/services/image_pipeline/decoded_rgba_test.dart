@@ -602,6 +602,18 @@ void main() {
         exifOrientation: 8, // 90 CCW
         gate: gate.call,
       );
+      // PUMP BEFORE OPENING (mem8 T15a). `openAll` completes only the
+      // completers ALREADY waiting, and since the seam landed this producer
+      // awaits `materialiseRgba` before reaching `await gate()` -- so an
+      // openAll fired synchronously drains an empty list and the request that
+      // arrives a microtask later waits forever. The two sibling gate tests in
+      // this file already pump, for exactly this reason.
+      //
+      // This changes the SETUP's timing assumption and NOT the assertion. The
+      // property below is untouched and still capable of failing: a producer
+      // that skips the gate, or asks for two slots, fails it. That was proven
+      // by mutation rather than asserted -- tmp/verify/t15a/m8.txt, m9.txt.
+      await _pumpEventLoop();
       gate.openAll();
       final image = await pending;
       addTearDown(image.dispose);
