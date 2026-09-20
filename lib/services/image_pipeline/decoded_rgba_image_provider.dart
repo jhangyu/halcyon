@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:ceyx/ceyx.dart';
+import 'package:ffi/ffi.dart' show malloc;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
@@ -187,10 +188,39 @@ void debugResetUpconvertSeam() {
 /// were always "release whatever this frame carries", and after the seam the
 /// frame they see carries the destination.
 ///
-/// Destinations come from `CeyxNativeBufferPool.acquire(bytes)` and NEVER from
-/// a fresh Dart allocation (T15a step 4) — otherwise the campaign trades arena
-/// residency for GC pressure, which is the opposite of SR-12's point. The slot
-/// size goes through `ceyxOutputFormatByteCount`, never open-coded arithmetic.
+/// Destinations come from [acquireNeverWaiting] and NEVER from a fresh Dart
+/// allocation (T15a step 4) — otherwise the campaign trades arena residency
+/// for GC pressure, which is the opposite of SR-12's point. The slot size goes
+/// through `ceyxOutputFormatByteCount`, never open-coded arithmetic.
+///
+/// THE INVARIANT OF THIS FILE (2026-09-21 deadlock fix, design G): **no
+/// acquire in [materialiseRgba] may await the shared pool while that function
+/// already holds a buffer from it.** The converter reads a yuv420 SOURCE and
+/// writes an rgba8 DESTINATION in one native call, so one item needs two
+/// buffers at once; both used to come from one pool whose `acquire` waits
+/// untimed at the cap, so at N >= cap every holder waited for a slot only
+/// another holder could return — observed as `checkedOut=8 waiters=11 idle=0`
+/// with zero upconverts completing (`docs/logs/2026-09-21/h5-farm-verdict.md`).
+///
+/// [acquireNeverWaiting] deletes the WAIT rather than the second buffer, so
+/// concurrency is NOT reduced: the escape can only fire when the pool is at
+/// cap, which is exactly the regime that used to deadlock.
+CeyxNativeBuffer acquireNeverWaiting(int bytes) {
+  final pool = CeyxNativeBufferPool.shared;
+  // `acquireOrNull` is total and synchronous. Its null is answered locally
+  // with malloc + `adoptUnpooled` -- the pattern ceyx already ships for its
+  // own synchronous callers (`dng_decoder_service.dart:1083-1085`). An adopted
+  // buffer is still POOL-OWNED (registered in `_byAddress`, idempotent
+  // release, counted by `hasOutstandingCheckouts` so idle-shrink is unchanged)
+  // but occupies no slot and frees rather than returns.
+  //
+  // An escape firing in steady state is a LEDGER-SIZING defect to report, not
+  // to absorb -- the same reading `native_buffer_pool.dart:73-76` gives to
+  // `debugWaitsForCapacity > 0`.
+  return pool.acquireOrNull(bytes) ??
+      pool.adoptUnpooled(malloc<ffi.Uint8>(bytes).address, bytes);
+}
+
 Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
   if (decoded.format == CeyxOutputFormat.rgba8) return decoded;
 
@@ -218,8 +248,12 @@ Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
     decoded.height,
   );
 
-  final acquire =
-      debugUpconvertAcquire ?? CeyxNativeBufferPool.shared.acquire;
+  // DEADLOCK FIX (2026-09-21, design G): the DEFAULT never awaits the pool.
+  // The `Future` signature is kept only for the test seam; the production
+  // path resolves synchronously, so no code holding a pool buffer can block
+  // on this pool. See [acquireNeverWaiting] for why that is the invariant.
+  final acquire = debugUpconvertAcquire ??
+      (int bytes) async => acquireNeverWaiting(bytes);
   debugUpconvertPoolAcquireCount++;
   final dst = await acquire(dstBytes);
   final dstView = ffi.Pointer<ffi.Uint8>.fromAddress(

@@ -1428,6 +1428,22 @@ class ImagePreloadController {
   /// lives in exactly one place -- see [TierTwoRegistry.isReady].
   bool isFullSizeReady(String id) => _tierTwo.isReady(id);
 
+  /// D-2 (2026-09-21): the bytes a DEFERRED decode really holds through the
+  /// upconvert, or null when this decode did not defer.
+  ///
+  /// Planar frame + the rgba8 destination `materialiseRgba` will write, which
+  /// are live SIMULTANEOUSLY inside the converter's single native call. Both
+  /// terms are read off the frame itself rather than
+  /// [kNominalFullFrameBytes]/[kNominalFullFrameDisplayBytes]: the estimate
+  /// has become a fact by this point, which is the same rule the non-deferred
+  /// line above follows. Sizing for non-deferred items is untouched.
+  @visibleForTesting
+  static int? deferredUpconvertPeakBytes(SourceDecode decode) {
+    final frame = decode.pendingUpconvert?.frame;
+    if (frame == null) return null;
+    return frame.rgba.lengthInBytes + frame.width * frame.height * 4;
+  }
+
   void reset() {
     // PHASE 6: a queued pass belongs to the folder being left. Dropping the
     // record is the cancellation -- the scheduled microtask still runs and
@@ -2219,9 +2235,25 @@ class ImagePreloadController {
       // `kNominalFullFrameBytes`; `decode.fullRes` is what it turned out to be
       // actually holding, and a cheap item holds no frame and settles to 0.
       // No-op off the lane, where nothing was admitted.
+      //
+      // D-2 (2026-09-21 deadlock fix, MANDATORY companion to design G): a
+      // DEFERRED decode has a null `fullRes` -- the record is built later by
+      // `encodePhase`'s materialise -- so this settled it to 0 bytes and
+      // deleted the lane's byte bound for exactly the frames Option D made
+      // long-lived. The pool cap then became the operating bound instead of
+      // the backstop it is documented to be (`native_buffer_pool.dart:73-76`),
+      // and it was reached. A deferred decode holds a REAL planar frame.
+      //
+      // The deferred charge is planar + its rgba8 destination, because STEP 2
+      // of `_encodeThenUpconvert` holds BOTH at once (the converter reads one
+      // and writes the other in a single native call). Non-deferred items keep
+      // `fullRes.rgba.lengthInBytes` exactly as before -- this changes the
+      // sizing of deferred items only.
       _decodeLane.adjustAdmission(
         (LaneTaskKind.payload, id),
-        to: decode.fullRes?.rgba.lengthInBytes ?? 0,
+        to: decode.fullRes?.rgba.lengthInBytes ??
+            deferredUpconvertPeakBytes(decode) ??
+            0,
       );
       // PERF-INSTRUMENTATION (D1 AC3 markers + gap #5): request end + decode
       // phase result, now carrying the payload classification round-2
