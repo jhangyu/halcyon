@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:ffi' as ffi;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:ceyx/ceyx.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
@@ -23,10 +25,12 @@ import 'photo_payload.dart';
 /// dropping it on the floor is a leak, not a nit. The intermediate
 /// unoriented image is owned by this function and disposed here.
 Future<ui.Image> decodedRgbaToImage(
-  DecodedRgba rgba, {
+  DecodedRgba decodedIn, {
   required int exifOrientation,
   CompositeGate gate = immediateCompositeGate,
 }) async {
+  // mem8 T15a: the seam, FIRST, before anything branches. See materialiseRgba.
+  final rgba = await materialiseRgba(decodedIn);
   // PACED BEFORE ALLOCATION (contract deliverable 2). The slot is bought here,
   // where this function owns nothing, and not around the compositing call
   // below: a slow or never-granted slot must not be able to leave a ~50MB
@@ -101,6 +105,190 @@ Future<ui.Image> applyExifOrientation(ui.Image src, int orientation) async {
   // buffer on the Dart heap. Costs one transient extra ui.Image; a Dart-side
   // rotate would allocate the same 50MB AND be slower.
   return _applyTransform(src, transform);
+}
+
+// --- mem8 T15a: the yuv420 -> RGBA8 materialisation seam (SR-12) ----------
+
+/// Convert-once memo (T15a step 5), keyed on the SOURCE frame instance.
+///
+/// A decode whose pixels are read twice — the deferred encode path plus a
+/// display fallback — must not pay the upconvert twice. Keyed on the
+/// `DecodedRgba` rather than on a photo id because the frame IS the unit of
+/// ownership the T6/T7/T8 chain already governs; introducing an id-keyed cache
+/// here would be a SECOND ownership rule, which step 5 forbids.
+final Expando<DecodedRgba> _materialisedRgba = Expando<DecodedRgba>(
+  'materialiseRgba',
+);
+
+/// Test seam: how many times the seam actually ran the upconvert. Reset by the
+/// tests that assert convert-once.
+@visibleForTesting
+int debugUpconvertCount = 0;
+
+/// Test seam: how many pooled destination slots the seam acquired.
+@visibleForTesting
+int debugUpconvertPoolAcquireCount = 0;
+
+/// Test seam for the pooled destination allocator (T15a step 4). Non-null only
+/// in tests; production always goes to `CeyxNativeBufferPool.shared`.
+@visibleForTesting
+Future<CeyxNativeBuffer> Function(int bytes)? debugUpconvertAcquire;
+
+/// Test seam for the release of a pooled destination slot.
+@visibleForTesting
+void Function(CeyxNativeBuffer buffer)? debugUpconvertRelease;
+
+/// Test seam for the native converter itself (T13's single implementation).
+/// Non-null only in tests — Dart must NEVER open-code the colour maths, so
+/// this is an injection point, not an alternative implementation (SR-11).
+@visibleForTesting
+void Function({
+  required int srcAddress,
+  required int srcCapacity,
+  required int dstAddress,
+  required int dstCapacity,
+  required int width,
+  required int height,
+})? debugUpconvertConverter;
+
+/// Resets every seam counter and override. For `tearDown`.
+@visibleForTesting
+void debugResetUpconvertSeam() {
+  debugUpconvertCount = 0;
+  debugUpconvertPoolAcquireCount = 0;
+  debugUpconvertAcquire = null;
+  debugUpconvertRelease = null;
+  debugUpconvertConverter = null;
+}
+
+/// Returns [decoded] in RGBA8, converting through ceyx's SINGLE native
+/// upconvert when the decoder produced planar yuv420 (mem8 T15a, SR-11/SR-12).
+///
+/// THE SEAM SITS AT THE CONVERSION POINTS, NOT AT `_imageFromPixels` (T15a.2).
+/// Two of the three public producers in this file short-circuit AROUND that
+/// private helper and hand back `decoded.rgba` directly, so a seam placed
+/// there alone would emit planar yuv bytes from both short-circuit arms — a
+/// defect that yields plausible-looking garbage rather than a crash. Every
+/// public entry point therefore calls this FIRST, before it branches.
+///
+/// NO FORMAT BRANCH EXISTS ABOVE THIS FUNCTION (T15a step 2, R-L). Every RAW
+/// decode path — including the 200 px sidebar thumbnail — requests yuv420 and
+/// converts here. The per-tile conversion cost on the thumbnail path is a
+/// KNOWINGLY ACCEPTED TRADE, not an oversight: uniformity is the design, and
+/// one "optimised" exemption reintroduces the mixed-format lane problem R-D
+/// made moot. Do not add a branch back.
+///
+/// OWNERSHIP. On the converting path the SOURCE slot is released as soon as
+/// the converter has read it — that read is its last — and the returned frame
+/// owns a POOLED destination slot whose `releaseNative` is idempotent. The
+/// existing release sites (`decodedRgbaToImage`'s `finally`,
+/// `decodedRgbaToOrientedFullRes`'s `finally` and its identity short-circuit's
+/// record, `_finishOffLane`'s callback) therefore keep working unchanged: they
+/// were always "release whatever this frame carries", and after the seam the
+/// frame they see carries the destination.
+///
+/// Destinations come from `CeyxNativeBufferPool.acquire(bytes)` and NEVER from
+/// a fresh Dart allocation (T15a step 4) — otherwise the campaign trades arena
+/// residency for GC pressure, which is the opposite of SR-12's point. The slot
+/// size goes through `ceyxOutputFormatByteCount`, never open-coded arithmetic.
+Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
+  if (decoded.format == CeyxOutputFormat.rgba8) return decoded;
+
+  final memo = _materialisedRgba[decoded];
+  if (memo != null) return memo;
+
+  // Sized through the FROZEN contract entry, both sides. The `ceil(w/2)` term
+  // inside the yuv420 arm is load-bearing: an odd-dimension frame sized with
+  // `(w/2)*(h/2)` under-allocates and the converter reads past the source.
+  final srcBytes = ceyxOutputFormatByteCount(
+    decoded.format,
+    decoded.width,
+    decoded.height,
+  );
+  if (decoded.rgba.length != srcBytes) {
+    throw ArgumentError(
+      'DecodedRgba buffer is ${decoded.rgba.length} bytes but '
+      '${decoded.width}x${decoded.height} ${decoded.format.name} needs '
+      '$srcBytes',
+    );
+  }
+  final dstBytes = ceyxOutputFormatByteCount(
+    CeyxOutputFormat.rgba8,
+    decoded.width,
+    decoded.height,
+  );
+
+  final acquire =
+      debugUpconvertAcquire ?? CeyxNativeBufferPool.shared.acquire;
+  debugUpconvertPoolAcquireCount++;
+  final dst = await acquire(dstBytes);
+  final dstView = ffi.Pointer<ffi.Uint8>.fromAddress(
+    dst.address,
+  ).asTypedList(dstBytes);
+
+  var srcAddress = decoded.nativeAddress;
+  CeyxNativeBuffer? stagedSrc;
+  try {
+    if (srcAddress == 0) {
+      // The legacy Dart-heap arm (and any fake decoder) has no address to
+      // hand the converter. Stage the bytes through a pooled slot rather than
+      // refusing: the converter is native and takes pointers, and a throw here
+      // would turn an A/B control arm into a crash.
+      debugUpconvertPoolAcquireCount++;
+      final staged = await acquire(srcBytes);
+      stagedSrc = staged;
+      ffi.Pointer<ffi.Uint8>.fromAddress(
+        staged.address,
+      ).asTypedList(srcBytes).setAll(0, decoded.rgba);
+      srcAddress = staged.address;
+    }
+    // A non-zero rc surfaces as ceyx's ArgumentError, unmapped and uncaught.
+    // READING ONE IF IT EVER FIRES (confirmed by T13's implementer against the
+    // native source, six extents observed): `-301` means the DESTINATION could
+    // not hold `w*h*4`, whereas `-1` covers a null pointer, a non-positive
+    // extent, OR a SOURCE shorter than the yuv420 byte count. ceyx's binding
+    // maps both to ArgumentError, so do not read `-1` as "bad argument" and go
+    // looking at the dimensions — a short source lands there too.
+    final convert = debugUpconvertConverter ?? ceyxYuv420ToRgba8;
+    debugUpconvertCount++;
+    convert(
+      srcAddress: srcAddress,
+      srcCapacity: srcBytes,
+      dstAddress: dst.address,
+      dstCapacity: dstBytes,
+      width: decoded.width,
+      height: decoded.height,
+    );
+  } catch (_) {
+    (debugUpconvertRelease ?? CeyxNativeBufferPool.shared.release)(dst);
+    rethrow;
+  } finally {
+    final release = debugUpconvertRelease ?? CeyxNativeBufferPool.shared.release;
+    if (stagedSrc != null) release(stagedSrc);
+    // The converter has read the source; that read was its last, so the
+    // source slot goes back HERE rather than travelling with a frame that no
+    // longer references it.
+    decoded.releaseNative?.call();
+  }
+
+  var released = false;
+  final materialised = DecodedRgba(
+    rgba: dstView,
+    width: decoded.width,
+    height: decoded.height,
+    nativeAddress: dst.address,
+    nativeKeepAlive: dst,
+    releaseNative: () {
+      // Idempotent: the convert-once memo means two consumers can legitimately
+      // reach the same destination slot, and each of them releases.
+      if (released) return;
+      released = true;
+      (debugUpconvertRelease ?? CeyxNativeBufferPool.shared.release)(dst);
+    },
+    appliedOrientation: decoded.appliedOrientation,
+  );
+  _materialisedRgba[decoded] = materialised;
+  return materialised;
 }
 
 /// The out-of-bounds guard, extracted so BOTH the engine path and the
@@ -186,11 +374,15 @@ Future<ui.Image> _imageFromPixels(DecodedRgba decoded, {String? src}) {
 /// Nothing is left owned by the caller: both `ui.Image` intermediates are
 /// disposed here and the result is a plain [Uint8List].
 Future<PixelPayload> decodedRgbaToPixelPayload(
-  DecodedRgba decoded, {
+  DecodedRgba decodedIn, {
   required int exifOrientation,
   required int longEdge,
   CompositeGate gate = immediateCompositeGate,
 }) async {
+  // mem8 T15a: the seam, FIRST. The identity short-circuit below returns
+  // `decoded.rgba` as an owned copy without ever reaching `_imageFromPixels`,
+  // so a seam placed there instead would copy planar yuv into a PixelPayload.
+  final decoded = await materialiseRgba(decodedIn);
   _assertDecodedBufferLength(decoded);
   final transform = _ExifTransform.forOrientation(
     residualExifOrientation(
@@ -310,10 +502,14 @@ typedef OrientedFullRes = ({
 /// floor is a leak, not a nit. The intermediate unoriented image is owned by
 /// this function and disposed here.
 Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
-  DecodedRgba decoded, {
+  DecodedRgba decodedIn, {
   required int exifOrientation,
   CompositeGate gate = immediateCompositeGate,
 }) async {
+  // mem8 T15a: the seam, FIRST. The identity short-circuit below returns
+  // `decoded.rgba` VERBATIM (transient aliasing kept by T6), so this is the
+  // second of the two arms that bypass `_imageFromPixels` entirely.
+  final decoded = await materialiseRgba(decodedIn);
   _assertDecodedBufferLength(decoded);
   final residual = residualExifOrientation(
     declared: exifOrientation,

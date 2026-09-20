@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:ceyx/ceyx.dart' show CeyxOutputFormat;
+
 /// Round-3b integration seam between the `dng_processor` package (which owns
 /// the native RAW decode) and Halcyon's image pipeline.
 ///
@@ -7,8 +9,15 @@ import 'dart:typed_data';
 /// loading a 50MB-per-image native dylib, mirroring the existing
 /// `ImageBytesLoader` injection in `image_preload_controller.dart`.
 ///
-/// ponytail: deliberately dumber than `DngImage` — no timing fields, no
-/// package import. Widen it only when a consumer actually needs more.
+/// ponytail: deliberately dumber than `DngImage` — no timing fields. The "no
+/// package import" half of that rule is SPENT HERE, once, by mem8 T15a, and
+/// the reason is recorded so it is not spent again casually: [format] has to
+/// name T12.0's frozen `CeyxOutputFormat`, because the alternative — a
+/// Halcyon-local mirror enum — is a second source of truth for a contract
+/// whose whole point is that both repos agree on it. `CeyxOutputFormat` is a
+/// plain Dart enum in `codec_format.dart`; naming it loads no dylib and costs
+/// no test a native library, which is the property the original rule was
+/// protecting.
 class DecodedRgba {
   const DecodedRgba({
     required this.rgba,
@@ -18,9 +27,17 @@ class DecodedRgba {
     this.nativeKeepAlive,
     this.releaseNative,
     this.appliedOrientation = 1,
+    this.format = CeyxOutputFormat.rgba8,
   });
 
-  /// RGBA8 interleaved, length == width * height * 4.
+  /// The decoder's pixel bytes in [format].
+  ///
+  /// Named `rgba` for history, not for layout: since mem8 T15a the RAW decode
+  /// path requests [CeyxOutputFormat.yuv420] and this buffer is planar yuv
+  /// until `materialiseRgba` (decoded_rgba_image_provider.dart) converts it.
+  /// Its length is always `ceyxOutputFormatByteCount(format, width, height)`,
+  /// which collapses to `width * height * 4` for [CeyxOutputFormat.rgba8] —
+  /// the historical invariant, unchanged for every existing fake decoder.
   final Uint8List rgba;
 
   /// Already cropped to DefaultCropSize by the decoder; do not crop again.
@@ -95,6 +112,19 @@ class DecodedRgba {
   /// feature flag. Defaults to 1 so every existing construction site
   /// (production and every fake decoder in the test suite) is unaffected.
   final int appliedOrientation;
+
+  /// The pixel layout [rgba] is actually in (mem8 T15a, SR-12).
+  ///
+  /// A REPORT of what the decoder produced, never a request — the request is
+  /// made at the `CeyxDecodePool.decode(format:)` call in
+  /// `dng_decode_service.dart`, and a library that could not service it throws
+  /// `CeyxFormatUnsupportedException` there rather than quietly handing back a
+  /// different layout (R-J; a silent rgba8 fallback would make this field lie).
+  ///
+  /// Defaults to [CeyxOutputFormat.rgba8] so every pre-existing construction
+  /// site — production's non-RAW arms and every fake decoder in the test
+  /// suite — is unaffected and keeps compiling.
+  final CeyxOutputFormat format;
 }
 
 /// Decodes a DNG that carries no embedded full-size JPEG preview.

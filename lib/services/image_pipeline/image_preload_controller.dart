@@ -596,7 +596,12 @@ class ImagePreloadController {
     // The selected item is unaffected: `submit`'s exempt branch returns before
     // the queue, so the user's own item is charged against neither budget
     // (pinned by TC-1291).
-    perFrameBytes: 2 * kNominalFullFrameBytes,
+    // mem8 T15a, family B: the DISPLAY constant, not the decode-output one.
+    // Every cost charged against this quota is a `ui.Image` upload at 4 B/px
+    // (`tier_two_scheduler.dart:270`, `:323`), which does not move with the
+    // decode format. Sharing the decode constant would have shrunk this quota
+    // ~2.7x the moment T15b re-derives it, silently, with no test failing.
+    perFrameBytes: 2 * kNominalFullFrameDisplayBytes,
     // Deliverable 3: only the selected item may publish synchronously, and
     // that is now the pacer's rule rather than the call site's promise.
     isSelected: (id) => id == _selectedId,

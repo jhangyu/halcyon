@@ -46,6 +46,30 @@ const int kNominalFullFrameBytes = 96962304;
 /// same edit**; the two are one fact and must never be updated apart.
 const ({int width, int height})? kMeasuredFullFrameExtent = null;
 
+/// One full-resolution **transient DISPLAY buffer**, 4 B/px — the family-B
+/// constant the mem8 T15a split creates (lead pre-ruling 2026-09-20).
+///
+/// SEPARATE FROM [kNominalFullFrameBytes] ON PURPOSE, and the separation is a
+/// correctness requirement forced by Flutter's API rather than a preference.
+/// After T15a the decode OUTPUT is planar yuv420 at 1.5 B/px, so
+/// [kNominalFullFrameBytes] re-derives downward at T15b. The DISPLAY buffer
+/// does not move with it: `ui.decodeImageFromPixels` accepts RGBA only, so
+/// `materialiseRgba`'s upconvert destination — and every `ui.Image` upload
+/// charged against the publish pacer — is genuinely 4 B/px forever.
+///
+/// THE DEFECT THIS PREVENTS, stated so nobody "simplifies" the two back into
+/// one: re-deriving a single shared constant to the yuv420 value would
+/// silently shrink the publish pacer's quota by ~2.7x as a side effect, while
+/// the costs charged against that quota (`image.width * image.height * 4` at
+/// `tier_two_scheduler.dart:270`, `payload.byteCost` at `:323`) would not
+/// shrink at all. A quota and its charges must be in the same units.
+///
+/// Its value is today's measured 24 MP RGBA figure carried across unchanged —
+/// the display buffer is exactly what that capture measured, so this constant
+/// inherits the measurement rather than needing a new one. **T15b supplies
+/// family A's number ONLY and must not touch this one.**
+const int kNominalFullFrameDisplayBytes = 96962304;
+
 /// The fraction of total physical memory the decode in-flight budget may
 /// occupy. A SAFETY CEILING only, never the primary driver (decision D1-a,
 /// 2026-09-11): at the widest lane setting (8 -> 9 nominal frames =
@@ -107,5 +131,19 @@ int decodeInflightByteBudget({
 /// the time it is charged, the stage's concurrency is already bounded by
 /// `EncodeStage.width`, so this is an attribution instrument and an over-run
 /// detector, not a gate.
+/// FAMILY B, ruled 2026-09-20 (mem8 T15a). This ceiling is sized in DISPLAY
+/// units, not decode-output units, and the reason is that the frames it
+/// accounts for have already been upconverted: after T15a every consumer
+/// reaches full-resolution pixels through `decodedRgbaToOrientedFullRes`,
+/// which returns RGBA. So the real post-decode sizes charged here are 4 B/px,
+/// and a ceiling must be in the same units as its charges.
+///
+/// The earlier reading — "the tail is charged the REAL post-decode size, so it
+/// follows the decode format" — was right about the mechanism and wrong about
+/// the conclusion once the seam landed: those real sizes are now RGBA sizes
+/// too. Leaving this on [kNominalFullFrameBytes] would have shrunk the ceiling
+/// ~2.7x the moment T15b re-derives family A, silently and with nothing red.
+/// Pinned by TC-1342.
 int encodePublishTailByteBudget({required int encodeStageWidth}) =>
-    encodeStageWidth.clamp(1, kMaxDecodeLaneWidth) * kNominalFullFrameBytes;
+    encodeStageWidth.clamp(1, kMaxDecodeLaneWidth) *
+    kNominalFullFrameDisplayBytes;

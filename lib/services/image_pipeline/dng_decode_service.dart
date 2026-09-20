@@ -5,6 +5,17 @@ import '../../perf/perf_log.dart';
 import '../platform/working_set_trim.dart';
 import 'dng_decode_contract.dart';
 
+/// The output format EVERY RAW/DNG decode path requests (mem8 T15a step 2,
+/// R-A/R-L). ONE constant, referenced by every call site, so "is there a
+/// format branch anywhere?" is answerable by grep rather than by reading.
+///
+/// ceyx keeps rgba8 as ITS default for other consumers (R-B); Halcyon
+/// overrides on its own side. There is deliberately NO per-path exemption —
+/// not even for the 200 px sidebar thumbnail, whose per-tile conversion cost
+/// is a knowingly accepted trade (R-L). Uniformity is the design: one
+/// exemption reintroduces the mixed-format lane problem R-D made moot.
+const CeyxOutputFormat kHalcyonDecodeOutputFormat = CeyxOutputFormat.yuv420;
+
 /// P2: routes the [DngFullDecoder] seam through ceyx's persistent worker pool
 /// instead of an `Isolate.run` per decode.
 ///
@@ -30,14 +41,21 @@ import 'dng_decode_contract.dart';
 /// `dng_bindings.dart`'s own search order finds it there.
 Future<DecodedRgba> decodeDngFull(String path) async {
   ensureHalcyonDecodePoolConfigured();
-  final image = await CeyxDecodePool.shared.decode(path);
+  final image = await CeyxDecodePool.shared.decode(
+    path,
+    format: kHalcyonDecodeOutputFormat,
+  );
 
-  final expectedLength = image.width * image.height * 4;
+  final expectedLength = ceyxOutputFormatByteCount(
+    kHalcyonDecodeOutputFormat,
+    image.width,
+    image.height,
+  );
   if (image.rgbaData.length != expectedLength) {
     throw StateError(
       'ceyx returned rgbaData.length=${image.rgbaData.length} '
-      'but width*height*4=$expectedLength (width=${image.width}, '
-      'height=${image.height})',
+      'but ${image.width}x${image.height} '
+      '${kHalcyonDecodeOutputFormat.name} needs $expectedLength',
     );
   }
 
@@ -45,6 +63,7 @@ Future<DecodedRgba> decodeDngFull(String path) async {
     rgba: image.rgbaData,
     width: image.width,
     height: image.height,
+    format: kHalcyonDecodeOutputFormat,
     // R2b (gc-remediation): `image.nativeAddress` is 0 on the legacy
     // TransferableTypedData arm (`DngDecoderService().decodeOnWorker`), so
     // `nativeKeepAlive` is harmless to set unconditionally -- a zero address
@@ -91,14 +110,19 @@ Future<DecodedRgba> decodeDngFullOriented(
   final image = await CeyxDecodePool.shared.decode(
     path,
     exifOrientation: exifOrientation,
+    format: kHalcyonDecodeOutputFormat,
   );
 
-  final expectedLength = image.width * image.height * 4;
+  final expectedLength = ceyxOutputFormatByteCount(
+    kHalcyonDecodeOutputFormat,
+    image.width,
+    image.height,
+  );
   if (image.rgbaData.length != expectedLength) {
     throw StateError(
       'ceyx returned rgbaData.length=${image.rgbaData.length} '
-      'but width*height*4=$expectedLength (width=${image.width}, '
-      'height=${image.height})',
+      'but ${image.width}x${image.height} '
+      '${kHalcyonDecodeOutputFormat.name} needs $expectedLength',
     );
   }
 
@@ -106,6 +130,7 @@ Future<DecodedRgba> decodeDngFullOriented(
     rgba: image.rgbaData,
     width: image.width,
     height: image.height,
+    format: kHalcyonDecodeOutputFormat,
     nativeAddress: image.nativeAddress,
     nativeKeepAlive: image,
     releaseNative: image.releaseToPool,
@@ -162,6 +187,8 @@ void ensureHalcyonDecodePoolConfigured() {
   // accumulate distinct closures.
   CeyxNativeBufferPool.shared.onShrink = _trimAfterPoolShrink;
 
+  _assertLoadedLibrarySupportsYuv420();
+
   if (_poolConfigured) return;
   _poolConfigured = true;
   CeyxDecodePool.logger = (line) {
@@ -173,6 +200,147 @@ void ensureHalcyonDecodePoolConfigured() {
   // call per job and nothing else. The emitted `pool.materialize|...` line
   // reaches the PERF| file through the logger wired above.
   CeyxDecodePool.materializeTimingEnabled = () => PerfLog.enabled;
+}
+
+// --- mem8 T15a step 6: the R-J capability gate ----------------------------
+
+/// Test seam for the gate's probe. Returns null when the loaded library CAN
+/// service [kHalcyonDecodeOutputFormat], or the
+/// [CeyxFormatUnsupportedException] the real lookup produced when it cannot.
+///
+/// A seam, not a mock of the lookup: the production probe below calls ceyx's
+/// own unguarded binding, so a production lookup that swallowed the error
+/// would still be caught. Tests that need the absent branch drive it through
+/// `CeyxDecodePool.debugYuv420Available` (ceyx's own forced-absence seam) or
+/// through this override.
+@visibleForTesting
+CeyxFormatUnsupportedException? Function()? debugYuv420GateProbe;
+
+/// Set once the gate has passed, so the probe is paid once per process rather
+/// than on every `ensureHalcyonDecodePoolConfigured` call. A FAILURE is never
+/// latched: a stale pin must keep throwing, on every entry point, forever.
+bool _yuv420GatePassed = false;
+
+@visibleForTesting
+void debugResetYuv420Gate() => _yuv420GatePassed = false;
+
+/// Raises R-J's hard typed failure when the library this process actually
+/// loaded predates the yuv420 arm.
+///
+/// WHY THIS IS NOT THE GUARDED-LOOKUP PATTERN USED EVERYWHERE ELSE HERE.
+/// `dng_bindings.dart:419-470` wraps each `lookupFunction` in a swallowing
+/// `catch` and nulls a whole group when one symbol is missing. That is the
+/// right policy for a debug/tuning capability and the WRONG policy here: a
+/// library without the yuv420 entries cannot produce the pixels this app is
+/// about to interpret as planar yuv, so a silent rgba8 fallback hands back a
+/// wrong image with no error — strictly worse than a crash. This campaign has
+/// already shipped one silent-capability-absence defect of exactly that shape.
+/// No arm of this gate may yield null, a bool, or a degraded-but-running
+/// decoder.
+///
+/// IT FIRES AT POOL CONFIGURATION, NOT AT FIRST DECODE, so a stale pin fails
+/// at startup rather than at the user's first navigation — a failure that
+/// waits for a user action is one a headless acceptance run can miss.
+///
+/// ONE RULE, TWO LAYERS, deliberately. ceyx already refuses at `submit()`
+/// (T14) with the SAME frozen exception type. This is an EARLIER check, not a
+/// second rule, and two consequences are binding: Halcyon surfaces the
+/// plugin's frozen type and never defines its own, and Halcyon NEVER catches
+/// the plugin's submit-time throw anywhere — the plugin's refusal stays the
+/// backstop, and catching it would reinstate exactly the silent degradation
+/// R-J bans.
+///
+/// It is DISTINCT from `RawUnavailableException` (the "this build has no RAW
+/// decoder" signal): reusing that routes a stale pin into the path for a
+/// deliberately RAW-less build, and those need opposite responses.
+///
+/// ONE CODE PATH FOR ALL TARGETS — there is no `Platform.isX` here (R-N).
+///
+/// KNOWN COVERAGE GAP, flagged rather than silently dropped — and note that
+/// yuv420 support is TWO independent capabilities, not one:
+///
+/// * the DECODE-FORMAT entries, probed inside ceyx by
+///   `DngNativeBindings.yuv420DecodeAvailable` (`dng_bindings.dart:527`);
+/// * the CONVERTER entry `ceyx_yuv420_to_rgba8`, probed by
+///   `yuv420UpconvertAvailable` (`:531`).
+///
+/// A library carrying one without the other is a real state, so folding them
+/// into a single bool would name the wrong fact in the R-J exception.
+///
+/// This gate probes the CONVERTER only, because that is the sole yuv420
+/// capability ceyx currently exports to a host: `ceyxYuv420ToRgba8` is
+/// reachable, while BOTH availability getters are unexported from
+/// `plugin/lib/ceyx.dart` and `CeyxDecodePool._yuv420Available`
+/// (`decode_pool.dart:847`) is private — and that private one forwards
+/// `yuv420DecodeAvailable` ALONE (`:854`), so even exposing it would leave the
+/// converter unprobed rather than close this gap. Two getters (or one that
+/// ANDs them while reporting each separately) have been requested from the
+/// plugin side; ownership of that edit sits with the lead, not with T13.
+///
+/// Until they exist the DECODE-FORMAT symbol is covered only by ceyx's own
+/// submit-time refusal, which is the backstop rather than the startup check.
+/// Do not close this gap by catching that refusal.
+void _assertLoadedLibrarySupportsYuv420() {
+  if (_yuv420GatePassed) return;
+
+  final probe = debugYuv420GateProbe ?? _probeYuv420Converter;
+  final failure = probe();
+  if (failure != null) throw failure;
+  _yuv420GatePassed = true;
+}
+
+/// The production probe: a 2x2 upconvert through ceyx's real, unguarded
+/// binding. Two pixels cost nothing and exercise the genuine lookup.
+///
+/// Scratch memory comes from `CeyxNativeBufferPool` rather than from
+/// `package:ffi`'s `calloc` — the pool is already a dependency, already
+/// owns every native buffer in this pipeline, and adding an `ffi` dependency
+/// for six bytes would be the wrong trade.
+CeyxFormatUnsupportedException? _probeYuv420Converter() {
+  // 2x2 yuv420 is 4 luma + 2 chroma = 6 bytes; the RGBA8 destination is 16.
+  final srcBytes = ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, 2, 2);
+  final dstBytes = ceyxOutputFormatByteCount(CeyxOutputFormat.rgba8, 2, 2);
+  final pool = CeyxNativeBufferPool.shared;
+  final src = pool.acquireOrNull(srcBytes);
+  final dst = src == null ? null : pool.acquireOrNull(dstBytes);
+  if (src == null || dst == null) {
+    // Servable-without-waiting only: the gate must never block startup on a
+    // busy pool. A pool that cannot serve six bytes right now says nothing
+    // about the loaded library, so this is "not probed", not "not present" —
+    // and it is not latched, so the next entry point probes again.
+    if (src != null) pool.release(src);
+    return null;
+  }
+  try {
+    ceyxYuv420ToRgba8(
+      srcAddress: src.address,
+      srcCapacity: srcBytes,
+      dstAddress: dst.address,
+      dstCapacity: dstBytes,
+      width: 2,
+      height: 2,
+    );
+    return null;
+  } on CeyxFormatUnsupportedException catch (e) {
+    // NOT a swallow: the exception is RETURNED to the gate, which rethrows it.
+    // The one case it is deliberately downgraded to "not a stale pin" is a
+    // process where NO library could be opened at all — a plain Dart test
+    // process — which ceyx reports with the `kCeyxNoLibraryLoaded` sentinel
+    // and which is a different condition from the stale pin R-J diagnoses.
+    // Loud either way: the sentinel case prints.
+    if (e.libraryPath == kCeyxNoLibraryLoaded) {
+      debugPrint(
+        '[ceyx-pool] yuv420 gate: no native library is loaded in this '
+        'process, so the capability could not be probed. This is expected in '
+        'a pure-Dart test process and NEVER expected in the app.',
+      );
+      return null;
+    }
+    return e;
+  } finally {
+    pool.release(src);
+    pool.release(dst);
+  }
 }
 
 /// The pool's shrink-completion listener: a completed shrink has just freed
