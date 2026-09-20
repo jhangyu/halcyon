@@ -222,7 +222,28 @@ CeyxFormatUnsupportedException? Function()? debugYuv420GateProbe;
 bool _yuv420GatePassed = false;
 
 @visibleForTesting
-void debugResetYuv420Gate() => _yuv420GatePassed = false;
+void debugResetYuv420Gate() {
+  _yuv420GatePassed = false;
+  debugFailProbeWhenNoLibraryLoaded = false;
+}
+
+/// Turns OFF the probe's one downgrade — the "no library could be opened at
+/// all" case — so a test can observe the genuine absent branch.
+///
+/// WHY THIS EXISTS, because it looks like a test-only crutch and is not. In a
+/// pure-Dart test process no dylib loads, so ceyx reports EVERY absence with
+/// the `kCeyxNoLibraryLoaded` sentinel — including an absence a test forced on
+/// purpose through `CeyxDecodePool.debugYuv420Available`. The downgrade
+/// therefore silences exactly the branch the forced-absence tests exist to
+/// exercise, and the two conditions are indistinguishable from outside this
+/// function. Without this switch, TC-1343/1344 would have to stub
+/// `debugYuv420GateProbe` — i.e. test the stub instead of the production path
+/// reaching `checkYuv420Supported()`, which is the whole property under test.
+///
+/// It changes NO production behaviour: it defaults false and is reset by
+/// [debugResetYuv420Gate].
+@visibleForTesting
+bool debugFailProbeWhenNoLibraryLoaded = false;
 
 /// Raises R-J's hard typed failure when the library this process actually
 /// loaded predates the yuv420 arm.
@@ -256,79 +277,52 @@ void debugResetYuv420Gate() => _yuv420GatePassed = false;
 ///
 /// ONE CODE PATH FOR ALL TARGETS — there is no `Platform.isX` here (R-N).
 ///
-/// KNOWN COVERAGE GAP, flagged rather than silently dropped — and note that
-/// yuv420 support is TWO independent capabilities, not one:
+/// BOTH HALVES ARE PROBED. yuv420 support is TWO independent capabilities,
+/// and a library carrying one without the other is a real state that has to be
+/// named rather than folded into one bool:
 ///
-/// * the DECODE-FORMAT entries, probed inside ceyx by
-///   `DngNativeBindings.yuv420DecodeAvailable` (`dng_bindings.dart:527`);
-/// * the CONVERTER entry `ceyx_yuv420_to_rgba8`, probed by
-///   `yuv420UpconvertAvailable` (`:531`).
+/// * the DECODE-FORMAT entries — `ceyx_decode_into_buffer_format`;
+/// * the CONVERTER entry — `ceyx_yuv420_to_rgba8`.
 ///
-/// A library carrying one without the other is a real state, so folding them
-/// into a single bool would name the wrong fact in the R-J exception.
+/// `CeyxDecodePool.checkYuv420Supported()` (ceyx `23c19af3`) checks both and
+/// throws with `missingSymbol` naming the half that is ACTUALLY absent,
+/// decode first — without it there is nothing to upconvert, so it is the more
+/// useful diagnosis when both are gone. The exception is constructed in ONE
+/// place per half, on the plugin side, which is what keeps Halcyon surfacing
+/// the frozen type rather than assembling its own.
 ///
-/// This gate probes the CONVERTER only, because that is the sole yuv420
-/// capability ceyx currently exports to a host: `ceyxYuv420ToRgba8` is
-/// reachable, while BOTH availability getters are unexported from
-/// `plugin/lib/ceyx.dart` and `CeyxDecodePool._yuv420Available`
-/// (`decode_pool.dart:847`) is private — and that private one forwards
-/// `yuv420DecodeAvailable` ALONE (`:854`), so even exposing it would leave the
-/// converter unprobed rather than close this gap. Two getters (or one that
-/// ANDs them while reporting each separately) have been requested from the
-/// plugin side; ownership of that edit sits with the lead, not with T13.
-///
-/// Until they exist the DECODE-FORMAT symbol is covered only by ceyx's own
-/// submit-time refusal, which is the backstop rather than the startup check.
-/// Do not close this gap by catching that refusal.
+/// An earlier revision of this gate probed the CONVERTER ONLY, via a scratch
+/// 2x2 upconvert, because that was the sole yuv420 capability ceyx exported to
+/// a host at the time. That is now deleted: it covered one half and cost a
+/// real FFI call per process to do it.
 void _assertLoadedLibrarySupportsYuv420() {
   if (_yuv420GatePassed) return;
 
-  final probe = debugYuv420GateProbe ?? _probeYuv420Converter;
+  final probe = debugYuv420GateProbe ?? _probeYuv420Support;
   final failure = probe();
   if (failure != null) throw failure;
   _yuv420GatePassed = true;
 }
 
-/// The production probe: a 2x2 upconvert through ceyx's real, unguarded
-/// binding. Two pixels cost nothing and exercise the genuine lookup.
+/// The production probe: ceyx's own two-half capability check.
 ///
-/// Scratch memory comes from `CeyxNativeBufferPool` rather than from
-/// `package:ffi`'s `calloc` — the pool is already a dependency, already
-/// owns every native buffer in this pipeline, and adding an `ffi` dependency
-/// for six bytes would be the wrong trade.
-CeyxFormatUnsupportedException? _probeYuv420Converter() {
-  // 2x2 yuv420 is 4 luma + 2 chroma = 6 bytes; the RGBA8 destination is 16.
-  final srcBytes = ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, 2, 2);
-  final dstBytes = ceyxOutputFormatByteCount(CeyxOutputFormat.rgba8, 2, 2);
-  final pool = CeyxNativeBufferPool.shared;
-  final src = pool.acquireOrNull(srcBytes);
-  final dst = src == null ? null : pool.acquireOrNull(dstBytes);
-  if (src == null || dst == null) {
-    // Servable-without-waiting only: the gate must never block startup on a
-    // busy pool. A pool that cannot serve six bytes right now says nothing
-    // about the loaded library, so this is "not probed", not "not present" —
-    // and it is not latched, so the next entry point probes again.
-    if (src != null) pool.release(src);
-    return null;
-  }
+/// Returns the exception rather than letting it propagate, so the ONE
+/// downgrade this gate makes is visible in one place: a process where NO
+/// library could be opened at all — a plain Dart test process — is not the
+/// stale pin R-J diagnoses. ceyx reports that with the `kCeyxNoLibraryLoaded`
+/// sentinel, and it is loud rather than silent.
+///
+/// THE DOWNGRADE IS THE ONE THING IN THIS GATE THAT CAN HIDE A REAL ABSENCE,
+/// so it is switchable — see [debugFailProbeWhenNoLibraryLoaded] and the
+/// reason recorded there.
+CeyxFormatUnsupportedException? _probeYuv420Support() {
   try {
-    ceyxYuv420ToRgba8(
-      srcAddress: src.address,
-      srcCapacity: srcBytes,
-      dstAddress: dst.address,
-      dstCapacity: dstBytes,
-      width: 2,
-      height: 2,
-    );
+    CeyxDecodePool.shared.checkYuv420Supported();
     return null;
   } on CeyxFormatUnsupportedException catch (e) {
     // NOT a swallow: the exception is RETURNED to the gate, which rethrows it.
-    // The one case it is deliberately downgraded to "not a stale pin" is a
-    // process where NO library could be opened at all — a plain Dart test
-    // process — which ceyx reports with the `kCeyxNoLibraryLoaded` sentinel
-    // and which is a different condition from the stale pin R-J diagnoses.
-    // Loud either way: the sentinel case prints.
-    if (e.libraryPath == kCeyxNoLibraryLoaded) {
+    if (e.libraryPath == kCeyxNoLibraryLoaded &&
+        !debugFailProbeWhenNoLibraryLoaded) {
       debugPrint(
         '[ceyx-pool] yuv420 gate: no native library is loaded in this '
         'process, so the capability could not be probed. This is expected in '
@@ -337,9 +331,6 @@ CeyxFormatUnsupportedException? _probeYuv420Converter() {
       return null;
     }
     return e;
-  } finally {
-    pool.release(src);
-    pool.release(dst);
   }
 }
 

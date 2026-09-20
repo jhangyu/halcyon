@@ -40,6 +40,10 @@ void main() {
     debugYuv420GateProbe = null;
     debugResetYuv420Gate();
     CeyxDecodePool.debugYuv420Available = null;
+    // BOTH overrides reset: `debugYuv420UpconvertAvailable` falls back to
+    // `debugYuv420Available` when null, so leaking either one moves the other
+    // half's answer in a later test.
+    CeyxDecodePool.debugYuv420UpconvertAvailable = null;
   });
 
   /// A spy converter that writes a recognisable pattern into the destination,
@@ -352,6 +356,77 @@ void main() {
           reason: 'the gate over-fired and broke the preserved rgba8 option',
         );
         expect(debugUpconvertCount, 0);
+      },
+    );
+  });
+
+  group('TC-1343..1345: the gate probes BOTH capability halves', () {
+    // These drive ceyx's REAL resolution path through its forced-absence
+    // overrides, and deliberately do NOT stub `debugYuv420GateProbe` — the
+    // point is that Halcyon's production probe reaches
+    // `CeyxDecodePool.checkYuv420Supported()` and surfaces whichever half is
+    // absent. Stubbing the probe would test the stub.
+    //
+    // `debugFailProbeWhenNoLibraryLoaded` turns off the probe's "no library
+    // loaded at all" downgrade. In a pure-Dart test process NOTHING loads, so
+    // ceyx reports every absence with the kCeyxNoLibraryLoaded sentinel —
+    // including one a test forced on purpose — and that downgrade would
+    // otherwise silence the exact branch these cases exist to exercise.
+    setUp(() => debugFailProbeWhenNoLibraryLoaded = true);
+
+    test(
+      'TC-1343: the decode half absent names ceyx_decode_into_buffer_format',
+      () {
+        CeyxDecodePool.debugYuv420Available = false;
+        Object? caught;
+        try {
+          ensureHalcyonDecodePoolConfigured();
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught, isA<CeyxFormatUnsupportedException>());
+        expect(
+          (caught! as CeyxFormatUnsupportedException).missingSymbol,
+          'ceyx_decode_into_buffer_format',
+          reason: 'the decode half is checked FIRST — without it there is '
+              'nothing to upconvert, so it is the more useful diagnosis',
+        );
+      },
+    );
+
+    test(
+      'TC-1344: the upconvert half absent ALONE names ceyx_yuv420_to_rgba8 — '
+      'the state a single ANDed bool could never report',
+      () {
+        // This is exactly why the surface exposes two halves rather than one:
+        // "decode present, upconvert absent" is a real stale-library state,
+        // and an ANDed bool would have reported the wrong missing symbol and
+        // sent the reader hunting for the wrong entry point.
+        CeyxDecodePool.debugYuv420Available = true;
+        CeyxDecodePool.debugYuv420UpconvertAvailable = false;
+        Object? caught;
+        try {
+          ensureHalcyonDecodePoolConfigured();
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught, isA<CeyxFormatUnsupportedException>());
+        expect(
+          (caught! as CeyxFormatUnsupportedException).missingSymbol,
+          'ceyx_yuv420_to_rgba8',
+        );
+      },
+    );
+
+    test(
+      'TC-1345: both halves present — the gate returns silently and latches',
+      () {
+        CeyxDecodePool.debugYuv420Available = true;
+        CeyxDecodePool.debugYuv420UpconvertAvailable = true;
+        expect(ensureHalcyonDecodePoolConfigured, returnsNormally);
+        // The PASS is latched so the probe is paid once per process; a
+        // FAILURE never is, because a stale pin must keep throwing forever.
+        expect(ensureHalcyonDecodePoolConfigured, returnsNormally);
       },
     );
   });
