@@ -73,6 +73,8 @@ void main() {
         int? seenAddress,
         int? destinationAddress,
         bool sourceReleasedBeforeEncode,
+        bool destinationReleasedBeforeEncode,
+        Object? seenKeepAlive,
       })> runDecodeEncode() async {
     resetReencodeCounters();
     addTearDown(resetReencodeCounters);
@@ -82,10 +84,23 @@ void main() {
 
     var sourceReleased = false;
     var sourceReleasedBeforeEncode = false;
+    var destinationReleased = false;
+    var destinationReleasedBeforeEncode = false;
     int? destinationAddress;
     int? seenAddress;
+    Object? seenKeepAlive;
     var pointerCalls = 0;
     var copyCalls = 0;
+
+    // Observes the DESTINATION slot's release without suppressing it: the real
+    // pool still gets the buffer back, so this is an observation point rather
+    // than a behaviour change. Needed because "the address is right" and "the
+    // buffer under it is still live" are two different properties, and only
+    // the second rules out the use-after-free half of the defect.
+    debugUpconvertRelease = (buffer) {
+      destinationReleased = true;
+      CeyxNativeBufferPool.shared.release(buffer);
+    };
 
     // The REAL shared pool supplies the destination (as every other seam test
     // does), so the address compared below is a genuine allocation rather than
@@ -135,7 +150,9 @@ void main() {
       }) async {
         pointerCalls++;
         seenAddress = nativeAddress;
+        seenKeepAlive = keepAlive;
         sourceReleasedBeforeEncode = sourceReleased;
+        destinationReleasedBeforeEncode = destinationReleased;
         final frame = img.Image(width: width, height: height);
         return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
       },
@@ -157,6 +174,8 @@ void main() {
       seenAddress: seenAddress,
       destinationAddress: destinationAddress,
       sourceReleasedBeforeEncode: sourceReleasedBeforeEncode,
+      destinationReleasedBeforeEncode: destinationReleasedBeforeEncode,
+      seenKeepAlive: seenKeepAlive,
     );
   }
 
@@ -211,6 +230,41 @@ void main() {
           reason: 'if the source were still live the bug would be a mere '
               'overrun; it is released here, so the forwarded address was '
               'dangling as well as wrongly sized',
+        );
+      },
+    );
+
+    // H1's addendum: the overrun had TWO independent causes -- wrong layout
+    // (1.5 vs 4 B/px) AND use-after-free. Forwarding the destination address
+    // fixes both ONLY IF the destination is still live when the encoder reads
+    // it. "The address is right" and "the buffer under it exists" are separate
+    // properties; a fix that merely re-derived byte counts would leave a
+    // rarer, load-dependent crash. Asserted here so that distinction is
+    // mechanical rather than argued.
+    test(
+      'the DESTINATION slot is still live at encode time, and its keep-alive '
+      'travels with the address',
+      () async {
+        final r = await runDecodeEncode();
+
+        expect(
+          r.pointerCalls,
+          1,
+          reason: 'the pointer arm must have run for liveness to mean '
+              'anything here',
+        );
+        expect(
+          r.destinationReleasedBeforeEncode,
+          isFalse,
+          reason: 'the upconvert destination was returned to the pool BEFORE '
+              'the encoder read it -- the same use-after-free as the original '
+              'defect, merely moved to the other buffer',
+        );
+        expect(
+          r.seenKeepAlive,
+          isNotNull,
+          reason: 'the address travelled without its keep-alive, so nothing '
+              'holds the slot for the duration of the encode',
         );
       },
     );
