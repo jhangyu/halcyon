@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:ceyx/ceyx.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_normalizer.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
@@ -240,7 +241,15 @@ void main() {
 
           expect(result.width, 4080);
           expect(result.height, 3056);
-          expect(result.rgba.length, 49873920);
+          // mem8 T15b: the decode OUTPUT is yuv420 now (T15a's flip, SR-12), so
+          // this is 1.5 B/px, not the 49,873,920 rgba8 figure this line carried
+          // before. Sized through the frozen contract's own formula rather than
+          // a second open-coded literal — the ceil(w/2) term is load-bearing.
+          expect(result.format, CeyxOutputFormat.yuv420);
+          expect(
+            result.rgba.length,
+            ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, 4080, 3056),
+          );
         },
         timeout: const Timeout(Duration(minutes: 2)),
         skip: samplePhotosSkipReason,

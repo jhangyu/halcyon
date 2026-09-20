@@ -40,29 +40,21 @@ void main() {
         // Read through a local so this is a runtime comparison rather than a
         // constant-folded branch the analyser can call dead code.
         final extent = kMeasuredFullFrameExtent;
-        // The value the current dartdoc cites, from capture_173023
+        // The value the dartdoc cited BEFORE the flip, from capture_173023
         // (docs/logs/2026-09-06/gc-pressure-allocation-lens.md:9): 24 MP at
-        // 4 B/px, the rgba8 decode output that exists TODAY.
+        // 4 B/px, the rgba8 decode output.
         const measuredRgba8Bytes = 96962304;
 
-        if (extent == null) {
-          // Pre-T15b: no capture, so the constant must still be the rgba8
-          // measurement it claims to be. Fails if someone re-derives the
-          // constant "on paper" — exactly what P34.2 forbids, and the failure
-          // mode a green-looking edit would otherwise hide.
-          expect(
-            kNominalFullFrameBytes,
-            measuredRgba8Bytes,
-            reason: 'kNominalFullFrameBytes was changed while '
-                'kMeasuredFullFrameExtent is still null: the new value cannot '
-                'have come from a capture. P34.2 requires the number to be '
-                'DERIVED FROM A FRESH decode.ffi CAPTURE, not computed on '
-                'paper.',
-          );
-          return;
-        }
+        // T15b (2026-09-20) made the extent NON-NULLABLE. The pre-capture arm
+        // this test used to carry — "extent still null, so the constant must
+        // still be the rgba8 number" — described a state that no longer exists
+        // and is now unreachable by TYPE, which is a stronger guarantee than
+        // the runtime check it replaces. The obligation itself is unchanged and
+        // still bidirectional: the two assertions below fail if the extent is
+        // moved without the constant (first) or the constant is left at the
+        // rgba8 figure while an extent claims yuv420 (second).
 
-        // Post-T15b: a capture exists, so the constant must equal what the
+        // A capture exists, so the constant must equal what the
         // FROZEN CONTRACT's formula says that extent costs in yuv420 — one
         // formula across both repos, never an open-coded second copy. The
         // ceil(w/2) term is load-bearing: an odd-dimension frame sized with

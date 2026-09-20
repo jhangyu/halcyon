@@ -2,18 +2,39 @@ import 'dart:math' as math;
 
 import 'retention_policy.dart';
 
-/// One full-resolution **decode-output** frame, MEASURED: every `decode.ffi`
-/// event in capture_173023 was exactly 96,962,304 bytes (24 MP, 4 B/px).
-/// Source: docs/logs/2026-09-06/gc-pressure-allocation-lens.md:9.
+/// One full-resolution **decode-output** frame: 36,360,864 bytes, the cost of
+/// the MEASURED 6024x4024 extent ([kMeasuredFullFrameExtent]) under the yuv420
+/// decode output T15a flipped to (1.5 B/px).
+///
+/// DERIVED, NOT READ WHOLE, and the arithmetic is shown because of that
+/// (P34.2). The extent is the measurement; the byte count is what the FROZEN
+/// CONTRACT's formula says that extent costs:
+///   luma   6024*4024                        = 24,240,576
+///   chroma 2 * (ceil(6024/2)*ceil(4024/2))  = 12,120,288
+///   total                                   = 36,360,864
+/// and it must equal `ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, w, h)`
+/// — one formula across both repos, never a second open-coded copy. The
+/// `ceil(w/2)` term is load-bearing: an odd-dimension frame sized `(w/2)*(h/2)`
+/// under-allocates, and under yuv420 an under-allocation is a heap overrun,
+/// not a miscount.
+///
+/// PROVENANCE. The 4 B/px predecessor (96,962,304) came from capture_173023,
+/// where every `decode.ffi` event was exactly that size
+/// (docs/logs/2026-09-06/gc-pressure-allocation-lens.md:9). T15b re-decoded THE
+/// SAME FILE that capture measured and got the same byte count back before the
+/// flip, which is what ties this extent to the original measurement rather than
+/// to some fresh unrelated frame. Note `decode.ffi` carries only `bytes=`
+/// (`photo_source.dart:383`) and no width/height, so the extent could never have
+/// come from the log line itself — it is read off the decode result.
 ///
 /// Used as the PRE-DECODE estimate for an expensive item: the real size is
 /// unknown until the decode returns, and every admission is reconciled to the
 /// real value afterwards via [InflightBytesBudget.adjust].
 ///
 /// TWO DIFFERENT BUFFERS, and conflating them is how this constant goes wrong
-/// (P34.2). The 4 B/px above describes the **decode output**, which the mem8
-/// v3 campaign's yuv420 flip (T15a) takes to 1.5 B/px. It does NOT describe
-/// the **transient display buffer**, which stays 4 B/px permanently: Flutter's
+/// (P34.2). The 1.5 B/px above describes the **decode output**. It does NOT
+/// describe the **transient display buffer**, which stays 4 B/px permanently
+/// ([kNominalFullFrameDisplayBytes]): Flutter's
 /// `decodeImageFromPixels` accepts RGBA only, so the upconvert's destination
 /// genuinely is 4 B/px no matter what the decoder emits. The consumers of this
 /// constant split along exactly that line — the sweep and each consumer's
@@ -22,29 +43,22 @@ import 'retention_policy.dart';
 /// (`image_preload_controller.dart:599`, whose charges are `w*h*4` ui.Image
 /// uploads) must not silently follow the decode side down.
 ///
-/// PENDING RE-DERIVATION (P34.2, mandatory — the "retain it with stated
-/// reasoning" alternative was withdrawn by ruling). T15a flips the decode
-/// output to yuv420; the replacement value is DERIVED FROM A FRESH
-/// `decode.ffi` CAPTURE in T15b, not computed on paper, and it must agree with
-/// `ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, w, h)` — one formula
-/// across both repos, never a second open-coded copy, because the `ceil(w/2)`
-/// term is load-bearing and an odd-dimension frame sized with `(w/2)*(h/2)`
-/// under-allocates and is written past. The capture goes into
-/// [kMeasuredFullFrameExtent].
-const int kNominalFullFrameBytes = 96962304;
+/// RE-DERIVED by T15b (P34.2, mandatory — the "retain it with stated
+/// reasoning" alternative was withdrawn by ruling).
+const int kNominalFullFrameBytes = 36360864;
 
-/// The pixel extent behind [kNominalFullFrameBytes], as read off a real
-/// `decode.ffi` capture — **null until T15b takes that capture**.
+/// The pixel extent behind [kNominalFullFrameBytes], as read off a real decode:
+/// 6024x4024, from `2025-11-12-09-53-37.ARW` — the same file capture_173023
+/// measured. Supplied by T15b; capture artifact under `tmp/verify/t15b-r2/`.
 ///
-/// Deliberately not a number today (T15a-pre, Task #14): the byte count above
-/// is a measurement, so its extent has to be one too. Writing a plausible
-/// 24 MP width/height here would manufacture exactly the kind of citation this
-/// project has been bitten by — a dartdoc that reads as measured while naming
-/// a buffer nobody observed.
+/// Arithmetic alone could not have produced it: factorising 96,962,304/4 yields
+/// eight candidate extents (3012x8048, 4016x6036, 4024x6024, …), so only a
+/// decode could say which one the frames actually were.
 ///
-/// T15b supplies it and re-derives [kNominalFullFrameBytes] from it **in the
-/// same edit**; the two are one fact and must never be updated apart.
-const ({int width, int height})? kMeasuredFullFrameExtent = null;
+/// This and [kNominalFullFrameBytes] are ONE FACT and must never be updated
+/// apart — the guard fails in either direction if they are.
+const ({int width, int height}) kMeasuredFullFrameExtent =
+    (width: 6024, height: 4024);
 
 /// One full-resolution **transient DISPLAY buffer**, 4 B/px — the family-B
 /// constant the mem8 T15a split creates (lead pre-ruling 2026-09-20).
