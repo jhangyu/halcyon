@@ -514,6 +514,42 @@ typedef OrientedFullRes = ({
   int nativeBytes,
 });
 
+/// True when [decoded] can be handed STRAIGHT to a planar JPEG encoder, so the
+/// encode arm needs no upconvert at all (2026-09-20 direct-yuv420-encode
+/// contract, AC3).
+///
+/// The format test lives HERE, in the file that already owns format knowledge,
+/// rather than in `photo_source.dart` where it is consumed. That keeps the
+/// encode-arm dispatch from making a fourth `lib/` file format-aware, which
+/// `yuv420_flip_probes_test.dart`'s roster exists to prevent; the caller asks a
+/// question about capability and never names a pixel layout.
+///
+/// Requires a native address because the planar entry takes a pointer: a
+/// Dart-heap frame (the pure-Dart TIFF arm, every fake decoder in the suite)
+/// has nothing to give it and must keep the copying byte arm.
+bool canEncodePlanarDirectly(DecodedRgba decoded) {
+  if (decoded.format != CeyxOutputFormat.yuv420) return false;
+  return decoded.nativeAddress != 0;
+}
+
+/// True when [decodedRgbaToOrientedFullRes] will need a GPU pass for this
+/// frame, i.e. when it will take the ROTATED arm rather than the identity
+/// short-circuit.
+///
+/// Exposed for the 2026-09-20 direct-yuv420-encode routing (Option D). The
+/// encode arm has to know, BEFORE the upconvert seam runs, whether this frame
+/// is one whose pixels it may encode straight from the planar source. It is
+/// deliberately the SAME two inputs and the SAME decision the producer itself
+/// makes at `decodedRgbaToOrientedFullRes`'s `transform.isIdentity` branch --
+/// a caller re-deriving "is it rotated" from the declared EXIF value alone
+/// would disagree with the producer on any natively-oriented frame (where
+/// `applied` already consumed the rotation) and would defer the materialise on
+/// a frame that is about to need a GPU pass.
+bool fullResNeedsGpuPass({required int declared, required int applied}) =>
+    !_ExifTransform.forOrientation(
+      residualExifOrientation(declared: declared, applied: applied),
+    ).isIdentity;
+
 /// Reduces a freshly decoded RAW frame to FULL-RESOLUTION oriented RGBA,
 /// keeping the oriented `ui.Image` when one had to be rendered.
 ///

@@ -125,6 +125,22 @@ void main() {
     };
 
     final controller = ImagePreloadController(
+      // OPTION D (2026-09-20 direct-yuv420-encode contract): pinned to null,
+      // so these cases keep testing exactly what they were written to test --
+      // the PRE-D ordering, where the encode necessarily follows the upconvert
+      // and must therefore receive the DESTINATION address.
+      //
+      // Without this pin the controller's new default would take the deferred
+      // planar arm, the direct entry would throw (no dylib in a test process),
+      // and these assertions would pass only via the degrade path -- i.e. they
+      // would still be green while measuring something else, and would go red
+      // the day a dylib IS present. That is the "instrument agrees by
+      // accident" failure this file's own header warns about.
+      //
+      // The D ordering has its own coverage in
+      // `yuv420_direct_encode_routing_test.dart`, including the inverted
+      // liveness assertion (planar slot LIVE at encode, released after).
+      pointerYuv420PayloadEncoder: null,
       imageLoader: needsRawDecodeLoader,
       dngDecoder: (path) async => DecodedRgba(
         rgba: Uint8List(srcBytes),

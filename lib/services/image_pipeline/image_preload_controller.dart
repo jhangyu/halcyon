@@ -97,6 +97,37 @@ Future<Uint8List> _encodeJpegFromNativeRgba({
   );
 }
 
+/// Production binding for [PointerYuv420PayloadEncoder] (2026-09-20
+/// direct-yuv420-encode contract, Option D).
+///
+/// Same SOFT `is Finalizable` test as its rgba8 sibling above, and for the
+/// same reason: the planar frame's keep-alive is whatever the decoder handed
+/// back, which is a `CeyxNativeBuffer` for a pooled slot and NOT
+/// `Finalizable`. A hard cast would throw `TypeError`, and because the caller
+/// wraps this in a try/degrade that throw would be swallowed into the byte
+/// arm -- the zero-copy path silently off, nothing red. That exact defect
+/// already happened once on the rgba8 arm (see its dartdoc).
+///
+/// `CeyxFormatUnsupportedException` from a dylib predating the entry is NOT
+/// caught here: the caller degrades and logs it, so the reason survives.
+Future<Uint8List> _encodeJpegFromNativeYuv420({
+  required int nativeAddress,
+  required int srcCapacity,
+  required int width,
+  required int height,
+  required int quality,
+  Object? keepAlive,
+}) {
+  return CeyxEncodeService().encodeJpegFromNativeYuv420(
+    srcAddress: nativeAddress,
+    srcCapacity: srcCapacity,
+    width: width,
+    height: height,
+    quality: quality,
+    keepAlive: keepAlive is Finalizable ? keepAlive : null,
+  );
+}
+
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
 /// identity and the SAME [width]/[height] — the resulting [ResizeImageKey]
@@ -180,6 +211,11 @@ class ImagePreloadController {
     DngOrientingFullDecoder? orientingDngDecoder,
     PayloadEncoder payloadEncoder = _encodeJpegNative,
     PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
+    // OPTION D. Defaulted like its rgba8 sibling, so production gets the
+    // direct planar encode without any call site opting in; a test that wants
+    // the pre-D behaviour passes null.
+    PointerYuv420PayloadEncoder? pointerYuv420PayloadEncoder =
+        _encodeJpegFromNativeYuv420,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
     FrameHook? scheduleFrameCallback,
@@ -243,6 +279,7 @@ class ImagePreloadController {
          orientingDngDecoder: orientingDngDecoder,
          payloadEncoder: payloadEncoder,
          pointerPayloadEncoder: pointerPayloadEncoder,
+         pointerYuv420PayloadEncoder: pointerYuv420PayloadEncoder,
          compositeGate: compositeGate,
        ),
        _stageWidths = StageWidths.derive(decodeLaneWidth),
@@ -2377,6 +2414,12 @@ class ImagePreloadController {
     // two from ever both firing. Not a second ownership rule: one rule, plus
     // an exception-safety net.
     var nativeReleased = false;
+    // OPTION D: the record whose slot the terminal net below must return.
+    // Hoisted because on a deferred decode that record does not exist until
+    // `encodePhase` materialises it, so `decode.fullRes` (null there) cannot
+    // be the net's source. Stays null until an outcome exists; the net falls
+    // back to `decode.fullRes` for every non-deferred path, unchanged.
+    OrientedFullRes? publishedFullRes;
     try {
       // WP7, SECOND gate (N3): the window moved past this id while its
       // decode was in flight (no FFI decode is cancellable, so the decode
@@ -2395,6 +2438,11 @@ class ImagePreloadController {
       if (windowGeneration != _windowGeneration && !_retentionIds.contains(id)) {
         final skippedImage = decode.fullRes?.image;
         skippedImage?.dispose();
+        // OPTION D: this return skips `encodePhase`, which is the only thing
+        // that would have run the upconvert seam -- and the seam is what
+        // returns the planar slot to the pool. Without this the slot leaks on
+        // every navigation that outruns a deferred decode.
+        releaseDeferredUpconvert(decode);
         // Test seam pinning N3 itself, not merely that this branch ran: reads
         // the REAL `ui.Image.debugDisposed` back off the handle this branch
         // just disposed, so a mutation that deletes the `dispose()` call
@@ -2413,6 +2461,7 @@ class ImagePreloadController {
       // rotated path (see `_shrinkAfterEncode`'s doc). Shrinking here, before
       // `_completeOutcome`/the piggyback publish, is what stops the ~96MB
       // readback from surviving the pacer/idle-publish wait.
+      publishedFullRes = rawOutcome.fullRes;
       final outcome = rawOutcome.fullRes == null
           ? rawOutcome
           : (
@@ -2445,9 +2494,16 @@ class ImagePreloadController {
         // of which the old `finally`-only release held the slot across (chain
         // audit B.7a). `outcome.fullRes` is the record being published, which
         // on the identity path is the same one `decode.fullRes` refers to.
+        //
+        // OPTION D: read from `outcome`, not `decode`. A deferred decode has a
+        // NULL `decode.fullRes` -- the record is created by `encodePhase`'s
+        // materialise -- so sourcing the release here from `decode` would
+        // silently release nothing and strand the upconvert destination. The
+        // two are the same object on every non-deferred path, so this is a
+        // generalisation, not a behaviour change.
         onFullResPixelsConsumed: () {
           nativeReleased = true;
-          decode.fullRes?.releaseNative?.call();
+          outcome.fullRes?.releaseNative?.call();
         },
       );
     } catch (_) {
@@ -2455,6 +2511,10 @@ class ImagePreloadController {
       // this item so they do not strand on a permanent spinner, and release
       // the handle nobody will publish. No rethrow -- there is no caller.
       decode.fullRes?.image?.dispose();
+      // OPTION D: idempotent -- `releaseNative` on a pooled slot is, and on
+      // the path where `encodePhase` already ran the seam this is a no-op
+      // because the record no longer carries a pending frame.
+      releaseDeferredUpconvert(decode);
       final pending = _pendingPreviewNotifies.remove(id);
       for (final cb in pending ?? const <VoidCallback>[]) {
         cb();
@@ -2512,7 +2572,7 @@ class ImagePreloadController {
       // really does retain the pooled buffer, the fix is to stop aliasing it,
       // NOT to reintroduce a predicate that skips the release.
       if (!nativeReleased) {
-        decode.fullRes?.releaseNative?.call();
+        (publishedFullRes ?? decode.fullRes)?.releaseNative?.call();
       }
       if (encodePublishTailCharge != null) {
         _encodePublishTailBytes.release(

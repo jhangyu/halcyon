@@ -158,7 +158,37 @@ typedef SourceDecode = ({
   // not just trust these being non-zero.
   int nativeAddress,
   Object? nativeKeepAlive,
+
+  /// OPTION D (2026-09-20 direct-yuv420-encode contract). Non-null means the
+  /// upconvert seam has NOT run yet for this decode: [fullRes] is null, and
+  /// [PhotoSource.encodePhase] owes this frame both an encode and a
+  /// materialise, in that order.
+  ///
+  /// WHY THE ORDER IS THE WHOLE POINT: `materialiseRgba` releases the planar
+  /// source slot as soon as it has converted it
+  /// (`decoded_rgba_image_provider.dart:265-272`). Encoding FIRST is therefore
+  /// not an optimisation of a live buffer -- it is the only window in which
+  /// the planar bytes exist at all. Encoding after the seam would hand a freed
+  /// slot to a native reader, which is precisely the 2026-09-20 all-RAW crash
+  /// (`docs/logs/2026-09-20/h2-root-cause.md`).
+  ///
+  /// Deferral is taken ONLY for a frame that will take the identity
+  /// short-circuit (`fullResNeedsGpuPass` false), so the rotated path's
+  /// ordering is byte-for-byte unchanged.
+  ///
+  /// OWNERSHIP: whoever does not run [PhotoSource.encodePhase] on this record
+  /// MUST call [releaseDeferredUpconvert] -- otherwise the planar slot is
+  /// never returned to the pool, because the seam that would have released it
+  /// never runs.
+  ({DecodedRgba frame, int exifOrientation, int longEdge})? pendingUpconvert,
 });
+
+/// Returns the planar slot of a decode whose deferred upconvert will never
+/// run (cancellation, or a throw before [PhotoSource.encodePhase]).
+///
+/// A no-op for every non-deferred decode, so call sites need no branch.
+void releaseDeferredUpconvert(SourceDecode? decode) =>
+    decode?.pendingUpconvert?.frame.releaseNative?.call();
 
 /// What ONE bounded content probe learned about a file.
 ///
@@ -196,6 +226,7 @@ class PhotoSource {
     this.orientingDngDecoder,
     required this.payloadEncoder,
     this.pointerPayloadEncoder,
+    this.pointerYuv420PayloadEncoder,
     this.compositeGate = immediateCompositeGate,
   });
 
@@ -243,6 +274,15 @@ class PhotoSource {
   /// before this field existed.
   final PointerPayloadEncoder? pointerPayloadEncoder;
 
+  /// 2026-09-20 direct-yuv420-encode contract (Option D): encodes the
+  /// decoder's PLANAR output straight to JPEG, before the upconvert seam runs.
+  ///
+  /// Null means "no direct-yuv420 path available" -- every existing test
+  /// binding, and any build whose dylib predates `ceyx_encode_jpeg_yuv420`.
+  /// A null here (or a throw from it) keeps the pre-existing behaviour
+  /// exactly: materialise, then the rgba8 pointer or byte arm.
+  final PointerYuv420PayloadEncoder? pointerYuv420PayloadEncoder;
+
   /// Every ENCODED bitstream this class emits goes through here, so a JPG's
   /// bytes, an embedded preview and a decoded RAW all become the same q70
   /// payload (USER RULING 2026-08-30, contract D5: "ALL items").
@@ -253,6 +293,25 @@ class PhotoSource {
   /// -- this is not a new re-encode for those inputs.
   Future<SourcePayload> _normalizedEncoded(Uint8List bytes) async =>
       normalizeEncodedPayload(encoded: bytes, encoder: payloadEncoder);
+
+  /// OPTION D gate: may [encodePhase] encode this frame straight from its
+  /// planar buffer, deferring the upconvert seam until after?
+  ///
+  /// Every conjunct is load-bearing:
+  /// - an encoder must exist, or there is nothing to defer FOR;
+  /// - [canEncodePlanarDirectly] must hold: the frame is planar AND
+  ///   native-backed. An rgba8 decode has no direct entry to take, and a
+  ///   Dart-heap frame has no pointer to give one;
+  /// - the frame must NOT need a GPU pass. The rotated arm's ordering is
+  ///   deliberately untouched by this contract, and its `fullRes.rgba` is a
+  ///   readback that aliases nothing planar anyway.
+  bool _canDeferUpconvert(DecodedRgba decoded, int exifOrientation) =>
+      pointerYuv420PayloadEncoder != null &&
+      canEncodePlanarDirectly(decoded) &&
+      !fullResNeedsGpuPass(
+        declared: exifOrientation,
+        applied: decoded.appliedOrientation,
+      );
 
   /// Produces the decode-side half for [path] at [longEdge]: everything a RAW
   /// decode (or its cheap/fallback substitutes) yields BEFORE the re-encode.
@@ -316,6 +375,7 @@ class PhotoSource {
           failureCode: null,
           nativeAddress: 0,
           nativeKeepAlive: null,
+          pendingUpconvert: null,
         );
 
       case NativeImageNeedsRawDecode(
@@ -342,6 +402,7 @@ class PhotoSource {
             failureCode: kNoNativeDecoderCode,
             nativeAddress: 0,
             nativeKeepAlive: null,
+          pendingUpconvert: null,
           );
         }
         if (!allowExpensive) {
@@ -356,6 +417,7 @@ class PhotoSource {
             failureCode: null,
             nativeAddress: 0,
             nativeKeepAlive: null,
+          pendingUpconvert: null,
           );
         }
         OrientedFullRes? handedOut;
@@ -382,6 +444,32 @@ class PhotoSource {
               'decode.ffi|id=$path'
               '|bytes=${decoded.rgba.lengthInBytes}'
               '|dur_us=${PerfLog.us - materializeStartUs}',
+            );
+          }
+          // OPTION D: hand the PLANAR frame to [encodePhase] untouched when it
+          // can encode from it directly. The upconvert seam must not run yet --
+          // it releases the planar slot (`decoded_rgba_image_provider.dart
+          // :265-272`), and that slot is what the direct encoder reads.
+          if (_canDeferUpconvert(decoded, exifOrientation)) {
+            return (
+              encodedPayload: null,
+              // Built in [encodePhase], after the materialise that path owes:
+              // a window-resolution fallback needs RGBA, which does not exist
+              // yet at this point.
+              pixelFallback: null,
+              rawDecodeRan: true,
+              fullRes: null,
+              observedCost: SourceCost.expensive,
+              deferred: false,
+              exifOrientation: null,
+              failureCode: null,
+              nativeAddress: decoded.nativeAddress,
+              nativeKeepAlive: decoded.nativeKeepAlive,
+              pendingUpconvert: (
+                frame: decoded,
+                exifOrientation: exifOrientation,
+                longEdge: longEdge,
+              ),
             );
           }
           final fullRes = await decodedRgbaToOrientedFullRes(
@@ -425,6 +513,7 @@ class PhotoSource {
             failureCode: null,
             nativeAddress: decoded.nativeAddress,
             nativeKeepAlive: decoded.nativeKeepAlive,
+            pendingUpconvert: null,
           );
         } catch (_) {
           // Step 3b. A throwing decoder is a genuine permanent miss (M6
@@ -464,6 +553,7 @@ class PhotoSource {
                 declaredPreviewsUnreadable ? 'DNG_PARSE_FAILED' : null,
             nativeAddress: 0,
             nativeKeepAlive: null,
+          pendingUpconvert: null,
           );
         }
 
@@ -485,6 +575,7 @@ class PhotoSource {
           failureCode: null,
           nativeAddress: 0,
           nativeKeepAlive: null,
+          pendingUpconvert: null,
         );
     }
   }
@@ -520,6 +611,7 @@ class PhotoSource {
         failureCode: kNoNativeDecoderCode,
         nativeAddress: 0,
         nativeKeepAlive: null,
+          pendingUpconvert: null,
       );
     }
     OrientedFullRes? handedOut;
@@ -536,6 +628,27 @@ class PhotoSource {
           'decode.ffi|id=$path'
           '|bytes=${decoded.rgba.lengthInBytes}'
           '|dur_us=${PerfLog.us - materializeStartUs}',
+        );
+      }
+      // OPTION D -- see [decodePhase]'s RAW arm. The two arms must not
+      // diverge: they are the same decode reached by two entry points.
+      if (_canDeferUpconvert(decoded, exifOrientation)) {
+        return (
+          encodedPayload: null,
+          pixelFallback: null,
+          rawDecodeRan: true,
+          fullRes: null,
+          observedCost: SourceCost.expensive,
+          deferred: false,
+          exifOrientation: null,
+          failureCode: null,
+          nativeAddress: decoded.nativeAddress,
+          nativeKeepAlive: decoded.nativeKeepAlive,
+          pendingUpconvert: (
+            frame: decoded,
+            exifOrientation: exifOrientation,
+            longEdge: longEdge,
+          ),
         );
       }
       final fullRes = await decodedRgbaToOrientedFullRes(
@@ -575,6 +688,7 @@ class PhotoSource {
         failureCode: null,
         nativeAddress: decoded.nativeAddress,
         nativeKeepAlive: decoded.nativeKeepAlive,
+        pendingUpconvert: null,
       );
     } catch (_) {
       // M6 U-12: a throwing decoder is a genuine permanent miss, not D3.
@@ -590,6 +704,7 @@ class PhotoSource {
         failureCode: null,
         nativeAddress: 0,
         nativeKeepAlive: null,
+          pendingUpconvert: null,
       );
     }
   }
@@ -612,6 +727,13 @@ class PhotoSource {
 
     final ready = decode.encodedPayload;
     if (ready != null) return outcomeWith(ready);
+    // OPTION D, and it must come BEFORE the `fallback == null` exit below: a
+    // deferred decode deliberately carries no thunk (a window-resolution
+    // fallback needs RGBA, which does not exist until this method materialises
+    // it). Reaching that exit would drop the frame -- no payload, no publish,
+    // and a planar slot that never returns to the pool.
+    final pending = decode.pendingUpconvert;
+    if (pending != null) return await _encodeThenUpconvert(decode, pending);
     final fallback = decode.pixelFallback;
     // Covers the deferred hand-off, the no-decoder verdict, the decoder-threw
     // miss and the unrecoverable NativeImageFailure -- all of which have
@@ -659,6 +781,125 @@ class PhotoSource {
                 width: fullRes.width,
                 height: fullRes.height,
               ),
+        pointerEncoder: pointerPayloadEncoder,
+        nativeAddress: usePointer ? fullRes.nativeAddress : 0,
+        keepAlive: usePointer ? fullRes.nativeKeepAlive : null,
+        nativeBytes: usePointer ? fullRes.nativeBytes : 0,
+      ),
+    );
+  }
+
+  /// OPTION D's body (2026-09-20 direct-yuv420-encode contract): encode the
+  /// PLANAR frame, THEN materialise RGBA for the piggyback publish.
+  ///
+  /// THE ORDER IS THE DESIGN. `materialiseRgba` releases the planar slot once
+  /// it has converted it, so step 1 is not "encoding a conveniently live
+  /// buffer" -- it is the only window in which those bytes exist. Step 2 is
+  /// unchanged display behaviour: the piggyback publisher still receives
+  /// rgba8, because it uploads `fullRes.rgba` directly
+  /// (`tier_two_scheduler.dart:935-950`) and is NOT served by the payload
+  /// JPEG on first view.
+  ///
+  /// Nothing here runs on the decode lane: this method is reached only from
+  /// [encodePhase], which the controller runs on its own bounded stage.
+  Future<SourceOutcome> _encodeThenUpconvert(
+    SourceDecode decode,
+    ({DecodedRgba frame, int exifOrientation, int longEdge}) pending,
+  ) async {
+    final frame = pending.frame;
+    final encoder = pointerYuv420PayloadEncoder;
+
+    // STEP 1 -- the direct encode, while the planar slot is still alive.
+    Uint8List? jpeg;
+    final startUs = PerfLog.enabled ? PerfLog.us : 0;
+    if (PerfLog.enabled) {
+      PerfLog.log(
+        'reencode.submit|id=${identityHashCode(frame.rgba)}'
+        '|path=yuv420|bytes=${frame.rgba.lengthInBytes}',
+      );
+    }
+    try {
+      // `srcCapacity` is the REAL readable extent of this buffer, never
+      // `w*h*1.5` recomputed here -- the native entry's `-412` check is only
+      // meaningful when handed the true figure.
+      jpeg = await encoder!(
+        nativeAddress: frame.nativeAddress,
+        srcCapacity: frame.rgba.lengthInBytes,
+        width: frame.width,
+        height: frame.height,
+        quality: kReencodeJpegQuality,
+        keepAlive: frame.nativeKeepAlive,
+      );
+      if (jpeg.isEmpty) jpeg = null;
+    } catch (e) {
+      // LOUD, by contract. A dylib predating `ceyx_encode_jpeg_yuv420` throws
+      // `CeyxFormatUnsupportedException` here, and every other failure lands
+      // here too. Both degrade to the byte/rgba8 arms below -- but a degrade
+      // that left no trace would be indistinguishable from the feature
+      // working, which is the exact shape of the two defects this campaign
+      // already produced.
+      jpeg = null;
+      if (PerfLog.enabled) {
+        PerfLog.log('reencode.degrade|path=yuv420|reason=$e');
+      }
+    }
+    if (jpeg == null) noteReencodeFallback();
+    if (PerfLog.enabled) {
+      PerfLog.log(
+        'reencode.end|id=${identityHashCode(frame.rgba)}'
+        '|dur_us=${PerfLog.us - startUs}|bytes=${jpeg?.length ?? 0}',
+      );
+    }
+
+    // STEP 2 -- the upconvert the display path still needs. This is what
+    // releases the planar slot, so it must not move above step 1.
+    final fullRes = await decodedRgbaToOrientedFullRes(
+      frame,
+      exifOrientation: pending.exifOrientation,
+      gate: compositeGate,
+    );
+
+    SourceOutcome outcomeWith(SourcePayload? payload) => (
+          payload: payload,
+          observedCost: decode.observedCost,
+          deferred: decode.deferred,
+          exifOrientation: decode.exifOrientation,
+          fullRes: fullRes,
+          failureCode: decode.failureCode,
+        );
+
+    if (jpeg != null) {
+      return outcomeWith(
+        EncodedPayload(jpeg, width: fullRes.width, height: fullRes.height),
+      );
+    }
+
+    // DEGRADED. Re-enter the shared machinery rather than open-coding a second
+    // fallback policy: `reencodePayload` owns the rgba8 pointer arm, the byte
+    // arm, the counters and the empty-output refusal. `frame` is safe to hand
+    // the fallback builder because `materialiseRgba` memoises on the SOURCE
+    // frame, so it returns the destination step 2 just produced instead of
+    // converting twice.
+    Future<PixelPayload> buildFallback() {
+      pixelFallbackBuilds++;
+      return decodedRgbaToPixelPayload(
+        frame,
+        exifOrientation: pending.exifOrientation,
+        longEdge: pending.longEdge,
+        gate: compositeGate,
+      );
+    }
+
+    final usePointer = fullRes.image == null && fullRes.nativeAddress != 0;
+    return outcomeWith(
+      await reencodePayload(
+        encoder: payloadEncoder,
+        fallback: buildFallback,
+        fullRes: (
+          rgba: fullRes.rgba,
+          width: fullRes.width,
+          height: fullRes.height,
+        ),
         pointerEncoder: pointerPayloadEncoder,
         nativeAddress: usePointer ? fullRes.nativeAddress : 0,
         keepAlive: usePointer ? fullRes.nativeKeepAlive : null,

@@ -48,6 +48,35 @@ typedef PointerPayloadEncoder =
       Object? keepAlive,
     });
 
+/// The PLANAR 4:2:0 sibling of [PointerPayloadEncoder] (2026-09-20
+/// direct-yuv420-encode contract, Option D): encodes the decoder's own yuv420
+/// output straight to JPEG, with no rgba8 upconvert in between.
+///
+/// Mirrors ceyx's `encodeJpegFromNativeYuv420`
+/// (`../ceyx/plugin/lib/src/encode_service.dart:252`, landed d9bb321f).
+///
+/// [srcCapacity] is the REAL allocation length at [nativeAddress], never
+/// `w*h*1.5` recomputed by the caller: the native entry checks it against the
+/// frozen layout and returns `-412` (`kCeyxEncodeErrBadBufferSize`) on
+/// disagreement, which is only a meaningful check if it is handed the true
+/// figure.
+///
+/// A dylib predating the entry throws `CeyxFormatUnsupportedException` rather
+/// than falling back to the rgba8 entry -- that fallback would encode the
+/// wrong number of bytes per pixel. Callers degrade to the BYTE arm instead,
+/// and must do so LOUDLY (see [reencodeFallbacks]): a silent degrade here is
+/// indistinguishable from the feature working, which is the shape of the two
+/// defects this campaign already produced.
+typedef PointerYuv420PayloadEncoder =
+    Future<Uint8List> Function({
+      required int nativeAddress,
+      required int srcCapacity,
+      required int width,
+      required int height,
+      required int quality,
+      Object? keepAlive,
+    });
+
 /// q70 -- what EVERY retained payload is encoded at, RAW and JPG alike.
 ///
 /// USER RULING 2026-08-30 (contract D5), superseding the q80 default recorded
@@ -89,6 +118,18 @@ int reencodeFallbacks = 0;
 /// convention `TierTwoScheduler.debugCatchUpEnqueueCount` records at
 /// `tier_two_scheduler.dart:145-149`.
 int deferredFullSizeEncodes = 0;
+
+/// Records one re-encode degradation from OUTSIDE this file.
+///
+/// Exists because [reencodeFallbacks] is `@visibleForTesting` -- writable only
+/// here -- while Option D's direct-yuv420 arm degrades in `photo_source.dart`,
+/// another `lib/` file. Same convention, and same reason, as
+/// [deferredFullSizeEncodes] being deliberately un-annotated: the counter must
+/// stay one number, because "how often did the re-encode degrade" is one
+/// question regardless of which arm degraded. A second counter would let the
+/// yuv420 arm degrade on every frame while the existing observability stayed
+/// green.
+void noteReencodeFallback() => reencodeFallbacks++;
 
 @visibleForTesting
 void resetReencodeCounters() {

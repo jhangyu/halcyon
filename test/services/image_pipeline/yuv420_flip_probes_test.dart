@@ -109,14 +109,46 @@ void main() {
           'lib/services/image_pipeline/decoded_rgba_image_provider.dart';
       const kExemptLine =
           'if (decoded.format == CeyxOutputFormat.rgba8) return decoded;';
+      // SECOND ARGUED EXEMPTION -- 2026-09-20 direct-yuv420-encode contract,
+      // AC3, user-approved (Option D). Its own argument, as this file demands.
+      //
+      // THE ARGUMENT. R-N forbids DIVERGENT PIXEL LAYOUTS: different lanes or
+      // different platforms carrying different buffer formats. This line is
+      // not that. Both encode arms consume the SAME frame and emit the SAME
+      // q70 JPEG at the same dimensions; what the branch selects is which
+      // native ENTRY POINT reads those bytes -- `ceyx_encode_jpeg_yuv420` for
+      // a planar buffer, `ceyx_encode_jpeg_rgba8` for an interleaved one.
+      // Layout does not diverge; the reader is simply told the truth about the
+      // layout it is already being handed. It executes identically on every
+      // platform.
+      //
+      // WHY IT CANNOT BE AVOIDED. The contract's end state IS "the encoder
+      // adapts to whichever format the decoder hands it". A dispatch by format
+      // is the deliverable, not an implementation shortcut, and the user
+      // approved it after two rounds of premise-checking. The alternative --
+      // keeping the upconvert on the encode arm -- is the cost the contract
+      // exists to remove.
+      //
+      // WHY IT LIVES IN THIS FILE. It was deliberately NOT written at the
+      // consumption site in `photo_source.dart`: that would have made a fourth
+      // lib/ file format-aware and widened the roster above. Concentrating it
+      // in the file that already owns format knowledge keeps the roster at
+      // three, which is the stricter outcome.
+      //
+      // Pinned exactly like the first exemption: one literal line, one named
+      // file, asserted to appear exactly once and nowhere else.
+      const kPlanarEncodeExemptLine =
+          'if (decoded.format != CeyxOutputFormat.yuv420) return false;';
       const kArguedFormatBranchExemptions = <String>{
         '$kExemptFile: $kExemptLine',
+        '$kExemptFile: $kPlanarEncodeExemptLine',
       };
 
       final mentions = <String>[];
       final branches = <String>[];
       var exemptionHits = 0;
       final exemptLineSightings = <String>[];
+      final planarExemptLineSightings = <String>[];
       for (final file in _libDartFiles()) {
         final code = _codeOf(file);
         if (code.contains('CeyxOutputFormat')) mentions.add(file.path);
@@ -126,6 +158,9 @@ void main() {
           // is visible rather than silently tolerated.
           if (line.trim() == kExemptLine) {
             exemptLineSightings.add(file.path);
+          }
+          if (line.trim() == kPlanarEncodeExemptLine) {
+            planarExemptLineSightings.add(file.path);
           }
           if (!line.contains('OutputFormat')) continue;
           // A branch on the format, in any of the three shapes Dart offers.
@@ -147,13 +182,13 @@ void main() {
       // the line must live only in the file it was argued for.
       expect(
         exemptionHits,
-        1,
-        reason: exemptionHits == 0
-            ? 'the exempted line no longer exists -- delete the exemption '
+        kArguedFormatBranchExemptions.length,
+        reason: exemptionHits < kArguedFormatBranchExemptions.length
+            ? 'an exempted line no longer exists -- delete its exemption '
                   'rather than leaving a dead absolution'
-            : 'the exempted line appears $exemptionHits times; the argument '
-                  'was made for ONE seam-internal dispatch, and a second copy '
-                  'is a new format branch that needs its own ruling',
+            : 'an exempted line appears more than once; each argument was '
+                  'made for ONE dispatch site, and a second copy is a new '
+                  'format branch that needs its own ruling',
       );
       expect(
         exemptLineSightings,
@@ -161,6 +196,15 @@ void main() {
         reason: 'the exempted line must exist exactly once and ONLY in the '
             'file it was argued for; a copy elsewhere is a per-path branch '
             'wearing the exemption\'s clothes',
+      );
+      expect(
+        planarExemptLineSightings,
+        [kExemptFile],
+        reason: 'the planar-encode dispatch must exist exactly once and ONLY '
+            'in the file it was argued for. A copy in photo_source.dart (or '
+            'any consumer) is precisely the per-path format branching this '
+            'rule exists to prevent -- the contract routes by format in ONE '
+            'place, not at every call site',
       );
 
       expect(
