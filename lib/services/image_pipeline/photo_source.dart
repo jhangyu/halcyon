@@ -623,15 +623,24 @@ class PhotoSource {
     debugPixelFallbackRetained--;
     final fullRes = decode.fullRes;
     // R2b: the pointer path is only valid when `fullRes.rgba` really IS the
-    // native-backed buffer `decode.nativeAddress` describes. That is true
-    // ONLY on the identity path (`fullRes.image == null` --
-    // `decoded_rgba_image_provider.dart`'s short-circuit returns
-    // `decoded.rgba` itself). On the rotated path `fullRes.rgba` is a fresh
-    // `toByteData` GPU readback (a NEW Dart-heap buffer with no address of
-    // its own), so this gate must re-check `fullRes.image`, not just trust a
-    // non-zero `decode.nativeAddress` -- trusting it there would hand the
-    // encoder a stale/foreign address for a buffer it never produced.
-    final usePointer = fullRes != null && fullRes.image == null;
+    // native-backed buffer the forwarded address describes.
+    //
+    // THAT ADDRESS COMES FROM `fullRes`, NOT FROM `decode` (mem8 T15a defect,
+    // 2026-09-20). `decode.nativeAddress` is the PRE-SEAM frame's address; once
+    // the decoder emits yuv420, `materialiseRgba` upconverts into a different
+    // pooled slot and releases that one, so forwarding it handed the encoder a
+    // freed 1.5 B/px buffer to read `w*h*4` from -- a use-after-free plus a
+    // 2.67x overrun that crashed on every RAW file. `fullRes` carries the
+    // address of the buffer it actually holds, which cannot drift out of step
+    // with `fullRes.rgba` the way a second frame's field can.
+    //
+    // `fullRes.image == null` is still checked, and still for its original
+    // reason: on the rotated path `fullRes.rgba` is a fresh `toByteData` GPU
+    // readback with no native backing. That path now also reports address 0,
+    // so the two conditions agree -- belt and braces, deliberately kept.
+    final usePointer = fullRes != null &&
+        fullRes.image == null &&
+        fullRes.nativeAddress != 0;
     // PHASE 13 (one buffer, user ruling 2026-08-30) -- UNCHANGED by WP1. The
     // re-encode still happens HERE, before the outcome exists, so the payload
     // the controller writes to the cache is already final: publishing a
@@ -651,8 +660,9 @@ class PhotoSource {
                 height: fullRes.height,
               ),
         pointerEncoder: pointerPayloadEncoder,
-        nativeAddress: usePointer ? decode.nativeAddress : 0,
-        keepAlive: usePointer ? decode.nativeKeepAlive : null,
+        nativeAddress: usePointer ? fullRes.nativeAddress : 0,
+        keepAlive: usePointer ? fullRes.nativeKeepAlive : null,
+        nativeBytes: usePointer ? fullRes.nativeBytes : 0,
       ),
     );
   }

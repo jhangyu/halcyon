@@ -63,13 +63,24 @@ Future<Uint8List> _encodeJpegNative(
 /// fromList` copy [_encodeJpegNative] pays. [keepAlive] arrives as `Object?`
 /// (the `PointerPayloadEncoder` typedef, `payload_reencoder.dart`, is
 /// decoder-package-agnostic by design -- E-WP3b); ceyx's entry point wants a
-/// `Finalizable` specifically, which is exactly what `DecodedRgba.
-/// nativeKeepAlive` holds in production (the `DngImage` handle,
-/// `dng_decode_service.dart`), and every value handed here at runtime IS
-/// one whenever `nativeAddress` was non-zero (photo_source.dart's
-/// `encodePhase` only sets both together). A stray non-Finalizable value
-/// would mean that invariant broke upstream, so this is a deliberate hard
-/// cast, not a silent `is` fallback.
+/// `Finalizable` specifically.
+///
+/// AMENDED 2026-09-20 (all-RAW crash fix). This used to be a HARD cast, on the
+/// stated invariant that a non-zero `nativeAddress` always travelled with a
+/// `DngImage` handle. THAT INVARIANT NO LONGER HOLDS: since the yuv420 flip the
+/// buffer under the address can be `materialiseRgba`'s pooled upconvert
+/// DESTINATION, whose keep-alive is a `CeyxNativeBuffer` -- not `Finalizable`.
+/// A hard cast now throws `TypeError` on every converted frame, and because the
+/// pointer call sits inside `reencodePayload`'s try/degrade that throw would be
+/// SWALLOWED into a byte-arm fallback: the zero-copy path silently off, nothing
+/// red. Hence the `is` test.
+///
+/// Passing null for the pooled destination is safe, and not merely tolerable:
+/// a pooled slot's lifetime is governed by explicit release
+/// (`OrientedFullRes.releaseNative`), not by finalization, and the record that
+/// owns it is held by `PhotoSource.encodePhase` across this await -- so the
+/// slot is reachable for the whole encode. `Finalizable` is what the DngImage
+/// handle needs; the pool slot does not need it and cannot supply it.
 Future<Uint8List> _encodeJpegFromNativeRgba({
   required int nativeAddress,
   required int width,
@@ -82,7 +93,7 @@ Future<Uint8List> _encodeJpegFromNativeRgba({
     width: width,
     height: height,
     quality: quality,
-    keepAlive: keepAlive as Finalizable?,
+    keepAlive: keepAlive is Finalizable ? keepAlive : null,
   );
 }
 
@@ -546,6 +557,14 @@ class ImagePreloadController {
       // the field to null. The pass-through stays because this function must
       // not be the place that decides ownership.
       releaseNative: fullRes.releaseNative,
+      // Reached only when `image != null`, i.e. the rotated path, whose record
+      // already reports no native backing. Passed through for the same reason
+      // as `releaseNative`: this function must not be the place that decides
+      // ownership. Note `rgba` is emptied above, so a non-zero address here
+      // would describe pixels this record no longer carries.
+      nativeAddress: fullRes.nativeAddress,
+      nativeKeepAlive: fullRes.nativeKeepAlive,
+      nativeBytes: fullRes.nativeBytes,
     );
   }
 

@@ -491,6 +491,27 @@ typedef OrientedFullRes = ({
   int height,
   ui.Image? image,
   void Function()? releaseNative,
+  /// Address of the native buffer [rgba] ALIASES, or 0 when [rgba] is a
+  /// Dart-heap buffer with no native backing.
+  ///
+  /// mem8 T15a defect (2026-09-20 crash): callers used to reach back to the
+  /// PRE-SEAM `DecodedRgba.nativeAddress` for this. After `materialiseRgba`
+  /// that address describes the yuv420 SOURCE, which the seam has already
+  /// released — so the pointer-encode arm was handed a freed 1.5 B/px slot and
+  /// read `w*h*4` from it. The address MUST travel with the record that owns
+  /// the buffer, so that "the pixels" and "where the pixels are" can never
+  /// again be sourced from two different frames.
+  int nativeAddress,
+
+  /// Keeps the native slot behind [nativeAddress] alive while it is in flight.
+  Object? nativeKeepAlive,
+
+  /// Capacity in bytes of the buffer at [nativeAddress] (0 when there is
+  /// none). Carried so a consumer can check the POINTER it is about to hand a
+  /// native reader, rather than checking [rgba] and hoping the two agree —
+  /// that mismatch is exactly what made `payload_reencoder`'s length guard
+  /// structurally blind to the T15a defect.
+  int nativeBytes,
 });
 
 /// Reduces a freshly decoded RAW frame to FULL-RESOLUTION oriented RGBA,
@@ -560,6 +581,14 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       // `canReleaseNativeBuffer`, because the only pair it refused became
       // unconstructible once T6 made the retained payload an owned copy.
       releaseNative: decoded.releaseNative,
+      // POST-SEAM values, from `decoded` (what `materialiseRgba` returned) and
+      // never from `decodedIn`: on the converting path those are the pooled
+      // RGBA destination, while `decodedIn`'s slot is already back in the pool.
+      nativeAddress: decoded.nativeAddress,
+      nativeKeepAlive: decoded.nativeKeepAlive,
+      nativeBytes: decoded.nativeAddress == 0
+          ? 0
+          : decoded.rgba.lengthInBytes,
     );
   }
 
@@ -614,6 +643,11 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       // single-owner rule readable and T8's grep-class acceptance decidable.
       // `rgba` here is a FRESH readback buffer and aliases nothing native.
       releaseNative: null,
+      // Likewise zero: there is no native buffer for this readback to alias,
+      // so the pointer-encode arm must not engage on the rotated path.
+      nativeAddress: 0,
+      nativeKeepAlive: null,
+      nativeBytes: 0,
     );
   } catch (_) {
     // A failure must not leak the handle the caller never received.

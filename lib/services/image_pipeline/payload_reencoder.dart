@@ -147,6 +147,16 @@ Future<SourcePayload> reencodePayload({
   PointerPayloadEncoder? pointerEncoder,
   int nativeAddress = 0,
   Object? keepAlive,
+
+  /// Capacity in bytes of the buffer at [nativeAddress]. Defaults to 0, which
+  /// means "not stated" and leaves every pre-existing caller unchanged.
+  ///
+  /// When stated, it is checked against `width*height*4` BEFORE the pointer
+  /// arm engages. The [fullRes].rgba length check below cannot do that job: it
+  /// measures a DIFFERENT buffer, and the 2026-09-20 all-RAW crash was exactly
+  /// a case where that buffer was correct while the forwarded pointer pointed
+  /// at a freed, differently-sized slot.
+  int nativeBytes = 0,
 }) async {
   if (fullRes == null) {
     // Nothing to encode. Deliberately NOT falling back to encoding the
@@ -177,7 +187,13 @@ Future<SourcePayload> reencodePayload({
   // for the lifetime of this one call, unique enough to pair submit with
   // end, and free to compute (an int read, not an allocation).
   final reencodeId = PerfLog.enabled ? identityHashCode(fullRes.rgba) : 0;
-  final usePointer = pointerEncoder != null && nativeAddress != 0;
+  // A STATED capacity that disagrees with what the native encoder will read
+  // demotes to the byte arm rather than faulting. Unstated (0) preserves the
+  // pre-existing contract for callers that never supplied it.
+  final nativeExtentAgrees =
+      nativeBytes == 0 || nativeBytes == fullRes.width * fullRes.height * 4;
+  final usePointer =
+      pointerEncoder != null && nativeAddress != 0 && nativeExtentAgrees;
   // PROBE 2 (jank-rootcause-analysis.md §6): which encode arm this item took.
   // `byte` means the caller handed us a Dart-heap buffer, which the byte
   // encoder must copy with `TransferableTypedData.fromList` ON THIS ISOLATE

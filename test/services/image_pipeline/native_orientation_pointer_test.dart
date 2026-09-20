@@ -141,21 +141,43 @@ void main() {
       },
     );
 
-    // AC-8.2: `usePointer`'s expression at photo_source.dart:615 is
-    // byte-identical after this task -- grepped mechanically, not eyeballed.
+    // AC-8.2: `usePointer`'s expression is pinned mechanically, not eyeballed.
+    //
+    // AMENDED 2026-09-20 (all-RAW crash fix). The pinned text gained a third
+    // conjunct, `fullRes.nativeAddress != 0`. This pin exists to catch an
+    // ACCIDENTAL edit to the gate; the amendment is deliberate and is the fix
+    // itself, so the needle moves with it rather than the gate being reverted
+    // to satisfy a stale pin.
+    //
+    // What AC-8.2 still protects is unchanged and is the part that matters:
+    // `fullRes.image == null` must remain a conjunct, because the rotated
+    // path's `rgba` is a GPU readback with no native backing. The address
+    // check is additive — it does not weaken that condition, it refuses a
+    // record that claims no native buffer at all.
     test(
-      'photo_source.dart usePointer expression is byte-identical (AC-8.2)',
+      'photo_source.dart usePointer expression is pinned (AC-8.2)',
       () {
         final source = File(
           'lib/services/image_pipeline/photo_source.dart',
         ).readAsStringSync();
-        final needle =
-            'final usePointer = fullRes != null && fullRes.image == null';
-        final matches = needle.allMatches(source).length;
+        final needle = 'final usePointer = fullRes != null &&\n'
+            '        fullRes.image == null &&\n'
+            '        fullRes.nativeAddress != 0;';
         expect(
-          matches,
+          needle.allMatches(source).length,
           1,
-          reason: 'expected exactly one byte-identical usePointer line',
+          reason: 'expected exactly one byte-identical usePointer expression',
+        );
+        // The forwarded address must come from the record that OWNS the
+        // buffer. `decode.nativeAddress` is the pre-seam frame and was the
+        // 2026-09-20 crash; its reappearance here is the regression to catch.
+        expect(
+          'nativeAddress: usePointer ? decode.nativeAddress'
+              .allMatches(source)
+              .length,
+          0,
+          reason: 'the pre-seam decode address must never be forwarded to the '
+              'pointer encoder again',
         );
       },
     );
