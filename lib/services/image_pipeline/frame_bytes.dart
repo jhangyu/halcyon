@@ -68,8 +68,10 @@ const ({int width, int height}) kMeasuredFullFrameExtent =
 /// After T15a the decode OUTPUT is planar yuv420 at 1.5 B/px, so
 /// [kNominalFullFrameBytes] re-derives downward at T15b. The DISPLAY buffer
 /// does not move with it: `ui.decodeImageFromPixels` accepts RGBA only, so
-/// `materialiseRgba`'s upconvert destination — and every `ui.Image` upload
-/// charged against the publish pacer — is genuinely 4 B/px forever.
+/// `materialiseRgba`'s upconvert destination (used by the rotated, degrade and
+/// non-yuv420 arms; the identity RAW path no longer produces one) — and every
+/// `ui.Image` upload charged against the publish pacer — is genuinely 4 B/px
+/// forever.
 ///
 /// THE DEFECT THIS PREVENTS, stated so nobody "simplifies" the two back into
 /// one: re-deriving a single shared constant to the yuv420 value would

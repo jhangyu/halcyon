@@ -131,33 +131,16 @@ void main() {
     );
 
     test(
-      'TC-1331: a twice-read decode converts once',
+      'TC-1331 (R6): no convert-once memo -- a second call converts again',
       () async {
         debugUpconvertConverter = spyConverter;
         final frame = yuvFrame(8, 8);
-
-        // The production shape this pins: the deferred encode path and a
-        // display fallback both read the SAME decoded frame.
-        final a = await decodedRgbaToOrientedFullRes(
-          frame,
-          exifOrientation: 1,
-        );
-        final b = await decodedRgbaToPixelPayload(
-          frame,
-          exifOrientation: 1,
-          longEdge: 0,
-        );
-
-        expect(
-          debugUpconvertCount,
-          1,
-          reason: 'the second read paid for a second upconvert; step 5 '
-              'requires the converted buffer to be reused',
-        );
-        expect(calls.length, 1);
-        expect(a.rgba.every((v) => v == 0xFF), isTrue);
-        expect(b.rgba.every((v) => v == 0xFF), isTrue);
+        final a = await materialiseRgba(frame);
+        final b = await materialiseRgba(frame);
+        expect(debugUpconvertCount, 2, reason: 'memo deleted (R6)');
+        expect(identical(a, b), isFalse);
         a.releaseNative?.call();
+        b.releaseNative?.call();
       },
     );
 

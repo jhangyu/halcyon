@@ -110,17 +110,6 @@ Future<ui.Image> applyExifOrientation(ui.Image src, int orientation) async {
 
 // --- mem8 T15a: the yuv420 -> RGBA8 materialisation seam (SR-12) ----------
 
-/// Convert-once memo (T15a step 5), keyed on the SOURCE frame instance.
-///
-/// A decode whose pixels are read twice — the deferred encode path plus a
-/// display fallback — must not pay the upconvert twice. Keyed on the
-/// `DecodedRgba` rather than on a photo id because the frame IS the unit of
-/// ownership the T6/T7/T8 chain already governs; introducing an id-keyed cache
-/// here would be a SECOND ownership rule, which step 5 forbids.
-final Expando<DecodedRgba> _materialisedRgba = Expando<DecodedRgba>(
-  'materialiseRgba',
-);
-
 /// Test seam: how many times the seam actually ran the upconvert. Reset by the
 /// tests that assert convert-once.
 @visibleForTesting
@@ -188,44 +177,26 @@ void debugResetUpconvertSeam() {
 /// were always "release whatever this frame carries", and after the seam the
 /// frame they see carries the destination.
 ///
-/// Destinations come from [acquireNeverWaiting] and NEVER from a fresh Dart
+/// Destinations come from a never-waiting pool acquire (inlined below) and NEVER from a fresh Dart
 /// allocation (T15a step 4) — otherwise the campaign trades arena residency
 /// for GC pressure, which is the opposite of SR-12's point. The slot size goes
 /// through `ceyxOutputFormatByteCount`, never open-coded arithmetic.
 ///
 /// THE INVARIANT OF THIS FILE (2026-09-21 deadlock fix, design G): **no
 /// acquire in [materialiseRgba] may await the shared pool while that function
-/// already holds a buffer from it.** The converter reads a yuv420 SOURCE and
-/// writes an rgba8 DESTINATION in one native call, so one item needs two
-/// buffers at once; both used to come from one pool whose `acquire` waits
-/// untimed at the cap, so at N >= cap every holder waited for a slot only
-/// another holder could return — observed as `checkedOut=8 waiters=11 idle=0`
-/// with zero upconverts completing (`docs/logs/2026-09-21/h5-farm-verdict.md`).
-///
-/// [acquireNeverWaiting] deletes the WAIT rather than the second buffer, so
-/// concurrency is NOT reduced: the escape can only fire when the pool is at
-/// cap, which is exactly the regime that used to deadlock.
-CeyxNativeBuffer acquireNeverWaiting(int bytes) {
-  final pool = CeyxNativeBufferPool.shared;
-  // `acquireOrNull` is total and synchronous. Its null is answered locally
-  // with malloc + `adoptUnpooled` -- the pattern ceyx already ships for its
-  // own synchronous callers (`dng_decoder_service.dart:1083-1085`). An adopted
-  // buffer is still POOL-OWNED (registered in `_byAddress`, idempotent
-  // release, counted by `hasOutstandingCheckouts` so idle-shrink is unchanged)
-  // but occupies no slot and frees rather than returns.
-  //
-  // An escape firing in steady state is a LEDGER-SIZING defect to report, not
-  // to absorb -- the same reading `native_buffer_pool.dart:73-76` gives to
-  // `debugWaitsForCapacity > 0`.
-  return pool.acquireOrNull(bytes) ??
-      pool.adoptUnpooled(malloc<ffi.Uint8>(bytes).address, bytes);
-}
-
+/// already holds a buffer from it.** See the DEADLOCK INVARIANT comment at the
+/// acquire site.
 Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
   if (decoded.format == CeyxOutputFormat.rgba8) return decoded;
 
-  final memo = _materialisedRgba[decoded];
-  if (memo != null) return memo;
+  // R6 (q70-decouple, 2026-09-29): the convert-once Expando memo is GONE.
+  // It existed for one caller pair -- the encode-failure degrade arm, which
+  // reached this function twice for the same frame -- and it did so by
+  // handing out a frame whose pooled slot a previous consumer may already
+  // have released (the GC-5 stale-memo hazard). That arm now passes the
+  // MATERIALISED frame downstream (`photo_source.dart`), which returns at
+  // the line above without converting, so the memo has no remaining consumer.
+  // Every surviving caller is the single entry point of its own producer.
 
   // Sized through the FROZEN contract entry, both sides. The `ceil(w/2)` term
   // inside the yuv420 arm is load-bearing: an odd-dimension frame sized with
@@ -248,12 +219,23 @@ Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
     decoded.height,
   );
 
-  // DEADLOCK FIX (2026-09-21, design G): the DEFAULT never awaits the pool.
-  // The `Future` signature is kept only for the test seam; the production
-  // path resolves synchronously, so no code holding a pool buffer can block
-  // on this pool. See [acquireNeverWaiting] for why that is the invariant.
+  // DEADLOCK INVARIANT, PRESERVED (2026-09-21 design G; OQ-A1 ruling
+  // 2026-09-29): this acquire must NEVER await the shared pool, because
+  // `decoded` is itself a pool slot -- awaiting here is "wait for a slot while
+  // holding one", which at N >= cap deadlocked every holder
+  // (`docs/logs/2026-09-21/h5-farm-verdict.md`, observed as checkedOut=8
+  // waiters=11 idle=0 with zero upconverts completing). Only the old
+  // helper's name was deleted; the behaviour lives here.
+  // `acquireOrNull` is total and synchronous; its null is answered with
+  // malloc + `adoptUnpooled` -- still POOL-OWNED (registered in `_byAddress`,
+  // idempotent release, counted by `hasOutstandingCheckouts`) but occupying no
+  // slot. An escape firing in steady state is a LEDGER-SIZING defect to
+  // REPORT, not to absorb (`native_buffer_pool.dart:73-76`).
   final acquire = debugUpconvertAcquire ??
-      (int bytes) async => acquireNeverWaiting(bytes);
+      (int bytes) async =>
+          CeyxNativeBufferPool.shared.acquireOrNull(bytes) ??
+          CeyxNativeBufferPool.shared
+              .adoptUnpooled(malloc<ffi.Uint8>(bytes).address, bytes);
   debugUpconvertPoolAcquireCount++;
   final dst = await acquire(dstBytes);
   final dstView = ffi.Pointer<ffi.Uint8>.fromAddress(
@@ -313,15 +295,13 @@ Future<DecodedRgba> materialiseRgba(DecodedRgba decoded) async {
     nativeAddress: dst.address,
     nativeKeepAlive: dst,
     releaseNative: () {
-      // Idempotent: the convert-once memo means two consumers can legitimately
-      // reach the same destination slot, and each of them releases.
+      // Idempotent: more than one release site may reach this destination slot.
       if (released) return;
       released = true;
       (debugUpconvertRelease ?? CeyxNativeBufferPool.shared.release)(dst);
     },
     appliedOrientation: decoded.appliedOrientation,
   );
-  _materialisedRgba[decoded] = materialised;
   return materialised;
 }
 

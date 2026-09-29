@@ -34,7 +34,9 @@ class DecodedRgba {
   ///
   /// Named `rgba` for history, not for layout: since mem8 T15a the RAW decode
   /// path requests [CeyxOutputFormat.yuv420] and this buffer is planar yuv
-  /// until `materialiseRgba` (decoded_rgba_image_provider.dart) converts it.
+  /// until it is encoded straight to the q70 payload and released (the identity
+  /// RAW path, no RGBA ever produced) or `materialiseRgba`
+  /// (decoded_rgba_image_provider.dart) converts it on the arms that need RGBA.
   /// Its length is always `ceyxOutputFormatByteCount(format, width, height)`,
   /// which collapses to `width * height * 4` for [CeyxOutputFormat.rgba8] —
   /// the historical invariant, unchanged for every existing fake decoder.

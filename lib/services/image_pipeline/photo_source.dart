@@ -160,17 +160,17 @@ typedef SourceDecode = ({
   Object? nativeKeepAlive,
 
   /// OPTION D (2026-09-20 direct-yuv420-encode contract). Non-null means the
-  /// upconvert seam has NOT run yet for this decode: [fullRes] is null, and
-  /// [PhotoSource.encodePhase] owes this frame both an encode and a
-  /// materialise, in that order.
+  /// planar encode has NOT run yet for this decode: [fullRes] is null, and
+  /// [PhotoSource.encodePhase] owes this frame a q70 payload encode, after
+  /// which the planar slot is released and NO RGBA is produced on the success
+  /// arm (q70-decouple R1).
   ///
-  /// WHY THE ORDER IS THE WHOLE POINT: `materialiseRgba` releases the planar
-  /// source slot as soon as it has converted it
-  /// (`decoded_rgba_image_provider.dart:265-272`). Encoding FIRST is therefore
-  /// not an optimisation of a live buffer -- it is the only window in which
-  /// the planar bytes exist at all. Encoding after the seam would hand a freed
-  /// slot to a native reader, which is precisely the 2026-09-20 all-RAW crash
-  /// (`docs/logs/2026-09-20/h2-root-cause.md`).
+  /// WHY THE FRAME TRAVELS UNCONVERTED: the direct encoder reads the planar
+  /// bytes, and `materialiseRgba` releases the planar source slot as soon as
+  /// it has converted it. Converting first would destroy the encoder's input
+  /// -- the 2026-09-20 all-RAW crash
+  /// (`docs/logs/2026-09-20/h2-root-cause.md`). Only the encode-failure degrade
+  /// arm still materialises RGBA, after the encode attempt.
   ///
   /// Deferral is taken ONLY for a frame that will take the identity
   /// short-circuit (`fullResNeedsGpuPass` false), so the rotated path's
@@ -183,7 +183,7 @@ typedef SourceDecode = ({
   ({DecodedRgba frame, int exifOrientation, int longEdge})? pendingPlanarEncode,
 });
 
-/// Returns the planar slot of a decode whose deferred upconvert will never
+/// Returns the planar slot of a decode whose planar encode will never
 /// run (cancellation, or a throw before [PhotoSource.encodePhase]).
 ///
 /// A no-op for every non-deferred decode, so call sites need no branch.
@@ -447,9 +447,10 @@ class PhotoSource {
             );
           }
           // OPTION D: hand the PLANAR frame to [encodePhase] untouched when it
-          // can encode from it directly. The upconvert seam must not run yet --
-          // it releases the planar slot (`decoded_rgba_image_provider.dart
-          // :265-272`), and that slot is what the direct encoder reads.
+          // can encode from it directly. No conversion may run first --
+          // `materialiseRgba` releases the planar slot, and that slot is what
+          // the direct encoder reads. On success [encodePhase] encodes,
+          // releases the slot and produces no RGBA (q70-decouple R1).
           if (_canDeferUpconvert(decoded, exifOrientation)) {
             return (
               encodedPayload: null,
@@ -750,7 +751,7 @@ class PhotoSource {
     // THAT ADDRESS COMES FROM `fullRes`, NOT FROM `decode` (mem8 T15a defect,
     // 2026-09-20). `decode.nativeAddress` is the PRE-SEAM frame's address; once
     // the decoder emits yuv420, `materialiseRgba` upconverts into a different
-    // pooled slot and releases that one, so forwarding it handed the encoder a
+    // pooled slot and releases the planar one, so forwarding it handed the encoder a
     // freed 1.5 B/px buffer to read `w*h*4` from -- a use-after-free plus a
     // 2.67x overrun that crashed on every RAW file. `fullRes` carries the
     // address of the buffer it actually holds, which cannot drift out of step
