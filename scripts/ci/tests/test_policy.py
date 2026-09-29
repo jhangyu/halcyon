@@ -230,7 +230,7 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # both were computed rather than one being assumed from the other.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "f4b10fd39c46660cdda80f560353b111b9befaf1effa8d14581c924fee5f4547"
+    "356acb275f139506473a528b9426efaf583b78d6fa5edb1b66ea4aa6bd2e8e5a"
 )
 
 
