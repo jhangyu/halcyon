@@ -15,6 +15,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
+import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
@@ -875,6 +876,122 @@ void main() {
           );
           expect(record.releaseNative, isNotNull);
         });
+      });
+    });
+
+    // q70-decouple R1 (2026-09-29): the planar-encode carry's cancellation net
+    // and the absence of an RGBA shrink on the planar success path.
+    group('R1 planar encode carry', () {
+      const w = 8, h = 8;
+
+      Future<
+          ({
+            ImagePreloadController controller,
+            Map<String, Completer<void>> gates,
+            int Function() releases,
+            int Function() encoderCalls,
+          })> planarHarness(List<PhotoItem> items, RetentionPolicy retention) async {
+        final bytes = ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, w, h);
+        final slots = <CeyxNativeBuffer>[];
+        final gates = <String, Completer<void>>{};
+        var releases = 0;
+        var encoderCalls = 0;
+        final controller = ImagePreloadController(
+          imageLoader: needsRawDecodeLoader,
+          dngDecoder: (path) async {
+            final id = path.split('/').last.split('.').first;
+            final gate = gates.putIfAbsent(id, Completer<void>.new);
+            await gate.future;
+            final slot = await CeyxNativeBufferPool.shared.acquire(bytes);
+            slots.add(slot);
+            return DecodedRgba(
+              rgba: Pointer<Uint8>.fromAddress(slot.address).asTypedList(bytes),
+              width: w,
+              height: h,
+              format: CeyxOutputFormat.yuv420,
+              nativeAddress: slot.address,
+              nativeKeepAlive: slot,
+              releaseNative: () => releases++,
+            );
+          },
+          payloadEncoder: (rgba, {required width, required height, required quality}) async =>
+              Uint8List.fromList([1, 2, 3]),
+          pointerYuv420PayloadEncoder: ({
+            required nativeAddress,
+            required srcCapacity,
+            required width,
+            required height,
+            required quality,
+            keepAlive,
+          }) async {
+            encoderCalls++;
+            return Uint8List.fromList([1, 2, 3]);
+          },
+          decodeLaneWidth: 1,
+          retention: retention,
+        );
+        addTearDown(() {
+          controller.dispose();
+          for (final s in slots) {
+            CeyxNativeBufferPool.shared.release(s);
+          }
+        });
+        return (
+          controller: controller,
+          gates: gates,
+          releases: () => releases,
+          encoderCalls: () => encoderCalls,
+        );
+      }
+
+      Future<void> until(bool Function() cond) async {
+        for (var i = 0; i < 400 && !cond(); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(cond(), isTrue, reason: 'condition never became true');
+      }
+
+      test('R1: a generation bump before encodePhase releases the planar slot '
+          'once', () async {
+        final items = twoRawItems();
+        final hn = await planarHarness(
+          items,
+          const RetentionPolicy(before: 0, after: 1, payloadByteBudget: 1 << 30),
+        );
+        final c = hn.controller;
+        c.updateTargetSize(32, 32);
+        c.preloadImages(items: items, selectedItemId: 'a', notifyLoaded: () {});
+        await until(() => hn.gates.containsKey('a'));
+        // Move the window off 'a' entirely, then let its decode finish.
+        c.setRetention(
+          const RetentionPolicy(before: 0, after: 0, payloadByteBudget: 1 << 30),
+        );
+        c.preloadImages(items: items, selectedItemId: 'b', notifyLoaded: () {});
+        await Future<void>.delayed(Duration.zero);
+
+        hn.gates['a']!.complete();
+        await until(() => c.debugCancelledDownstreamCount == 1);
+
+        expect(hn.releases(), 1);
+        expect(hn.encoderCalls(), 0);
+      });
+
+      test('R1: no RGBA shrink runs when the outcome carries no fullRes',
+          () async {
+        final items = [twoRawItems().first];
+        final hn = await planarHarness(
+          items,
+          const RetentionPolicy(before: 0, after: 0, payloadByteBudget: 1 << 30),
+        );
+        final c = hn.controller;
+        c.updateTargetSize(32, 32);
+        c.preloadImages(items: items, selectedItemId: 'a', notifyLoaded: () {});
+        await until(() => hn.gates.containsKey('a'));
+        hn.gates['a']!.complete();
+        await until(() => hn.encoderCalls() == 1);
+        await until(() => hn.releases() == 1);
+
+        expect(c.debugShrinkAfterEncodeCalls, 0);
       });
     });
   });

@@ -577,6 +577,7 @@ class ImagePreloadController {
   /// the lifetime lens F2 measured; dropping the reference here is the whole
   /// fix.
   OrientedFullRes _shrinkAfterEncode(OrientedFullRes fullRes) {
+    debugShrinkAfterEncodeCalls++;
     if (fullRes.image == null) {
       return fullRes; // identity path: rgba IS the publish input
     }
@@ -1282,6 +1283,11 @@ class ImagePreloadController {
   /// publish) skipped because the window moved past them (WP7).
   @visibleForTesting
   int debugCancelledDownstreamCount = 0;
+
+  /// How many times [_shrinkAfterEncode] ran. Zero on the planar-encode path,
+  /// where the outcome carries no `fullRes` (q70-decouple R1).
+  @visibleForTesting
+  int debugShrinkAfterEncodeCalls = 0;
 
   /// How many still-pending (not yet dispatched) lane entries were dropped by
   /// a window move (WP7).
