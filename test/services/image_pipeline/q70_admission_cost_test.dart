@@ -7,7 +7,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 
 // TC-1394..TC-1396 (q70-decouple AC5). Replaces TC-1387, whose subject
-// (`deferredUpconvertPeakBytes`) was deleted with the converter it sized for.
+// (the old planar+w*h*4 peak-sizing helper) was deleted with the converter it sized for.
 void main() {
   DecodedRgba planarFrame(int w, int h) => DecodedRgba(
     rgba: Uint8List(ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, w, h)),
