@@ -67,10 +67,12 @@ Future<Uint8List> _encodeJpegNative(
 ///
 /// AMENDED 2026-09-20 (all-RAW crash fix). This used to be a HARD cast, on the
 /// stated invariant that a non-zero `nativeAddress` always travelled with a
-/// `DngImage` handle. THAT INVARIANT NO LONGER HOLDS: since the yuv420 flip the
-/// buffer under the address can be `materialiseRgba`'s pooled upconvert
-/// DESTINATION, whose keep-alive is a `CeyxNativeBuffer` -- not `Finalizable`.
-/// A hard cast now throws `TypeError` on every converted frame, and because the
+/// `DngImage` handle. THAT INVARIANT NO LONGER HOLDS: the buffer under the
+/// address can be a pooled slot produced by `materialiseRgba` (which survives
+/// on the degrade and non-yuv420 arms), whose keep-alive is a
+/// `CeyxNativeBuffer` -- not `Finalizable`. The identity path no longer
+/// materialises at all (q70-decouple), so it never reaches here with one.
+/// A hard cast throws `TypeError` on every such frame, and because the
 /// pointer call sits inside `reencodePayload`'s try/degrade that throw would be
 /// SWALLOWED into a byte-arm fallback: the zero-copy path silently off, nothing
 /// red. Hence the `is` test.
