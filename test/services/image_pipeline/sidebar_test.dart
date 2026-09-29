@@ -456,8 +456,20 @@ void main() {
       expect(controller.payloadFor('p0'), isNotNull);
       // The navigation window is -3..+5, so p0..p5 are decoded exactly once each
       // and are the rows this test's sweep asks about.
+      // (q70 rewrite) With the encoder throwing, every payload is a PixelPayload,
+      // and a PixelPayload item inside the +/-1 tier-2 band (p0, p1) now buys
+      // ONE extra decode through the counted file fallback (the piggyback that
+      // used to supply its full-res pixels is deleted). Everything else is
+      // decoded exactly once. Whatever the count, it is the BASELINE the tile
+      // derivation must not move.
+      final baseline = <int, int>{};
       for (var i = 0; i <= 5; i++) {
-        expect(decoder.callsFor('p$i'), 1, reason: 'p$i decoded once for preview');
+        baseline[i] = decoder.callsFor('p$i');
+        expect(
+          baseline[i],
+          i <= 1 ? 2 : 1,
+          reason: 'p$i: one preview decode${i <= 1 ? " + one counted file-fallback decode (in band)" : ""}',
+        );
       }
 
       await controller.preloadThumbnails(
@@ -476,8 +488,8 @@ void main() {
         expect(controller.thumbnailPayloadFor('p$i'), isNotNull, reason: 'tile p$i');
         expect(
           decoder.callsFor('p$i'),
-          1,
-          reason: 'deriving p$i\'s tile must run no second decoder call',
+          baseline[i],
+          reason: 'deriving p$i\'s tile must run no further decoder call',
         );
       }
       controller.dispose();

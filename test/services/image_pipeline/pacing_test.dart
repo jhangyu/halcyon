@@ -1030,15 +1030,20 @@ void main() {
         notifyLoaded: () {},
       );
       await pumpMicrotasks();
-      final afterSelection = controller.debugTierOneKeyIds.length;
+      // (q70 rewrite) A neighbour's bytes payload is an EncodedPayload, so its
+      // paced unit of work is now the payload-driven TIER-2 publish (a tier-1
+      // key is no longer registered for a neighbour that is served full-res
+      // straight from its payload). The pacing contract is unchanged: one
+      // non-selected registration per frame.
+      final afterSelection = controller.debugTierTwoKeyIds.length;
 
       frames.frame();
       await pumpMicrotasks();
-      expect(controller.debugTierOneKeyIds.length, afterSelection + 1);
+      expect(controller.debugTierTwoKeyIds.length, afterSelection + 1);
 
       frames.frame();
       await pumpMicrotasks();
-      expect(controller.debugTierOneKeyIds.length, afterSelection + 2);
+      expect(controller.debugTierTwoKeyIds.length, afterSelection + 2);
     });
 
     // TC-837b -- a payload dropped between submit and drain is not registered.

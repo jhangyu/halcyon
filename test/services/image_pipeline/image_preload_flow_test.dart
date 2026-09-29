@@ -176,27 +176,6 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
 }
 
 // --- from image_preload_reset_tier_one_evict_test.dart ---
-// A 1x1 PNG. Real bytes matter: the tier-1 provider is a ResizeImage over a
-// MemoryImage, and the entry only becomes tracked in the ImageCache once the
-// codec actually decodes something.
-final Uint8List _png1x1 = Uint8List.fromList(const <int>[
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-  0x42, 0x60, 0x82,
-]);
-
-Future<NativeImageResult> _pngLoader(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => NativeImageBytes(Uint8List.fromList(_png1x1));
-
 // --- from image_preload_reencode_tier_two_test.dart ---
 // Phase 13 (one-buffer payload re-encode) tier-2 rebuild tests.
 //
@@ -1605,23 +1584,34 @@ void main() {
     // tier-2-ready, so `reset`'s unconditional evict loop -- not
     // `_evictTierOneDuplicate` -- is what runs here either way.)
     test('reset evicts the tier-1 ImageCache entries it recorded', () async {
+      // (q70 rewrite) A bytes payload is an EncodedPayload and is now served
+      // full-res straight from the payload, so it never leaves a tier-1 key to
+      // evict. The tier-1 window is now only observable on a PixelPayload item
+      // (RAW whose re-encode failed) BEFORE its counted file fallback lands, so
+      // the subject item is a RAW with a throwing encoder, and the navigation
+      // debounce (250ms) is not waited out.
       final controller = ImagePreloadController(
-        imageLoader: _pngLoader,
+        imageLoader: _needsRawDecodeLoader,
+        dngDecoder: (path) async {
+          final rgba = Uint8List(64 * 48 * 4);
+          for (var i = 3; i < rgba.length; i += 4) {
+            rgba[i] = 0xFF;
+          }
+          return DecodedRgba(rgba: rgba, width: 64, height: 48);
+        },
         payloadEncoder: throwingPayloadEncoder,
       );
       addTearDown(controller.dispose);
 
       // Tier-1 precache is a no-op until the viewport size is known; without
       // this the assertions below would pass vacuously.
-      controller.updateTargetSize(800, 600);
-      final items = photoItems(8);
+      controller.updateTargetSize(32, 32);
+      final items = rawItems([for (var i = 0; i < 8; i++) 'p$i']);
       await controller.preloadImages(
         items: items,
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
-      // Tier-1 precache is unrelated to the tier-2 navigation debounce; this is
-      // a generous settle for the fake (near-instant) load, not a debounce wait.
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(
@@ -1629,29 +1619,28 @@ void main() {
         isNotEmpty,
         reason: 'no tier-1 keys recorded: the test would be vacuous',
       );
-
-      // Rebuild the SAME cache key the controller used: tierOneProviderFor is
-      // keyed on (bytes identity, width, height), and imageBytesFor hands back
-      // the very buffer the retained payload holds.
-      final bytes = controller.imageBytesFor('p0');
-      expect(bytes, isNotNull, reason: 'p0 payload must be retained');
-      final key = await tierOneProviderFor(
-        bytes!,
-        width: 800,
-        height: 600,
-      ).obtainKey(const ImageConfiguration());
-
       expect(
-        PaintingBinding.instance.imageCache.statusForKey(key).untracked,
+        controller.isFullSizeReady('p0'),
         isFalse,
-        reason: 'precondition: p0 tier-1 entry is tracked before reset',
+        reason: 'precondition: p0 has not reached tier-2 (no payload-driven '
+            'publish for a PixelPayload)',
+      );
+
+      // A PixelPayload has no bytes to rebuild the provider key from, so the
+      // observable is the cache's own accounting: setUp cleared it, so whatever
+      // is resident now is what the controller's tier-1 precache put there.
+      final cache = PaintingBinding.instance.imageCache;
+      expect(
+        cache.currentSize,
+        greaterThan(0),
+        reason: 'precondition: tier-1 entries are resident before reset',
       );
 
       controller.reset();
 
       expect(
-        PaintingBinding.instance.imageCache.statusForKey(key).untracked,
-        isTrue,
+        cache.currentSize,
+        0,
         reason: 'reset must evict tier-1 entries, not just drop their keys',
       );
     });
@@ -1825,7 +1814,18 @@ void main() {
         await pumpTierTwoDebounce();
         await navigateTo(controller, items, index: 0);
         await pumpTierTwoDebounce();
-        expect(decodeCallsByPath[path0], 2);
+        // (q70 rewrite) The pre-q70 expectation was 2 (decode + file re-decode on
+        // return): the first decode's pixels were piggybacked into tier-2. That
+        // route is deleted. A PixelPayload item (encoder unavailable) now reaches
+        // full-res ONLY through the counted file fallback, so BOTH arrivals buy a
+        // file decode on top of the payload-producing decode: 1 + 2 = 3.
+        expect(decodeCallsByPath[path0], 3);
+        expect(
+          controller.debugBandEntryFileDecodeCount,
+          greaterThanOrEqualTo(2),
+          reason:
+              'each of item0\'s two tier-2 arrivals is a counted file fallback',
+        );
       },
     );
   });

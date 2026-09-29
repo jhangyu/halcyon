@@ -397,9 +397,13 @@ void main() {
   group('tier-1 precache is the +/-1 band only (spec v2 §3.4, R-B)', () {
     setUp(clearImageCacheSetUp);
 
-    /// A cheap-source controller: every item gets an EncodedPayload, and
-    /// the RAW decoder fails the test outright so nothing here can be
-    /// explained by a re-decode.
+    /// A PIXEL-payload controller (q70 rewrite): every item is a RAW whose
+    /// re-encode is deliberately unavailable, so it retains a [PixelPayload].
+    /// That is the only source whose tier-2 entry still arrives LATE (through
+    /// the debounced, counted file fallback), which is what makes the
+    /// "tier-1 before tier-2 ready" window these tests pin observable. An
+    /// EncodedPayload (cheap bytes) now publishes tier-2 straight from its
+    /// payload, with no debounce, so it has no such window.
     ///
     /// [navigationDebounce] gates only [TierTwoScheduler] (see
     /// `image_preload_controller.dart:1102`, `_navigationDebounce` has
@@ -413,9 +417,15 @@ void main() {
         scheduleFrameCallback: _microtaskFrame,
         navigationDebounce: navigationDebounce,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
-        dngDecoder: (path) async =>
-            fail('the tier-1 precache must never RAW-decode'),
+            const NativeImageNeedsRawDecode(exifOrientation: 1),
+        dngDecoder: (path) async {
+          final rgba = Uint8List(4 * 3 * 4);
+          for (var p = 0; p < 4 * 3; p++) {
+            rgba[p * 4 + 3] = 0xFF; // opaque, per the RAW-decode contract
+          }
+          return DecodedRgba(rgba: rgba, width: 4, height: 3);
+        },
+        payloadEncoder: throwingPayloadEncoder,
       );
       controller.updateTargetSize(10, 10);
       return controller;
@@ -456,7 +466,7 @@ void main() {
             navigationDebounce: const Duration(milliseconds: 300),
           );
           addTearDown(controller.dispose);
-          final photos = paddedItems(14);
+          final photos = paddedItems(14, extension: 'dng');
           const selected = 5;
 
           await controller.preloadImages(
@@ -520,7 +530,7 @@ void main() {
             navigationDebounce: const Duration(milliseconds: 300),
           );
           addTearDown(controller.dispose);
-          final photos = paddedItems(14);
+          final photos = paddedItems(14, extension: 'dng');
           const selected = 5;
           final outerId = photos[selected + 4].id;
 
@@ -586,7 +596,7 @@ void main() {
             navigationDebounce: const Duration(milliseconds: 300),
           );
           addTearDown(controller.dispose);
-          final photos = paddedItems(14);
+          final photos = paddedItems(14, extension: 'dng');
           const selected = 0;
 
           await controller.preloadImages(
@@ -642,7 +652,7 @@ void main() {
             navigationDebounce: const Duration(milliseconds: 200),
           );
           addTearDown(controller.dispose);
-          final photos = paddedItems(14);
+          final photos = paddedItems(14, extension: 'dng');
           const selected = 5;
           final centerId = photos[selected].id;
 

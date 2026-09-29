@@ -135,6 +135,15 @@ Future<ui.Image> _decodeTinyImage() {
 // CI: one candidate at 800x600 and a small viewport, which is unambiguously
 // `cheap` (800 >= 400) and carries an IFD0 orientation.
 
+/// A 2x2 opaque RGBA frame (q70 rewrite helper for RAW-source cases).
+DecodedRgba _opaque2x2() => DecodedRgba(
+  rgba: Uint8List.fromList(
+    List<int>.generate(2 * 2 * 4, (i) => i % 4 == 3 ? 0xFF : i),
+  ),
+  width: 2,
+  height: 2,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -622,15 +631,22 @@ void main() {
           final controller = ImagePreloadController(
             scheduleFrameCallback: _microtaskFrame,
             navigationDebounce: shortDebounce,
+            // (q70 rewrite) The debounce now gates ONLY the counted file
+            // fallback, which is how a PixelPayload item reaches full-res. An
+            // EncodedPayload (cheap bytes) is published straight from its
+            // payload with no debounce, so this test uses a RAW source whose
+            // re-encode is unavailable, i.e. a PixelPayload.
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
-                    NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+                    const NativeImageNeedsRawDecode(exifOrientation: 1),
+            dngDecoder: (path) async => _opaque2x2(),
+            payloadEncoder: throwingPayloadEncoder,
           );
           addTearDown(controller.dispose);
 
           final items = List.generate(5, (i) {
             final id = 'IMG_${i.toString().padLeft(2, '0')}';
-            return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+            return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
           });
           controller.updateTargetSize(10, 10);
 
@@ -643,6 +659,7 @@ void main() {
           // Right after preloadImages returns -- long before the debounce --
           // tier-2 must not have started yet.
           expect(controller.isFullSizeReady(items[2].id), isFalse);
+          expect(controller.debugBandEntryFileDecodeCount, 0);
 
           // Still not ready comfortably inside the debounce window. If the
           // debounce were removed, the tiny PNG decodes near-instantly and
@@ -658,6 +675,12 @@ void main() {
             reason: 'tier-2 to land for the selected item after the debounce',
           );
           expect(controller.isFullSizeReady(items[2].id), isTrue);
+          expect(
+            controller.debugBandEntryFileDecodeCount,
+            greaterThan(0),
+            reason: 'a PixelPayload reaches full-res only via the counted '
+                'file fallback',
+          );
         });
       },
     );
@@ -672,15 +695,19 @@ void main() {
           final controller = ImagePreloadController(
             scheduleFrameCallback: _microtaskFrame,
             navigationDebounce: const Duration(milliseconds: 40),
+            // (q70 rewrite) RAW / PixelPayload source: see AC3a. The debounce
+            // only gates the counted file fallback now.
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
-                    NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+                    const NativeImageNeedsRawDecode(exifOrientation: 1),
+            dngDecoder: (path) async => _opaque2x2(),
+            payloadEncoder: throwingPayloadEncoder,
           );
           addTearDown(controller.dispose);
 
           final items = List.generate(10, (i) {
             final id = 'IMG_${i.toString().padLeft(2, '0')}';
-            return PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
+            return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
           });
           controller.updateTargetSize(10, 10);
 
@@ -839,15 +866,22 @@ void main() {
       'not just when it is missing (round-2 review BLOCKER 3)',
       (tester) async {
         await tester.runAsync(() async {
-          // Debounce shortened to 40ms: the pre-insertion below still needs to
-          // land before tier-2 attempts its own decode, so the debounce
-          // cannot be zero here, only shortened.
+          // (q70 rewrite) An EncodedPayload's tier-2 entry is published from
+          // the payload the moment it lands (no debounce), so the pending
+          // entry has to be in place BEFORE the payload lands. The loader
+          // therefore hands item 5 a bytes object we already hold, which makes
+          // the tier-2 ImageCache key (bytes identity) computable up front.
+          final item5Bytes = Uint8List.fromList(tinyPngBytes);
           final controller = ImagePreloadController(
             scheduleFrameCallback: _microtaskFrame,
             navigationDebounce: const Duration(milliseconds: 40),
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
-                    NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+                    NativeImageBytes(
+                      path.endsWith('IMG_05.jpg')
+                          ? item5Bytes
+                          : Uint8List.fromList(tinyPngBytes),
+                    ),
           );
           addTearDown(controller.dispose);
 
@@ -857,35 +891,17 @@ void main() {
           });
           controller.updateTargetSize(10, 10);
 
-          await controller.preloadImages(
-            items: items,
-            selectedItemId: items[5].id,
-            notifyLoaded: () {},
-          );
-
-          // PHASE 3 settle (settle-only instrument repair): the pass returns
-          // once the window is issued. Still well inside the 40ms tier-2
-          // debounce, so the pre-insertion below still wins the race it is
-          // designed to win. Assertions unchanged.
-          await until(
-            () => controller.imageBytesFor(items[5].id) != null,
-            reason: 'the selected payload to land',
-          );
-          final bytes = controller.imageBytesFor(items[5].id)!;
           final tierTwoKey = await fullSizeProviderFor(
-            bytes,
+            item5Bytes,
           ).obtainKey(ImageConfiguration.empty);
 
           // Deterministically simulate "decode started, not yet finished":
           // pre-insert a never-completing entry under the SAME key the
-          // controller's own tier-2 decode will resolve to. When the
-          // debounce fires and the controller calls
-          // fullSizeProviderFor(bytes).resolve(...), Flutter's
-          // ImageCache.putIfAbsent finds this key already present and
-          // returns the existing (never-completing) entry instead of
-          // starting a real decode -- so the controller's own completion
-          // listener never fires, and this test never depends on how fast a
-          // real decode happens to run.
+          // controller's own tier-2 publish will resolve to. Flutter's
+          // ImageCache.putIfAbsent finds this key already present and returns
+          // the existing (never-completing) entry instead of starting a real
+          // decode -- so the controller's own completion listener never fires,
+          // and this test never depends on how fast a real decode happens to run.
           final ic = PaintingBinding.instance.imageCache;
           ic.putIfAbsent(
             tierTwoKey,
@@ -893,17 +909,32 @@ void main() {
           );
           addTearDown(() => ic.evict(tierTwoKey));
 
-          // Let the debounce fire; the controller's decode attempt for item 5
-          // joins the pre-inserted pending entry above and will never complete.
+          await controller.preloadImages(
+            items: items,
+            selectedItemId: items[5].id,
+            notifyLoaded: () {},
+          );
+          await until(
+            () => controller.imageBytesFor(items[5].id) != null,
+            reason: 'the selected payload to land',
+          );
+          expect(
+            identical(controller.imageBytesFor(items[5].id), item5Bytes),
+            isTrue,
+            reason: 'precondition: item 5 retained the bytes the key was '
+                'built from, or the pending entry proves nothing',
+          );
+
           // Synchronise on item 4 becoming ready: item 4 shares this tier-2
-          // window, was NOT pre-seeded, and decodes normally — its readiness is
-          // a positive signal that the debounce has fired (so item 5's decode
-          // attempt has also happened and joined the pending entry), without
-          // betting a fixed sleep outlasts the debounce plus a real decode.
+          // band, was NOT pre-seeded, and decodes normally -- its readiness is
+          // a positive signal that the payload-driven publishes have run (so
+          // item 5's publish has also joined the pending entry), without
+          // betting a fixed sleep outlasts a real decode.
           await pumpUntil(
             () => controller.isFullSizeReady(items[4].id),
-            reason: 'the tier-2 debounce to fire (item 4 decodes normally)',
+            reason: 'item 4 to publish its tier-2 entry normally',
           );
+          await Future<void>.delayed(const Duration(milliseconds: 60));
 
           expect(
             PaintingBinding.instance.imageCache.containsKey(tierTwoKey),
@@ -996,6 +1027,32 @@ void main() {
         reason: 'controller inflight-bytes budget to drain before teardown',
       );
 
+      /// PARKED PRODUCT GAP (lead ruling, reported at campaign close): a PixelPayload
+      /// that lands AFTER the tier-2 sweep is NOT upgraded until the next navigation;
+      /// this re-navigation WORKS AROUND that gap and is NOT the intended final
+      /// behaviour. If lib later upgrades on landing, this helper becomes redundant.
+      /// (q70 rewrite) A PixelPayload has no full-res pixels of its own, so it
+      /// reaches tier-2 only through the counted file fallback, which runs from
+      /// the tier-2 sweep. A sweep that fired BEFORE the payload landed (always
+      /// the case with a zero debounce) does not revisit it, so the tests
+      /// re-navigate to the same item once its payload is resident: that is the
+      /// catch-up trigger, and it is what a user's next arrow key does.
+      Future<void> catchUpTierTwo(
+        ImagePreloadController controller,
+        List<PhotoItem> items,
+        int index,
+      ) async {
+        await until(
+          () => controller.payloadFor(items[index].id) != null,
+          reason: 'the payload to be resident before the catch-up sweep',
+        );
+        await controller.preloadImages(
+          items: items,
+          selectedItemId: items[index].id,
+          notifyLoaded: () {},
+        );
+      }
+
       // M6 P3.3 (Appendix B, C-4): the `halcyon/thumbnail` channel is deleted.
       // `_legacyBytes`/`NativeThumbnailService` no longer exist, so a DNG with
       // no embedded preview and no decoder (or a throwing decoder) is a
@@ -1067,7 +1124,14 @@ void main() {
         // payload has to serve what would otherwise be two tiers.
         expect(controller.payloadFor(items[5].id), isA<PixelPayload>());
         expect(controller.imageBytesFor(items[5].id), isNull);
+        await catchUpTierTwo(controller, items, 5);
         await until(() => controller.isFullSizeReady(items[5].id));
+        expect(
+          controller.debugBandEntryFileDecodeCount,
+          greaterThan(0),
+          reason: '(q70 rewrite) a PixelPayload reaches full-res through the '
+              'counted file fallback, not from the decode that made it',
+        );
 
         // The provider is derived from the payload rather than owned and
         // handed out, so two independently built providers are the SAME
@@ -1078,18 +1142,24 @@ void main() {
           isTrue,
         );
 
-        // One source call per item, not one per tier. The count is the whole
+        // One PAYLOAD-PRODUCING source call per item. The window is the whole
         // -3..+5 retention window (9) since the 2026-08-26 ruling, not the old
-        // +/-1 trio: an expensive item is eligible wherever a cheap one is. The
-        // load-bearing half of this assertion is the SECOND line -- one decode
-        // per item, so the piggyback still pays for both tiers with one call.
+        // +/-1 trio: an expensive item is eligible wherever a cheap one is.
+        // (q70 rewrite) The piggyback that let this one call pay for both tiers
+        // is gone: every counted file-fallback decode is an EXTRA call on top
+        // of the 9, so the payload-producing calls are total minus fallback.
+        const windowSize = kRetentionBefore + kRetentionAfter + 1;
         await until(
-          () => decodeCalls.length == kRetentionBefore + kRetentionAfter + 1,
+          () => decodeCalls.toSet().length == windowSize,
           reason: 'the whole window to be decoded off the serial lane',
         );
+        await settle(controller);
+        expect(decodeCalls.toSet().length, windowSize);
         expect(
-          decodeCalls.toSet().length,
-          kRetentionBefore + kRetentionAfter + 1,
+          decodeCalls.length - controller.debugBandEntryFileDecodeCount,
+          windowSize,
+          reason: 'one payload-producing decode per item; the rest are the '
+              'counted tier-2 fallbacks',
         );
 
         // Re-running the same window must not re-source anything.
@@ -1102,12 +1172,12 @@ void main() {
         // for a near-instant fake decode to land, proving the negative (no
         // re-source), but there is no debounce interval left to outlast.
         await Future<void>.delayed(const Duration(milliseconds: 20));
+        await settle(controller);
         expect(
-          decodeCalls.length,
-          kRetentionBefore + kRetentionAfter + 1,
+          decodeCalls.length - controller.debugBandEntryFileDecodeCount,
+          windowSize,
           reason: 'a second pass re-sourced',
         );
-        await settle(controller);
       });
 
       // Successor to "AC B4: leaving the preload window disposes the ui.Image".
@@ -1232,6 +1302,7 @@ void main() {
           selectedItemId: items[5].id,
           notifyLoaded: () {},
         );
+        await catchUpTierTwo(controller, items, 5);
         await until(() => controller.isFullSizeReady(items[5].id));
         // M5 re-anchor: before M5 a RAW's tier-2 entry WAS its
         // window-resolution provider (both tiers shared one entry), so this
@@ -1254,10 +1325,11 @@ void main() {
           selectedItemId: items[8].id,
           notifyLoaded: () {},
         );
+        await catchUpTierTwo(controller, items, 8);
         await until(() => controller.isFullSizeReady(items[8].id));
-        // The selected item (index 8) reaches readiness via the immediate
-        // piggyback path, which can win the race against the 250ms debounce
-        // that runs the tier-2 eviction sweep. Poll for the eviction itself so
+        // (q70 rewrite) The selected item (index 8) reaches readiness through
+        // the counted file fallback (catch-up above), which runs from the same
+        // sweep that does the tier-2 eviction. Poll for the eviction itself so
         // this waits exactly as long as the sweep needs on any runner -- it
         // waits for the eviction, it does not relax the assertion.
         await until(
@@ -1341,6 +1413,7 @@ void main() {
             selectedItemId: items[5].id,
             notifyLoaded: () {},
           );
+          await catchUpTierTwo(controller, items, 5);
           await until(() => controller.isFullSizeReady(items[5].id));
           final provider = controller.pixelsProviderFor(items[5].id)!;
 
@@ -1766,10 +1839,11 @@ void main() {
       // "at least 3".
       await Future<void>.delayed(const Duration(milliseconds: 20));
       final neighbourBytes = cheap.imageBytesFor(cheapItems[6].id)!;
-      final key = await tierOneProviderFor(
+      // (q70 rewrite) A cheap (EncodedPayload) neighbour in the +/-1 band is
+      // served full-res straight from its payload, so the resident entry per
+      // band slot is its TIER-2 key, not a window-resolution tier-1 key.
+      final key = await fullSizeProviderFor(
         neighbourBytes,
-        width: 800,
-        height: 600,
       ).obtainKey(const ImageConfiguration());
       expect(PaintingBinding.instance.imageCache.containsKey(key), isTrue);
       expect(
@@ -2070,7 +2144,17 @@ void main() {
               'must still exist after the one-step round trip',
         );
         expect(identical(controller.payloadFor(items[8].id), first), isTrue);
-        expect(targetDecodes(), 1);
+        // (q70 rewrite) Still ONE payload-producing decode -- the retained
+        // PixelPayload is never re-produced (identity above). Item 8 is inside
+        // the +/-1 band on the round trip, so its full-res tier-2 comes from the
+        // counted file fallback: exactly ONE extra decode (the piggyback that
+        // used to supply it is deleted).
+        expect(targetDecodes(), 2);
+        expect(
+          controller.debugBandEntryFileDecodeCount,
+          greaterThan(0),
+          reason: 'the extra decode is the counted tier-2 file fallback',
+        );
       },
     );
 
@@ -2118,7 +2202,13 @@ void main() {
       // when the walk returns to index 9/8. That second decode is the accepted
       // AD-034 catch-up cost, NOT the AD-033 discarded-piggyback bug: it fires on
       // a legitimate re-entry against a live payload, not a single-visit discard.
-      expect(decodesOfTarget(), 2);
+      // (q70 rewrite) Now 3, not 2: the piggyback that supplied the first
+      // full-res is deleted, so a PixelPayload item costs the payload-producing
+      // decode (1) plus one COUNTED file-fallback decode per tier-2 arrival --
+      // the first arrival at index 9 (8 is in band) and the re-entry after the
+      // eviction at index 10 (2). The payload itself is never re-produced.
+      expect(decodesOfTarget(), 3);
+      expect(controller.debugBandEntryFileDecodeCount, greaterThan(0));
 
       final cheapCalls = <String>[];
       final cheapController = ImagePreloadController(
@@ -2236,6 +2326,31 @@ void main() {
       () => controller.debugInflightBytes == 0,
       reason: 'controller inflight-bytes budget to drain before teardown',
     );
+
+    /// PARKED PRODUCT GAP (lead ruling, reported at campaign close): a PixelPayload
+    /// that lands AFTER the tier-2 sweep is NOT upgraded until the next navigation;
+    /// this re-navigation WORKS AROUND that gap and is NOT the intended final
+    /// behaviour. If lib later upgrades on landing, this helper becomes redundant.
+    /// (q70 rewrite) See the raw-decode group's helper of the same name: a
+    /// PixelPayload reaches tier-2 only via the counted file fallback, run from
+    /// the tier-2 sweep; a sweep that fired before the payload landed (always,
+    /// at zero debounce) does not revisit it, so the tests re-navigate to the
+    /// same item once its payload is resident -- the user's next arrow key.
+    Future<void> catchUpTierTwo(
+      ImagePreloadController controller,
+      List<PhotoItem> items,
+      int index,
+    ) async {
+      await until(
+        () => controller.payloadFor(items[index].id) != null,
+        reason: 'the payload to be resident before the catch-up sweep',
+      );
+      await controller.preloadImages(
+        items: items,
+        selectedItemId: items[index].id,
+        notifyLoaded: () {},
+      );
+    }
 
     setUp(() {
       PaintingBinding.instance.imageCache.clear();
@@ -2448,6 +2563,7 @@ void main() {
           selectedItemId: items[5].id,
           notifyLoaded: () {},
         );
+        await catchUpTierTwo(controller, items, 5);
         await until(
           () => controller.isFullSizeReady(items[5].id),
           reason: 'distance-0 pixel item to gain a full-size tier-2 entry',
@@ -2533,8 +2649,9 @@ void main() {
 
     // ------------------------------------------------------------- AC-M5-4
 
-    test('M5-DW3 payload production and full-res tier-2 for a RAW item inside '
-        '+/-1 cost exactly ONE decoder call', () async {
+    test('M5-DW3 (q70 rewrite) payload production and full-res tier-2 for a RAW '
+        'item inside +/-1 cost exactly TWO decoder calls: one payload-producing '
+        'and one counted file fallback', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
         scheduleFrameCallback: _microtaskFrame,
@@ -2556,17 +2673,22 @@ void main() {
         selectedItemId: items[5].id,
         notifyLoaded: () {},
       );
+      await catchUpTierTwo(controller, items, 5);
       await until(
         () => controller.isFullSizeReady(items[5].id),
         reason: 'distance-0 pixel item to gain a full-size tier-2 entry',
       );
+      // Pre-q70 this was ONE call: the decode piggybacked its pixels into
+      // tier-2. That route is deleted; a PixelPayload has no full-res pixels,
+      // so tier-2 is the COUNTED file fallback -- one more decode, no more.
       expect(
         decodeCalls.where((p) => p == target).length,
-        1,
+        2,
         reason:
-            'single-decode dual-output (piggyback): payload production and '
-            'the full-res tier-2 upload must share ONE FFI decode call',
+            'payload production (1) + exactly one counted file-fallback '
+            'decode (1) for the full-res tier-2 entry',
       );
+      expect(controller.debugBandEntryFileDecodeCount, greaterThan(0));
       await settle(controller);
     });
 
@@ -2598,8 +2720,10 @@ void main() {
           selectedItemId: items[8].id,
           notifyLoaded: () {},
         );
+        await catchUpTierTwo(controller, items, 8);
         await until(() => controller.isFullSizeReady(items[8].id));
-        expect(targetCalls(), 1);
+        // (q70 rewrite) 1 payload-producing decode + 1 counted file fallback.
+        expect(targetCalls(), 2);
         final firstPayload = controller.payloadFor(items[8].id);
         expect(firstPayload, isNotNull);
 
@@ -2637,8 +2761,9 @@ void main() {
         await until(() => controller.isFullSizeReady(items[8].id));
         expect(
           targetCalls(),
-          2,
-          reason: 'exactly one extra decoder call for the re-upgrade',
+          3,
+          reason: 'exactly one extra decoder call for the re-upgrade (the '
+              'counted file fallback; the payload is not re-produced)',
         );
         expect(
           identical(controller.payloadFor(items[8].id), firstPayload),
@@ -2666,11 +2791,12 @@ void main() {
           decodeCalls.add(path);
           final n = (perPathCalls[path] ?? 0) + 1;
           perPathCalls[path] = n;
-          // Every item decodes fine EXCEPT the target's SECOND-and-later
-          // attempt: its first (piggyback) call must still succeed, so the
+          // Every item decodes fine EXCEPT the target's THIRD-and-later
+          // attempt (q70 rewrite: call 1 is payload production, call 2 the
+          // first counted file fallback; both must still succeed), so the
           // failure under test is specifically the catch-up re-upgrade, not
           // payload production.
-          if (path == target && n > 1) {
+          if (path == target && n > 2) {
             throw StateError('simulated full-res decode failure');
           }
           return fakeDecoded();
@@ -2685,8 +2811,9 @@ void main() {
         selectedItemId: items[8].id,
         notifyLoaded: () {},
       );
+      await catchUpTierTwo(controller, items, 8);
       await until(() => controller.isFullSizeReady(items[8].id));
-      expect(targetCalls(), 1);
+      expect(targetCalls(), 2);
 
       // Item 8 at distance -3 from selection 11: evicts the full-res entry,
       // retains the payload.
@@ -2707,7 +2834,7 @@ void main() {
         notifyLoaded: () {},
       );
       await until(
-        () => targetCalls() == 2,
+        () => targetCalls() == 3,
         reason: 'the failing catch-up attempt to run',
       );
       // Give the failed attempt's bookkeeping a moment to settle before
@@ -2745,11 +2872,11 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(
         targetCalls(),
-        2,
+        3,
         reason:
-            'the failing full-res attempt count must stay at 1 (2 total: '
-            '1 successful piggyback + 1 failing catch-up) after two more '
-            'debounce settles for the same payload',
+            'the failing full-res attempt count must stay at 1 (3 total: '
+            '1 payload production + 1 successful file fallback + 1 failing '
+            'catch-up) after two more debounce settles for the same payload',
       );
       await settle(controller);
     });
@@ -2784,6 +2911,7 @@ void main() {
           selectedItemId: items[5].id,
           notifyLoaded: () {},
         );
+        await catchUpTierTwo(controller, items, 5);
         await until(() => controller.isFullSizeReady(items[5].id));
 
         // Since the 2026-08-26 ruling an expensive item fills the SAME -3..+5

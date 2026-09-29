@@ -168,7 +168,18 @@ void main() {
 
         // No notifier existed while the load ran: the state is DERIVED from the
         // same containers the getters read, so it cannot disagree with them.
-        expect(controller.stateFor(id).value.stage, PayloadStage.tierOneReady);
+        //
+        // (q70 rewrite) A bytes payload is an EncodedPayload, and its tier-2
+        // entry is now published FROM THE PAYLOAD as soon as it lands, so by the
+        // time the payload is visible the item may already be tierTwoReady. The
+        // pin is that the derived stage AGREES with the registry, whichever rung
+        // the publish has reached -- never absent/decoding.
+        expect(
+          controller.stateFor(id).value.stage,
+          controller.isFullSizeReady(id)
+              ? PayloadStage.tierTwoReady
+              : PayloadStage.tierOneReady,
+        );
       });
     });
 

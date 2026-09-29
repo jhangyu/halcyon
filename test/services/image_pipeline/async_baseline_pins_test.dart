@@ -269,15 +269,31 @@ void main() {
             () => notifyCount >= expected,
             reason: 'selection ${item.id} to land and notify',
           );
+          // (q70 rewrite) A bytes payload is an EncodedPayload, so its full-res
+          // tier-2 entry is now published from the payload right after the
+          // landing, and that publish is a SECOND wake for the same item. Wait
+          // for it so the final count is settled, not racing it.
+          await until(
+            () => controller.isFullSizeReady(item.id),
+            reason: 'selection ${item.id} payload-driven tier-2 publish',
+          );
+          expected++;
+          await until(
+            () => notifyCount >= expected,
+            reason: 'selection ${item.id} tier-2 publish notify',
+          );
         }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(
           notifyCount,
-          n,
+          n * 2,
           reason:
-              'today, one global notifyLoaded fires per landed SELECTED '
-              'payload -- N distinct selections, N callbacks. Phase 5 must '
-              'not silently swallow a landing while changing WHO is woken.',
+              'one global notifyLoaded fires per landed SELECTED payload (tier-1) '
+              'plus one for its payload-driven tier-2 publish (q70 rewrite: N '
+              'distinct selections, 2N callbacks, never fewer, never more). '
+              'Phase 5 must not silently swallow a landing while changing WHO '
+              'is woken.',
         );
       },
     );
