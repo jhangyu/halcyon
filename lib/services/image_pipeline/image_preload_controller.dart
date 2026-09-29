@@ -1441,21 +1441,20 @@ class ImagePreloadController {
   /// lives in exactly one place -- see [TierTwoRegistry.isReady].
   bool isFullSizeReady(String id) => _tierTwo.isReady(id);
 
-  /// D-2 (2026-09-21): the bytes a DEFERRED decode really holds through the
-  /// upconvert, or null when this decode did not defer.
+  /// R4 (q70-decouple, 2026-09-29): the bytes a DEFERRED decode really holds
+  /// between the decode and the release inside `encodePhase`.
   ///
-  /// Planar frame + the rgba8 destination `materialiseRgba` will write, which
-  /// are live SIMULTANEOUSLY inside the converter's single native call. Both
-  /// terms are read off the frame itself rather than
-  /// [kNominalFullFrameBytes]/[kNominalFullFrameDisplayBytes]: the estimate
-  /// has become a fact by this point, which is the same rule the non-deferred
-  /// line above follows. Sizing for non-deferred items is untouched.
+  /// The PLANAR frame, and nothing else. Its rgba8 destination used to be
+  /// charged alongside it because `_encodeThenUpconvert` held both at once
+  /// inside one converter call; that call is gone (T1), so charging for it
+  /// reserved ~27% of the ledger against a buffer that is never allocated.
+  ///
+  /// Read off the frame rather than recomputed: `w*h*1.5` open-coded here
+  /// would disagree with a pooled slot whose capacity exceeds the tight
+  /// figure, and the ledger must bound what is really held.
   @visibleForTesting
-  static int? deferredUpconvertPeakBytes(SourceDecode decode) {
-    final frame = decode.pendingPlanarEncode?.frame;
-    if (frame == null) return null;
-    return frame.rgba.lengthInBytes + frame.width * frame.height * 4;
-  }
+  static int? deferredPlanarBytes(SourceDecode decode) =>
+      decode.pendingPlanarEncode?.frame.rgba.lengthInBytes;
 
   void reset() {
     // PHASE 6: a queued pass belongs to the folder being left. Dropping the
@@ -2257,15 +2256,16 @@ class ImagePreloadController {
       // the backstop it is documented to be (`native_buffer_pool.dart:73-76`),
       // and it was reached. A deferred decode holds a REAL planar frame.
       //
-      // The deferred charge is planar + its rgba8 destination, because STEP 2
-      // of `_encodeThenUpconvert` holds BOTH at once (the converter reads one
-      // and writes the other in a single native call). Non-deferred items keep
+      // The deferred charge is the planar frame ONLY: q70-decouple (T1)
+      // deleted the simultaneous rgba8 destination, so no second buffer is
+      // live during `encodePhase`. Settling to 0 here would re-open D-2 and
+      // make the pool cap the operating bound. Non-deferred items keep
       // `fullRes.rgba.lengthInBytes` exactly as before -- this changes the
       // sizing of deferred items only.
       _decodeLane.adjustAdmission(
         (LaneTaskKind.payload, id),
         to: decode.fullRes?.rgba.lengthInBytes ??
-            deferredUpconvertPeakBytes(decode) ??
+            deferredPlanarBytes(decode) ??
             0,
       );
       // PERF-INSTRUMENTATION (D1 AC3 markers + gap #5): request end + decode
@@ -2477,9 +2477,9 @@ class ImagePreloadController {
         final skippedImage = decode.fullRes?.image;
         skippedImage?.dispose();
         // OPTION D: this return skips `encodePhase`, which is the only thing
-        // that would have run the upconvert seam -- and the seam is what
-        // returns the planar slot to the pool. Without this the slot leaks on
-        // every navigation that outruns a deferred decode.
+        // that would have released the planar slot back to the pool. Without
+        // this the slot leaks on every navigation that outruns a deferred
+        // decode.
         releasePendingPlanarEncode(decode);
         // Test seam pinning N3 itself, not merely that this branch ran: reads
         // the REAL `ui.Image.debugDisposed` back off the handle this branch
