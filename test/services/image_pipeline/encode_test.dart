@@ -407,9 +407,16 @@ void main() {
               'publish, dropping the readback whose only consumer (the '
               'encoder) has already returned',
         );
-        // The shrink must not break the piggyback publish: the image handle
-        // is still carried and lands in the tier-2 registry.
-        expect(controller.fullResProviderFor('a'), isNotNull);
+        // AC-T6.4. Since the q70 decouple the rotated arm's oriented image is
+        // NOT a publish source: the controller disposes it, and the item's
+        // tier-2 entry is served from its q70 payload like every other item.
+        // So the observable is the PAYLOAD publish route, not a carried handle.
+        expect(
+          controller.debugPayloadDecodePublishCount,
+          greaterThan(0),
+          reason: 'the rotated arm must still reach tier-2 -- through '
+              '`publishFromPayload`, which is the one route (spec R2)',
+        );
       },
     );
 
