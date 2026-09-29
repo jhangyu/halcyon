@@ -9,9 +9,15 @@
 // through `imageCache.currentSizeBytes`: the SDK subtracts the evicted entry's
 // bytes synchronously inside `evict()`, so that number cannot tell whether the
 // deferred handle dispose ever ran (lead ruling OQ-2, 2026-09-30).
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/perf/perf_log.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
+import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
@@ -46,6 +52,37 @@ class _Rig {
     registry.clear();
   }
 }
+
+/// Every `ui.Image` HANDLE (originals and clones alike) created after this
+/// call and not yet disposed. Handle-level on purpose: a leaked listener clone
+/// keeps the underlying pixels alive exactly like the original does, and
+/// `imageCache.currentSizeBytes` cannot see either.
+Set<ui.Image> _trackLiveImages() {
+  final live = <ui.Image>{};
+  void onEvent(ObjectEvent event) {
+    final object = event.object;
+    if (object is! ui.Image) return;
+    if (event is ObjectCreated) live.add(object);
+    if (event is ObjectDisposed) live.remove(object);
+  }
+
+  FlutterMemoryAllocations.instance.addListener(onEvent);
+  addTearDown(() => FlutterMemoryAllocations.instance.removeListener(onEvent));
+  return live;
+}
+
+/// The live handles that are a LISTENER CLONE: created through
+/// `ImageInfo.clone` (the SDK's `addListener`/`setImage` hand-out), as opposed
+/// to the completer's own `_currentImage` (created by `Image.clone` in
+/// `_decodeNextFrameAndSchedule`, released on the SDK's schedule -- the
+/// survivors documented in tmp/verify/l1l2/t2b-survivor.txt). Only the former
+/// can be an undisposed R7 listener clone.
+List<ui.Image> _listenerClones(Set<ui.Image> live) => [
+      for (final i in live)
+        if ((i.debugGetOpenHandleStackTraces() ?? const [])
+            .any((t) => t.toString().contains('ImageInfo.clone')))
+          i,
+    ];
 
 void main() {
   setUp(clearImageCacheSetUp);
@@ -145,5 +182,86 @@ void main() {
     await tester.pump();
     expect(image.debugDisposed, isTrue);
     rig.dispose();
+  });
+
+  testWidgets(
+      'TC-1405 (R7) the publishFullRes listener disposes the clone it is '
+      'handed', (tester) async {
+    final rig = _Rig();
+    final image = (await tester.runAsync(tinyImage))!;
+    var loaded = 0;
+    rig.registry.publishFullRes(
+        'a2', freshEncodedPayload(), image, () => loaded++);
+    expect(loaded, 1, reason: 'vacuity: the listener fired (sync resolve)');
+    expect(image.debugGetOpenHandleStackTraces()!.length, 1,
+        reason: 'only the completer-owned handle may remain open; the '
+            "listener's clone must have been disposed");
+    // The R7 pin is the open-handle count above. `image` is the very handle the
+    // provider's completer owns (RawFullResImage hands it over without a
+    // clone), so the test must not dispose it itself.
+    rig.dispose();
+    await tester.pump();
+  });
+
+  testWidgets(
+      'TC-1406 (R7) the publishEncoded listener disposes its clone: evict + '
+      'one frame leaves no live handle', (tester) async {
+    final live = _trackLiveImages();
+    final rig = _Rig();
+    final payload = freshEncodedPayload();
+    var loaded = 0;
+    // Real engine decode: published and awaited inside runAsync so the codec
+    // completes in a real zone.
+    await tester.runAsync(() async {
+      rig.registry.publishEncoded(
+          'a2', payload, fullSizeProviderFor(payload.bytes), () => loaded++);
+      await until(() => loaded == 1 && rig.registry.keyFor('a2') != null,
+          reason: 'decode landed and the key registered');
+    });
+    expect(live, isNotEmpty, reason: 'vacuity: the decode created a handle');
+
+    rig.registry.evict('a2');
+    await tester.pump();
+    expect(_listenerClones(live), isEmpty,
+        reason: "no handle created by a listener's ImageInfo.clone survives "
+            'evict + one frame');
+    rig.dispose();
+  });
+
+  testWidgets(
+      'TC-1407 (R7) after controller teardown + one frame, no pipeline '
+      'listener still holds an image clone', (tester) async {
+    final live = _trackLiveImages();
+    final lines = <String>[];
+    PerfLog.testSink = lines.add;
+    addTearDown(() => PerfLog.testSink = null);
+    final items = photoItems(3, idPrefix: 'c', dir: '/tmp');
+
+    await tester.runAsync(() async {
+      final controller = ImagePreloadController(
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+        scheduleFrameCallback: (cb) => cb(),
+      );
+      controller.updateTargetSize(800, 600);
+      await controller.preloadImages(
+          items: items, selectedItemId: 'c1', notifyLoaded: () {});
+      await until(
+          () => lines.any((l) => l.startsWith('publish|id=c1|path=tier1')),
+          reason: "the selected item's tier-1 registration ran "
+              '(_registerDecode is on this path)');
+      await until(
+          () => PaintingBinding.instance.imageCache.pendingImageCount == 0,
+          reason: 'every engine decode landed');
+      controller.dispose();
+    });
+    expect(live, isNotEmpty, reason: 'vacuity: the pipeline decoded images');
+
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    await tester.pump();
+    expect(_listenerClones(live), isEmpty,
+        reason: 'a survivor created by ImageInfo.clone is a listener clone '
+            'nobody disposed');
   });
 }

@@ -2974,6 +2974,8 @@ class ImagePreloadController {
     listener = ImageStreamListener(
       (image, synchronousCall) {
         stream.removeListener(listener);
+        // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
+        image.dispose();
         onReady();
       },
       onError: (error, stackTrace) {

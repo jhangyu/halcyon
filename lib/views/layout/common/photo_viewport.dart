@@ -209,6 +209,8 @@ class _PhotoViewportState extends State<PhotoViewport>
       });
       WidgetsBinding.instance.scheduleFrame();
       stream.removeListener(listener);
+      // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
+      info.dispose();
     });
     stream.addListener(listener);
   }

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/perf/perf_log.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/common/app_actions_menu.dart'
     show openFolderShortcutLabel;
@@ -12,6 +14,7 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../support/preload_fixtures.dart' show tinyPngBytes;
 import '../../support/temp_dirs.dart';
 
 void main() {
@@ -22,8 +25,12 @@ void main() {
   /// Pumps a [PhotoViewport] with a real 1x1 transparent PNG so the Image
   /// widget can actually decode (a real decode must land for the viewer to
   /// leave its spinner branch) and the single setViewportSize call is made.
-  Future<AppState> pumpViewport(WidgetTester tester, {ZoomController? zoom}) async {
-    const transparentPng = <int>[
+  Future<AppState> pumpViewport(
+    WidgetTester tester, {
+    ZoomController? zoom,
+    List<int>? decodablePng,
+  }) async {
+    final transparentPng = decodablePng ?? const <int>[
       0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
       0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR
       0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
@@ -226,6 +233,49 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );
+
+  // TC-1408 (l1l2 R7): the perf-tracking listener disposes its clone. The
+  // painted image's open-handle count is read with perf tracking OFF, then
+  // tracking is switched ON and the viewport rebuilt so `_perfTrack` attaches
+  // its listener; the count must not grow.
+  testWidgets('TC-1408 (R7) the perf-tracking listener disposes its clone',
+      (tester) async {
+    final lines = <String>[];
+    PerfLog.testSink = lines.add;
+    addTearDown(() {
+      PerfLog.testSink = null;
+      PerfLog.enabled = false;
+    });
+    // The default fixture PNG has no IDAT chunk (it never decodes, the viewport
+    // shows its broken-image icon), so this test supplies a decodable one.
+    await pumpViewport(tester, decodablePng: tinyPngBytes);
+    for (var i = 0; i < 20 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    expect(find.byType(RawImage), findsOneWidget,
+        reason: 'vacuity: the photo decoded and painted before the first read');
+    int openHandles() => tester
+        .widget<RawImage>(find.byType(RawImage))
+        .image!
+        .debugGetOpenHandleStackTraces()!
+        .length;
+    final before = openHandles();
+
+    PerfLog.enabled = true;
+    // Not awaited: under fake async the reassemble future only completes on a
+    // pumped frame, so awaiting it before the pump below would hang the test.
+    unawaited(tester.binding.reassembleApplication());
+    await tester.pump();
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump();
+    expect(lines.any((l) => l.startsWith('image.resolved|')), isTrue,
+        reason: 'vacuity: the perf listener attached and fired');
+    expect(openHandles(), before,
+        reason: "the perf listener's clone must have been disposed");
+  });
 
   // Removed (T11): 'PhotoViewport has no floating action bar inside the
   // viewport', which asserted a floating-action-bar widget type findsNothing.

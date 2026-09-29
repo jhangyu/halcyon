@@ -283,6 +283,8 @@ class TierTwoRegistry {
     late ImageStreamListener listener;
     listener = ImageStreamListener((image, synchronousCall) {
       stream.removeListener(listener);
+      // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
+      image.dispose();
       _readyIds.add(id);
       notifyLoaded();
       _onReadyForDisplay?.call(id);
@@ -362,6 +364,8 @@ class TierTwoRegistry {
     listener = ImageStreamListener(
       (info, synchronousCall) {
         stream.removeListener(listener);
+        // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
+        info.dispose();
         _readyIds.add(id);
         notifyLoaded();
         _onReadyForDisplay?.call(id);
