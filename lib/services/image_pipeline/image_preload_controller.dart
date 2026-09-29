@@ -1439,7 +1439,7 @@ class ImagePreloadController {
   /// line above follows. Sizing for non-deferred items is untouched.
   @visibleForTesting
   static int? deferredUpconvertPeakBytes(SourceDecode decode) {
-    final frame = decode.pendingUpconvert?.frame;
+    final frame = decode.pendingPlanarEncode?.frame;
     if (frame == null) return null;
     return frame.rgba.lengthInBytes + frame.width * frame.height * 4;
   }
@@ -2474,7 +2474,7 @@ class ImagePreloadController {
         // that would have run the upconvert seam -- and the seam is what
         // returns the planar slot to the pool. Without this the slot leaks on
         // every navigation that outruns a deferred decode.
-        releaseDeferredUpconvert(decode);
+        releasePendingPlanarEncode(decode);
         // Test seam pinning N3 itself, not merely that this branch ran: reads
         // the REAL `ui.Image.debugDisposed` back off the handle this branch
         // just disposed, so a mutation that deletes the `dispose()` call
@@ -2546,7 +2546,7 @@ class ImagePreloadController {
       // OPTION D: idempotent -- `releaseNative` on a pooled slot is, and on
       // the path where `encodePhase` already ran the seam this is a no-op
       // because the record no longer carries a pending frame.
-      releaseDeferredUpconvert(decode);
+      releasePendingPlanarEncode(decode);
       final pending = _pendingPreviewNotifies.remove(id);
       for (final cb in pending ?? const <VoidCallback>[]) {
         cb();

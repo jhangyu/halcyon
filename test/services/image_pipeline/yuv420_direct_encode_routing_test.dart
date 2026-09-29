@@ -36,6 +36,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
@@ -346,5 +347,97 @@ void main() {
           'failure produced a pending future, i.e. an eternal spinner'),
     );
     expect(r.fallbacks, greaterThan(0));
+  });
+
+  // R1 / R8 (q70-decouple, 2026-09-29): the planar encode arm at PhotoSource
+  // level, below the controller, so the outcome record itself is observable.
+  group('R1 planar-only encode outcome', () {
+    Future<
+        ({
+          SourceOutcome outcome,
+          int releases,
+          PhotoSource source,
+        })> encodeDeferred({required bool encoderThrows}) async {
+      resetReencodeCounters();
+      addTearDown(resetReencodeCounters);
+      final srcBytes =
+          ceyxOutputFormatByteCount(CeyxOutputFormat.yuv420, width, height);
+      final slot = await CeyxNativeBufferPool.shared.acquire(srcBytes);
+      addTearDown(() => CeyxNativeBufferPool.shared.release(slot));
+      final view = ffi.Pointer<ffi.Uint8>.fromAddress(
+        slot.address,
+      ).asTypedList(srcBytes);
+      debugUpconvertConverter = ({
+        required srcAddress,
+        required srcCapacity,
+        required dstAddress,
+        required dstCapacity,
+        required width,
+        required height,
+      }) {
+        ffi.Pointer<ffi.Uint8>.fromAddress(
+          dstAddress,
+        ).asTypedList(dstCapacity).fillRange(0, dstCapacity, 0xFF);
+      };
+      var releases = 0;
+      final source = PhotoSource(
+        loader: loader,
+        dngDecoder: (path) async => DecodedRgba(
+          rgba: view,
+          width: width,
+          height: height,
+          format: CeyxOutputFormat.yuv420,
+          nativeAddress: slot.address,
+          nativeKeepAlive: slot,
+          releaseNative: () => releases++,
+        ),
+        payloadEncoder: (rgba, {required width, required height, required quality}) async =>
+            jpegBytes(),
+        pointerPayloadEncoder: ({
+          required nativeAddress,
+          required width,
+          required height,
+          required quality,
+          keepAlive,
+        }) async => jpegBytes(),
+        pointerYuv420PayloadEncoder: ({
+          required nativeAddress,
+          required srcCapacity,
+          required width,
+          required height,
+          required quality,
+          keepAlive,
+        }) async {
+          if (encoderThrows) throw StateError('no symbol');
+          return Uint8List.fromList([1, 2, 3]);
+        },
+      );
+      final decode = await source.decodePhase('/tmp/a.dng', longEdge: 2800);
+      expect(decode.pendingPlanarEncode, isNotNull,
+          reason: 'deferral did not engage; test would be vacuous');
+      final outcome = await source.encodePhase(decode);
+      return (outcome: outcome, releases: releases, source: source);
+    }
+
+    test('R1: planar encode success returns payload-only, zero upconverts, '
+        'planar slot released exactly once', () async {
+      final r = await encodeDeferred(encoderThrows: false);
+
+      expect(r.outcome.payload, isNotNull);
+      expect(r.outcome.fullRes, isNull, reason: 'R1: no RGBA on this path');
+      expect(debugUpconvertCount, 0);
+      expect(r.releases, 1, reason: 'exactly one release, not zero and not two');
+    });
+
+    test('R8: encoder failure still yields a payload, converting exactly once',
+        () async {
+      final r = await encodeDeferred(encoderThrows: true);
+
+      expect(r.outcome.payload, isNotNull);
+      expect(r.outcome.fullRes, isNotNull,
+          reason: 'degrade arm still needs RGBA');
+      expect(debugUpconvertCount, 1, reason: 'not 2 -- no memo, no double convert');
+      expect(reencodeFallbacks, 1);
+    });
   });
 }

@@ -273,7 +273,7 @@ void main() {
         failureCode: null,
         nativeAddress: 1,
         nativeKeepAlive: null,
-        pendingUpconvert: (frame: frame, exifOrientation: 1, longEdge: 2800),
+        pendingPlanarEncode: (frame: frame, exifOrientation: 1, longEdge: 2800),
       );
 
       expect(
@@ -293,7 +293,7 @@ void main() {
         failureCode: null,
         nativeAddress: 0,
         nativeKeepAlive: null,
-        pendingUpconvert: null,
+        pendingPlanarEncode: null,
       );
       expect(
         ImagePreloadController.deferredUpconvertPeakBytes(notDeferred),
