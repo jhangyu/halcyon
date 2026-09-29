@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
@@ -511,11 +512,10 @@ class TierTwoScheduler {
     // its widget detaches (TC-1401); a returning leaver is re-served from its
     // retained payload by `publishFromPayload` (TC-1402). The settle sweep in
     // [_decodeWindow] stays as the backstop.
-    for (final id in previous) {
-      if (!current.contains(id) && _registry.keyFor(id) != null) {
-        _registry.evict(id);
-      }
-    }
+    _evictAndRequestFrame([
+      for (final id in previous)
+        if (!current.contains(id) && _registry.keyFor(id) != null) id,
+    ]);
     if (entrants.isEmpty) return;
     _dispatchBandItems(
       items,
@@ -598,12 +598,35 @@ class TierTwoScheduler {
       enqueueMissingLoads: true,
     );
 
-    final staleIds = _registry.keyIds
-        .where((id) => !neededIds.contains(id))
-        .toList();
-    for (final id in staleIds) {
+    _evictAndRequestFrame(
+      _registry.keyIds.where((id) => !neededIds.contains(id)).toList(),
+    );
+  }
+
+  /// Evicts [ids]' tier-2 entries, then makes sure a frame is coming (L1, l1l2
+  /// spec R2). The only two evict sites of this class -- the band-leave site in
+  /// [_startNewBandEntrants] and the settle sweep in [_decodeWindow] -- both
+  /// route through here.
+  ///
+  /// Why the frame: `ImageCache.evict` does not free the image. It parks the
+  /// handle's dispose on a POST-FRAME callback (SDK `image_cache.dart`,
+  /// `_CachedImageBase.dispose`), and a post-frame callback does not schedule a
+  /// frame by itself -- so on an app that goes idle right after an eviction the
+  /// full-size pixels stay resident until something else happens to render
+  /// (docs/logs/2026-09-30/lifetime-replan-advisory.md §4/§6 L1). Same request
+  /// the pacer makes for its own drain (`publication_pacer.dart` `_arm`).
+  ///
+  /// [ids] must contain REGISTERED ids only (both callers guarantee it): a
+  /// registered entry means an ImageCache -- hence a PaintingBinding, hence a
+  /// SchedulerBinding -- exists, so an empty-registry caller in a binding-less
+  /// plain `test()` never reaches `SchedulerBinding.instance`.
+  void _evictAndRequestFrame(List<String> ids) {
+    if (ids.isEmpty) return;
+    for (final id in ids) {
       _registry.evict(id);
     }
+    final binding = SchedulerBinding.instance;
+    if (!binding.hasScheduledFrame) binding.scheduleFrame();
   }
 
   /// The per-slot tier-2 dispatch shared by the debounced sweep

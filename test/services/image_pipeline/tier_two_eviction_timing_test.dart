@@ -83,4 +83,67 @@ void main() {
     expect(image.debugDisposed, isTrue);
     rig.dispose();
   });
+
+  testWidgets(
+      'TC-1403 (AC4) an R1 evict batch requests a frame, and that frame '
+      'releases the evicted image', (tester) async {
+    final rig = _Rig();
+    final items = photoItems(12, idPrefix: 'a', dir: '/tmp');
+    final image = (await tester.runAsync(tinyImage))!;
+
+    rig.scheduler.schedule(items, 2, () {}); // band a1..a3
+    rig.registry.publishFullRes('a2', freshEncodedPayload(), image, () {});
+    await tester.pump();
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'vacuity: no frame is pending before the evict');
+
+    rig.scheduler.schedule(items, 8, () {}); // a1..a3 all leave (R1 site)
+    expect(rig.registry.keyIds, isEmpty);
+    expect(tester.binding.hasScheduledFrame, isTrue,
+        reason: 'L1: the evict batch asked for the frame the deferred '
+            'dispose needs');
+    expect(image.debugDisposed, isFalse,
+        reason: 'the SDK defers the handle dispose to the end of a frame');
+
+    await tester.pump();
+    expect(image.debugDisposed, isTrue,
+        reason: 'one frame later the evicted image is released');
+    rig.dispose();
+  });
+
+  testWidgets(
+      'TC-1404 (AC4) a settle-sweep evict batch requests a frame too',
+      (tester) async {
+    // Zero debounce, and the sweep is ARMED inside runAsync so its Timer is a
+    // real one: a fake-async pump would fire the timer AND run a frame in the
+    // same call, hiding whether the sweep itself asked for that frame.
+    final rig = _Rig(debounce: Duration.zero);
+    final items = photoItems(12, idPrefix: 'a', dir: '/tmp');
+    final image = (await tester.runAsync(tinyImage))!;
+
+    rig.scheduler.schedule(items, 2, () {}); // band a1..a3
+    await tester.pump(); // fires this pass's (fake) zero debounce: nothing stale
+    // a9 is registered by hand and was NEVER in the band, so it is not an R1
+    // leaver: only the settle sweep can evict it.
+    rig.registry.publishFullRes('a9', freshEncodedPayload(), image, () {});
+    await tester.pump();
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'vacuity: no frame is pending before the sweep');
+
+    await tester.runAsync(() async {
+      rig.scheduler.schedule(items, 2, () {}); // same position: no leavers
+      expect(rig.registry.keyIds, contains('a9'),
+          reason: 'R1 did not touch a9 -- the sweep has not run yet');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    });
+    expect(rig.registry.keyIds, isNot(contains('a9')),
+        reason: 'the settle sweep evicted the out-of-band entry');
+    expect(tester.binding.hasScheduledFrame, isTrue,
+        reason: 'L1: the sweep batch asked for a frame');
+    expect(image.debugDisposed, isFalse);
+
+    await tester.pump();
+    expect(image.debugDisposed, isTrue);
+    rig.dispose();
+  });
 }
