@@ -259,27 +259,20 @@ void main() {
             reason: 'a settled band must survive the drop untouched',
           );
 
-          // Now move the window and drop IMMEDIATELY, before the debounce can
-          // sweep. This is the state the primitive exists for: full-resolution
-          // entries still resident for a position the user has left.
+          // Now move the window, then manufacture the state the primitive exists
+          // for: full-resolution entries resident for positions outside the band.
           //
-          // A SHORT move (+2), not a long one. A long jump evicts the old
-          // slots' payloads outright, and the existing `_onPayloadEvicted` hook
-          // takes their tier-2 entries with them -- leaving nothing stranded
-          // and nothing for this primitive to do. Two steps forward is the case
-          // that actually strands pixels: -1 and -2 fall out of the +/-1 band
-          // while staying well inside the -3..+5 retention window, so their
-          // payloads (and therefore their full-resolution entries) survive
-          // until the debounced sweep gets round to them.
-          const moved = 7;
+          // Since l1l2 spec R1 (L2) a move evicts the REGISTERED band leavers at
+          // the band-diff instant, so a move no longer strands anything (this
+          // test used to rely on a +2 move doing so). The stranded entries are
+          // therefore published by hand through the controller's test seam, the
+          // way only a late-registering publish could leave them in production.
+          //
           // Deliberately NOT awaited, and advanced by a MICROTASK rather than a
-          // zero-duration delay. The navigation pass runs on a microtask and
-          // calls `updateWindow` immediately, but the tier-2 sweep that would
-          // evict the stranded entries is a Timer -- and timers run after the
-          // microtask queue drains. Awaiting the future (or a Duration.zero
-          // delay) lets that sweep fire first, leaving nothing stranded and
-          // turning the assertions below into a test of the sweep instead of a
-          // test of this primitive.
+          // zero-duration delay: the tier-2 sweep is a Timer and would otherwise
+          // fire first, turning the assertions below into a test of the sweep
+          // instead of a test of this primitive.
+          const moved = 7;
           unawaited(
             h.controller.preloadImages(
               items: photos,
@@ -288,6 +281,13 @@ void main() {
             ),
           );
           await Future<void>.microtask(() {});
+          for (final id in [photos[4].id, photos[5].id]) {
+            h.controller.debugPublishTierTwoForTest(
+              id,
+              freshEncodedPayload(),
+              await tinyImage(),
+            );
+          }
           final movedBand = <String>{
             for (var d = -kFullResolutionBandRadius;
                 d <= kFullResolutionBandRadius;

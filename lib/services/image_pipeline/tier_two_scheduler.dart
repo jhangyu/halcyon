@@ -436,9 +436,10 @@ class TierTwoScheduler {
   ) {
     // USER RULING 2026-09-11 22:00: an item that NEWLY enters the +/-1 band
     // starts decoding IMMEDIATELY, without waiting out the debounce. See
-    // [_startNewBandEntrants]. The debounce below still owns the window SCAN
-    // (catch-up for items that were already in the band, plus stale eviction)
-    // and its constant is unchanged.
+    // [_startNewBandEntrants], which also evicts the band LEAVERS at once (l1l2
+    // spec R1). The debounce below still owns the window SCAN (catch-up for
+    // items that were already in the band, plus the backstop stale-eviction
+    // sweep) and its constant is unchanged.
     _startNewBandEntrants(items, currentIndex, notifyLoaded);
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_navigationDebounce, () {
@@ -461,8 +462,10 @@ class TierTwoScheduler {
   ///   so a burst of navigation does not re-dispatch the items it is passing
   ///   through more than once each;
   /// * the band SHAPE, the eviction bands and the debounce constant are
-  ///   untouched, and this path never evicts anything -- stale eviction stays
-  ///   the debounced sweep's job;
+  ///   untouched. Since the l1l2 campaign (spec R1) this path DOES evict: the
+  ///   registered entries of ids that left the band, BEFORE any entrant is
+  ///   dispatched (evict-before-admit); the debounced sweep stays as the
+  ///   backstop for anything else stale;
   /// * dedup is the existing machinery ([_registry.isReady],
   ///   [_pendingFullResPublish], [_hasFullResClaimFor], the lane's key dedup),
   ///   so an item already decoding or published is a no-op here.
@@ -496,6 +499,23 @@ class TierTwoScheduler {
     // here as well removes the dependency on that call ordering rather than
     // changing the set.
     _windowIds = current;
+    // L2 (l1l2 spec R1), evict-before-admit: the registered entries of ids
+    // that LEFT the band on this pass are evicted NOW, before any entrant below
+    // is dispatched -- not at the next debounce settle, which is up to a whole
+    // navigation burst plus 250ms later and let the outgoing generation's
+    // full-size images coexist with the incoming generation's decodes
+    // (docs/logs/2026-09-30/lifetime-replan-advisory.md §5). Ordering only:
+    // nothing is dispatched later and the band is unchanged. Only REGISTERED
+    // ids are evicted -- the same set the settle sweep draws from (`keyIds`).
+    // A painted leaver (jump >= 2) survives on the SDK's live reference until
+    // its widget detaches (TC-1401); a returning leaver is re-served from its
+    // retained payload by `publishFromPayload` (TC-1402). The settle sweep in
+    // [_decodeWindow] stays as the backstop.
+    for (final id in previous) {
+      if (!current.contains(id) && _registry.keyFor(id) != null) {
+        _registry.evict(id);
+      }
+    }
     if (entrants.isEmpty) return;
     _dispatchBandItems(
       items,
@@ -599,8 +619,8 @@ class TierTwoScheduler {
   /// user can SEE -- goes in ahead of them.
   ///
   /// This method NEVER evicts and never writes [_windowIds]: both belong to the
-  /// callers ([updateWindow] owns the id set, the debounced sweep owns stale
-  /// eviction).
+  /// callers ([updateWindow] owns the id set; [_startNewBandEntrants] evicts
+  /// band leavers and the debounced sweep owns the stale-eviction backstop).
   void _dispatchBandItems(
     List<PhotoItem> items,
     List<int> indices,

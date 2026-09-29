@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ffi' show Finalizable;
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
@@ -843,6 +844,16 @@ class ImagePreloadController {
   /// The retained payload object for [id], for the residency tests. Read-only.
   @visibleForTesting
   SourcePayload? debugPayloadFor(String id) => _cache.peek(id);
+
+  /// Test seam for TC-1157: publishes a full-size tier-2 entry by hand.
+  /// Post-L2 (l1l2 spec R1) no deterministic production route strands a
+  /// beyond-band tier-2 entry -- only the late-registration race does.
+  @visibleForTesting
+  void debugPublishTierTwoForTest(
+    String id,
+    SourcePayload payload,
+    ui.Image image,
+  ) => _tierTwo.publishFullRes(id, payload, image, () {});
 
   @visibleForTesting
   bool debugHasFullResEntryFor(String id, SourcePayload payload) =>

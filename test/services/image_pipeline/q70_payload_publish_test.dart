@@ -75,11 +75,12 @@ void main() {
   /// full-res pixels).
   ({ImagePreloadController controller, List<String> decodeCalls}) newHarness({
     required bool encoded,
+    Duration debounce = Duration.zero,
   }) {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
       scheduleFrameCallback: _microtaskFrame,
-      navigationDebounce: Duration.zero,
+      navigationDebounce: debounce,
       decodeLaneWidth: 1,
       retention: const RetentionPolicy(
         before: 3,
@@ -226,5 +227,39 @@ void main() {
         reason: 'R5: the fallback must be loudly counted, exactly once');
     expect(c.debugPayloadDecodePublishCount - publishes, 0,
         reason: 'a PixelPayload must not go through the payload route');
+  });
+
+  test('TC-1402 (l1l2 AC3): a band leaver that returns before any settle is '
+      're-served from its retained payload -- no file decode', () async {
+    // 10 s debounce: the settle sweep cannot run inside this test, so the
+    // only eviction the return can observe is the band-leave one (spec R1).
+    final h = newHarness(encoded: true, debounce: const Duration(seconds: 10));
+    final c = h.controller;
+    await select(c, 'b'); // band a..c
+    await until(
+      () => items.every((i) => c.debugPayloadFor(i.id) != null),
+      'all four EncodedPayloads resident',
+    );
+    await settleTierTwo(c, {'a', 'b', 'c'});
+
+    await select(c, 'd'); // band c..d: a and b leave
+    expect(c.debugTierTwoKeyIds, isNot(contains('b')),
+        reason: 'R1: b was evicted at the band-leave instant, not at a settle');
+    expect(c.debugPayloadFor('b'), isA<EncodedPayload>(),
+        reason: 'vacuity guard: b keeps its retained payload');
+
+    final publishes = c.debugPayloadDecodePublishCount;
+    final fileDecodes = c.debugBandEntryFileDecodeCount;
+    final sourceDecodes = h.decodeCalls.length;
+
+    await select(c, 'c'); // band b..d: b returns
+    await until(() => c.isFullSizeReady('b'), 'b re-served');
+
+    expect(c.debugPayloadDecodePublishCount - publishes, greaterThanOrEqualTo(1),
+        reason: 'R4: the return is served by decoding the retained payload');
+    expect(c.debugBandEntryFileDecodeCount - fileDecodes, 0,
+        reason: 'R4: no counted file fallback');
+    expect(h.decodeCalls.length - sourceDecodes, 0,
+        reason: 'the source file is not decoded again');
   });
 }

@@ -577,8 +577,11 @@ void main() {
         await h.pump();
         expect(h.loadOrder, isEmpty);
         // a2/a3 were already in the band and are already published; nothing
-        // new lands for them either.
-        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+        // new lands for them either. a1 LEFT the band on this step and is
+        // evicted at that instant (l1l2 spec R1, evict-before-admit) -- this
+        // assertion used to pin the old timing, where a1 survived until the
+        // debounced sweep.
+        expect(h.registry.keyIds, {'a2', 'a3'});
 
         // A slot that was already IN the band when its payload landed is not
         // this path's business either -- it is not a new entrant any more, so
@@ -592,6 +595,96 @@ void main() {
         expect(h.registry.keyIds, contains('a5'));
         expect(h.registry.keyIds, isNot(contains('a4')));
         expect(h.loadOrder, isEmpty);
+      },
+    );
+
+    // TC-1399 / TC-1400 -- l1l2 spec R1 (AC1): evict-before-admit. The
+    // provider factory records the registry's key set at the instant each
+    // entrant is dispatched, so "evicted BEFORE the entrant's work" is read off
+    // directly rather than inferred from the end state. The 10 s debounce makes
+    // the settle sweep impossible inside the test.
+    ({TierTwoScheduler scheduler, TierTwoRegistry registry,
+        List<Set<String>> snapshots}) snapshotRig(
+      Map<String, SourcePayload> payloads,
+    ) {
+      final snapshots = <Set<String>>[];
+      late final TierTwoRegistry registry;
+      registry = TierTwoRegistry(currentPayloadFor: (id) => payloads[id]);
+      final scheduler = TierTwoScheduler(
+        registry: registry,
+        lane: DecodeLane(width: 5),
+        currentPayloadFor: (id) => payloads[id],
+        fullSizeProviderFor: (payload) {
+          snapshots.add(registry.keyIds);
+          return switch (payload) {
+            EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
+            PixelPayload() => throw StateError('not exercised here'),
+          };
+        },
+        ensurePayload:
+            (item, {required distance, required notifyLoaded, onSerialLane = false}) async {},
+        dngDecoder: () => null,
+        exifOrientationFor: (id) => null,
+        navigationDebounce: const Duration(seconds: 10),
+      );
+      return (scheduler: scheduler, registry: registry, snapshots: snapshots);
+    }
+
+    test(
+      'TC-1399 (AC1) a one-step move evicts the band leaver BEFORE the '
+      'entrant is dispatched',
+      () async {
+        final payloads = <String, SourcePayload>{};
+        final r = snapshotRig(payloads);
+        addTearDown(r.scheduler.cancelDebounce);
+        addTearDown(r.registry.clear);
+        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        for (final item in items) {
+          payloads[item.id] = freshEncodedPayload();
+        }
+
+        r.scheduler.schedule(items, 2, () {});
+        await until(() => r.registry.keyIds.length == 3,
+            reason: 'a1..a3 registered');
+        expect(r.registry.keyIds, {'a1', 'a2', 'a3'});
+
+        r.snapshots.clear();
+        r.scheduler.schedule(items, 3, () {}); // a1 leaves, a4 enters
+        expect(r.snapshots, hasLength(1),
+            reason: 'exactly one entrant (a4) was dispatched');
+        expect(r.snapshots.single, isNot(contains('a1')),
+            reason: 'the leaver was evicted before the entrant was dispatched');
+        expect(r.snapshots.single, containsAll(<String>['a2', 'a3']),
+            reason: 'ids still in the band are untouched');
+        expect(r.registry.keyIds, isNot(contains('a1')),
+            reason: 'synchronously -- the 10 s settle sweep cannot have run');
+      },
+    );
+
+    test(
+      'TC-1400 (AC1) a long jump evicts all three outgoing entries at once, '
+      'before any entrant is dispatched',
+      () async {
+        final payloads = <String, SourcePayload>{};
+        final r = snapshotRig(payloads);
+        addTearDown(r.scheduler.cancelDebounce);
+        addTearDown(r.registry.clear);
+        final items = photoItems(12, idPrefix: 'a', dir: '/tmp');
+        for (final item in items) {
+          payloads[item.id] = freshEncodedPayload();
+        }
+
+        r.scheduler.schedule(items, 2, () {});
+        await until(() => r.registry.keyIds.length == 3,
+            reason: 'a1..a3 registered');
+
+        r.snapshots.clear();
+        r.scheduler.schedule(items, 8, () {}); // band a7..a9
+        expect(r.snapshots, hasLength(3),
+            reason: 'a7, a8, a9 were all dispatched');
+        expect(r.snapshots.first.intersection({'a1', 'a2', 'a3'}), isEmpty,
+            reason: 'all three leavers gone before the FIRST entrant');
+        expect(r.registry.keyIds.intersection({'a1', 'a2', 'a3'}), isEmpty);
       },
     );
   });
