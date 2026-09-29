@@ -43,28 +43,31 @@ enum SourceCost {
 /// those together and a decoder failure becomes a spinner that never resolves
 /// -- the single stranding risk design §3.4 names.
 ///
-/// [fullRes] is the M5 piggyback output (design §2.2): full-resolution,
-/// orientation-ALREADY-applied RGBA8 pixels from the SAME FFI decode that
-/// produced [payload], non-null ONLY when a real RAW decode ran in this call
-/// (never for the cheap/encoded paths, and never for the step-3b legacy
-/// fallback). This is a transient handoff -- [PhotoSource] keeps no reference
-/// to the buffer once it returns it; the caller (the tier-2 upload path) owns
-/// disposal/upload from here.
+/// [fullRes] is full-resolution, orientation-ALREADY-applied RGBA8 pixels
+/// from the SAME FFI decode that produced [payload]. Since the q70 decouple it
+/// is NOT a display source: tier-2 is published by decoding the q70 payload
+/// (`TierTwoScheduler.publishFromPayload`). It is NULL on the planar-encode
+/// success arm, on the cheap/encoded paths and on the step-3b legacy fallback,
+/// and non-null only on the arms that still materialise RGBA (the rotated/GPU
+/// pass, the encode-failure degrade arm, non-yuv420 formats, Dart-heap
+/// frames). Transient handoff -- [PhotoSource] keeps no reference once it
+/// returns it; the caller owns disposal and the native release from here.
 typedef SourceOutcome = ({
   SourcePayload? payload,
   SourceCost? observedCost,
   bool deferred,
   int? exifOrientation,
-  // [fullRes] is the M5 piggyback output (design §2.2): full-resolution,
-  // orientation-ALREADY-applied RGBA8 pixels from the SAME FFI decode that
-  // produced [payload], plus -- when the orientation required a GPU pass --
-  // the oriented `ui.Image` that pass produced, so the tier-2 piggyback can
-  // publish it instead of re-uploading the same pixels. NON-NULL ONLY when a
-  // real RAW decode ran in this call.
+  // [fullRes] is full-resolution, orientation-ALREADY-applied RGBA8 pixels
+  // from the SAME FFI decode that produced [payload], plus -- when the
+  // orientation required a GPU pass -- the oriented `ui.Image` that pass
+  // produced. Since the q70 decouple that image is NOT published: tier-2 is
+  // served by decoding the q70 payload. NULL on the planar-encode success arm
+  // and on every cheap/encoded path.
   //
   // OWNERSHIP: `fullRes.image`, when non-null, belongs to the CALLER from the
-  // moment this record is returned. `PhotoSource` disposes it on every path
-  // that does NOT return it; from there it is the piggyback publisher's.
+  // moment this record is returned, and the controller's publish site is now
+  // its only consumer -- it always disposes it. `PhotoSource` disposes it on
+  // every path that does NOT return it.
   OrientedFullRes? fullRes,
   // D3 (docs/logs/2026-08-26/raw-support-contract.md): a failure CODE, not a
   // rendered message -- whoever displays it owns the wording. NULLABLE and
@@ -362,12 +365,12 @@ class PhotoSource {
           pixelFallback: null,
           rawDecodeRan: false,
           // Deliberately NULL. `fullRes` means "pixels from the SAME FFI
-          // decode that produced this payload" and feeds the tier-2
-          // piggyback; the normaliser's ENGINE decode is not that, and
-          // piggybacking it would upload a full-resolution frame for every
-          // cheap item in the window -- `imageCacheBudgetBytes` is sized for
-          // five, and this plan may not re-derive it. Cheap items keep
-          // reaching tier-2 through TierTwoScheduler's ordinary upgrade.
+          // decode that produced this payload"; the normaliser's ENGINE decode
+          // is not that, and materialising it would cost a full-resolution
+          // frame for every cheap item in the window -- `imageCacheBudgetBytes`
+          // is sized for five, and this plan may not re-derive it. Cheap items
+          // reach tier-2 through `TierTwoScheduler.publishFromPayload` like
+          // every other item.
           fullRes: null,
           observedCost: SourceCost.cheap,
           deferred: false,

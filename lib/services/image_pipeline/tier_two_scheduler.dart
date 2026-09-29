@@ -151,8 +151,9 @@ class TierTwoScheduler {
 
   /// How many band-entry promotions had to buy a decode of the ORIGINAL
   /// FILE (the pre-v2 route). Zero is the steady-state expectation once
-  /// every retained slot carries a full-size JPEG; non-zero means a slot
-  /// was promoted while still in its temporary pixel state (Task 3/4).
+  /// every retained slot carries a full-size JPEG; non-zero means a promotion
+  /// found no q70 payload able to serve full-resolution pixels and had to
+  /// decode the original file (spec R5's counted fallback).
   ///
   /// Incremented, never reset -- same discipline as
   /// [debugCatchUpEnqueueCount]: a resettable counter cannot distinguish
@@ -161,6 +162,13 @@ class TierTwoScheduler {
   /// the `@visibleForTesting` annotation for the one call site that
   /// matters.
   int debugBandEntryFileDecodeCount = 0;
+
+  /// How many tier-2 full-resolution publishes were served BY DECODING THE q70
+  /// PAYLOAD (spec R2's single route). Incremented once per submission accepted
+  /// by [publishFromPayload], never reset -- same discipline as
+  /// [debugBandEntryFileDecodeCount]: a resettable counter cannot distinguish
+  /// "never happened" from "happened and was cleared".
+  int debugPayloadDecodePublishCount = 0;
 
   /// SR-8. Bytes this class has charged to the shared in-flight ledger at its
   /// full-res-upgrade enqueue site, accumulated and never reset.
@@ -636,15 +644,13 @@ class TierTwoScheduler {
       if (alreadyDecoded) continue;
       switch (payload) {
         case EncodedPayload():
-          // Contract deliverable W2 (2026-09-04): routed through the pacer
-          // like every other tier-2 publish -- this used to bypass it
-          // entirely (residual-jank-diagnosis.md #7).
-          _publishEncodedOrDiscard(
+          // R2's single route. The pre-checks and the counter live inside it,
+          // so this arm no longer re-derives them.
+          publishFromPayload(
             item.id,
             payload,
-            i - currentIndex,
-            _fullSizeProviderForPayload(payload),
             notifyLoaded,
+            distance: i - currentIndex,
           );
         case PixelPayload():
           // The CATCH-UP upgrade (design §2.2): this item already has its
@@ -743,26 +749,20 @@ class TierTwoScheduler {
     final landed = _currentPayloadFor(item.id);
     if (landed == null || !_windowIds.contains(item.id)) return;
     if (landed is PixelPayload) {
-      // The load above ran the FFI decode and, on success, ALREADY published
-      // the full-resolution entry by piggyback (design §2.2) -- that is what
-      // makes the pair "payload + full-res tier-2" cost exactly one decoder
-      // call. Anything left to do here is the catch-up case (the payload was
-      // already cached, so no decode ran), and it is run INLINE because this
-      // is already the serial lane's task body.
+      // A window-resolution payload: the load above produced no full-size
+      // JPEG, so there is nothing to decode a full-res entry FROM. Run the
+      // upgrade inline (this is already the serial lane's task body) -- it
+      // will take the counted file fallback.
+      //
+      // (Pre-q70 this comment claimed the load had already published the
+      // full-res entry "by piggyback". That route is deleted: decode no
+      // longer produces display pixels at all -- spec R1/R2.)
       if (_hasFullResClaimFor(item.id, landed)) return;
       await _upgradeFullRes(item, landed, distance, notifyLoaded);
       return;
     }
     assert(landed is EncodedPayload);
-    // Contract deliverable W2 (2026-09-04): same pacer routing as the
-    // catch-up-loop call site above.
-    _publishEncodedOrDiscard(
-      item.id,
-      landed,
-      distance,
-      _fullSizeProviderForPayload(landed),
-      notifyLoaded,
-    );
+    publishFromPayload(item.id, landed, notifyLoaded, distance: distance);
   }
 
   // Queues a catch-up full-resolution upgrade on the SAME serial lane the
@@ -814,9 +814,14 @@ class TierTwoScheduler {
   // window-resolution byproduct is NOT produced and the retained payload object
   // is NEVER replaced: replacing it would invalidate the tier-1 ImageCache key
   // and the identity assertions the frozen navigation probes rest on.
+  // The catch-up publish. PREFERS THE q70 PAYLOAD (spec R5): a promotion whose
+  // payload is already a full-size JPEG costs no decode at all. Only a payload
+  // that CANNOT serve full-res pixels (a window-resolution [PixelPayload]) or a
+  // refused pre-check falls through to the file decode below, and that fall-
+  // through is counted by [debugBandEntryFileDecodeCount].
   Future<void> _upgradeFullRes(
     PhotoItem item,
-    PixelPayload payload,
+    SourcePayload payload,
     int distance,
     VoidCallback notifyLoaded,
   ) async {
@@ -828,6 +833,12 @@ class TierTwoScheduler {
     if (_upgradesInFlight.contains(id)) return;
     _upgradesInFlight.add(id);
     try {
+      // R5. Inside the claim deliberately: a payload publish is a publish, and
+      // the claim is what makes a concurrent second caller a no-op.
+      if (publishFromPayload(id, payload, notifyLoaded, distance: distance)) {
+        return;
+      }
+      // FILE FALLBACK from here down -- unchanged machinery (spec R5, R8).
       // Failed once for THIS payload: do not re-buy a 61-406ms decode on every
       // settle. The memo dies with the payload (design §2.5).
       if (_registry.hasFullResFailure(id, payload)) return;
@@ -882,101 +893,52 @@ class TierTwoScheduler {
     }
   }
 
-  /// The PIGGYBACK half of design §2.2: the pixels handed back alongside the
-  /// window-resolution payload by the single decode that just ran.
+  /// Publishes [id]'s tier-2 full-resolution entry BY DECODING ITS q70 PAYLOAD.
+  /// The single route for first view and catch-up alike (spec R2).
   ///
-  /// When [fullRes] carries a `ui.Image` (the EXIF transform needed a GPU pass
-  /// anyway), that handle IS the frame -- it is published directly and NOT
-  /// re-uploaded. The old code read that image back to bytes and then uploaded
-  /// the very same pixels again, one call later.
+  /// THE PRE-CHECKS LIVE HERE, not at the call sites, for the reason the
+  /// deleted piggyback route recorded: a caller-side copy is a second place
+  /// that has to remember the matching cleanup. Both callers (the controller's
+  /// publish site and [_upgradeFullRes]'s payload arm) rely on that.
   ///
-  /// OWNERSHIP: this method takes over `fullRes.image` unconditionally. Every
-  /// exit either hands it to the ImageCache through
-  /// [TierTwoRegistry.publishFullRes] or disposes it. Callers must NOT dispose
-  /// it afterwards, and must NOT pre-filter with the window/payload checks
-  /// below -- those live here precisely so no caller can forget the matching
-  /// dispose.
+  /// Returns true when a publish was SUBMITTED to the pacer. False means this
+  /// payload cannot serve a full-resolution entry (a [PixelPayload] -- the
+  /// window-resolution fallback arm, which has no full-res pixels) or the
+  /// pre-checks refused. A false allocates nothing and owns nothing, so no
+  /// caller owes a dispose on it.
   ///
-  /// Public because it is reached from the controller's payload-production
-  /// path, which is where the decode that produced these pixels ran.
-  Future<void> publishPiggybackFullRes(
+  /// NOT a `Future`: the submission is synchronous and the pixel decode happens
+  /// later, inside `ImageCache`, when the `MemoryImage` resolves. Do not await.
+  bool publishFromPayload(
     String id,
     SourcePayload payload,
-    OrientedFullRes fullRes,
     VoidCallback? notifyLoaded, {
     required int distance,
-    VoidCallback? onPixelsConsumed,
-  }) async {
-    final supplied = fullRes.image;
-    // Taken SYNCHRONOUSLY, before any await (invariant I4). These are the
-    // conditions the controller used to evaluate at its call site. Checked
-    // against [_hasFullResClaimFor], not just the registry, so a publish this
-    // same sweep already paced (queued, not yet landed) is not decoded again.
+  }) {
+    // Taken SYNCHRONOUSLY (invariant I4). `_hasFullResClaimFor` -- not merely
+    // the registry -- so a publish this same sweep already paced (queued, not
+    // yet landed) is not submitted twice.
     if (!_windowIds.contains(id) ||
         !identical(_currentPayloadFor(id), payload) ||
         _hasFullResClaimFor(id, payload)) {
-      supplied?.dispose();
-      return;
+      return false;
     }
-
-    ui.Image image;
-    if (supplied != null) {
-      image = supplied;
-    } else {
-      if (fullRes.rgba.lengthInBytes != fullRes.width * fullRes.height * 4) {
-        return;
-      }
-      final completer = Completer<ui.Image>();
-      // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
-      // pipeline-architecture-v2.md §5-P0): the architecture doc's own
-      // materialize call site on the tier-2 piggyback route -- `id` is the
-      // photo id already in scope here, unlike the sibling sites.
-      final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
-      ui.decodeImageFromPixels(
-        fullRes.rgba,
-        fullRes.width,
-        fullRes.height,
-        ui.PixelFormat.rgba8888,
-        (decodedImage) {
-          if (PerfLog.enabled) {
-            PerfLog.log(
-              'materialize|id=$id'
-              '|bytes=${fullRes.rgba.lengthInBytes}'
-              '|dur_us=${PerfLog.us - materializeStartUs}',
-            );
-          }
-          completer.complete(decodedImage);
-        },
-      );
-      image = await completer.future;
-      // SR-3 (mem8 T7): the engine has now COPIED the pixels out of
-      // `fullRes.rgba`, so on the identity path -- where that buffer IS the
-      // pooled native slot -- this is the last read and the slot can go back
-      // immediately, before the staleness re-check, the pacer and the publish
-      // below. The caller owns the release; this callback only reports "the
-      // pixels have been consumed", which is knowledge only this line has.
-      // Nothing after it reads `fullRes.rgba`.
-      onPixelsConsumed?.call();
-      // Same post-await re-check as the catch-up path; releases in place.
-      if (!_windowIds.contains(id) ||
-          !identical(_currentPayloadFor(id), payload)) {
-        image.dispose();
-        return;
-      }
+    switch (payload) {
+      case EncodedPayload():
+        debugPayloadDecodePublishCount++;
+        _publishEncodedOrDiscard(
+          id,
+          payload,
+          distance,
+          _fullSizeProviderForPayload(payload),
+          notifyLoaded ?? () {},
+        );
+        return true;
+      case PixelPayload():
+        // A window-resolution payload has no full-resolution pixels to decode.
+        // The caller's remaining option is the counted file fallback (T5); it
+        // is NOT this route's job to buy a decode.
+        return false;
     }
-    // First-writer-wins inside publishFullRes disposes the loser itself, so
-    // this must NOT dispose after handing over. Routed through
-    // [_publishOrDiscard] -- the same pacing seam as [_upgradeFullRes]
-    // (contract deliverable 2): the piggyback publish is just as capable of
-    // landing for a non-selected item as the catch-up upgrade is, and both
-    // must obey the same pacing, claim-tracking and staleness re-check rules.
-    _publishOrDiscard(
-      id,
-      payload,
-      distance,
-      image,
-      notifyLoaded ?? () {},
-      source: 'piggyback',
-    );
   }
 }

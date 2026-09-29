@@ -624,9 +624,10 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
       height: decoded.height,
       image: null,
       // The buffer handed out here IS `decoded.rgba` (transient aliasing,
-      // deliberately kept by T6). Since T7 its last read is the piggyback
-      // materialize, which reports back through `onPixelsConsumed`; the
-      // handle travels with the record so that single owner can return it.
+      // deliberately kept by T6). Since the q70 decouple nothing downstream
+      // reads it -- tier-2 is published by decoding the q70 payload -- so the
+      // release handle travels with the record and the controller's terminal
+      // net in `_finishOffLane` is what returns it.
       // There is no longer a release GUARD to describe here -- T8 deleted
       // `canReleaseNativeBuffer`, because the only pair it refused became
       // unconstructible once T6 made the retained payload an owned copy.
@@ -647,7 +648,8 @@ Future<OrientedFullRes> decodedRgbaToOrientedFullRes(
   // native slot too, instead of stranding it until the GC runs ceyx's
   // safety-net `Finalizer`. The identity short-circuit returns ABOVE this and
   // deliberately does NOT release: there the handle travels with the record to
-  // the piggyback materialize, which is still going to read the buffer.
+  // the controller's terminal release net, which is that record's single
+  // owner.
   late final ui.Image raw;
   try {
     await gate();

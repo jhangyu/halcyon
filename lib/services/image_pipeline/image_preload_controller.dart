@@ -569,10 +569,10 @@ class ImagePreloadController {
   int debugFullResBytesReleasedEarly = 0;
 
   /// The rotated path's `rgba` has exactly ONE consumer -- the encoder that
-  /// just returned. `publishPiggybackFullRes` reads `fullRes.rgba` only on
-  /// its `supplied == null` branch (tier_two_scheduler.dart, the branch
-  /// guarded by `if (supplied != null) { image = supplied; } else { ... }`),
-  /// i.e. only when `image` is null. Holding the ~96MB readback through the
+  /// just returned. Since the q70 decouple NOTHING downstream reads
+  /// `fullRes.rgba` at all: tier-2 is published by decoding the q70 payload
+  /// (`TierTwoScheduler.publishFromPayload`), never from these pixels.
+  /// Holding the ~96MB readback through the
   /// pacer/idle-publish wait between here and publish is the union lifetime
   /// the lifetime lens F2 measured; dropping the reference here is the whole
   /// fix.
@@ -830,6 +830,13 @@ class ImagePreloadController {
   @visibleForTesting
   int get debugBandEntryFileDecodeCount =>
       _tierTwoScheduler.debugBandEntryFileDecodeCount;
+
+  /// Count of tier-2 full-resolution publishes served by DECODING THE q70
+  /// PAYLOAD (see [TierTwoScheduler.debugPayloadDecodePublishCount]). Spec
+  /// R2's single route; incremented, never reset.
+  @visibleForTesting
+  int get debugPayloadDecodePublishCount =>
+      _tierTwoScheduler.debugPayloadDecodePublishCount;
 
   /// The retained payload object for [id], for the residency tests. Read-only.
   @visibleForTesting
@@ -1148,7 +1155,7 @@ class ImagePreloadController {
   // object, has its decode finished, did its upgrade already fail -- lives in
   // [TierTwoRegistry]; all tier-2 SCHEDULING -- the +/-2 window, the 250ms
   // navigation debounce, the sequential decode queue, the full-res upgrade and
-  // the piggyback publish -- lives in [TierTwoScheduler]. They are two units
+  // the payload-decode publish -- lives in [TierTwoScheduler]. They are two units
   // and not one: the readiness conjunction was extracted away from scheduling
   // state on purpose (AD-027) and must not be re-joined to it.
   //
@@ -1757,7 +1764,7 @@ class ImagePreloadController {
       onDropped: (key) => _flushPendingNotifies(key.$2),
     );
     // The tier-2 id set moves NOW, not when the debounce fires: a serial decode
-    // can land at any moment and its piggyback publish needs a truthful answer
+    // can land at any moment and its payload publish needs a truthful answer
     // to "is this item in the full-size window" (see
     // [TierTwoScheduler.updateWindow]). Nothing about WHEN tier-2 decodes run
     // changes -- that is still [TierTwoScheduler.schedule]'s debounce.
@@ -2445,13 +2452,6 @@ class ImagePreloadController {
     // `InflightBytesBudget.clear()` can land between the admission and the
     // release below; releasing against a stale epoch is then a no-op instead of
     // an over-release (BUG 2026-09-03, TC-886).
-    // SR-3 (mem8 T7): true once the pooled slot has been handed back at its
-    // LAST READ -- the piggyback materialize. The `finally` below is the net
-    // for every path that never reaches that point (window-moved skip, encode
-    // throw, a refused publish, a null payload); the flag is what keeps the
-    // two from ever both firing. Not a second ownership rule: one rule, plus
-    // an exception-safety net.
-    var nativeReleased = false;
     // OPTION D: the record whose slot the terminal net below must return.
     // Hoisted because on a deferred decode that record does not exist until
     // `encodePhase` materialises it, so `decode.fullRes` (null there) cannot
@@ -2497,7 +2497,7 @@ class ImagePreloadController {
       );
       // WP4: the encode above is `fullRes.rgba`'s only consumer on the
       // rotated path (see `_shrinkAfterEncode`'s doc). Shrinking here, before
-      // `_completeOutcome`/the piggyback publish, is what stops the ~96MB
+      // `_completeOutcome`/the payload publish, is what stops the ~96MB
       // readback from surviving the pacer/idle-publish wait.
       publishedFullRes = rawOutcome.fullRes;
       final outcome = rawOutcome.fullRes == null
@@ -2526,23 +2526,6 @@ class ImagePreloadController {
         loadLongEdge: loadLongEdge,
         loadGeneration: loadGeneration,
         claim: claim,
-        // SR-3 (mem8 T7): the identity path's pooled slot goes back the
-        // instant the piggyback materialize has copied the pixels out --
-        // BEFORE the staleness re-check, the pacer wait and the publish, all
-        // of which the old `finally`-only release held the slot across (chain
-        // audit B.7a). `outcome.fullRes` is the record being published, which
-        // on the identity path is the same one `decode.fullRes` refers to.
-        //
-        // OPTION D: read from `outcome`, not `decode`. A deferred decode has a
-        // NULL `decode.fullRes` -- the record is created by `encodePhase`'s
-        // materialise -- so sourcing the release here from `decode` would
-        // silently release nothing and strand the upconvert destination. The
-        // two are the same object on every non-deferred path, so this is a
-        // generalisation, not a behaviour change.
-        onFullResPixelsConsumed: () {
-          nativeReleased = true;
-          outcome.fullRes?.releaseNative?.call();
-        },
       );
     } catch (_) {
       // Same rationale as `_ensurePayload`'s catch: flush anyone parked on
@@ -2567,51 +2550,46 @@ class ImagePreloadController {
       // WP6 / SR-3. ORDER IS LOAD-BEARING (plan N1): the native bytes are
       // reclaimed BEFORE the budget is told they are free, so no admission is
       // ever granted against capacity the pool has not actually reclaimed.
-      // Since T7 that ordering is enforced by PROGRAM ORDER ACROSS TWO SITES
-      // rather than by statement adjacency -- the reclaim normally happens
-      // earlier, at the piggyback materialize, and the tail-budget release
-      // stays here. Anything that could release the tail budget before that
-      // materialize returns re-opens the hazard.
+      // Since the q70 decouple the reclaim normally happens EARLIER STILL --
+      // inside `encodePhase`, which releases the planar slot itself -- while
+      // the tail-budget release stays here. Anything that could release the
+      // tail budget before that encode returns re-opens the hazard.
       //
-      // WHERE THE SLOT ACTUALLY GOES BACK (T7, SR-3). Two sites, one rule:
-      //   * rotated path -- inside `decodedRgbaToOrientedFullRes`, right after
-      //     the materialize; that record's `releaseNative` is then null.
-      //   * identity path -- at the piggyback materialize, via the
-      //     `onFullResPixelsConsumed` callback threaded through
-      //     `_completeOutcome`. That is the LAST READ of the pooled buffer:
-      //     `decodedRgbaToOrientedFullRes` hands out `decoded.rgba` itself on
-      //     this path (transient aliasing, deliberately kept by T6), and
-      //     `ui.decodeImageFromPixels` is what finally copies it out.
-      // The release below is the NET for every path that reaches neither:
-      //   the window-moved skip, the encode throw, a publish refused by the
-      //   I4 pre-checks, and a null payload. `nativeReleased` is what stops
-      //   the net and the explicit release from both firing -- exactly one
-      //   release per outcome, which is what SR-4's grep asserts.
+      // WHERE THE SLOT ACTUALLY GOES BACK. Two real sites:
+      //   * identity / deferred-yuv420 path -- inside `encodePhase`
+      //     (`photo_source.dart`), which encodes the planar frame and hands
+      //     its slot back there; that outcome carries `fullRes: null`, so
+      //     there is no display buffer left for this method to own.
+      //   * rotated path -- inside `decodedRgbaToOrientedFullRes`, right
+      //     after the materialize; that record's `releaseNative` is then
+      //     null, which is why the net below is a no-op for it.
+      // The arms that still materialise RGBA (encode-failure degrade,
+      // non-yuv420, Dart-heap) return the identity record, which carries the
+      // upconvert destination's own `releaseNative`
+      // (`decoded_rgba_image_provider.dart:641-654`) -- those are what the
+      // net below actually returns.
       //
-      // UNCONDITIONAL since T8 (SR-4). This used to ask
-      // `canReleaseNativeBuffer(fullRes:, published:)`, a deny-by-default
-      // predicate whose last live clause refused to release when a published
-      // `PixelPayload` aliased `fullRes.rgba`. T6 deleted the only path that
-      // could construct that pair -- the identity short-circuit in
-      // `decodedRgbaToPixelPayload` returns an owned copy -- so the clause
-      // had become unreachable, and an unreachable guard on a release is
-      // indistinguishable from a leak waiting for the guard to come back.
+      // TERMINAL RELEASE NET. Unconditional since the q70 decouple: the
+      // identity path no longer produces a display buffer at all (the planar
+      // slot goes back inside `encodePhase`), and the arms that still
+      // materialise RGBA -- degrade, non-yuv420, Dart-heap -- return the
+      // identity record, which carries the upconvert destination's release
+      // (`decoded_rgba_image_provider.dart:641-654`). The rotated branch
+      // releases its own slot inline and reports a null `releaseNative`
+      // (`:676`), so this line is a no-op for it. `releaseToPool` is
+      // idempotent, which is why no guard is needed to make "exactly one
+      // release" hold.
       //
-      // Deleting it also RESOLVES the disagreement the T7 review flagged:
-      // T7's `onFullResPixelsConsumed` release fires unconditionally while
-      // this net was still asking a predicate, so the two sites disagreed
-      // about when a slot may go back. They now agree, and `nativeReleased`
-      // -- not a payload-type test -- is the single thing preventing a double
-      // release. (Harmless even if it failed: ceyx's `releaseToPool` is
-      // idempotent. The flag is for readability, not for safety.)
-      //
-      // The `SourcePayload? published` local the predicate needed is gone
-      // with it -- it existed only to be fed to the guard. If a future outcome
-      // really does retain the pooled buffer, the fix is to stop aliasing it,
-      // NOT to reintroduce a predicate that skips the release.
-      if (!nativeReleased) {
-        (publishedFullRes ?? decode.fullRes)?.releaseNative?.call();
-      }
+      // It also used to ask `canReleaseNativeBuffer(fullRes:, published:)`, a
+      // deny-by-default predicate whose last live clause refused to release
+      // when a published `PixelPayload` aliased `fullRes.rgba`. The only path
+      // that could construct that pair is gone -- the identity short-circuit
+      // in `decodedRgbaToPixelPayload` returns an owned copy -- and an
+      // unreachable guard on a release is indistinguishable from a leak
+      // waiting for the guard to come back. If a future outcome really does
+      // retain the pooled buffer, the fix is to stop aliasing it, NOT to
+      // reintroduce a predicate that skips the release.
+      (publishedFullRes ?? decode.fullRes)?.releaseNative?.call();
       if (encodePublishTailCharge != null) {
         _encodePublishTailBytes.release(
           encodePublishTailCharge.bytes,
@@ -2630,7 +2608,7 @@ class ImagePreloadController {
 
   /// Everything that happens once an outcome exists: cost memo, orientation
   /// memo, cache write, sidebar hand-off, tier-1 precache, permanent-miss
-  /// bookkeeping, lane hand-off for a deferred item, notify, piggyback.
+  /// bookkeeping, lane hand-off for a deferred item, notify, tier-2 publish.
   ///
   /// Extracted so BOTH the inline path and the off-lane encode continuation
   /// run identical code. It is a MOVE, not a rewrite.
@@ -2650,7 +2628,6 @@ class ImagePreloadController {
     required int loadLongEdge,
     required int loadGeneration,
     required PayloadClaim claim,
-    VoidCallback? onFullResPixelsConsumed,
   }) async {
     final id = item.id;
 
@@ -2663,7 +2640,7 @@ class ImagePreloadController {
     //
     // Same shape as the "left the window while the load was in flight"
     // early-out below, for the same reason: release the parked callbacks so
-    // nobody strands on a spinner, hand the piggyback handle no new owner, and
+    // nobody strands on a spinner, hand any oriented handle no new owner, and
     // record NOTHING. Deliberately not special-cased to the pool's discard
     // exception -- a stale SUCCESS is just as wrong to land as a stale
     // failure, and both arrive here.
@@ -2689,7 +2666,7 @@ class ImagePreloadController {
       if (!_retentionIds.contains(id)) {
         // Left the window while the load was in flight. Release parked
         // callbacks (review F-3 fix, 2026-08-27) -- same pattern as the
-        // lane body's window refusal. The piggyback handle has no other
+        // lane body's window refusal. The oriented handle has no other
         // owner from here, so it is released too (I-DISPOSE).
         outcome.fullRes?.image?.dispose();
         _flushPendingNotifies(id);
@@ -2806,48 +2783,28 @@ class ImagePreloadController {
       _flushPendingNotifies(id);
     }
 
-    // PIGGYBACK (design §2.2). The source hands back full-resolution oriented
-    // pixels ONLY when a real FFI decode ran in this very call, so the
-    // full-resolution tier-2 entry costs no extra decoder call -- which is
-    // what keeps the hash-frozen navigation probes' "decoder called exactly
-    // once" assertions green. Done AFTER the notify above so the window
-    // -resolution frame reaches the screen first.
-    //
-    // The PixelPayload type test is gone because a re-encoded RAW retains an
-    // EncodedPayload -- the registry anchors on payload object IDENTITY, not
-    // on the payload's kind (raw_full_res_image.dart:45), so this works for
-    // both kinds without touching TierTwoRegistry's containers (AD-027
-    // intact).
-    //
-    // The window / payload-identity / already-published checks that used to
-    // live here now live inside publishPiggybackFullRes, together with the
-    // matching `ui.Image` dispose. Duplicating them here would be a second
-    // place that must remember to release a ~50MB handle.
-    final fullRes = outcome.fullRes;
-    if (fullRes != null) {
-      if (payload != null) {
-        await _tierTwoScheduler.publishPiggybackFullRes(
-          id,
-          payload,
-          fullRes,
-          notifyLoaded,
-          distance: distance,
-          // SR-3 (mem8 T7): forwarded, not acted on here. Only
-          // `_finishOffLane` owns the pooled slot, and only the materialize
-          // inside the publish knows when the pixels stop being read.
-          onPixelsConsumed: onFullResPixelsConsumed,
-        );
-        // PHASE 5: the one tier-2 landing whose id is known at the call site.
-        // The registry -- not this line -- decides readiness; publishing can
-        // be refused (window, payload identity, already published), so the
-        // answer is READ BACK rather than assumed.
-        if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
-      } else {
-        // No payload survived, so no publisher will ever take ownership.
-        // This is the one dispose the controller owns.
-        fullRes.image?.dispose();
-      }
+    // R2: TIER-2 COMES FROM THE PAYLOAD, for first view and re-visit alike.
+    // Decode no longer hands back display pixels (R1), so this site is driven
+    // by the PAYLOAD's existence, not by a `fullRes` record. The window /
+    // payload-identity / claim pre-checks live inside `publishFromPayload`.
+    // Done AFTER the notify above so the window-resolution frame reaches the
+    // screen first.
+    if (payload != null) {
+      _tierTwoScheduler.publishFromPayload(
+        id,
+        payload,
+        notifyLoaded,
+        distance: distance,
+      );
+      // PHASE 5: the registry -- not this line -- decides readiness; a publish
+      // can be refused (window, payload identity, already claimed), so the
+      // answer is READ BACK rather than assumed.
+      if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
     }
+    // The GPU-pass (rotated) arm still renders an oriented image; after R2 it
+    // is NOT a publish source, so this controller is its only owner and always
+    // disposes it. ~96MB on a 24MP frame: dropping it would be a leak.
+    outcome.fullRes?.image?.dispose();
     return handedToLane;
   }
 

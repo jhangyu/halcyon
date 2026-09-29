@@ -9,7 +9,6 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/perf/perf_log.dart';
 import 'package:halcyon_flutter/services/image_pipeline/bitmap_container_probe.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
-import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
@@ -24,8 +23,6 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
-import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
-import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
@@ -152,27 +149,6 @@ Future<Uint8List> _bigPng() async {
   final data = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
   return data!.buffer.asUint8List();
-}
-
-PhotoItem _photoItem(String id) =>
-    PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
-
-({TierTwoScheduler scheduler, TierTwoRegistry registry}) _tierTwoHarness(
-  SourcePayload? Function(String) payloadFor,
-) {
-  final registry = TierTwoRegistry(currentPayloadFor: payloadFor);
-  final scheduler = TierTwoScheduler(
-    registry: registry,
-    lane: DecodeLane(width: 1),
-    currentPayloadFor: payloadFor,
-    fullSizeProviderFor: (p) => throw StateError('not reached'),
-    ensurePayload:
-        (item, {required distance, required notifyLoaded, onSerialLane = false}) async {},
-    dngDecoder: () => null,
-    exifOrientationFor: (id) => 1,
-    navigationDebounce: Duration.zero,
-  );
-  return (scheduler: scheduler, registry: registry);
 }
 
 void main() {
@@ -1478,31 +1454,5 @@ void main() {
       },
     );
 
-    // TC-953 (ownership extension): tier_two_scheduler.dart's
-    // publishPiggybackFullRes materialize site, id=<photo id> (not a hash --
-    // this call site has the real id in scope, unlike the other three).
-    test(
-      'flag-on: publishPiggybackFullRes with no supplied handle emits '
-      'materialize|id=<photoId>|bytes=|dur_us=',
-      () async {
-        PerfLog.init(logPath);
-        final payload = EncodedPayload(Uint8List(4));
-        final h = _tierTwoHarness((id) => payload);
-        h.scheduler.updateWindow([_photoItem('a')], 0);
-        await h.scheduler.publishPiggybackFullRes(
-          'a',
-          payload,
-          (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-          () {},
-          distance: 0,
-        );
-        await PerfLog.flush();
-
-        final content = File(logPath).readAsStringSync();
-        expect(content, contains('materialize|id=a'));
-        expect(content, contains('bytes=${4 * 4 * 4}'));
-        expect(content, contains('dur_us='));
-      },
-    );
   });
 }

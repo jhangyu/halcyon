@@ -12,7 +12,6 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -154,26 +153,16 @@ class _BandEntryHarness {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_piggyback_handle_test.dart
+// Helpers from the former tier_two_piggyback_handle_test.dart
+// (its cases now exercise `publishFromPayload`)
 // ---------------------------------------------------------------------------
 
 PhotoItem _photoItem(String id) =>
     PhotoItem(id: id, files: [File('/tmp/$id.jpg')]);
 
-Future<ui.Image> _image(int w, int h) {
-  final completer = Completer<ui.Image>();
-  final bytes = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 255);
-  ui.decodeImageFromPixels(
-    bytes,
-    w,
-    h,
-    ui.PixelFormat.rgba8888,
-    completer.complete,
-  );
-  return completer.future;
-}
-
-({TierTwoScheduler scheduler, TierTwoRegistry registry}) _harness(
+/// A scheduler with a real tier-2 provider factory: `publishFromPayload`
+/// builds one on the accepting arm.
+({TierTwoScheduler scheduler, TierTwoRegistry registry}) _harnessWithProvider(
   SourcePayload? Function(String) payloadFor,
 ) {
   final registry = TierTwoRegistry(currentPayloadFor: payloadFor);
@@ -181,7 +170,7 @@ Future<ui.Image> _image(int w, int h) {
     registry: registry,
     lane: DecodeLane(width: 1),
     currentPayloadFor: payloadFor,
-    fullSizeProviderFor: (p) => throw StateError('not reached'),
+    fullSizeProviderFor: (p) => _NeverCompletingProvider(),
     ensurePayload:
         (item, {required distance, required notifyLoaded, onSerialLane = false}) async {},
     dngDecoder: () => null,
@@ -189,6 +178,17 @@ Future<ui.Image> _image(int w, int h) {
     navigationDebounce: Duration.zero,
   );
   return (scheduler: scheduler, registry: registry);
+}
+
+/// A provider whose completer never emits: the publish REGISTERS without
+/// racing a real engine decode, which is all these pre-check cases observe.
+class _NeverCompletingProvider extends ImageProvider<Object> {
+  @override
+  Future<Object> obtainKey(ImageConfiguration configuration) async => this;
+
+  @override
+  ImageStreamCompleter loadImage(Object key, ImageDecoderCallback decode) =>
+      _NeverCompletingImageStreamCompleterDedupe();
 }
 
 // ---------------------------------------------------------------------------
@@ -582,8 +582,8 @@ void main() {
 
         // A slot that was already IN the band when its payload landed is not
         // this path's business either -- it is not a new entrant any more, so
-        // the immediate path leaves it to the piggyback publish its own load
-        // performs and, failing that, to the debounced sweep. Stepping to 4
+        // the immediate path leaves it to the publish its own load performs
+        // and, failing that, to the debounced sweep. Stepping to 4
         // admits a5 (new entrant, retained) and still does not publish a4,
         // whose payload landed while it was already inside the band.
         h.payloads['a4'] = freshEncodedPayload();
@@ -596,75 +596,75 @@ void main() {
     );
   });
 
-  group('tier_two_piggyback_handle_test.dart', () {
-    // TC-825 -- a supplied handle is published with ZERO uploads.
-    test('a supplied handle is published without decodeImageFromPixels',
+  group('tier_two_publish_from_payload_test.dart', () {
+    // The q70 decouple replaced the deleted piggyback publish with
+    // `publishFromPayload`: the SINGLE tier-2 publish route (spec R2). These
+    // cases are the former handle tests rewritten against it -- same three
+    // synchronous pre-checks, same refusal semantics, but the publish source
+    // is now the q70 payload and no `ui.Image` is handed in or owned.
+    //
+    // `publishEncoded` records its key only once `obtainKey` completes, so the
+    // registry assertions pump one microtask turn first.
+    Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+    // TC-825 -- an in-window EncodedPayload publishes and counts.
+    test('an in-window EncodedPayload publishes and moves the counter',
         () async {
       final payload = EncodedPayload(Uint8List(4));
-      final h = _harness((id) => id == 'a' ? payload : null);
+      final h = _harnessWithProvider((id) => id == 'a' ? payload : null);
       h.scheduler.updateWindow([_photoItem('a')], 0);
-      final image = await _image(4, 4);
-      await h.scheduler.publishPiggybackFullRes(
-        'a',
-        payload,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-        () {},
-        distance: 0,
+      final before = h.scheduler.debugPayloadDecodePublishCount;
+      expect(
+        h.scheduler.publishFromPayload('a', payload, () {}, distance: 0),
+        isTrue,
       );
+      expect(h.scheduler.debugPayloadDecodePublishCount - before, 1);
+      await settle();
       expect(h.registry.keyIds, contains('a'));
-      // The published entry IS the supplied handle: an upload would have
-      // produced a different image and left this one to be disposed.
-      expect(image.debugDisposed, isFalse);
     });
 
-    // TC-826 -- out of the tier-2 window: dispose, publish nothing.
-    test('a stale window disposes the supplied handle', () async {
+    // TC-826 -- out of the tier-2 window: refuse, publish nothing, no count.
+    test('a stale window refuses and leaves the counter flat', () async {
       final payload = EncodedPayload(Uint8List(4));
-      final h = _harness((id) => payload);
+      final h = _harnessWithProvider((id) => payload);
       h.scheduler.updateWindow(const [], 0);
-      final image = await _image(4, 4);
-      await h.scheduler.publishPiggybackFullRes(
-        'a',
-        payload,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-        () {},
-        distance: 0,
+      final before = h.scheduler.debugPayloadDecodePublishCount;
+      expect(
+        h.scheduler.publishFromPayload('a', payload, () {}, distance: 0),
+        isFalse,
       );
-      expect(image.debugDisposed, isTrue);
+      expect(h.scheduler.debugPayloadDecodePublishCount, before);
+      await settle();
       expect(h.registry.keyIds, isNot(contains('a')));
     });
 
-    // TC-826b -- payload replaced under us.
-    test('a replaced payload disposes the supplied handle', () async {
+    // TC-826b -- payload replaced under us: the identity check refuses.
+    test('a replaced payload refuses', () async {
       final published = EncodedPayload(Uint8List(4));
       final current = EncodedPayload(Uint8List(4));
-      final h = _harness((id) => current);
+      final h = _harnessWithProvider((id) => current);
       h.scheduler.updateWindow([_photoItem('a')], 0);
-      final image = await _image(4, 4);
-      await h.scheduler.publishPiggybackFullRes(
-        'a',
-        published,
-        (rgba: Uint8List(0), width: 4, height: 4, image: image, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-        () {},
-        distance: 0,
+      expect(
+        h.scheduler.publishFromPayload('a', published, () {}, distance: 0),
+        isFalse,
       );
-      expect(image.debugDisposed, isTrue);
+      await settle();
       expect(h.registry.keyIds, isNot(contains('a')));
     });
 
-    // TC-825b -- no handle: today's upload path, unchanged.
-    test('a null handle still uploads and publishes', () async {
-      final payload = EncodedPayload(Uint8List(4));
-      final h = _harness((id) => payload);
+    // TC-825b -- a window-resolution payload has no full-res pixels to decode.
+    test('a PixelPayload returns false without counting', () async {
+      final payload = _pixelPayloadRace();
+      final h = _harnessWithProvider((id) => payload);
       h.scheduler.updateWindow([_photoItem('a')], 0);
-      await h.scheduler.publishPiggybackFullRes(
-        'a',
-        payload,
-        (rgba: Uint8List(4 * 4 * 4), width: 4, height: 4, image: null, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-        () {},
-        distance: 0,
+      final before = h.scheduler.debugPayloadDecodePublishCount;
+      expect(
+        h.scheduler.publishFromPayload('a', payload, () {}, distance: 0),
+        isFalse,
       );
-      expect(h.registry.keyIds, contains('a'));
+      expect(h.scheduler.debugPayloadDecodePublishCount, before);
+      await settle();
+      expect(h.registry.keyIds, isNot(contains('a')));
     });
   });
 
@@ -1119,7 +1119,7 @@ void main() {
         expect(firstProvider, isNotNull);
 
         // The second publisher for the SAME id and the SAME payload object --
-        // exactly what the piggyback/upgrade race produces.
+        // exactly what two concurrent publishers for one id produce.
         registry.publishFullRes('a0', payload, loser, () => loserNotifies++);
 
         expect(
@@ -1151,95 +1151,6 @@ void main() {
           await Future<void>.delayed(Duration.zero);
         }
         expect(winnerNotifies, greaterThanOrEqualTo(0));
-      },
-    );
-
-    test(
-      'TC-381b a piggyback publish landing during an upgrade decode is not '
-      'displaced by that upgrade (decode lane width 2)',
-      () async {
-        final payload = _pixelPayloadRace();
-        final payloads = <String, SourcePayload>{'a0': payload};
-        final registry = TierTwoRegistry(
-          currentPayloadFor: (id) => payloads[id],
-        );
-        addTearDown(registry.clear);
-
-        // The upgrade's FFI decode, held open so the piggyback can land inside
-        // the gap between the upgrade's pre-await existence check and its
-        // publish -- the exact window the defect lives in.
-        final decodeGate = Completer<void>();
-        var decoderCalls = 0;
-
-        final scheduler = TierTwoScheduler(
-          registry: registry,
-          lane: DecodeLane(width: 2),
-          currentPayloadFor: (id) => payloads[id],
-          fullSizeProviderFor: (p) => throw StateError('not exercised here'),
-          ensurePayload:
-              (
-                item, {
-                required int distance,
-                required VoidCallback? notifyLoaded,
-                bool onSerialLane = false,
-              }) async {
-                // The payload is already retained; this is the catch-up case.
-              },
-          dngDecoder: (() {
-            Future<DecodedRgba> decode(String path) async {
-              decoderCalls++;
-              await decodeGate.future;
-              return DecodedRgba(rgba: Uint8List(1 * 1 * 4), width: 1, height: 1);
-            }
-
-            return () => decode;
-          })(),
-          exifOrientationFor: (id) => 1,
-          navigationDebounce: Duration.zero,
-        );
-        addTearDown(scheduler.cancelDebounce);
-
-        final items = List.generate(
-          4,
-          (i) => PhotoItem(id: 'a$i', files: [File('/tmp/a$i.dng')]),
-        );
-
-        scheduler.updateWindow(items, 0);
-        scheduler.schedule(items, 0, () {});
-
-        // Let the debounce fire and the upgrade reach its held decode.
-        for (var i = 0; i < 8; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
-        expect(decoderCalls, 1, reason: 'the catch-up upgrade decode started');
-
-        // The piggyback publisher lands WHILE the upgrade decode is held.
-        await scheduler.publishPiggybackFullRes(
-          'a0',
-          payload,
-          (rgba: Uint8List(1 * 1 * 4), width: 1, height: 1, image: null, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-          () {},
-          distance: 0,
-        );
-        final piggybackProvider = registry.providerFor('a0');
-        expect(piggybackProvider, isNotNull);
-
-        // Release the upgrade: its post-await re-check passes (same window,
-        // same payload object), so it reaches publishFullRes.
-        decodeGate.complete();
-        for (var i = 0; i < 8; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
-
-        expect(
-          identical(registry.providerFor('a0'), piggybackProvider),
-          isTrue,
-          reason:
-              'the late upgrade must not displace the live entry; the displaced '
-              'RawFullResImage would hold a full-resolution ui.Image nothing '
-              'can ever evict or dispose',
-        );
-        expect(registry.keyIds, {'a0'});
       },
     );
 

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:ceyx/ceyx.dart';
 import 'package:flutter/painting.dart';
@@ -14,7 +13,6 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
-import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
@@ -269,218 +267,13 @@ void main() {
 
 
     // -----------------------------------------------------------------------
-    // T7 (mem8 SR-3): the identity path's pooled slot is returned at its LAST
-    // READ -- the piggyback materialize -- not in `_finishOffLane`'s terminal
-    // `finally`.
-    //
-    // WHY THESE TESTS EXIST AS A PAIR. The frozen spec's Step 7.2 placed the
-    // release at the encode's return. That is use-after-release: on the
-    // identity path `fullRes.rgba` IS the pooled slot (the transient aliasing
-    // T6 deliberately kept), and `publishPiggybackFullRes` still reads it
-    // through `ui.decodeImageFromPixels` AFTER the encode. The failure mode is
-    // a torn or wholly wrong tier-2 frame -- no crash, no exception, and
-    // nothing in the pre-existing suite goes red. A test that merely asserts
-    // the callback fires would not have caught it either.
-    //
-    // So the sentinel below is a PAIRED POSITIVE CONTROL, in the shape the
-    // deleted `buffer_release_p6_downscale_test` used: the SAME assertion, the
-    // SAME fixture, the SAME read-back, run twice with only the poison MOMENT
-    // moved. It reads BROKEN for the spec's 7.2 placement and INTACT for B'.
-    // The poison stands in for the successor decode that the pool hands the
-    // returned slot to -- that is what a real early release loses the pixels
-    // to, and 0xA5 makes it legible instead of merely probable.
+    // SR-4: no pooled slot may come back only because the garbage collector
+    // ran ceyx's safety-net `Finalizer`. Since the q70 decouple the identity
+    // path releases its planar slot inside `encodePhase`, so what is left to
+    // pin here are the SURVIVING RGBA arms: the catch-up file decode, the
+    // provider's error paths, and the burst behaviour of the real pool.
     // -----------------------------------------------------------------------
-    group('T7 SR-3: release at the piggyback materialize', () {
-      /// The scheduler, stripped to what `publishPiggybackFullRes` needs: a
-      /// registry, a window containing `a`, and `payload` as `a`'s current
-      /// payload so neither the pre-check nor the post-await re-check refuses.
-      ({TierTwoScheduler scheduler, TierTwoRegistry registry}) harnessFor(
-        SourcePayload payload,
-      ) {
-        SourcePayload? payloadFor(String id) => id == 'a' ? payload : null;
-        final registry = TierTwoRegistry(currentPayloadFor: payloadFor);
-        final scheduler = TierTwoScheduler(
-          registry: registry,
-          lane: DecodeLane(width: 1),
-          currentPayloadFor: payloadFor,
-          fullSizeProviderFor: (p) => throw StateError('not reached'),
-          ensurePayload:
-              (
-                item, {
-                required int distance,
-                required VoidCallback? notifyLoaded,
-                bool onSerialLane = false,
-              }) async {},
-          dngDecoder: () => null,
-          exifOrientationFor: (id) => 1,
-          navigationDebounce: Duration.zero,
-        );
-        scheduler.updateWindow([
-          PhotoItem(id: 'a', files: [File('/tmp/a.dng')]),
-        ], 0);
-        return (scheduler: scheduler, registry: registry);
-      }
-
-      /// The pixels the ImageCache actually holds for [id].
-      ///
-      /// The registry keeps no reference to the `ui.Image` (invariant I5) and
-      /// `RawFullResImage._image` is private, so this takes the route a widget
-      /// takes: resolve the published provider and read the delivered frame.
-      /// `RawFullResImage` is ONE-SHOT, but `publishFullRes` already resolved
-      /// it, so this second resolve is served by the ImageCache's existing
-      /// completer rather than by a second `loadImage`.
-      Future<Uint8List> publishedPixels(
-        TierTwoRegistry registry,
-        String id,
-      ) async {
-        final key = registry.keyFor(id);
-        expect(
-          key,
-          isA<RawFullResImage>(),
-          reason: 'nothing was published, so there are no pixels to compare -- '
-              'this is a broken fixture, not a passing assertion',
-        );
-        final result = Completer<Uint8List>();
-        final stream = (key! as RawFullResImage).resolve(
-          ImageConfiguration.empty,
-        );
-        late ImageStreamListener listener;
-        listener = ImageStreamListener(
-          (info, _) async {
-            stream.removeListener(listener);
-            final data = await info.image.toByteData(
-              format: ui.ImageByteFormat.rawRgba,
-            );
-            result.complete(data!.buffer.asUint8List());
-          },
-          onError: (error, _) {
-            stream.removeListener(listener);
-            result.completeError(error);
-          },
-        );
-        stream.addListener(listener);
-        return result.future.timeout(
-          const Duration(seconds: 5),
-          onTimeout: () =>
-              fail('the published tier-2 frame never delivered within 5s'),
-        );
-      }
-
-      /// One arm of the sentinel. Publishes a 4x4 identity-path record whose
-      /// `rgba` is filled with the fixture pattern, poisoning that buffer with
-      /// 0xA5 either BEFORE the publish (the spec's 7.2 release point, where
-      /// the slot is already back in the pool by then) or from inside
-      /// `onPixelsConsumed` (B', the shipped placement). Returns the pixels the
-      /// ImageCache ended up with.
-      Future<Uint8List> publishThenRead({
-        required bool poisonBeforePublish,
-      }) async {
-        final payload = EncodedPayload(Uint8List.fromList([0xFF, 0xD8]));
-        final h = harnessFor(payload);
-        final rgba = Uint8List(4 * 4 * 4);
-        for (var i = 0; i < rgba.length; i += 4) {
-          rgba[i] = 0x40;
-          rgba[i + 1] = 0x80;
-          rgba[i + 2] = 0xC0;
-          rgba[i + 3] = 0xFF;
-        }
-        void poison() => rgba.fillRange(0, rgba.length, 0xA5);
-        if (poisonBeforePublish) poison();
-        await h.scheduler.publishPiggybackFullRes(
-          'a',
-          payload,
-          (rgba: rgba, width: 4, height: 4, image: null, releaseNative: null, nativeAddress: 0, nativeKeepAlive: null, nativeBytes: 0),
-          () {},
-          distance: 0,
-          onPixelsConsumed: poisonBeforePublish ? null : poison,
-        );
-        return publishedPixels(h.registry, 'a');
-      }
-
-      // TC-1282 -- the RED arm, kept in the suite as the positive control.
-      // Releasing the slot at the encode's return (the frozen spec's 7.2) lets
-      // the next decode write into the buffer this publish has not read yet:
-      // the frame the user sees is the successor's pixels, silently.
-      test(
-        'TC-1282 (positive control): a slot reused BEFORE the materialize '
-        'publishes the wrong pixels',
-        () async {
-          final pixels = await publishThenRead(poisonBeforePublish: true);
-          expect(
-            pixels.take(4),
-            orderedEquals(<int>[0xA5, 0xA5, 0xA5, 0xA5]),
-            reason: 'this arm exists to prove the sentinel CAN read broken. If '
-                'it ever reads the fixture pattern the probe has gone blind '
-                'and TC-1283 below is worthless.',
-          );
-        },
-      );
-
-      // TC-1283 -- the shipped placement (B'). Same sentinel, same read-back;
-      // only the poison moment moved to `onPixelsConsumed`.
-      test(
-        'TC-1283: releasing at onPixelsConsumed publishes intact pixels',
-        () async {
-          final pixels = await publishThenRead(poisonBeforePublish: false);
-          expect(
-            pixels.take(4),
-            orderedEquals(<int>[0x40, 0x80, 0xC0, 0xFF]),
-            reason: 'the engine copies the pixels out of `fullRes.rgba` before '
-                'the materialize completer resolves, and `onPixelsConsumed` '
-                'fires after that -- so a slot returned there can no longer '
-                'corrupt this frame. 0xA5 here means the callback moved above '
-                'the copy.',
-          );
-        },
-      );
-
-      // TC-1284 -- the ordering pin, in the new shape the N-2-class invariant
-      // took. Three facts, all observable from the callback itself:
-      //   * it fires exactly once on the upload path;
-      //   * it fires BEFORE the publish lands (that IS the SR-3 win: the slot
-      //     is not held across the staleness re-check, the pacer and the
-      //     publish);
-      //   * it does NOT fire on the supplied-handle path, which never reads
-      //     `fullRes.rgba` at all -- there the rotated release site inside
-      //     `decodedRgbaToOrientedFullRes` already returned the slot and
-      //     `_finishOffLane`'s net covers the rest.
-      test('TC-1284: onPixelsConsumed fires once, before the publish lands',
-          () async {
-        final payload = EncodedPayload(Uint8List.fromList([0xFF, 0xD8]));
-        final h = harnessFor(payload);
-        var calls = 0;
-        Object? keyAtCallback = 'unset';
-        await h.scheduler.publishPiggybackFullRes(
-          'a',
-          payload,
-          (
-            rgba: Uint8List(4 * 4 * 4),
-            width: 4,
-            height: 4,
-            image: null,
-            releaseNative: null,
-            nativeAddress: 0,
-            nativeKeepAlive: null,
-            nativeBytes: 0,
-          ),
-          () {},
-          distance: 0,
-          onPixelsConsumed: () {
-            calls++;
-            keyAtCallback = h.registry.keyFor('a');
-          },
-        );
-        expect(calls, 1, reason: 'exactly one release per outcome');
-        expect(
-          keyAtCallback,
-          isNull,
-          reason: 'the publish had not landed yet when the slot was handed '
-              'back -- if this is non-null the callback has drifted below '
-              '`_publishOrDiscard` and SR-3 buys nothing on the identity path',
-        );
-        expect(h.registry.keyIds, contains('a'));
-      });
-
+    group('pooled-slot release on the surviving RGBA arms', () {
       // TC-1287 -- T8 (mem8 SR-4), chain audit B.7b(1): the CATCH-UP upgrade
       // path returns its pooled slot.
       //
@@ -569,77 +362,6 @@ void main() {
               'EXPLICITLY. Reading 0 means the slot is returned only when the '
               "GC runs ceyx's safety-net Finalizer -- a leak for as long as "
               'the collector takes, and the defect chain audit B.7b(1) names.',
-        );
-      });
-
-      // TC-1286 -- the CONTROLLER-level pin, and the only test here that goes
-      // red when the B' wiring is removed.
-      //
-      // WHY IT EXISTS. TC-1282/1283/1284 drive `publishPiggybackFullRes`
-      // directly, so they are blind to whether `_finishOffLane` actually
-      // passes a callback; TC-1285's pool counters were MEASURED to stay green
-      // with that wiring deleted (tmp/verify/t7-ac-discrimination.txt). Without
-      // this test the entire controller half of SR-3 could be dropped and the
-      // suite would not notice.
-      //
-      // THE OBSERVABLE. The selected item is pacer-EXEMPT, so its tier-2 entry
-      // lands SYNCHRONOUSLY inside `publishPiggybackFullRes`. That splits the
-      // two placements on an ORDERING, not on a duration:
-      //   * B'           -> release fires at the materialize, BEFORE the entry
-      //                     is registered, so the registry has no key yet;
-      //   * finally-only -> release fires after `_completeOutcome` returns, by
-      //                     which time the key is there.
-      test('TC-1286: the pooled slot goes back BEFORE the tier-2 entry lands',
-          () async {
-        late ImagePreloadController controller;
-        final firstRelease = Completer<void>();
-        // Sampled INSIDE the release callback: the question is what was true
-        // at the MOMENT of release, which nothing observed afterwards can
-        // reconstruct.
-        bool? tierTwoLandedAtRelease;
-        controller = buildController(
-          decoder: (path) async => decodedFixture(
-            releaseNative: () {
-              tierTwoLandedAtRelease ??= controller.debugTierTwoKeyIds.contains(
-                'a',
-              );
-              if (!firstRelease.isCompleted) firstRelease.complete();
-            },
-          ),
-          encoder:
-              (rgba, {required width, required height, required quality}) async
-                  => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
-        );
-        addTearDown(controller.dispose);
-        controller.updateTargetSize(32, 32);
-
-        await controller.preloadImages(
-          items: twoRawItems(),
-          selectedItemId: 'a',
-          notifyLoaded: () {},
-        );
-        await firstRelease.future.timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => fail('the pooled slot was never returned within 5s'),
-        );
-        await pumpMicrotasks();
-
-        // Fixture guard: if the piggyback never published at all, the
-        // assertion below would read false for the wrong reason.
-        expect(
-          controller.debugTierTwoKeyIds,
-          contains('a'),
-          reason: 'no tier-2 entry ever landed, so the ordering assertion '
-              'below is vacuous',
-        );
-        expect(
-          tierTwoLandedAtRelease,
-          isFalse,
-          reason: 'SR-3: the slot must be back in the pool at the materialize, '
-              'BEFORE the staleness re-check, the pacer and the publish. '
-              'Reading true means the release has fallen back to '
-              "`_finishOffLane`'s terminal `finally` -- the exact state this "
-              'task removed.',
         );
       });
 
@@ -744,40 +466,6 @@ void main() {
         expect(pool.debugFinalizerReleases, 0);
       });
 
-      test('TC-1284b: a supplied handle never fires onPixelsConsumed',
-          () async {
-        final payload = EncodedPayload(Uint8List.fromList([0xFF, 0xD8]));
-        final h = harnessFor(payload);
-        final recorder = ui.PictureRecorder();
-        ui.Canvas(recorder);
-        final supplied = recorder.endRecording().toImageSync(4, 4);
-        var calls = 0;
-        await h.scheduler.publishPiggybackFullRes(
-          'a',
-          payload,
-          (
-            rgba: Uint8List(0),
-            width: 4,
-            height: 4,
-            image: supplied,
-            releaseNative: null,
-            nativeAddress: 0,
-            nativeKeepAlive: null,
-            nativeBytes: 0,
-          ),
-          () {},
-          distance: 0,
-          onPixelsConsumed: () => calls++,
-        );
-        expect(
-          calls,
-          0,
-          reason: 'this path never reads `fullRes.rgba`, so it has no '
-              '"pixels consumed" moment to report; firing here would be a '
-              'release the rotated site already performed',
-        );
-      });
-
       // TC-1288 / TC-1288b / TC-1289 -- T8 follow-up (reviewer SF-1), the
       // ERROR PATH of the two provider-side release sites.
       //
@@ -872,7 +560,7 @@ void main() {
             0,
             reason: 'the identity path transfers the handle to the caller '
                 '(it travels on the record); releasing here would free a '
-                'buffer the piggyback materialize is about to read',
+                "buffer the controller's terminal net owns",
           );
           expect(record.releaseNative, isNotNull);
         });
