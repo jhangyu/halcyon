@@ -30,6 +30,8 @@ import 'package:ceyx/ceyx.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart' show SizedBox, WidgetsBinding;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
@@ -96,6 +98,8 @@ void main() {
 
   test('TC-1398 q70 per-stage memory invariants over a real 8-lane decode',
       () async {
+    // Whole-test budget (l1l2 AC6): TC-1398 must stay under 5 s.
+    final total = Stopwatch()..start();
     final native =
         DynamicLibrary.open('$_nativeDir/libdng_decoder_native.dylib');
     final cache = PaintingBinding.instance.imageCache;
@@ -296,6 +300,45 @@ void main() {
     expect(decodeLedger % planar, 0, reason: 'F2 residual not whole frames');
     expect(decodeLedger ~/ planar, inInclusiveRange(0, decodes));
 
+    // R6 (l1l2 spec; lead ruling OQ-2, 2026-09-30). Move the selection to
+    // items[0]: the +/-1 band becomes {items[0], items[1]} and items[2] LEAVES
+    // it (still retained by -3..+5). Pinned: (a) L2 -- its full-size entry's
+    // bytes are gone from the cache at the move itself, before the 250 ms
+    // debounce could run the settle sweep; (b) L1 -- that evict batch asked
+    // for a frame. `currentSizeBytes` is the L2 observable ONLY: the SDK
+    // subtracts inside evict(), before any frame. The deferred dispose the
+    // frame runs is pinned by TC-1403 (a plain test() never runs frames).
+    final binding = SchedulerBinding.instance;
+    // A plain test() under AutomatedTestWidgetsFlutterBinding has
+    // framesEnabled=false (WidgetsBinding gates it on an attached root widget)
+    // and scheduleFrame() returns early (SDK scheduler/binding.dart), so attach
+    // a trivial root to make the L1 observable real.
+    WidgetsBinding.instance.attachRootWidget(const SizedBox());
+    expect(binding.framesEnabled, isTrue,
+        reason: 'R6 vacuity: frames must be enabled or L1 is unobservable');
+    if (binding.hasScheduledFrame) {
+      // Consume any frame the resume itself requested.
+      binding.handleBeginFrame(null);
+      binding.handleDrawFrame();
+    }
+    expect(binding.hasScheduledFrame, isFalse,
+        reason: 'R6 vacuity: no frame is pending before the move');
+    final moveSw = Stopwatch()..start();
+    await controller.preloadImages(
+        items: items, selectedItemId: items[0].id, notifyLoaded: () {});
+    final cacheAfterMove = cache.currentSizeBytes;
+    final frameRequested = binding.hasScheduledFrame;
+    final moveMs = moveSw.elapsedMilliseconds;
+    debugPrint('Q70MEM|R6 moveMs=$moveMs cacheAfterMove=$cacheAfterMove '
+        'frameRequested=$frameRequested totalMs=${total.elapsedMilliseconds}');
+    expect(moveMs, lessThan(250),
+        reason: 'the move must beat the 250 ms debounce, or the settle sweep '
+            '(not the band-leave eviction) could be what emptied the cache');
+    expect(cacheAfterMove, 2 * rgbaBytes,
+        reason: 'L2: items[2] left the band and was evicted at the move');
+    expect(frameRequested, isTrue,
+        reason: 'L1: the evict batch requested the frame its dispose needs');
+
     // Positive control, AFTER every reading above: the upconvert counters can
     // move (a 16x16 synthetic planar frame through the real converter), so
     // their zero is evidence.
@@ -308,5 +351,7 @@ void main() {
     ));
     rgba.releaseNative?.call();
     expect(debugUpconvertCount, 1, reason: 'positive control');
+    expect(total.elapsedMilliseconds, lessThan(5000),
+        reason: 'TC-1398 budget (l1l2 AC6)');
   }, skip: _skipReason, timeout: const Timeout(Duration(seconds: 60)));
 }
