@@ -9,10 +9,25 @@ Windows Registry Editor Version 5.00
 [HKEY_CURRENT_USER\Software\Classes\.arw]
 @="Halcyon.Photo"
 
+[HKEY_CURRENT_USER\Software\Classes\.avif]
+@="Halcyon.Photo"
+
 [HKEY_CURRENT_USER\Software\Classes\.cr2]
 @="Halcyon.Photo"
 
+[HKEY_CURRENT_USER\Software\Classes\.cr3]
+@="Halcyon.Photo"
+
 [HKEY_CURRENT_USER\Software\Classes\.dng]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.heic]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.heif]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.iiq]
 @="Halcyon.Photo"
 
 [HKEY_CURRENT_USER\Software\Classes\.jpeg]
@@ -21,14 +36,41 @@ Windows Registry Editor Version 5.00
 [HKEY_CURRENT_USER\Software\Classes\.jpg]
 @="Halcyon.Photo"
 
+[HKEY_CURRENT_USER\Software\Classes\.jxl]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.mrw]
+@="Halcyon.Photo"
+
 [HKEY_CURRENT_USER\Software\Classes\.nef]
 @="Halcyon.Photo"
 
 [HKEY_CURRENT_USER\Software\Classes\.orf]
 @="Halcyon.Photo"
 
+[HKEY_CURRENT_USER\Software\Classes\.pef]
+@="Halcyon.Photo"
+
 [HKEY_CURRENT_USER\Software\Classes\.png]
 @="Halcyon.Photo"
 
+[HKEY_CURRENT_USER\Software\Classes\.raf]
+@="Halcyon.Photo"
+
 [HKEY_CURRENT_USER\Software\Classes\.rw2]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.srw]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.tif]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.tiff]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.webp]
+@="Halcyon.Photo"
+
+[HKEY_CURRENT_USER\Software\Classes\.x3f]
 @="Halcyon.Photo"
