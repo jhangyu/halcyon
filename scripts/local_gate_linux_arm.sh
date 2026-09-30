@@ -43,17 +43,21 @@ W=$(mktemp -d /work.XXXX); cd $W
 step clone-halcyon git clone /in/halcyon.bundle Halcyon || fail clone-halcyon
 step clone-ceyx git clone /in/ceyx.bundle ceyx || fail clone-ceyx
 step ceyx-ref git -C ceyx checkout --detach $CEYX_REF || fail ceyx-ref
-step flutter-sdk git clone --depth 1 -b $FLUTTER_VER https://github.com/flutter/flutter.git /opt/flutter || fail flutter-sdk
-export PATH=/opt/flutter/bin:$PATH
 git config --global --add safe.directory "*"
-step flutter-precache flutter precache --linux || fail flutter-precache
 cd Halcyon
 # Derive the step list from the workflow: verify-job selftest+verify, then the build job ci.py lines.
 grep -oE "run: python3 scripts/ci.py .*" .github/workflows/ci.yml | sed "s/^run: //" | grep -v auto-release >/out/derived-steps.txt
 grep -q -- "--target \${{ matrix.target }}\|{target: $TARGET}" .github/workflows/ci.yml && echo "WORKFLOW_HAS_LEG=$TARGET" >>$LOG || echo "WARN workflow has no $TARGET leg yet (steps rendered with TARGET override)" >>$LOG
+# Flutter comes from CI'"'"'s own source: `ci.py provision` (runs first; emulates $GITHUB_PATH).
+export GITHUB_PATH=/out/github_path; : >$GITHUB_PATH
+prov="python3 scripts/ci.py provision --target $TARGET"
+step "$(echo "$prov" | tr -c "a-zA-Z0-9\n" _)" $prov || fail "$prov"
+[ -s $GITHUB_PATH ] && export PATH="$(tac $GITHUB_PATH | paste -sd: -):$PATH"
+echo "PATH_AFTER_PROVISION=$PATH" >>$LOG
 while read -r line; do
   cmd=${line//\$\{\{ matrix.target \}\}/$TARGET}
   case "$cmd" in
+    *"ci.py provision "*) continue;;
     *"ci.py build "*|*"ci.py assert-capabilities "*)
       if ! grep -q "\"$PIN_KEY\"" scripts/ceyx_release_pin.json; then
         echo "BLOCKED_AT_FETCH: pin has no \"$PIN_KEY\" entry; ceyx arm64 release missing. Resume: repin, commit, rerun gate." >>$LOG
