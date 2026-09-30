@@ -239,7 +239,24 @@ TARGETS: dict = {
         # selector, fails loudly if the host is not arm64. --fetch-native for
         # the same reason as the windows entry above.
         "build_flags": ["--desktop-arch", "arm64", "--fetch-native"],
-        "provision": [],
+        # Flutter picks its Windows build target from the Dart VM's own ABI
+        # (flutter_tools base/os.dart:479-485, build_windows.dart:67-69), and
+        # flutter-action installs an SDK with x64 Dart — so without this the leg
+        # would build windows-x64 under emulation. bin/internal/update_dart_sdk.ps1
+        # picks the arm64 Dart zip when $env:PROCESSOR_ARCHITECTURE is ARM64
+        # (lines 55-62; falls back to x64 if the engine has no arm64 zip). The
+        # stamp (update_dart_sdk.ps1:22) must go first or the refresh is skipped.
+        # native_dart.py fails loudly unless `dart --version` then reports
+        # windows_arm64; then precache fetches the arm64 engine artifacts.
+        "provision": [
+            ["python3", "scripts/ci/native_dart.py",
+             "--stamp", "bin/cache/engine-dart-sdk.stamp",
+             "--dart", "bin/cache/dart-sdk/bin/dart.exe",
+             "--expect", "windows_arm64",
+             "--", "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", "{flutter_root}/bin/internal/update_dart_sdk.ps1"],
+            ["flutter", "precache", "--windows"],
+        ],
         "artifact_kind": "dir",
         # Flutter's Windows desktop output dir is build/windows/<arch>/runner/
         # <mode>; the arch segment is "arm64" for an arm64 build (the x64 leg's

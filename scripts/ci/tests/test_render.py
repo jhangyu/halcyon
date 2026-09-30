@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import io
+import os
 import re
 import sys
 import unittest
@@ -268,6 +269,38 @@ class DesktopArchSelectorTestCase(unittest.TestCase):
             m.fetch_target_for("linux", argparse.Namespace())
         with self.assertRaises(SystemExit):  # arm64 spec not provisioned until round 2
             m.fetch_target_for("linux", argparse.Namespace(desktop_arch="arm64"))
+
+
+class NativeDartTestCase(unittest.TestCase):
+    """scripts/ci/native_dart.py: pass when `dart --version` has the expected
+    ABI, fail loudly (rc 1) when it does not."""
+
+    def _run(self, expect):
+        import os, tempfile, io, contextlib  # noqa: E401,PLC0415
+        import ci.native_dart as nd  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "bin").mkdir()
+            dart = root / "bin" / "dart"
+            dart.write_text('#!/bin/sh\necho \'Dart SDK on "windows_x64"\'\n')
+            dart.chmod(0o755)
+            stamp = root / "stamp"
+            stamp.write_text("x")
+            os.environ["FLUTTER_ROOT"] = td
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    rc = nd.main(["--stamp", "stamp", "--dart", "bin/dart", "--expect", expect,
+                                  "--", sys.executable, "-c", "pass"])
+            finally:
+                del os.environ["FLUTTER_ROOT"]
+            self.assertFalse(stamp.exists(), "stamp must be deleted before the refresh")
+            return rc
+
+    @unittest.skipUnless(os.name == "posix", "fake dart is a sh script")
+    def test_match_and_mismatch(self):
+        self.assertEqual(self._run("windows_x64"), 0)
+        self.assertEqual(self._run("windows_arm64"), 1)
 
 
 class ChildInterpreterTestCase(unittest.TestCase):
