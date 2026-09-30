@@ -37,7 +37,7 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 # Plan §3/WP-E "print_plan() prints, per phase, `PLAN <phase>: <argv list repr>`".
 PLAN_LINE_RE = re.compile(r"^PLAN (\w[\w-]*): (\[.*\])\s*$")
 
-TARGET_NAMES = ["macos", "macos-x64", "windows", "linux", "android-apk", "web"]
+TARGET_NAMES = ["macos", "macos-x64", "windows", "windows-arm", "linux", "linux-arm", "android-apk", "web"]
 
 
 def _capture_print_plan(target):
@@ -222,6 +222,23 @@ class MacosX64ArgvTestCase(GoldenArgvTestCase):
 
         self.assertEqual(targets.spec("macos")["pin_platform"], "macos-arm64")
         self.assertEqual(targets.spec("macos-x64")["pin_platform"], "macos-x86_64")
+
+
+class ArmLegsTestCase(unittest.TestCase):
+    """linux-arm / windows-arm share build_target with their x64 siblings, so
+    nothing but runs_on / pin_platform / archive_name keeps them apart."""
+
+    def test_arm_legs_do_not_collide_with_x64_siblings(self):
+        import ci.targets as targets  # noqa: PLC0415
+
+        for x64, arm in (("linux", "linux-arm"), ("windows", "windows-arm")):
+            a, b = targets.spec(x64), targets.spec(arm)
+            self.assertEqual(a["build_target"], b["build_target"])
+            for key in ("archive_name", "pin_platform", "runs_on"):
+                self.assertNotEqual(a[key], b[key], f"{arm} must differ from {x64} on {key}")
+            self.assertIn("arm64", b["archive_name"])
+            self.assertIn("arm64", b["pin_platform"])
+            self.assertIn("arm", b["runs_on"])
 
 
 class ChildInterpreterTestCase(unittest.TestCase):

@@ -221,6 +221,90 @@ TARGETS: dict = {
         ],
         "pin_platform": "linux",
     },
+    "windows-arm": {
+        # Native Windows-on-ARM runner leg (user ruling 2026-09-30, armci
+        # campaign contract 3a: proof happens on GitHub CI, not locally). Same
+        # build entry point as "windows" (build_apps.py has no separate arm
+        # target); the architecture is carried by the runner (runs_on below)
+        # and by pin_platform, not by a name-equality branch (G-5).
+        "build_target": "windows",
+        # Artefact platform is "windows", NOT "windows-arm64": same load-bearing
+        # reason as macos-x64 above (a per-arch platform name would never equal
+        # host_platform() and would silently disable the skip-is-failure rule).
+        # Architecture is asserted as architecture, by H-ARCH against the
+        # manifest entry's expected_arch=arm64.
+        "assert_platform": "windows",
+        "runs_on": "windows-11-arm",
+        # --fetch-native for the same reason as the windows entry above.
+        "build_flags": ["--fetch-native"],
+        "provision": [],
+        "artifact_kind": "dir",
+        # Flutter's Windows desktop output dir is build/windows/<arch>/runner/
+        # <mode>; the arch segment is "arm64" for an arm64 build (the x64 leg's
+        # path above has "x64"). UNVERIFIED on Flutter 3.44.6 until the first CI
+        # run (contract ruling 1a: if Flutter windows-arm64 is unsupported the
+        # leg STOPS and reports).
+        "artifact_path": "build/windows/arm64/runner/Release",
+        # windows/CMakeLists.txt:7 — same BINARY_NAME as the x64 leg.
+        "app_executable": "halcyon.exe",
+        "archive_name": "Halcyon-windows-arm64-{version}.zip",
+        "archive_format": "zip",
+        # Same list as "windows". H-SIZED-SYMBOL-NM stays absent: the PE
+        # structural reason (no default export visibility, PL-9) is
+        # architecture-independent. H-SIZED-SYMBOL / H-CEYX-SYMBOLS (dart-run +
+        # DynamicLibrary.open) are KEPT, unlike macos-x64: the runner is native
+        # arm64 and the DLLs are arm64, so loading is a valid instrument. TRUE
+        # precondition = the Dart process is arm64; if flutter-action installs an
+        # x64-emulated SDK on this runner the probe cannot load arm64 DLLs and
+        # fails naming a loader error — to be judged on the first CI run, not
+        # pre-omitted (contract 3a allows iteration on this leg only).
+        "assertions": [
+            "H-ARCH",
+            "H-DECODER-PRESENT",
+            "H-DECODER-DEPS",
+            "H-DECODER-HASH",
+            "H-SIZED-SYMBOL",
+            "H-CEYX-SYMBOLS",
+        ],
+        "pin_platform": "windows-arm64",
+    },
+    "linux-arm": {
+        # Native arm64 Linux runner leg (armci campaign contract). Same build
+        # entry point as "linux"; architecture carried by runs_on and
+        # pin_platform. assert_platform "linux" for the same reason as
+        # windows-arm/macos-x64 above.
+        "build_target": "linux",
+        "assert_platform": "linux",
+        "runs_on": "ubuntu-24.04-arm",
+        "build_flags": ["--fetch-native"],
+        # Identical to "linux": ubuntu-24.04-arm is the same distro release on
+        # arm64, and ninja-build/libgtk-3-dev are published for arm64.
+        "provision": [
+            ["sudo", "apt-get", "update"],
+            ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],
+        ],
+        # build/linux/<arch>/release/bundle — glob covers arm64 (build_apps.py
+        # flutter_artifact globs the arch segment).
+        "artifact_kind": "glob_dir",
+        "artifact_path": "build/linux/*/release/bundle",
+        "app_executable": "halcyon",
+        "archive_name": "Halcyon-linux-arm64-{version}.tar.gz",
+        "archive_format": "gztar",
+        # Same list as "linux", all seven KEPT: the runner is native arm64 and
+        # the .so is aarch64, so the dart-run probe can load it (true
+        # precondition, unlike macos-x64) and nm -D reads ELF natively.
+        # H-ARCH expects aarch64 via the manifest entry (expected_arch).
+        "assertions": [
+            "H-ARCH",
+            "H-DECODER-PRESENT",
+            "H-DECODER-HASH",
+            "H-SIZED-SYMBOL",
+            "H-SIZED-SYMBOL-NM",
+            "H-CEYX-SYMBOLS",
+            "H-CEYX-SYMBOLS-NM",
+        ],
+        "pin_platform": "linux-arm64",
+    },
     "android-apk": {
         "build_target": "android-apk",
         "assert_platform": "android",

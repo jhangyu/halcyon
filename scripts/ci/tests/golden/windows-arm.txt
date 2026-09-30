@@ -1,0 +1,1 @@
+['python3', 'scripts/build_apps.py', 'windows', '--fetch-native']

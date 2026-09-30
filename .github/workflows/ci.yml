@@ -75,7 +75,7 @@ jobs:
           path: Halcyon/build/ci-logs/**
           if-no-files-found: warn
 
-  # Four legs: two macOS architectures plus windows and linux, all built and
+  # Six legs: two macOS architectures plus windows/linux (x64 and arm64), all built and
   # asserted on every push/pull_request (not just at release tag), so the
   # compile claim stays continuously maintained. The macOS pair BOTH run on
   # macos-14 (Apple silicon): the x64 leg is a CROSS-COMPILE (`--macos-arch
@@ -100,6 +100,10 @@ jobs:
           - {os: macos-14,       target: macos-x64}
           - {os: windows-latest, target: windows}
           - {os: ubuntu-latest,  target: linux}
+          # Native arm64 runners (armci campaign): no cross-compile here, so the
+          # assertion lists in targets.py keep the dart-run FFI probes.
+          - {os: ubuntu-24.04-arm, target: linux-arm}
+          - {os: windows-11-arm,   target: windows-arm}
     runs-on: ${{ matrix.os }}
     env:
       # Same rationale as the verify job's PYTHONUTF8 (ci.yml:35-40): this job
