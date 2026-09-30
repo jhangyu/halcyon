@@ -1173,7 +1173,6 @@ void main() {
 
   group('dart_image_loader_no_method_channel_test.dart', () {
       TestWidgetsFlutterBinding.ensureInitialized();
-      final sampleDir = sampleDngDir;
 
       late int channelCalls;
       setUp(() {

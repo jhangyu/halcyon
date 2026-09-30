@@ -19,7 +19,6 @@ import '../../support/sample_photos.dart';
 Uint8List _fakeJpeg(String tag) => Uint8List.fromList('jpeg:$tag'.codeUnits);
 
 // Real samples per repo red line (photos only from ../ceyx/image_samples).
-final _sampleDir = sampleDngDir;
 List<File> _dngs() => sampleDngFiles();
 
 void main() {

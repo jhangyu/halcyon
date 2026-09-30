@@ -53,7 +53,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// mechanism and the same reason as
 /// `../ceyx/plugin/test/encode_service_test.dart:177-180`:
 ///
-///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
+///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/{os}/Libraries \
 ///     flutter test test/services/image_pipeline/yuv420_format_loss_test.dart
 ///
 /// **A skipped run and a real run differ only in the skip line**, so a T16

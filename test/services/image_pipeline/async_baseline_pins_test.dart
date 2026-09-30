@@ -68,7 +68,6 @@ void main() {
   });
 
   group('B2 — selected-item await surface', () {
-    final dngDir = sampleDngDir;
     final hasSamples = samplePhotosAvailable;
     final noPreviewDng = File('${sampleRootDir.path}/$kSampleNoPreviewDng');
 

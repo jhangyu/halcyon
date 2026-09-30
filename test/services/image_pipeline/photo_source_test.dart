@@ -953,7 +953,6 @@ void main() {
   group('photo_source_single_probe_test.dart', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
-      final dngDir = sampleDngDir;
       final jpgDir = sampleJpgDir;
       final hasSamples = samplePhotosAvailable;
 

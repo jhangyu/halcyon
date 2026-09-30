@@ -45,7 +45,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// see `../ceyx/plugin/test/encode_service_test.dart:177-180`, which skips the
 /// same way for the same reason:
 ///
-///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
+///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/{os}/Libraries \
 ///     flutter test test/services/image_pipeline/yuv420_display_path_test.dart
 ///
 /// THE HAZARD THIS COMMENT EXISTS TO FLAG: a skipped run and a full run differ
