@@ -519,7 +519,13 @@ class PhotoSource {
             nativeKeepAlive: decoded.nativeKeepAlive,
             pendingPlanarEncode: null,
           );
-        } catch (_) {
+        } catch (e) {
+          // The miss below carries no reason, so this line is the only trace
+          // of WHY the decode failed (a silent swallow here hid a Windows
+          // worker-isolate crash behind blank thumbnails, 2026-09-30).
+          debugPrint(
+            'halcyon.decode.threw|path=$path|$e',
+          );
           // Step 3b. A throwing decoder is a genuine permanent miss (M6
           // U-12), NOT the D3 no-native-decoder state (a decoder that exists
           // and threw is a real decode failure): there is no legacy channel
@@ -694,7 +700,11 @@ class PhotoSource {
         nativeKeepAlive: decoded.nativeKeepAlive,
         pendingPlanarEncode: null,
       );
-    } catch (_) {
+    } catch (e) {
+      // Same trace as [decodePhase]'s RAW arm -- the two must not diverge.
+      debugPrint(
+        'halcyon.decode.threw|path=$path|$e',
+      );
       // M6 U-12: a throwing decoder is a genuine permanent miss, not D3.
       handedOut?.image?.dispose();
       return (
