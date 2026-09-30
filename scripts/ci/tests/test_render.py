@@ -241,6 +241,35 @@ class ArmLegsTestCase(unittest.TestCase):
             self.assertIn("arm", b["runs_on"])
 
 
+class DesktopArchSelectorTestCase(unittest.TestCase):
+    """build_apps.fetch_target_for: --desktop-arch must match the host and the
+    default (x64 legs, no flag) must keep returning the bare target name."""
+
+    def _mod(self):
+        import importlib.util  # noqa: PLC0415
+
+        spec = importlib.util.spec_from_file_location(
+            "build_apps_under_test", REPO_ROOT / "scripts" / "build_apps.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_default_and_mismatch(self):
+        import argparse  # noqa: PLC0415
+
+        m = self._mod()
+        m.host_arch = lambda: "x86_64"
+        self.assertEqual(m.fetch_target_for("linux", argparse.Namespace()), "linux")
+        self.assertEqual(m.fetch_target_for("windows", argparse.Namespace(desktop_arch="x86_64")), "windows")
+        with self.assertRaises(SystemExit):
+            m.fetch_target_for("linux", argparse.Namespace(desktop_arch="arm64"))
+        m.host_arch = lambda: "arm64"
+        with self.assertRaises(SystemExit):  # x64 default on an arm host: loud, not silent
+            m.fetch_target_for("linux", argparse.Namespace())
+        with self.assertRaises(SystemExit):  # arm64 spec not provisioned until round 2
+            m.fetch_target_for("linux", argparse.Namespace(desktop_arch="arm64"))
+
+
 class ChildInterpreterTestCase(unittest.TestCase):
     """`ci.py:51-60` refuses an MSYS-style interpreter for the PARENT process.
     Rendering the literal ``"python3"`` let ``run.py:60``'s ``shutil.which``

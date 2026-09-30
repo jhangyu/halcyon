@@ -111,6 +111,50 @@
         "expected": "present=True and symbol=present"
       },
       "expected": true
+    },
+    "linux-arm64": {
+      "path": "../ceyx/plugin/linux/Libraries/libdng_decoder_native.so",
+      "format": "elf",
+      "tool": "nm",
+      "tool_args": [
+        "-D"
+      ],
+      "comment": "arm64 sibling of 'linux' (armci campaign 2026-09-30). Same on-disk path as 'linux': build_apps.py places whichever --desktop-arch selected. CI assertions read the member inside the built artefact; expected_arch is what H-ARCH/H-DECODER-ARCH judge this leg against.",
+      "ci_target": "linux-arm",
+      "decoder_artifact": "libdng_decoder_native.so",
+      "expected_arch": "aarch64",
+      "r7": {
+        "measures": "the shipped arm64 Linux decoder shared object exists and exposes the sized-decode entry point",
+        "valid_on": [
+          "linux"
+        ],
+        "why_valid": "ELF dynamic symbol table with default visibility: nm -D lists exactly what dlopen/dlsym can resolve. The functional FFI probe remains the primary instrument; nm is a secondary cross-check.",
+        "red_state": "fetch the x86_64 pin entry for this leg: H-ARCH / H-DECODER-ARCH fail naming expected aarch64 vs observed x86_64",
+        "expected": "present=True and symbol=present"
+      },
+      "expected": true
+    },
+    "windows-arm64": {
+      "path": "../ceyx/plugin/windows/Libraries/dng_decoder_native.dll",
+      "format": "pe",
+      "tool": "dumpbin",
+      "tool_args": [
+        "/exports"
+      ],
+      "comment": "arm64 sibling of 'windows' (armci campaign 2026-09-30). Same on-disk path as 'windows': build_apps.py places whichever --desktop-arch selected. CI assertions read the member inside the built artefact; expected_arch is what H-ARCH/H-DECODER-ARCH judge this leg against.",
+      "ci_target": "windows-arm",
+      "decoder_artifact": "dng_decoder_native.dll",
+      "expected_arch": "arm64",
+      "r7": {
+        "measures": "the shipped arm64 Windows decoder DLL exists alongside its two dynamic imports",
+        "valid_on": [
+          "windows"
+        ],
+        "why_valid": "Presence and architecture of a PE file are read structurally (IMAGE_FILE_HEADER.Machine), which is format-defined and host-independent. The SYMBOL-TABLE half is NOT claimed valid here: PE exports nothing by default, so dumpbin /exports measures a build-system setting rather than runtime reachability (ceyx 2026-08-30). Runtime reachability on Windows is measured only by the functional FFI probe, and only on a Windows host.",
+        "red_state": "fetch the x86_64 pin entry for this leg: H-ARCH / H-DECODER-ARCH fail naming expected arm64 vs observed x86_64",
+        "expected": "present=True; symbol=skipped when inspected from a non-Windows host"
+      },
+      "expected": true
     }
   }
 }

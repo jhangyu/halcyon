@@ -235,8 +235,10 @@ TARGETS: dict = {
         # manifest entry's expected_arch=arm64.
         "assert_platform": "windows",
         "runs_on": "windows-11-arm",
-        # --fetch-native for the same reason as the windows entry above.
-        "build_flags": ["--fetch-native"],
+        # --desktop-arch arm64 (build_apps.py fetch_target_for): explicit arch
+        # selector, fails loudly if the host is not arm64. --fetch-native for
+        # the same reason as the windows entry above.
+        "build_flags": ["--desktop-arch", "arm64", "--fetch-native"],
         "provision": [],
         "artifact_kind": "dir",
         # Flutter's Windows desktop output dir is build/windows/<arch>/runner/
@@ -276,7 +278,8 @@ TARGETS: dict = {
         "build_target": "linux",
         "assert_platform": "linux",
         "runs_on": "ubuntu-24.04-arm",
-        "build_flags": ["--fetch-native"],
+        # --desktop-arch arm64: see windows-arm; --fetch-native as for linux.
+        "build_flags": ["--desktop-arch", "arm64", "--fetch-native"],
         # Identical to "linux": ubuntu-24.04-arm is the same distro release on
         # arm64, and ninja-build/libgtk-3-dev are published for arm64.
         "provision": [

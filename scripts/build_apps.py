@@ -1434,10 +1434,30 @@ def fetch_target_for(target, args=None):
     the wrong slice on exactly that cross-build. There is no universal/fat
     release archive, so --macos-arch universal has no matching entry and
     fails loudly here rather than guessing arm64 or x86_64 on its behalf."""
-    if target == "linux":
-        return "linux"
-    if target == "windows":
-        return "windows"
+    if target in ("linux", "windows"):
+        # Flutter linux/windows cannot cross-compile, so the build arch IS the
+        # host arch. The selector is explicit (--desktop-arch, rendered from
+        # targets.py build_flags like macos-x64's --macos-arch) and a mismatch
+        # with the host fails loudly instead of fetching a wrong-arch prebuilt.
+        # Default x86_64 keeps every pre-existing x64 leg's argv unchanged.
+        arch = getattr(args, "desktop_arch", None) or "x86_64"
+        if arch != host_arch():
+            fail(
+                f"--desktop-arch {arch} does not match this host ({host_arch()}): "
+                f"Flutter {target} cannot cross-compile.",
+                hints=["Run on a native runner of the target architecture."],
+            )
+        if arch == "x86_64":
+            return target
+        key = f"{target}-{arch}"
+        if key not in CEYX_FETCH_SPECS:
+            # ROUND 2: add CEYX_FETCH_SPECS["linux-arm64"/"windows-arm64"] once
+            # the ceyx release's asset/member names exist, plus the pin entries.
+            fail(
+                f"no CEYX_FETCH_SPECS entry for {key!r} yet.",
+                hints=["The arm64 ceyx asset names are not published/pinned yet."],
+            )
+        return key
     if target == "macos":
         arch = getattr(args, "macos_arch", None)
         if arch == "universal":
@@ -2622,7 +2642,9 @@ def flutter_artifact(target, mode, halcyon):
     if target == "web":
         return b / "web", "web output folder"
     if target == "windows":
-        return b / "windows" / "x64" / "runner" / macos_config_name(mode), "Windows runner folder"
+        # Flutter names the arch segment after the (native) build arch.
+        win_arch = "arm64" if host_arch() == "arm64" else "x64"
+        return b / "windows" / win_arch / "runner" / macos_config_name(mode), "Windows runner folder"
     if target == "linux":
         # build/linux/<arch>/<mode>/bundle - the arch segment is host-dependent.
         bundles = sorted((b / "linux").glob(f"*/{mode}/bundle"))
@@ -3249,6 +3271,9 @@ def make_parser():
                         "target rename - a cached target name cannot be updated in place).")
     p.add_argument("--strict", action="store_true",
                    help="Exit 2 if any warning was raised.")
+    p.add_argument("--desktop-arch", choices=["arm64", "x86_64"], default=None,
+                   help="linux/windows build architecture (default x86_64). Must equal the "
+                        "host's (no cross-compile); selects the pinned ceyx asset.")
     p.add_argument("--macos-arch", choices=["arm64", "x86_64", "universal"],
                    default=MACOS_DEFAULT_ARCH,
                    help=f"macOS architecture (default: {MACOS_DEFAULT_ARCH}). x86_64 (Intel) is "
