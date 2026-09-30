@@ -77,8 +77,8 @@ jobs:
           - {os: macos-14,       target: macos-x64, archive: 'Halcyon-macos-x64-'}
           - {os: windows-latest, target: windows,   archive: 'Halcyon-windows-x64-'}
           - {os: ubuntu-latest,  target: linux,     archive: 'Halcyon-linux-x64-'}
-          - {os: ubuntu-24.04-arm, target: linux-arm,   archive: 'Halcyon-linux-arm64-'}
-          - {os: windows-11-arm,   target: windows-arm, archive: 'Halcyon-windows-arm64-'}
+          - {os: ubuntu-24.04-arm, target: linux-arm,   archive: 'Halcyon-linux-arm64-', flutter_source: git}
+          - {os: windows-11-arm,   target: windows-arm, archive: 'Halcyon-windows-arm64-', flutter_arch: x64}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -91,10 +91,18 @@ jobs:
           ref: 574b5bbec67dc8a236b109e38416041de78c1b45
           path: ceyx
 
+      # architecture: the action's own default is runner.arch, so every leg but
+      # windows-arm is unchanged. Flutter 3.44.6 ships no windows-arm64 SDK, so
+      # that leg installs the x64 SDK and scripts/ci provision swaps in arm64
+      # Dart. linux-arm skips the action (flutter_source: git) and is installed
+      # by its provision step instead. (action.yaml@v2: input `architecture`,
+      # default "${{ runner.arch }}".)
       - uses: subosito/flutter-action@v2
+        if: ${{ matrix.flutter_source != 'git' }}
         with:
           flutter-version: '3.44.6'
           channel: 'stable'
+          architecture: ${{ matrix.flutter_arch || runner.arch }}
           # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
       - name: ci.py provision

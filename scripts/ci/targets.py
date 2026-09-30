@@ -302,6 +302,15 @@ TARGETS: dict = {
         "provision": [
             ["sudo", "apt-get", "update"],
             ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],
+            # subosito/flutter-action picks the SDK by runner arch and Flutter
+            # 3.44.6 publishes no Linux arm64 SDK archive (round-1 review
+            # blocker), so the workflow skips the action for this leg
+            # (matrix flutter_source: git) and the SDK is cloned at the tag
+            # here. The tag MUST equal the workflows' flutter-version — a
+            # policy test in test_policy.py enforces it. install_flutter.py
+            # appends <dest>/bin to $GITHUB_PATH for the later build steps.
+            ["python3", "scripts/ci/install_flutter.py",
+             "--tag", "3.44.6", "--dest", "~/flutter"],
         ],
         # build/linux/<arch>/release/bundle — glob covers arm64 (build_apps.py
         # flutter_artifact globs the arch segment).

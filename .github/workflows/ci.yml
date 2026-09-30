@@ -102,8 +102,8 @@ jobs:
           - {os: ubuntu-latest,  target: linux}
           # Native arm64 runners (armci campaign): no cross-compile here, so the
           # assertion lists in targets.py keep the dart-run FFI probes.
-          - {os: ubuntu-24.04-arm, target: linux-arm}
-          - {os: windows-11-arm,   target: windows-arm}
+          - {os: ubuntu-24.04-arm, target: linux-arm, flutter_source: git}
+          - {os: windows-11-arm,   target: windows-arm, flutter_arch: x64}
     runs-on: ${{ matrix.os }}
     env:
       # Same rationale as the verify job's PYTHONUTF8 (ci.yml:35-40): this job
@@ -121,10 +121,18 @@ jobs:
           ref: 574b5bbec67dc8a236b109e38416041de78c1b45
           path: ceyx
 
+      # architecture: the action's own default is runner.arch, so every leg but
+      # windows-arm is unchanged. Flutter 3.44.6 ships no windows-arm64 SDK, so
+      # that leg installs the x64 SDK and scripts/ci provision swaps in arm64
+      # Dart. linux-arm skips the action (flutter_source: git) and is installed
+      # by its provision step instead. (action.yaml@v2: input `architecture`,
+      # default "${{ runner.arch }}".)
       - uses: subosito/flutter-action@v2
+        if: ${{ matrix.flutter_source != 'git' }}
         with:
           flutter-version: '3.44.6'
           channel: 'stable'
+          architecture: ${{ matrix.flutter_arch || runner.arch }}
           # R-8 cache added in F6 after R-7 assertions are green (Spec §6)
 
       - name: ci.py provision

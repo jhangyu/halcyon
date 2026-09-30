@@ -553,7 +553,7 @@ class TestCiBuildMatrixMatchesTargets(unittest.TestCase):
     """
 
     MATRIX_LINE_RE = re.compile(
-        r"^\s*-\s*\{os:\s*([\w.-]+)\s*,\s*target:\s*([\w.-]+)\s*\}"
+        r"^\s*-\s*\{os:\s*([\w.-]+)\s*,\s*target:\s*([\w.-]+)\s*(?:,[^}]*)?\}"
     )
 
     def _ci_matrix_entries(self):
@@ -1138,6 +1138,26 @@ class TestPinFileUntouched(unittest.TestCase):
             f"(G-6 violation): expected sha256 {PIN_FILE_SHA256_REVIEWED}, "
             f"got {actual}",
         )
+
+
+class TestFlutterGitTagMatchesWorkflows(unittest.TestCase):
+    """The linux-arm leg installs Flutter from a git tag named in targets.py
+    while every other leg takes flutter-version from the workflows; the two
+    must never drift apart."""
+
+    def test_tag_equals_workflow_flutter_version(self):
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from ci import targets  # noqa: PLC0415
+
+        cmds = [c for c in targets.spec("linux-arm")["provision"] if any("install_flutter" in a for a in c)]
+        self.assertEqual(len(cmds), 1, "linux-arm must install Flutter exactly once in provision")
+        argv = cmds[0]
+        tag = argv[argv.index("--tag") + 1]
+        for name in ("ci.yml", "release.yml"):
+            versions = set(re.findall(r"flutter-version:\s*'([^']+)'", (WORKFLOWS_DIR / name).read_text(encoding="utf-8")))
+            self.assertEqual(versions, {tag}, f"{name} flutter-version {versions} != targets.py tag {tag!r}")
 
 
 if __name__ == "__main__":
