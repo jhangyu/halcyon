@@ -21,6 +21,27 @@ void CreateAndAttachConsole() {
   }
 }
 
+// A double-clicked GUI process has no usable stdout/stderr (macOS hands a
+// Finder launch /dev/null instead). Any dart:io stdout/stderr write then
+// throws "handle is invalid" -- fatal inside ceyx's decode worker isolates
+// (errorsAreFatal), so every real RAW decode failed on Windows. Same
+// mechanism as CreateAndAttachConsole above, pointed at NUL: the engine keeps
+// its own CRT streams, so it must be told to resync after the reopen.
+void RedirectMissingOutputToNul() {
+  FILE *unused;
+  bool reopened = false;
+  if (_fileno(stdout) < 0 || _get_osfhandle(_fileno(stdout)) < 0) {
+    reopened |= freopen_s(&unused, "NUL", "w", stdout) == 0;
+  }
+  if (_fileno(stderr) < 0 || _get_osfhandle(_fileno(stderr)) < 0) {
+    reopened |= freopen_s(&unused, "NUL", "w", stderr) == 0;
+  }
+  if (reopened) {
+    std::ios::sync_with_stdio();
+    FlutterDesktopResyncOutputStreams();
+  }
+}
+
 std::vector<std::string> GetCommandLineArguments() {
   // Convert the UTF-16 command line arguments to UTF-8 for the Engine to use.
   int argc;
