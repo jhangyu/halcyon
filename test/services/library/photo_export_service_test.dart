@@ -18,13 +18,9 @@ import '../../support/sample_photos.dart';
 
 Uint8List _fakeJpeg(String tag) => Uint8List.fromList('jpeg:$tag'.codeUnits);
 
-// Real samples per repo red line (photos only from local_data/photo_samples).
+// Real samples per repo red line (photos only from ../ceyx/image_samples).
 final _sampleDir = sampleDngDir;
-List<File> _dngs() => _sampleDir
-    .listSync()
-    .whereType<File>()
-    .where((f) => f.path.toLowerCase().endsWith('.dng'))
-    .toList();
+List<File> _dngs() => sampleDngFiles();
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

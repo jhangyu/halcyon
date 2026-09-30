@@ -229,8 +229,10 @@ void main() {
           // already-loaded image (dlopen state is process-wide).
           DynamicLibrary.open(dylibPath);
 
-          final samplePath =
-              '${sampleDngDir.path}/IMG_20251112_092839.dng';
+          // Re-pinned 2026-10-01: bayer_conc_b.dng decodes (probeOutputSize and
+          // decodeDngFull, Windows DLL) to 4080x3056 yuv420, length equal to
+          // ceyxOutputFormatByteCount -- the same figures the old sample had.
+          final samplePath = '${sampleRootDir.path}/$kSampleNoPreviewDng';
           expect(
             File(samplePath).existsSync(),
             isTrue,
@@ -252,7 +254,11 @@ void main() {
           );
         },
         timeout: const Timeout(Duration(minutes: 2)),
-        skip: samplePhotosSkipReason,
+        skip: samplePhotosSkipReason ??
+            (Platform.isMacOS
+                ? null
+                : 'macOS-only: _resolveDngProcessorDylib hardcodes '
+                    'macos/Libraries/libdng_decoder_native.dylib'),
       );
 
   });

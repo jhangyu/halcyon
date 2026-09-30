@@ -53,7 +53,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// mechanism and the same reason as
 /// `../ceyx/plugin/test/encode_service_test.dart:177-180`:
 ///
-///   DNG_NATIVE_BUILD_DIR=/Users/jhangyu/project/ceyx/plugin/macos/Libraries \
+///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
 ///     flutter test test/services/image_pipeline/yuv420_format_loss_test.dart
 ///
 /// **A skipped run and a real run differ only in the skip line**, so a T16
@@ -62,7 +62,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// `tmp/verify/t16/nm-macos-dylib.txt`.
 final String? _skipReason =
     Platform.environment['DNG_NATIVE_BUILD_DIR'] == null
-        ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/macos/Libraries: this case '
+        ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/<os>/Libraries: this case '
             'decodes a real RAW file through the native library'
         : null;
 
@@ -71,7 +71,7 @@ void main() {
 
   // The ARW of record for this campaign: generic-RAW Bayer, the route whose
   // fused arm landed in ceyx bda80348/329817f3.
-  const samplePath = '/Users/jhangyu/project/ceyx/image_samples/raw_sample.arw';
+  const samplePath = '../ceyx/image_samples/raw_sample.arw';
 
   test(
     'T16 check 3 (TC-1374): a yuv420 decode carried through materialiseRgba '

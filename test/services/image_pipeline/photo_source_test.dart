@@ -31,7 +31,7 @@ import 'package:halcyon_flutter/perf/perf_log.dart';
 /// contract rather than its wiring.
 ///
 /// Real samples only, per repo convention (see dng_embedded_jpeg_extractor_test.dart):
-/// local_data/photo_samples/DNG/.
+/// ../ceyx/image_samples/.
 /// An opaque (alpha 0xFF) RGBA8 fixture of [pixelCount] pixels: the
 /// identity-transform short-circuit in decoded_rgba_image_provider.dart
 /// asserts every RAW decode is opaque, so a zero-filled buffer would trip it.
@@ -90,7 +90,7 @@ void expectSameOutcome(SourceOutcome split, SourceOutcome oneShot) {
 }
 
 // --- top-level helpers from photo_source_probe_test.dart ---
-// Real samples only, per repo red line: local_data/photo_samples/.
+// Real samples only, per repo red line: ../ceyx/image_samples/.
 // The whole point of the probe is that it reads CONTENT, so a synthetic
 // fixture would only test the parser, not the claim.
 
@@ -108,7 +108,7 @@ void expectSameOutcome(SourceOutcome split, SourceOutcome oneShot) {
 //   TC-092  AC14's <=300 KB budget measured over the COMBINED probe
 //   TC-093  an expensive item reaches its RAW decode with ZERO loader calls
 //
-// Real samples only (repo red line, local_data/photo_samples/): the probe's
+// Real samples only (repo red line, ../ceyx/image_samples/): the probe's
 // whole claim is about content, so a synthetic fixture would only exercise the
 // parser.
 
@@ -310,20 +310,34 @@ Future<Uint8List> _fakeEncoder(
 /// prediction written above the output, filed at
 /// `docs/logs/2026-09-06/t2-redproof-single-materialize.txt`.
 
+// Byte-identity through the controller needs an embedded preview at or under
+// kNormalizePassthroughMaxBytes (512 KiB): larger ones are re-encoded to q70 by
+// normalizeEncodedPayload, so the payload can never equal the extractor's bytes.
+// Every image_samples DNG that has a preview has one of at least 1198239 bytes
+// (scripts/tmp/audit/probe_out.txt, measured 2026-10-01), so there is no sample
+// with the property these two tests were written against.
+const _kNoSmallPreviewSample =
+    'no image_samples DNG has an embedded preview <= 512 KiB '
+    '(kNormalizePassthroughMaxBytes); smallest is 1198239 B, so the '
+    'controller re-encodes it and byte-identity cannot hold';
+
 void main() {
   group('photo_source_test.dart', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       final sampleDir = sampleDngDir;
-      const withPreviewSample = '2026-02-15-19-37-38.dng';
-      const noPreviewSample = 'IMG_20251112_092839.dng';
+      const withPreviewSample = kSamplePreviewDng;
+      const noPreviewSample = kSampleNoPreviewDng;
 
       test('sample directory has both required fixtures', () {
         expect(
           File('${sampleDir.path}/$withPreviewSample').existsSync(),
           isTrue,
         );
-        expect(File('${sampleDir.path}/$noPreviewSample').existsSync(), isTrue);
+        expect(
+          File('${sampleRootDir.path}/$noPreviewSample').existsSync(),
+          isTrue,
+        );
       }, skip: samplePhotosSkipReason);
 
       test(
@@ -374,14 +388,14 @@ void main() {
           expect(gotBytes, equals(expectedBytes));
           expect(controller.hasFailed('dng-1'), isFalse);
         },
-        skip: samplePhotosSkipReason,
+        skip: samplePhotosSkipReason ?? _kNoSmallPreviewSample,
       );
 
       test(
         'a .dng with no embedded preview still falls through to hasFailed, '
         'not a crash, when the native preview channel fails',
         () async {
-          final path = '${sampleDir.path}/$noPreviewSample';
+          final path = '${sampleRootDir.path}/$noPreviewSample';
 
           final controller = ImagePreloadController(
             imageLoader: (requestedPath, {required purpose, int? targetLongEdge}) async {
@@ -483,7 +497,7 @@ void main() {
           expect(controller.imageBytesFor('jpg-1'), equals(expectedBytes));
           expect(controller.hasFailed('jpg-1'), isFalse);
         },
-        skip: samplePhotosSkipReason,
+        skip: samplePhotosSkipReason ?? _kNoSmallPreviewSample,
       );
 
       test(
@@ -537,10 +551,7 @@ void main() {
         () async {
           final dir = await Directory.systemTemp.createTemp('photo_source_f08');
           addTempDirTeardown(dir);
-          final samples = sampleDir
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.toLowerCase().endsWith('.dng'));
+          final samples = sampleDngFiles();
           File? withPreview;
           for (final f in samples) {
             if (await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(
@@ -781,10 +792,7 @@ void main() {
       final jpgDir = sampleJpgDir;
       final hasSamples = samplePhotosAvailable;
 
-      List<File> dngs() =>
-          dngDir.listSync().whereType<File>().where(
-            (f) => f.path.toLowerCase().endsWith('.dng'),
-          ).toList()..sort((a, b) => a.path.compareTo(b.path));
+      List<File> dngs() => sampleDngFiles();
 
       // The display window this pipeline actually asks for.
       const windowLongEdge = 2800;
@@ -799,8 +807,9 @@ void main() {
         // in a 9-wide decode storm) can pass.
         test('TC-072 content, not the extension, decides the rung: the SAME '
             'extension yields both answers', () async {
-          final withPreview = File('${dngDir.path}/2026-02-15-19-37-38.dng');
-          final withoutPreview = File('${dngDir.path}/IMG_20251112_092839.dng');
+          final withPreview = File('${dngDir.path}/$kSamplePreviewDng');
+          final withoutPreview =
+              File('${sampleRootDir.path}/$kSampleNoPreviewDng');
           expect(withPreview.existsSync(), isTrue, reason: 'sample missing');
           expect(withoutPreview.existsSync(), isTrue, reason: 'sample missing');
 
@@ -832,36 +841,16 @@ void main() {
           // another. These fixtures exist to make sample-set drift fail LOUDLY,
           // and the literal is the loudest shape available.
           //
-          // The thirteen below were each measured to have NO usable embedded JPEG:
-          // largestLongEdge 0 (not merely under the window) and a full extraction
-          // returning nothing. Corroborated OUTSIDE our own walker by exiftool:
-          // the 2024-07-* dozen are Xiaomi 2304FPN6DC phone DNGs whose IFD0 is a
-          // JPEG-compressed Color Filter Array -- a Bayer mosaic, not a
-          // displayable preview -- with no preview/thumbnail/JpgFromRaw tag
-          // anywhere. They are the [U-3]/AC8 samples the user supplied.
-          //
-          // Do NOT re-derive this list from file mtimes: several of the 2024-07-*
-          // files carry 2024 timestamps despite being the newest additions.
-          const knownPreviewLess = [
-            '2024-07-03-18-52-26.dng',
-            '2024-07-03-18-52-41.dng',
-            '2024-07-03-18-52-49.dng',
-            '2024-07-03-18-54-44.dng',
-            '2024-07-03-18-54-49.dng',
-            '2024-07-03-18-55-14.dng',
-            '2024-07-03-18-55-35.dng',
-            '2024-07-03-18-56-59.dng',
-            '2024-07-03-18-58-42.dng',
-            '2024-07-03-19-03-09.dng',
-            '2024-07-06-19-09-52.dng',
-            '2024-07-06-19-09-55.dng',
-            'IMG_20251112_092839.dng',
-          ];
+          // Re-pinned 2026-10-01 to the image_samples corpus. Measured with
+          // extractFullSizeEmbeddedJpeg / extractEmbeddedJpeg (scripts/tmp/audit/
+          // probe_out.txt): all 25 batch_run_samples DNGs carry a usable embedded
+          // JPEG; the two Bayer-mosaic DNGs in the tree root carry none.
+          const knownPreviewLess = kSampleNoPreviewDngs;
 
           final all = dngs();
           expect(
             all.length,
-            26,
+            27,
             reason: 'a sample appearing or vanishing must fail here first, before '
                 'it silently changes what every other probe test measures',
           );
@@ -880,9 +869,9 @@ void main() {
           expect(expensive, knownPreviewLess);
           expect(
             expensive.length,
-            13,
-            reason: 'AC8 needs at least 9 real no-preview DNGs; this is the '
-                'measurement that says how many we actually have',
+            2,
+            reason: 'this corpus has exactly two real no-preview DNGs (the old '
+                'machine-local set had thirteen); the count says how many we have',
           );
         }, skip: hasSamples ? null : 'no local samples');
 
@@ -894,7 +883,7 @@ void main() {
           // that ignored longEdge -- an easy simplification, since 13 of 14
           // samples answer `cheap` either way -- gives the same answer twice and
           // dies here.
-          final file = File('${dngDir.path}/2026-02-15-19-37-38.dng');
+          final file = File('${dngDir.path}/$kSamplePreviewDng');
           expect(
             (await PhotoSource.probeSource(file.path, longEdge: 2800)).cost,
             SourceCost.cheap,
@@ -968,15 +957,12 @@ void main() {
       final jpgDir = sampleJpgDir;
       final hasSamples = samplePhotosAvailable;
 
-      List<File> dngs() =>
-          dngDir.listSync().whereType<File>().where(
-            (f) => f.path.toLowerCase().endsWith('.dng'),
-          ).toList()..sort((a, b) => a.path.compareTo(b.path));
+      List<File> dngs() => sampleDngFiles();
 
       // The no-preview witness: the one sample in fourteen that genuinely needs a
       // RAW decode, and therefore the only one whose orientation the pipeline must
       // carry across the debounce.
-      final noPreviewDng = File('${dngDir.path}/IMG_20251112_092839.dng');
+      final noPreviewDng = File('${sampleRootDir.path}/$kSampleNoPreviewDng');
 
       const windowLongEdge = 2800;
 

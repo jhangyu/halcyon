@@ -466,8 +466,8 @@ void main() {
 
   test('TC-212 sidecarPathFor prefixes the basename only', () {
     expect(
-      sidecarPathFor(p.join('/Volumes/CARD/DCIM', 'IMG_0001.JPG')),
-      p.join('/Volumes/CARD/DCIM', '._IMG_0001.JPG'),
+      sidecarPathFor(p.join('/card/DCIM', 'IMG_0001.JPG')),
+      p.join('/card/DCIM', '._IMG_0001.JPG'),
     );
   });
 }

@@ -45,7 +45,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// see `../ceyx/plugin/test/encode_service_test.dart:177-180`, which skips the
 /// same way for the same reason:
 ///
-///   DNG_NATIVE_BUILD_DIR=/Users/jhangyu/project/ceyx/plugin/macos/Libraries \
+///   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
 ///     flutter test test/services/image_pipeline/yuv420_display_path_test.dart
 ///
 /// THE HAZARD THIS COMMENT EXISTS TO FLAG: a skipped run and a full run differ
@@ -56,7 +56,7 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart
 /// `_ceyx_yuv420_to_rgba8` (`nm -gU`, RC captured separately).
 final String? _nativeDir = Platform.environment['DNG_NATIVE_BUILD_DIR'];
 final String? _skipReason = _nativeDir == null
-    ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/macos/Libraries: these cases '
+    ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/<os>/Libraries: these cases '
         'run the REAL converter (T16 forbids a second oracle, and T15a\'s '
         '0xFF-filling spy makes the alpha check vacuous)'
     : null;
