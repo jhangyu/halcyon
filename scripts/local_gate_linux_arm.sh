@@ -21,7 +21,7 @@ CEYX="${CEYX_DIR:-$REPO/../ceyx}"
 OUT="${2:-$REPO/docs/logs/gate-linux-arm-$(date +%Y%m%d-%H%M%S)}"
 PIN_KEY="${PIN_KEY:-linux-arm64}"          # key expected in scripts/ceyx_release_pin.json
 FLUTTER_VER="${FLUTTER_VER:-3.44.6}"       # same as ci.yml flutter-version
-mkdir -p "$OUT"
+mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 CEYX_REF="$(git -C "$REPO" show HEAD:.github/workflows/ci.yml | awk '/repository: jhangyu\/ceyx/{f=1} f&&/ref:/{print $2; exit}')"
 [ -n "$CEYX_REF" ] || { echo "cannot derive ceyx ref from ci.yml" >&2; exit 1; }
 git -C "$REPO" bundle create "$OUT/halcyon.bundle" HEAD >/dev/null 2>&1 || { echo "halcyon bundle failed" >&2; exit 1; }
