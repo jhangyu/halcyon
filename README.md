@@ -1065,7 +1065,7 @@ flowchart TD
   TierTwo --> ImageCacheNode
 
   ThumbCache[["_thumbCache<br/>sidebar thumbnail bytes"]]:::cache
-  Ensure -.->|separate sweep,<br/>ImageRequestPurpose.sidebarThumbnail| ThumbCache
+  Ensure -.->|separate sweep,<br/>deriveThumbnailPayload (200px, no loader call)| ThumbCache
 
   Render(["MainDetailView paints<br/>AppState.displayProvider<br/>(tier-2 if ready, else tier-1)"]):::render
   ImageCacheNode --> Render
