@@ -9,14 +9,18 @@
 //
 // Drives the REAL app stack (the pure-Dart image producer, real engine
 // decode, real raster) through N photo switches and logs per-stage
-// timestamps. A structural no-op unless HALCYON_PERF_DIR is set -- see
-// PerfDriver.active, only reached from main.dart behind that same check.
+// timestamps. A structural no-op unless the build passed
+// --dart-define=HALCYON_PERF_DRIVER=1 AND HALCYON_PERF_DIR is set at run time
+// -- see kPerfDriver / PerfDriver.active, only reached from main.dart behind
+// that same check.
 //
 // The macOS build is sandboxed: HALCYON_PERF_DIR/HALCYON_PERF_OUT must be
 // RELATIVE paths (resolved against the app container's Data dir), never
 // absolute paths outside the sandbox -- those throw PathAccessException.
 //
 // Env vars:
+//   HALCYON_PERF_DRIVER  BUILD-TIME --dart-define, "1" or "true" (required;
+//                        without it the harness is compiled out)
 //   HALCYON_PERF_DIR   folder of photos to load (required to activate)
 //   HALCYON_PERF_OUT   log file path (default tmp/verify/perf/run.log)
 //   HALCYON_PERF_N     switches per pass (default 24)
@@ -33,13 +37,22 @@ import '../services/image_pipeline/dart_image_loader.dart';
 import '../services/image_pipeline/image_source_types.dart';
 import 'perf_log.dart';
 
+// Build-time gate (ruling 4c, 2026-10-02): the harness can only activate in a
+// build made with --dart-define=HALCYON_PERF_DRIVER=1 (or =true). `const`, so
+// `if (PerfDriver.active)` in main.dart is tree-shaken from every build that
+// lacks the define -- a release build cannot ship it active, whatever the
+// environment says. Same spelling-tolerant pattern as kPerfLog
+// (perf_log.dart): `bool.fromEnvironment` would accept only "true".
+const String _perfDriverEnv = String.fromEnvironment('HALCYON_PERF_DRIVER');
+const bool kPerfDriver = _perfDriverEnv == '1' || _perfDriverEnv == 'true';
+
 class PerfDriver {
-  static bool get active => Platform.environment['HALCYON_PERF_DIR'] != null;
+  static bool get active =>
+      kPerfDriver && Platform.environment['HALCYON_PERF_DIR'] != null;
 
   static String get _dir => Platform.environment['HALCYON_PERF_DIR']!;
   static String get _out =>
-      Platform.environment['HALCYON_PERF_OUT'] ??
-      '/Users/jhangyu/project/Halcyon/tmp/verify/perf/run.log';
+      Platform.environment['HALCYON_PERF_OUT'] ?? 'tmp/verify/perf/run.log';
   static int get _n => int.parse(Platform.environment['HALCYON_PERF_N'] ?? '24');
   static int get _pace =>
       int.parse(Platform.environment['HALCYON_PERF_PACE'] ?? '1200');
