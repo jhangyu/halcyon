@@ -12,10 +12,10 @@ import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
-import 'dart:async';
 import 'package:halcyon_flutter/services/image_pipeline/payload_normalizer.dart';
 import 'package:halcyon_flutter/perf/perf_log.dart';
 import '../../support/loader_stubs.dart';
+import '../../support/fakes.dart';
 
 // --- top-level helpers for the 'photo source' group ---
 /// M2: source-selection was moved from an inline check in
@@ -115,40 +115,6 @@ void expectSameOutcome(SourceOutcome split, SourceOutcome oneShot) {
 
 
 
-
-/// Counts `open()` calls on files created inside an [IOOverrides] zone.
-///
-/// Only `open()` is implemented: every other member throws, which is the
-/// point. If the probe ever reaches for the filesystem another way, this test
-/// fails loudly instead of quietly under-counting.
-class _CountingFile implements File {
-  _CountingFile(this._inner, this._onOpen);
-
-  final File _inner;
-  final void Function() _onOpen;
-
-  @override
-  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
-    _onOpen();
-    return _inner.open(mode: mode);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-/// Runs [body] with every `File(...)` construction counted.
-Future<int> countingOpens(Future<void> Function() body) async {
-  var opens = 0;
-  await IOOverrides.runZoned(
-    body,
-    // Zone.root escapes this very override, so the wrapped File is a real one
-    // rather than an infinite regress through the factory.
-    createFile: (path) =>
-        _CountingFile(Zone.root.run(() => File(path)), () => opens++),
-  );
-  return opens;
-}
 
 // --- top-level helpers for the 'photo source composite gate' group ---
 // Deliverable 2, plumbing half: the gate injected at the composition root

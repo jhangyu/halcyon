@@ -28,37 +28,7 @@ import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 import '../../support/loader_stubs.dart';
-
-/// Counts `open()` calls on files created inside an [IOOverrides] zone.
-///
-/// Same instrument TC-090 uses in the 'photo source single probe' group (photo_source_test.dart): only
-/// `open()` is implemented, so a probe that reaches the filesystem another way
-/// fails loudly instead of quietly under-counting.
-class _CountingFile implements File {
-  _CountingFile(this._inner, this._onOpen);
-
-  final File _inner;
-  final void Function() _onOpen;
-
-  @override
-  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
-    _onOpen();
-    return _inner.open(mode: mode);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-Future<int> _countingOpens(Future<void> Function() body) async {
-  var opens = 0;
-  await IOOverrides.runZoned(
-    body,
-    createFile: (path) =>
-        _CountingFile(Zone.root.run(() => File(path)), () => opens++),
-  );
-  return opens;
-}
+import '../../support/fakes.dart';
 
 DecodedRgba _tinyPriority() {
   final rgba = Uint8List(8 * 8 * 4);
@@ -527,7 +497,7 @@ void main() {
         () async {
       final scheduler = PrefetchScheduler();
 
-      final opensAtFirstLongEdge = await _countingOpens(() async {
+      final opensAtFirstLongEdge = await countingOpens(() async {
         for (var i = 0; i < 5; i++) {
           await scheduler.classify('straddler', dngPath, longEdge: 2800);
         }
@@ -540,7 +510,7 @@ void main() {
             'regression',
       );
 
-      final opensAfterResize = await _countingOpens(() async {
+      final opensAfterResize = await countingOpens(() async {
         for (var i = 0; i < 5; i++) {
           await scheduler.classify('straddler', dngPath, longEdge: 4000);
         }

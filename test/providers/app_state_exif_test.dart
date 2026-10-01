@@ -11,10 +11,10 @@ import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
-import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
 import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fakes.dart';
 
 /// T13 — per-selection EXIF read + cache (round1-plan T13, TC-501..504 —
 /// the full gallery block shifted +7 by user ruling 2026-09-02).
@@ -263,13 +263,6 @@ class _SilentPreload extends ImagePreloadController {
   }) async {}
 }
 
-class _FixedScanner extends PhotoLibraryScanner {
-  _FixedScanner(this.result);
-  final List<PhotoItem> result;
-  @override
-  Future<List<PhotoItem>> scan(Directory dir) async => result;
-}
-
 AppState _state({
   required Directory dir,
   required List<String> ids,
@@ -281,7 +274,7 @@ AppState _state({
   Duration exifDebounce = kSelectionExifDebounce,
 }) {
   return AppState(
-    scanner: _FixedScanner(_exifItems(dir, ids)),
+    scanner: FixedScanner(_exifItems(dir, ids)),
     imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
         NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
     preloadController: _SilentPreload(),

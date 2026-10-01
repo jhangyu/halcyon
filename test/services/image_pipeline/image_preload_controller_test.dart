@@ -18,6 +18,7 @@ import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart'
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 import '../../support/event_loop.dart';
+import '../../support/fakes.dart';
 
 // Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
 // in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
@@ -25,15 +26,6 @@ import '../../support/event_loop.dart';
 // drains when its frame hook fires, and a plain test() never pumps a real
 // frame on its own. The pacer re-arms itself after each drained item, so
 // a synchronous hook fully drains the queue before submit() returns.
-/// An ImageStreamCompleter that never emits an image and never errors --
-/// used to deterministically simulate a decode that is PENDING forever,
-/// without racing a real (near-instant) engine decode. When pre-inserted
-/// into ImageCache under the exact key a real decode would use,
-/// ImageCache.putIfAbsent returns this existing entry instead of starting
-/// a new decode, so any code path that resolves that provider joins this
-/// completer and never observes completion.
-class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
-
 // --- helpers for the 'image preload controller probe first navigation' group ---
 // In-suite translation of an earlier one-off scratch probe script. The
 // original probe's behavior remains the frozen spec this file was derived
@@ -904,7 +896,7 @@ void main() {
           final ic = PaintingBinding.instance.imageCache;
           ic.putIfAbsent(
             tierTwoKey,
-            () => _NeverCompletingImageStreamCompleter(),
+            () => NeverCompletingImageStreamCompleter(),
           );
           addTearDown(() => ic.evict(tierTwoKey));
 

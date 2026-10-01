@@ -20,6 +20,7 @@ import 'package:halcyon_flutter/services/library/photo_export_service.dart'
     show ExportFiletype;
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -321,7 +322,7 @@ void main() {
       // A fake scanner avoids creating 1200 real files: this test is about
       // AppState's chunking loop, not the filesystem scan.
       final state = AppState(
-        scanner: _FixedScanner(
+        scanner: FixedScanner(
           List.generate(
             1200,
             (i) => PhotoItem(
@@ -772,9 +773,3 @@ class _ThrowingScanner extends PhotoLibraryScanner {
   Future<List<PhotoItem>> scan(Directory dir) async => throw error;
 }
 
-class _FixedScanner extends PhotoLibraryScanner {
-  _FixedScanner(this.result);
-  final List<PhotoItem> result;
-  @override
-  Future<List<PhotoItem>> scan(Directory dir) async => result;
-}

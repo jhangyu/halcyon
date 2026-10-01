@@ -29,6 +29,7 @@ import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/fakes.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'tier two scheduler' group
@@ -189,19 +190,12 @@ class _NeverCompletingProvider extends ImageProvider<Object> {
 
   @override
   ImageStreamCompleter loadImage(Object key, ImageDecoderCallback decode) =>
-      _NeverCompletingImageStreamCompleterDedupe();
+      NeverCompletingImageStreamCompleter();
 }
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'tier two publish dedupe' group
 // ---------------------------------------------------------------------------
-
-/// An ImageStreamCompleter that never emits an image and never errors --
-/// deterministically simulates "registration landed, decode still pending"
-/// without racing a real (near-instant) engine decode. Same trick as
-/// the 'tier two registry' group's TC-232, duplicated here rather than shared
-/// so this file's ownership stays self-contained.
-class _NeverCompletingImageStreamCompleterDedupe extends ImageStreamCompleter {}
 
 /// Records every submission; publishes exempt ones immediately and defers
 /// everything else until [drain] -- same shape as the fake pacer in
@@ -331,15 +325,6 @@ PixelPayload _pixelPayloadRace() =>
 // ---------------------------------------------------------------------------
 // Helpers for the 'tier two registry' group
 // ---------------------------------------------------------------------------
-
-/// An ImageStreamCompleter that never emits an image and never errors --
-/// used to deterministically simulate a decode that is PENDING forever,
-/// without racing a real (near-instant) engine decode. When pre-inserted into
-/// ImageCache under the exact key a real decode would use,
-/// ImageCache.putIfAbsent returns this existing entry instead of starting a
-/// new decode, so any code path that resolves that provider joins this
-/// completer and never observes completion.
-class _NeverCompletingImageStreamCompleterRegistry extends ImageStreamCompleter {}
 
 /// Publishes [payload] as an encoded tier-2 entry and waits for the decode
 /// listener to fire. Returns the provider, which for MemoryImage IS the
@@ -884,7 +869,7 @@ void main() {
         // will land on, so the listener never fires but the registration
         // (obtainKey().then(...)) still completes synchronously.
         final ic = PaintingBinding.instance.imageCache;
-        ic.putIfAbsent(firstProvider, () => _NeverCompletingImageStreamCompleterDedupe());
+        ic.putIfAbsent(firstProvider, () => NeverCompletingImageStreamCompleter());
         addTearDown(() => ic.evict(firstProvider));
 
         var firstNotified = false;
@@ -1374,7 +1359,7 @@ void main() {
       // pre-insert a never-completing entry under the SAME key the registry's
       // resolve will land on. MemoryImage is its own key, so `provider` IS it.
       final ic = PaintingBinding.instance.imageCache;
-      ic.putIfAbsent(provider, () => _NeverCompletingImageStreamCompleterRegistry());
+      ic.putIfAbsent(provider, () => NeverCompletingImageStreamCompleter());
       addTearDown(() => ic.evict(provider));
 
       var notified = false;
@@ -1508,7 +1493,7 @@ void main() {
         image: await tinyImage(),
       );
       final ic = PaintingBinding.instance.imageCache;
-      ic.putIfAbsent(pendingKey, () => _NeverCompletingImageStreamCompleterRegistry());
+      ic.putIfAbsent(pendingKey, () => NeverCompletingImageStreamCompleter());
       addTearDown(() => ic.evict(pendingKey));
 
       var notified = false;
