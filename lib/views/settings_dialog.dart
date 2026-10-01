@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
-import '../providers/settings_snapshot.dart';
+import '../providers/app_settings.dart';
 import '../services/image_pipeline/retention_policy.dart';
 import 'settings_dialog/appearance_tab.dart';
 import 'settings_dialog/export_tab.dart';
@@ -30,7 +30,7 @@ class SettingsDialog extends StatefulWidget {
 
 class _SettingsDialogState extends State<SettingsDialog> {
   late final AppState _state;
-  late final SettingsSnapshot _snapshot;
+  late final AppSettings _snapshot;
   bool _committed = false;
   int _tab = 0;
 

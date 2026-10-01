@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/providers/app_settings.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
