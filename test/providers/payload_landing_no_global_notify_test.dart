@@ -21,8 +21,7 @@ void main() {
   test(
     'TC-1014: a payload landing wakes the item, not the whole app',
     () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_notify_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_notify_');
       await File('${dir.path}/IMG_0001.jpg').writeAsBytes([0]);
       await File('${dir.path}/IMG_0002.jpg').writeAsBytes([0]);
 

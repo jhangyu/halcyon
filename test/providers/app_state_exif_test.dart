@@ -49,8 +49,7 @@ void main() {
   group('AppState selection EXIF cache', () {
     test('TC-501 selecting and going quiet past 250ms reads once and '
         'notifies listeners once on landing', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif494_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_exif494_');
       await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
       await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
@@ -93,8 +92,7 @@ void main() {
 
     test('TC-502 stepping through five photos inside the window fires '
         'exactly one read, for the photo the user stopped on', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif495_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_exif495_');
       for (final id in ['P1', 'P2', 'P3', 'P4', 'P5']) {
         await writeFixtureBytes(dir, '$id.jpg', _jpegMagic);
       }
@@ -130,8 +128,7 @@ void main() {
 
     test('TC-503 a reader result that arrives after the selection changed is '
         'discarded', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif496_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_exif496_');
       await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
       await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
@@ -182,8 +179,7 @@ void main() {
 
     test('TC-504 re-selecting an already-read photo reads zero times',
         () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif497_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_exif497_');
       await writeFixtureBytes(dir, 'A.jpg', _jpegMagic);
       await writeFixtureBytes(dir, 'B.jpg', _jpegMagic);
 

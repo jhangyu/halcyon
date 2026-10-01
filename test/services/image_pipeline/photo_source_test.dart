@@ -413,10 +413,7 @@ void main() {
             srcPath,
           );
           expect(expectedBytes, isNotNull);
-          final tmpDir = await Directory.systemTemp.createTemp(
-            'halcyon_photo_source_gate_',
-          );
-          addTempDirTeardown(tmpDir);
+          final tmpDir = await makeTempDir('halcyon_photo_source_gate_');
           final fakeJpgFile = File('${tmpDir.path}/not-a-dng.jpg');
           await fakeJpgFile.writeAsBytes(dngBytes);
 
@@ -454,10 +451,7 @@ void main() {
         'miss when the native preview channel fails (proves the magic check, '
         'not the extension, is what discriminates)',
         () async {
-          final tmpDir = await Directory.systemTemp.createTemp(
-            'halcyon_photo_source_gate_negative_',
-          );
-          addTempDirTeardown(tmpDir);
+          final tmpDir = await makeTempDir('halcyon_photo_source_gate_negative_');
           final garbageJpgFile = File('${tmpDir.path}/not-an-image.jpg');
           await garbageJpgFile.writeAsBytes(
             List<int>.generate(64, (i) => i % 256),
@@ -498,8 +492,7 @@ void main() {
         'fallbackAfterNativeFailure recovers a non-DNG RAW with an embedded '
         'preview (extension gate removed)',
         () async {
-          final dir = await Directory.systemTemp.createTemp('photo_source_f08');
-          addTempDirTeardown(dir);
+          final dir = await makeTempDir('photo_source_f08');
           final samples = sampleDngFiles();
           File? withPreview;
           for (final f in samples) {

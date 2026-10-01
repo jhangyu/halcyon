@@ -100,8 +100,7 @@ void main() {
       late AppState state;
       late Directory dir;
       await tester.runAsync(() async {
-        dir = await Directory.systemTemp.createTemp('halcyon_thumbtap_');
-        addTempDirTeardown(dir);
+        dir = await makeTempDir('halcyon_thumbtap_');
         await File('${dir.path}/IMG_0001.jpg').writeAsBytes(const [1, 2, 3]);
         await File('${dir.path}/IMG_0002.jpg').writeAsBytes(const [4, 5, 6]);
         state = AppState(

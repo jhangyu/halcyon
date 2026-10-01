@@ -31,8 +31,7 @@ void main() {
     test(
       'S2.4: mixed batch reports recycled=true, mixedDestination=true',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_mixed_');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('halcyon_mixed_');
         await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
         await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
@@ -66,8 +65,7 @@ void main() {
     test(
       'S2.3: recycleMode latches true on the next loadFolder without a toggle',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_latch_');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('halcyon_latch_');
         await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
         final state = _stateWithTrash((file) async {

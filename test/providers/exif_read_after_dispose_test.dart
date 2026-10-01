@@ -37,8 +37,7 @@ void main() {
 
   test('TC-1058: a selection EXIF read landing after dispose does not notify',
       () async {
-    final dir = await Directory.systemTemp.createTemp('halcyon_exif_dispose_');
-    addTempDirTeardown(dir);
+    final dir = await makeTempDir('halcyon_exif_dispose_');
     await File('${dir.path}/IMG_0001.jpg').writeAsBytes([0]);
 
     // Held open so the read is guaranteed to still be in flight at dispose().

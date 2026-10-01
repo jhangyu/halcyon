@@ -89,8 +89,7 @@ void main() {
       });
 
       test('jpeg returns its exact bytes without decoding', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader');
         final jpeg = File('${dir.path}/a.jpg');
         await jpeg.writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xD9]); // SOI+EOI only
         final result = await dartImageLoad(
@@ -170,8 +169,7 @@ void main() {
       // pins the new behaviour. Nothing was relaxed to make the change pass.
       test('browse-only RAW (.cr2): embedded preview is served, no-preview is an'
           ' explicit unsupported state (never the raw-decode signal)', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_raw');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_raw');
         var hits = 0, misses = 0;
         for (final f in dngs()) {
           final full = previewCache[f.path];
@@ -196,8 +194,7 @@ void main() {
 
       test('engine-decodable non-DNG RAW (.arw): embedded preview is served,'
           ' no-preview now routes to RAW decode', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_arw');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_arw');
         var hits = 0, misses = 0;
         for (final f in dngs()) {
           final full = previewCache[f.path];
@@ -233,8 +230,7 @@ void main() {
         // The `export` purpose is included for completeness of the guard, but note
         // (F4) the shipped export path never passes it — see
         // `photo_export_service.dart:57-58`.
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_sb');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_sb');
         for (final f in dngs()) {
           final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
           await f.copy(asArw.path);
@@ -283,10 +279,7 @@ void main() {
 
       test('F-20: a header claiming a 40000x40000 decode is refused, never'
           ' handed to a raw decode', () async {
-        final dir = await Directory.systemTemp.createTemp(
-          'dart_image_loader_oversized',
-        );
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_oversized');
         final huge = File('${dir.path}/huge.dng');
         await huge.writeAsBytes(handcraftedOversizedTiff());
         final result = await dartImageLoad(
@@ -1097,8 +1090,7 @@ void main() {
           'gives a clean read, instead of being permanently stuck on the '
           'fault-derived miss',
           () async {
-            final dir = await Directory.systemTemp.createTemp('p1b_fault_');
-            addTempDirTeardown(dir);
+            final dir = await makeTempDir('p1b_fault_');
             final path = await writeSyntheticDng(
               buildSyntheticDng(
                 candidates: const [SyntheticCandidate(width: 3200, height: 2133)],

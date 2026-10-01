@@ -1,6 +1,5 @@
 // TC-860: folder-wide starred/trashed aggregates, and the PhotoIdentity
 // fields that carry them to a layout theme. Data path only — no widget here.
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
@@ -26,8 +25,7 @@ void main() {
     });
 
     test('counts the marked items in the loaded folder', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_counts_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_counts_');
       await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
       await writeFixtureBytes(dir, 'IMG_0003.jpg', _stubBytes);

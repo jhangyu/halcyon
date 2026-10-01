@@ -27,10 +27,7 @@ void main() {
     'TC-1241 debugRetentionIds/debugPayloadFor report what the underlying '
     'ImagePreloadController actually retains',
     () async {
-      final dir = await Directory.systemTemp.createTemp(
-        'halcyon_debug_retention_',
-      );
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_debug_retention_');
       await File('${dir.path}/IMG_0001.jpg').writeAsBytes([0]);
 
       final state = AppState(

@@ -199,8 +199,7 @@ void main() {
     late String dngPath;
 
     setUp(() async {
-      dir = await Directory.systemTemp.createTemp('m4_preview_floor');
-      addTempDirTeardown(dir);
+      dir = await makeTempDir('m4_preview_floor');
       // ONE candidate at 2000px: bigger than a small window, smaller than the
       // old hardcoded 2800 floor. DefaultCropSize tracks the largest candidate,
       // so this candidate also clears the extractor's 0.90*cropMax full-size
@@ -335,8 +334,7 @@ void main() {
     late String dngPath;
 
     setUp(() async {
-      dir = await Directory.systemTemp.createTemp('m4_cost_memo');
-      addTempDirTeardown(dir);
+      dir = await makeTempDir('m4_cost_memo');
       // 3000px STRADDLES the bootstrap default (2800) and the real viewport
       // (4000) used below: cheap under the placeholder, expensive under the
       // truth. That gap is the whole defect.

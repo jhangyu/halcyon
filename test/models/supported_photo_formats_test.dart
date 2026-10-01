@@ -58,8 +58,7 @@ void main() {
 
   group('AC1 — folder scan surfaces a file of every derived-list extension', () {
     test('over a fake directory listing, every decodable+browse-only ext is picked up', () async {
-      final tmpDir = await Directory.systemTemp.createTemp('halcyon_fmt_test_');
-      addTempDirTeardown(tmpDir);
+      final tmpDir = await makeTempDir('halcyon_fmt_test_');
 
       final allExts = SupportedPhotoFormats.rawExtensions
           .followedBy(const ['.jpg', '.jpeg', '.png']);

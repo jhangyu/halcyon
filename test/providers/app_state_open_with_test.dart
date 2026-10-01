@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import '../support/app_state_fixtures.dart';
@@ -24,8 +23,7 @@ void main() {
 
   group('AppState.openPhotoAtPath', () {
     test('TC-160 keeps the loaded folder when the file does not exist', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_openwith_');
       await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
@@ -44,8 +42,7 @@ void main() {
     test(
       'TC-161 keeps the loaded folder when the parent directory is missing',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('halcyon_openwith_');
         await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
         final state = testState();
@@ -62,8 +59,7 @@ void main() {
     );
 
     test('TC-162 still opens a real file and selects it', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_ok_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_openwith_ok_');
       await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       await writeFixtureBytes(dir, 'IMG_0002.dng', _stubBytes);
 
@@ -76,11 +72,9 @@ void main() {
     });
 
     test('TC-163 ignores unsupported extensions', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_openwith_');
       await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
-      final other = await Directory.systemTemp.createTemp('halcyon_other_');
-      addTempDirTeardown(other);
+      final other = await makeTempDir('halcyon_other_');
       await writeFixtureBytes(other, 'notes.txt', _stubBytes);
 
       final state = testState();

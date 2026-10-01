@@ -3404,8 +3404,7 @@ void main() {
     late Directory dir;
 
     setUp(() {
-      dir = Directory.systemTemp.createTempSync('halcyon-cheap-serial-lane');
-      addTempDirTeardown(dir);
+      dir = makeTempDirSync('halcyon-cheap-serial-lane');
     });
 
     DecodedRgba fakeDecoded() => DecodedRgba(

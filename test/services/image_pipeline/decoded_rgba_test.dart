@@ -825,8 +825,7 @@ void main() {
           source.setPixelRgb(x, y, rows[y][x], 0, 0);
         }
       }
-      final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_orient');
-      addTempDirTeardown(tmp);
+      final tmp = makeTempDirSync('halcyon_tiff_orient');
       final path = '${tmp.path}${Platform.pathSeparator}orient6.tif';
       File(path).writeAsBytesSync(img.encodeTiff(source));
 

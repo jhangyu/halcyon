@@ -26,8 +26,7 @@ void main() {
   Future<AppState> seededState(WidgetTester tester) async {
     late AppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mss_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_mss_');
       await File('${dir.path}/IMG_0001.jpg').writeAsBytes(<int>[1, 2, 3]);
       await File('${dir.path}/IMG_0002.jpg').writeAsBytes(<int>[4, 5, 6]);
 
