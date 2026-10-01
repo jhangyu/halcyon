@@ -29,26 +29,9 @@ import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 import '../../support/loader_stubs.dart';
 import '../../support/fakes.dart';
+import '../../support/rgba_fixtures.dart';
 
-DecodedRgba _tinyPriority() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
-}
-
-DecodedRgba _decodedFixture() {
-  // 8x6 opaque RGBA, matching the convention in
-  // the 'photo source fullres handle' group (photo_source_test.dart).
-  final bytes = Uint8List(8 * 6 * 4);
-  for (var p = 0; p < 8 * 6; p++) {
-    bytes[p * 4 + 3] = 255;
-  }
-  return DecodedRgba(rgba: bytes, width: 8, height: 6);
-}
-
-Future<DecodedRgba> _decoder(String path) async => _decodedFixture();
+Future<DecodedRgba> _decoder(String path) async => opaqueRgba(8, 6);
 
 Future<Uint8List> _okEncoder(
   Uint8List rgba, {
@@ -857,7 +840,7 @@ void main() {
               // Gated so every enqueued key stays PENDING and its priority is
               // observable; the lane is width 1 so one key occupies the slot.
               await gate.future;
-              return _tinyPriority();
+              return opaqueRgba(8, 8);
             },
             payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
@@ -985,7 +968,7 @@ void main() {
               // the width-1 lane admits is by definition not pending. See the
               // lane pre-occupation below.
               await gate.future;
-              return _tinyPriority();
+              return opaqueRgba(8, 8);
             },
             payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
@@ -1322,7 +1305,7 @@ void main() {
       'around the ui.decodeImageFromPixels GPU hand-off',
       () async {
         PerfLog.init(logPath);
-        final decoded = _decodedFixture();
+        final decoded = opaqueRgba(8, 6);
         // Orientation 6 (not identity): forces the GPU pass this test targets.
         await decodedRgbaToPixelPayload(decoded, exifOrientation: 6, longEdge: 8);
         await PerfLog.flush();

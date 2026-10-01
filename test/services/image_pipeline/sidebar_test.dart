@@ -22,17 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/preload_fixtures.dart';
 import '../../support/loader_stubs.dart';
-
-// Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
-// debug-only identity short-circuit asserts sampled alpha is opaque.
-// Same repair as commits 253b89f / d43c2a1.
-DecodedRgba _tinyLane() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
-}
+import '../../support/rgba_fixtures.dart';
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
 /// a real debounce/async-drain still gets its full budget if it needs it, but
@@ -92,14 +82,6 @@ Future<NativeImageResult> _alwaysFailLoaderPixel(
   return const NativeImageFailure('NO_THUMBNAIL', 'no thumbnail for test');
 }
 
-DecodedRgba _rawFixturePixel({int width = 400, int height = 300}) {
-  final bytes = Uint8List(width * height * 4);
-  for (var i = 3; i < bytes.length; i += 4) {
-    bytes[i] = 255; // opaque
-  }
-  return DecodedRgba(rgba: bytes, width: width, height: height);
-}
-
 Future<Directory> _tempDirWithPixel(List<String> names) async {
   final dir = await Directory.systemTemp.createTemp('halcyon_sidebar_pixels_');
   for (final name in names) {
@@ -143,14 +125,6 @@ Future<void> _pollUntilPixel(
   }
 }
 
-DecodedRgba _tinyPriority() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
-}
-
 Future<Uint8List> _encodedOfDerivation(int width, int height) async {
   final recorder = ui.PictureRecorder();
   ui.Canvas(recorder).drawRect(
@@ -182,7 +156,7 @@ void main() {
         imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           calls++;
-          return _tinyLane();
+          return opaqueRgba(8, 8);
         },
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
@@ -232,7 +206,7 @@ void main() {
         maxLive = live > maxLive ? live : maxLive;
         await gate.future;
         live--;
-        return _tinyLane();
+        return opaqueRgba(8, 8);
       }
 
       final controller = ImagePreloadController(
@@ -271,7 +245,7 @@ void main() {
         imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           await gate.future;
-          return _tinyLane();
+          return opaqueRgba(8, 8);
         },
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
@@ -338,7 +312,7 @@ void main() {
       Future<DecodedRgba> slowDecoder(String path) async {
         decoded.add(path);
         await gate.future;
-        return _tinyLane();
+        return opaqueRgba(8, 8);
       }
 
       final controller = ImagePreloadController(
@@ -629,7 +603,7 @@ void main() {
         imageLoader: _alwaysFailLoaderPixel,
         // Tiles now come from the shared payload, so the payload producer is
         // what this bound has to survive.
-        dngDecoder: (path) async => _rawFixturePixel(),
+        dngDecoder: (path) async => opaqueRgba(400, 300),
         payloadEncoder: throwingPayloadEncoder,
       );
       final state = AppState(preloadController: controller);
@@ -671,7 +645,7 @@ void main() {
         dngDecoder: (path) async {
           if (!entered.isCompleted) entered.complete();
           await gate.future; // still in flight when the generation is bumped
-          return _rawFixturePixel();
+          return opaqueRgba(400, 300);
         },
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -707,7 +681,7 @@ void main() {
           imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
-            return _tinyPriority();
+            return opaqueRgba(8, 8);
           },
           payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,
@@ -800,7 +774,7 @@ void main() {
           imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
-            return _tinyPriority();
+            return opaqueRgba(8, 8);
           },
           payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,

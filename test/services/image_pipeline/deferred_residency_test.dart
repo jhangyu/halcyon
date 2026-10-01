@@ -24,23 +24,16 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 import '../../support/preload_fixtures.dart';
 import '../../support/loader_stubs.dart';
-
-DecodedRgba _frame(int width, int height) {
-  final rgba = Uint8List(width * height * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: width, height: height);
-}
+import '../../support/rgba_fixtures.dart';
 
 /// The deferred full-size encode is OPT-IN at the controller (null supplier =>
 /// abandon before decoding), so every controller in THIS file -- the file that
 /// exists to exercise that path -- must bind the supplier EXPLICITLY. These
 /// two named decoders exist so the `dngDecoder` and the `deferredEncodeDecoder`
 /// arguments can be the SAME object, which is what production does.
-Future<DecodedRgba> _decode60x40(String path) async => _frame(60, 40);
+Future<DecodedRgba> _decode60x40(String path) async => opaqueRgba(60, 40);
 
-Future<DecodedRgba> _decode6000x4000(String path) async => _frame(6000, 4000);
+Future<DecodedRgba> _decode6000x4000(String path) async => opaqueRgba(6000, 4000);
 
 PixelPayload _pixels(int width, int height) => PixelPayload(
   rgba: Uint8List(width * height * 4),
@@ -276,12 +269,12 @@ void main() {
         );
         await check(
           'encoder throws',
-          decoder: (path) async => _frame(4, 4),
+          decoder: (path) async => opaqueRgba(4, 4),
           encoder: throwingPayloadEncoder,
         );
         await check(
           'empty JPEG',
-          decoder: (path) async => _frame(4, 4),
+          decoder: (path) async => opaqueRgba(4, 4),
           encoder:
               (rgba, {required width, required height, required quality}) async =>
                   Uint8List(0),
@@ -423,7 +416,7 @@ void main() {
           var encodeCalls = 0;
           Future<DecodedRgba> decoder(String path) async {
             decodeCalls++;
-            return _frame(60, 40);
+            return opaqueRgba(60, 40);
           }
 
           final controller = ImagePreloadController(
@@ -506,7 +499,7 @@ void main() {
           lane: lane,
           dngDecoder: () => (path) async {
             await decodeGate.future;
-            return _frame(4, 4);
+            return opaqueRgba(4, 4);
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>
@@ -581,7 +574,7 @@ void main() {
           lane: lane,
           dngDecoder: () => (path) async {
             deferredDecodeStarted = true;
-            return _frame(4, 4);
+            return opaqueRgba(4, 4);
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>

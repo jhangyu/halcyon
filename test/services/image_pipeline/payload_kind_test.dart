@@ -13,21 +13,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 
 import '../../support/preload_fixtures.dart';
 import '../../support/loader_stubs.dart';
-
-DecodedRgba _decodedFixture() {
-  final rgba = Uint8List(4 * 4 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 4, height: 4);
-}
+import '../../support/rgba_fixtures.dart';
 
 void main() {
   late ImageCache imageCache;
@@ -105,7 +97,7 @@ void main() {
             final n = (decodeCounts[path] ?? 0) + 1;
             decodeCounts[path] = n;
             if (n > 1) throw StateError('second decode of $path refused');
-            return _decodedFixture();
+            return opaqueRgba(4, 4);
           },
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async {
