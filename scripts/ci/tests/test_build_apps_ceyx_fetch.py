@@ -499,5 +499,32 @@ class TestCeyxFetchSpecsMatchPin(unittest.TestCase):
                     )
 
 
+class TestFlutterArtifactMatchesTargets(unittest.TestCase):
+    """build_apps.flutter_artifact (release mode) lands where targets.py's
+    artifact_path says, for every CI target. The functions stay separate
+    (build_apps also serves debug/profile/ios/aab, which CI never builds);
+    this ties the release-mode answer to the CI data. The fixture creates the
+    directory first because flutter_artifact globs for the macOS .app and the
+    host-dependent Linux arch segment."""
+
+    def test_release_artifact_path_matches_targets(self):
+        import fnmatch  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        import ci.targets as targets  # noqa: PLC0415
+
+        build_apps = _build_apps_module()
+        for name, spec in targets.TARGETS.items():
+            with self.subTest(target=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / spec["artifact_path"].replace("*", "x64")).mkdir(parents=True)
+                path, _label = build_apps.flutter_artifact(spec["build_target"], "release", root)
+                rel = path.relative_to(root).as_posix()
+                self.assertTrue(
+                    fnmatch.fnmatchcase(rel, spec["artifact_path"]),
+                    f"flutter_artifact gave {rel!r}; targets.py says {spec['artifact_path']!r}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
