@@ -69,7 +69,7 @@ List<RenamePlan> planRenames({
   // silently REPLACES its destination, so planning `a1 -> target` while
   // `TARGET.JPG` exists destroys a photograph with no error to report. A
   // case-only difference must therefore count as a collision and take the
-  // `-1` suffix. Evidence: scripts/tmp/rename_probe_fs.dart, run against
+  // `-1` suffix. Evidence: a scratch filesystem probe (not retained), run against
   // /Volumes/EVO_4T (exfat/fskit) -- "C case-collision rename: SUCCEEDED".
   final taken = <String>{...existingNames.map((n) => _baseOf(n).toLowerCase())};
   final plans = <RenamePlan>[];
@@ -211,7 +211,7 @@ Future<void> _renameWithRetry(
   String to, {
   RenameFileOp renameFile = _defaultRenameFile,
   CanonicalPathProbe canonicalPath = _canonicalPath,
-  List<int> delaysMs = const <int>[20, 40, 80, 160],
+  List<int> delaysMs = kRetryDelaysMs,
 }) async {
   // Sampled BEFORE the first attempt, and canonical rather than a bare
   // exists() check, because it answers TWO questions at once.

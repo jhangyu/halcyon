@@ -464,6 +464,32 @@ void main() {
     });
   });
 
+  test(
+    'TC-1420 processStarred(move: true) moves through the injected moveFile seam',
+    () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_seam_src_');
+      addTempDirTeardown(src);
+      final dest = await Directory.systemTemp.createTemp('halcyon_seam_dest_');
+      addTempDirTeardown(dest);
+      final file = await _touch(src, 'IMG_0001.jpg');
+      final calls = <String>[];
+
+      final outcome = await PhotoFileActions(
+        moveFile: (f, newPath) async => calls.add('${f.path}->$newPath'),
+      ).processStarred(
+        [PhotoItem(id: 'IMG_0001', files: [file], status: PhotoStatus.starred)],
+        dest,
+        move: true,
+        overwriteExisting: false,
+      );
+
+      expect(calls, ['${file.path}->${p.join(dest.path, 'IMG_0001.jpg')}']);
+      expect(outcome.processedCount, 1);
+      expect(outcome.failures, isEmpty);
+      expect(await file.exists(), isTrue, reason: 'fake mover did not rename');
+    },
+  );
+
   test('TC-212 sidecarPathFor prefixes the basename only', () {
     expect(
       sidecarPathFor(p.join('/card/DCIM', 'IMG_0001.JPG')),

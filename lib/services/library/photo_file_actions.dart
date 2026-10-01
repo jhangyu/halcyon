@@ -78,7 +78,7 @@ class PhotoFileActions {
         try {
           if (!overwriteExisting && await File(newPath).exists()) continue;
           if (move) {
-            await retryOnSharingViolation(() => file.rename(newPath));
+            await _moveFile(file, newPath);
             await _deleteIfExists(destSidecarPath);
             await _deleteIfExists(srcSidecarPath);
           } else {
