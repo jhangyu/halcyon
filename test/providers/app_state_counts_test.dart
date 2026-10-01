@@ -1,6 +1,5 @@
 // TC-860: folder-wide starred/trashed aggregates, and the PhotoIdentity
 // fields that carry them to a layout theme. Data path only — no widget here.
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
@@ -9,10 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
+import '../support/fixture_files.dart';
 
-Future<void> _touch(Directory dir, String name) async {
-  await File('${dir.path}${Platform.pathSeparator}$name').writeAsBytes([0]);
-}
+const _stubBytes = <int>[0];
 
 void main() {
   setUp(() {
@@ -27,12 +25,11 @@ void main() {
     });
 
     test('counts the marked items in the loaded folder', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_counts_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
-      await _touch(dir, 'IMG_0003.jpg');
-      await _touch(dir, 'IMG_0004.jpg');
+      final dir = await makeTempDir('halcyon_counts_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0003.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0004.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);

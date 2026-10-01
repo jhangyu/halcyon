@@ -56,7 +56,7 @@ void main() {
     imageCache.clearLiveImages();
   });
 
-  group('tier_two_registry_stuck_test.dart', () {
+  group('tier two registry stuck', () {
     test(
       'TC-1190 a pixel-path tier-2 entry evicted by the ImageCache underneath '
       'the registry can be RE-PUBLISHED for the SAME payload object -- the '

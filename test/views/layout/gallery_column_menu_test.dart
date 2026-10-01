@@ -43,10 +43,7 @@ void main() {
   }) async {
     late AppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp(
-        'halcyon_gallery_menu_',
-      );
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_gallery_menu_');
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       if (withSibling) {
         await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes([1, 2, 3]);

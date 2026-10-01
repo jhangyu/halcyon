@@ -7,6 +7,7 @@ import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
 import '../support/fixture_files.dart';
 import '../support/fs_permissions.dart';
+import '../support/preload_fixtures.dart' show until;
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -19,6 +20,9 @@ import 'package:halcyon_flutter/services/library/photo_export_service.dart'
     show ExportFiletype;
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fakes.dart';
+
+const _stubBytes = <int>[1, 2, 3];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,13 +35,12 @@ void main() {
     test(
       'scans supported files, ignores hidden files, and groups by photo id',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_scan_');
-        addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
-        await _touch(dir, 'IMG_0001.arw');
-        await _touch(dir, 'IMG_0002.dng');
-        await _touch(dir, '._IMG_0002.dng');
-        await _touch(dir, 'notes.txt');
+        final dir = await makeTempDir('halcyon_scan_');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dir, 'IMG_0001.arw', _stubBytes);
+        await writeFixtureBytes(dir, 'IMG_0002.dng', _stubBytes);
+        await writeFixtureBytes(dir, '._IMG_0002.dng', _stubBytes);
+        await writeFixtureBytes(dir, 'notes.txt', _stubBytes);
 
         final state = testState();
         await state.loadFolder(dir);
@@ -54,7 +57,7 @@ void main() {
         await makeDirWritable(dir);
         await deleteTempDir(dir);
       });
-      await _touch(dir, 'IMG_0001.jpg');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -71,10 +74,9 @@ void main() {
     });
 
     test('restores saved statuses and last viewed id from JSON', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_status_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
+      final dir = await makeTempDir('halcyon_status_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
       await File(p.join(dir.path, '.halcyon_status.json')).writeAsString(
         json.encode({
           '_last_viewed_id': 'IMG_0002',
@@ -99,9 +101,8 @@ void main() {
     });
 
     test('scans RW2 files into photo groups', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_rw2_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'P1000001.rw2');
+      final dir = await makeTempDir('halcyon_rw2_');
+      await writeFixtureBytes(dir, 'P1000001.rw2', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -111,14 +112,13 @@ void main() {
     });
 
     test('groups CR2/NEF/ORF raw files with their JPG sibling', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_raw_ext_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0001.cr2');
-      await _touch(dir, 'IMG_0002.jpg');
-      await _touch(dir, 'IMG_0002.nef');
-      await _touch(dir, 'IMG_0003.jpg');
-      await _touch(dir, 'IMG_0003.orf');
+      final dir = await makeTempDir('halcyon_raw_ext_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0001.cr2', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.nef', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0003.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0003.orf', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -138,16 +138,16 @@ void main() {
     test(
       'auto-advance moves to the next photo after applying a new status',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_mark_');
-        addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
-        await _touch(dir, 'IMG_0002.jpg');
+        final dir = await makeTempDir('halcyon_mark_');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
         final state = testState();
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
         state.markCurrent(PhotoStatus.starred);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await until(() => state.selectedItemID == 'IMG_0002',
+            reason: 'auto-advance after markCurrent');
 
         expect(state.items.first.status, PhotoStatus.starred);
         expect(state.selectedItemID, 'IMG_0002');
@@ -157,9 +157,8 @@ void main() {
     test(
       'uses the semantic preview image request purpose for preview loading',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_request_');
-        addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
+        final dir = await makeTempDir('halcyon_request_');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
         final calls = <ImageRequestPurpose>[];
         final state = AppState(
@@ -170,6 +169,9 @@ void main() {
         );
 
         await state.loadFolder(dir);
+        await until(() => calls.contains(ImageRequestPurpose.preview),
+            reason: 'the preview load to be requested');
+        // Absence margin (D5): the retired sidebar purpose must not follow.
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
@@ -179,17 +181,17 @@ void main() {
     test(
       'toggling a status off does not auto-advance even when auto-advance is on',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_toggle_');
-        addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
-        await _touch(dir, 'IMG_0002.jpg');
+        final dir = await makeTempDir('halcyon_toggle_');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
         final state = testState();
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
 
         state.markCurrent(PhotoStatus.starred);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await until(() => state.selectedItemID == 'IMG_0002',
+            reason: 'auto-advance after markCurrent');
         expect(state.items.first.status, PhotoStatus.starred);
         expect(state.selectedItemID, 'IMG_0002');
 
@@ -198,6 +200,9 @@ void main() {
 
         // Toggling the same status off must not advance the selection.
         state.markCurrent(PhotoStatus.starred);
+        await until(() => state.items.first.status == PhotoStatus.unmarked,
+            reason: 'the toggle-off to apply');
+        // Absence margin (D5): the selection must NOT advance.
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(state.items.first.status, PhotoStatus.unmarked);
@@ -206,10 +211,9 @@ void main() {
     );
 
     test('nextPhoto and previousPhoto move selection within bounds', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_nav_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
+      final dir = await makeTempDir('halcyon_nav_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -226,10 +230,9 @@ void main() {
 
     test('TC-222 currentItem returns null for a selection that is gone',
         () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_cur_gone_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
+      final dir = await makeTempDir('halcyon_cur_gone_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final state = testState();
       addTearDown(state.dispose);
@@ -244,9 +247,8 @@ void main() {
     });
 
     test('TC-223 currentItem does not throw on an empty item list', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_cur_empty_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
+      final dir = await makeTempDir('halcyon_cur_empty_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
       final state = testState();
       addTearDown(state.dispose);
@@ -258,13 +260,9 @@ void main() {
     });
 
     test('TC-221 a failing copy surfaces a status message', () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_ps221_src_');
-      addTempDirTeardown(src);
-      final dest = await Directory.systemTemp.createTemp(
-        'halcyon_ps221_dest_',
-      );
-      addTempDirTeardown(dest);
-      await _touch(src, 'IMG_0001.jpg');
+      final src = await makeTempDir('halcyon_ps221_src_');
+      final dest = await makeTempDir('halcyon_ps221_dest_');
+      await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
       // Block the destination path with a DIRECTORY so the copy throws.
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
 
@@ -281,14 +279,11 @@ void main() {
     });
 
     test('TC-224 a scan failure surfaces a status message', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_scanfail_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_scanfail_');
 
       final state = AppState(
         scanner: _ThrowingScanner(const FileSystemException('unreadable')),
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-        },
+        imageLoader: bytesStubLoader,
       );
       addTearDown(state.dispose);
 
@@ -305,7 +300,7 @@ void main() {
       // A fake scanner avoids creating 1200 real files: this test is about
       // AppState's chunking loop, not the filesystem scan.
       final state = AppState(
-        scanner: _FixedScanner(
+        scanner: FixedScanner(
           List.generate(
             1200,
             (i) => PhotoItem(
@@ -314,9 +309,7 @@ void main() {
             ),
           ),
         ),
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-        },
+        imageLoader: bytesStubLoader,
         exifReader: (paths, {onProgress}) async {
           chunkSizes.add(paths.length);
           onProgress?.call(paths.length, paths.length);
@@ -342,10 +335,9 @@ void main() {
 
   group('AppState.openPhotoAtPath', () {
     test('loads the containing folder and selects the given file', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.dng');
+      final dir = await makeTempDir('halcyon_openwith_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.dng', _stubBytes);
 
       final state = testState();
       await state.openPhotoAtPath(p.join(dir.path, 'IMG_0002.dng'));
@@ -356,14 +348,12 @@ void main() {
     });
 
     test('ignores unsupported files instead of clearing the folder', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
+      final dir = await makeTempDir('halcyon_openwith_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       // Deliberately in a different folder: without the guard, currentDir
       // would move here and the folder in view would be lost.
-      final other = await Directory.systemTemp.createTemp('halcyon_other_');
-      addTempDirTeardown(other);
-      await _touch(other, 'notes.txt');
+      final other = await makeTempDir('halcyon_other_');
+      await writeFixtureBytes(other, 'notes.txt', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -376,10 +366,9 @@ void main() {
 
   group('AppState recycle mode', () {
     test('defaults on when a folder has same-name sibling groups', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mode_on_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0001.dng');
+      final dir = await makeTempDir('halcyon_mode_on_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0001.dng', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -388,10 +377,9 @@ void main() {
     });
 
     test('defaults off when every photo has a single extension', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mode_off_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
+      final dir = await makeTempDir('halcyon_mode_off_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -400,9 +388,8 @@ void main() {
     });
 
     test('toggles both ways and notifies listeners', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mode_tog_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
+      final dir = await makeTempDir('halcyon_mode_tog_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -419,10 +406,9 @@ void main() {
 
     test('recycle mode moves files to .trash instead of the system trash',
         () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mode_run_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0001.dng');
+      final dir = await makeTempDir('halcyon_mode_run_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0001.dng', _stubBytes);
 
       final trashed = <String>[];
       final state = AppState(
@@ -430,9 +416,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-        },
+        imageLoader: bytesStubLoader,
       );
       await state.loadFolder(dir);
       state.markCurrent(PhotoStatus.trashed);
@@ -452,9 +436,8 @@ void main() {
     });
 
     test('direct mode still routes through the system trash', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_mode_dir_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
+      final dir = await makeTempDir('halcyon_mode_dir_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
       final trashed = <String>[];
       final state = AppState(
@@ -462,9 +445,7 @@ void main() {
           trashed.add(file.path);
           await file.delete();
         }),
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-        },
+        imageLoader: bytesStubLoader,
       );
       await state.loadFolder(dir);
       expect(state.recycleMode, isFalse);
@@ -490,9 +471,7 @@ void main() {
             trashed.add(file.path);
             await file.delete();
           }),
-          imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-            return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-          },
+          imageLoader: bytesStubLoader,
         );
 
         expect(state.currentDir, isNull);
@@ -515,13 +494,11 @@ void main() {
   group('AppState.processStarred selection restore', () {
     test('TC-248 keeps the selected photo, falling back to its index',
         () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_ps248_src_');
-      addTempDirTeardown(src);
-      final dest = await Directory.systemTemp.createTemp('halcyon_ps248_dst_');
-      addTempDirTeardown(dest);
-      await _touch(src, 'IMG_0001.jpg');
-      await _touch(src, 'IMG_0002.jpg');
-      await _touch(src, 'IMG_0003.jpg');
+      final src = await makeTempDir('halcyon_ps248_src_');
+      final dest = await makeTempDir('halcyon_ps248_dst_');
+      await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
+      await writeFixtureBytes(src, 'IMG_0003.jpg', _stubBytes);
 
       final state = testState();
       addTearDown(state.dispose);
@@ -565,9 +542,7 @@ void main() {
 
     AppState buildState() {
       return AppState(
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-          return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-        },
+        imageLoader: bytesStubLoader,
         exifReader: (paths, {onProgress}) async => [
           for (final path in paths)
             ExifMetadata(
@@ -746,9 +721,6 @@ void main() {
 
 }
 
-Future<void> _touch(Directory dir, String name) =>
-    writeFixtureBytes(dir, name, const <int>[1, 2, 3]);
-
 class _ThrowingScanner extends PhotoLibraryScanner {
   _ThrowingScanner(this.error);
   final Object error;
@@ -756,9 +728,3 @@ class _ThrowingScanner extends PhotoLibraryScanner {
   Future<List<PhotoItem>> scan(Directory dir) async => throw error;
 }
 
-class _FixedScanner extends PhotoLibraryScanner {
-  _FixedScanner(this.result);
-  final List<PhotoItem> result;
-  @override
-  Future<List<PhotoItem>> scan(Directory dir) async => result;
-}

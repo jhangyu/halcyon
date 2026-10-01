@@ -523,10 +523,7 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp(
-        'halcyon_display_provider_',
-      );
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_display_provider_');
       // A DNG with no embedded preview: the loader reports
       // NativeImageNeedsRawDecode and the fake dngDecoder hands back pixels,
       // so this item is pixel-backed (currentDecodedProvider is the

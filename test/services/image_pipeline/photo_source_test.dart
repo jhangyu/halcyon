@@ -12,11 +12,12 @@ import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
-import 'dart:async';
 import 'package:halcyon_flutter/services/image_pipeline/payload_normalizer.dart';
 import 'package:halcyon_flutter/perf/perf_log.dart';
+import '../../support/loader_stubs.dart';
+import '../../support/fakes.dart';
 
-// --- top-level helpers from photo_source_test.dart ---
+// --- top-level helpers for the 'photo source' group ---
 /// M2: source-selection was moved from an inline check in
 /// `image_preload_controller.dart` into `photo_source.dart`, behind the
 /// existing `ImageBytesLoader` seam. Most of these tests deliberately do NOT
@@ -26,7 +27,7 @@ import 'package:halcyon_flutter/perf/perf_log.dart';
 /// API/fakes the pre-existing suite uses, and assert on what the controller
 /// hands back — i.e. they observe from outside the seam. M6 P2.2 (F-08)
 /// adds one direct `PhotoSource.fallbackAfterNativeFailure` case, matching
-/// the sibling probe test files (photo_source_probe_test.dart et al.) that
+/// the sibling probe test files (the 'photo source probe' group et al.) that
 /// already import photo_source.dart directly for a static method's own
 /// contract rather than its wiring.
 ///
@@ -43,7 +44,7 @@ Uint8List _opaqueRgba(int pixelCount) {
   return bytes;
 }
 
-// --- top-level helpers from photo_source_two_phase_test.dart ---
+// --- top-level helpers for the 'photo source two phase' group ---
 NativeImageLoad _loaderReturning(NativeImageResult result) =>
     (path, {required purpose, targetLongEdge}) async => result;
 
@@ -89,12 +90,12 @@ void expectSameOutcome(SourceOutcome split, SourceOutcome oneShot) {
   }
 }
 
-// --- top-level helpers from photo_source_probe_test.dart ---
+// --- top-level helpers for the 'photo source probe' group ---
 // Real samples only, per repo red line: ../ceyx/image_samples/.
 // The whole point of the probe is that it reads CONTENT, so a synthetic
 // fixture would only test the parser, not the claim.
 
-// --- top-level helpers from photo_source_single_probe_test.dart ---
+// --- top-level helpers for the 'photo source single probe' group ---
 // The user's single-probe ruling, made mechanical.
 //
 // The rejected seam asked one question per call: probe() for the rung, then
@@ -115,41 +116,7 @@ void expectSameOutcome(SourceOutcome split, SourceOutcome oneShot) {
 
 
 
-/// Counts `open()` calls on files created inside an [IOOverrides] zone.
-///
-/// Only `open()` is implemented: every other member throws, which is the
-/// point. If the probe ever reaches for the filesystem another way, this test
-/// fails loudly instead of quietly under-counting.
-class _CountingFile implements File {
-  _CountingFile(this._inner, this._onOpen);
-
-  final File _inner;
-  final void Function() _onOpen;
-
-  @override
-  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
-    _onOpen();
-    return _inner.open(mode: mode);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-/// Runs [body] with every `File(...)` construction counted.
-Future<int> countingOpens(Future<void> Function() body) async {
-  var opens = 0;
-  await IOOverrides.runZoned(
-    body,
-    // Zone.root escapes this very override, so the wrapped File is a real one
-    // rather than an infinite regress through the factory.
-    createFile: (path) =>
-        _CountingFile(Zone.root.run(() => File(path)), () => opens++),
-  );
-  return opens;
-}
-
-// --- top-level helpers from photo_source_composite_gate_test.dart ---
+// --- top-level helpers for the 'photo source composite gate' group ---
 // Deliverable 2, plumbing half: the gate injected at the composition root
 // actually reaches every compositing call on the decode-completion path.
 // TC-902 / TC-903.
@@ -176,19 +143,7 @@ DecodedRgba _decodedCompositeGate() {
   return DecodedRgba(rgba: bytes, width: 2, height: 2);
 }
 
-// --- top-level helpers from photo_source_fullres_handle_test.dart ---
-Future<NativeImageResult> _needsRawDecodeFullres(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-Future<NativeImageResult> _needsRawDecodeRotated(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
+// --- top-level helpers for the 'photo source fullres handle' group ---
 /// 8x6 opaque RGBA so the premultiplied/straight equivalence holds.
 DecodedRgba _decodedFullres() {
   final bytes = Uint8List(8 * 6 * 4);
@@ -215,7 +170,7 @@ Future<Uint8List> _encoderFullres(
   required int quality,
 }) async => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
 
-// --- top-level helpers from photo_source_reencode_test.dart ---
+// --- top-level helpers for the 'photo source reencode' group ---
 Future<T> withStubDecoder<T>(
   EncodedRgbaDecoder stub,
   Future<T> Function() body,
@@ -228,12 +183,6 @@ Future<T> withStubDecoder<T>(
     debugEncodedRgbaDecoderOverride = previous;
   }
 }
-
-Future<NativeImageResult> _needsRawDecodeReencode(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 /// Opaque (alpha 0xFF): the identity-transform short-circuit in
 /// decoded_rgba_image_provider.dart asserts every RAW decode is opaque, so a
@@ -256,13 +205,13 @@ Future<Uint8List> _fakeEncoder(
   required int quality,
 }) async => Uint8List.fromList([0xFF, 0xD8, width & 0xFF, height & 0xFF]);
 
-// --- top-level helpers from photo_source_single_materialize_test.dart ---
+// --- top-level helpers for the 'photo source single materialize' group ---
 /// T2 (docs/logs/2026-09-06/h1h2-plan.md, spec §1.6/§3 AC-H1-2): independent
 /// red->green proof that [PhotoSource.decodePhase] /
 /// [PhotoSource.decodePhaseExpensive] materialize the decoded RGBA buffer
 /// into a `ui.Image` EXACTLY ONCE per decode, for a non-identity EXIF
 /// orientation (orientation 6 forces the GPU pass -- see
-/// p0_perf_instrumentation_test.dart's `_needsRawDecodeRotated` convention).
+/// the 'p0 perf instrumentation' group's (lane_priority_misc_test.dart) `needsRawDecodeLoaderOrientation6` convention).
 ///
 /// Observation seam: `PerfLog.testSink` (lib/perf/perf_log.dart:245),
 /// deliberately NOT `debugPrint` capture (lessons-learned 2026-08-17:
@@ -314,7 +263,7 @@ Future<Uint8List> _fakeEncoder(
 // kNormalizePassthroughMaxBytes (512 KiB): larger ones are re-encoded to q70 by
 // normalizeEncodedPayload, so the payload can never equal the extractor's bytes.
 // Every image_samples DNG that has a preview has one of at least 1198239 bytes
-// (scripts/tmp/audit/probe_out.txt, measured 2026-10-01), so there is no sample
+// (scratch audit probe, measured 2026-10-01, output not retained), so there is no sample
 // with the property these two tests were written against.
 const _kNoSmallPreviewSample =
     'no image_samples DNG has an embedded preview <= 512 KiB '
@@ -322,7 +271,7 @@ const _kNoSmallPreviewSample =
     'controller re-encodes it and byte-identity cannot hold';
 
 void main() {
-  group('photo_source_test.dart', () {
+  group('photo source', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       final sampleDir = sampleDngDir;
@@ -464,10 +413,7 @@ void main() {
             srcPath,
           );
           expect(expectedBytes, isNotNull);
-          final tmpDir = await Directory.systemTemp.createTemp(
-            'halcyon_photo_source_gate_',
-          );
-          addTempDirTeardown(tmpDir);
+          final tmpDir = await makeTempDir('halcyon_photo_source_gate_');
           final fakeJpgFile = File('${tmpDir.path}/not-a-dng.jpg');
           await fakeJpgFile.writeAsBytes(dngBytes);
 
@@ -505,10 +451,7 @@ void main() {
         'miss when the native preview channel fails (proves the magic check, '
         'not the extension, is what discriminates)',
         () async {
-          final tmpDir = await Directory.systemTemp.createTemp(
-            'halcyon_photo_source_gate_negative_',
-          );
-          addTempDirTeardown(tmpDir);
+          final tmpDir = await makeTempDir('halcyon_photo_source_gate_negative_');
           final garbageJpgFile = File('${tmpDir.path}/not-an-image.jpg');
           await garbageJpgFile.writeAsBytes(
             List<int>.generate(64, (i) => i % 256),
@@ -549,8 +492,7 @@ void main() {
         'fallbackAfterNativeFailure recovers a non-DNG RAW with an embedded '
         'preview (extension gate removed)',
         () async {
-          final dir = await Directory.systemTemp.createTemp('photo_source_f08');
-          addTempDirTeardown(dir);
+          final dir = await makeTempDir('photo_source_f08');
           final samples = sampleDngFiles();
           File? withPreview;
           for (final f in samples) {
@@ -703,7 +645,7 @@ void main() {
 
   });
 
-  group('photo_source_two_phase_test.dart', () {
+  group('photo source two phase', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       final cases = <String, PhotoSource>{
@@ -787,7 +729,7 @@ void main() {
 
   });
 
-  group('photo_source_probe_test.dart', () {
+  group('photo source probe', () {
       final dngDir = sampleDngDir;
       final jpgDir = sampleJpgDir;
       final hasSamples = samplePhotosAvailable;
@@ -842,8 +784,8 @@ void main() {
           // and the literal is the loudest shape available.
           //
           // Re-pinned 2026-10-01 to the image_samples corpus. Measured with
-          // extractFullSizeEmbeddedJpeg / extractEmbeddedJpeg (scripts/tmp/audit/
-          // probe_out.txt): all 25 batch_run_samples DNGs carry a usable embedded
+          // extractFullSizeEmbeddedJpeg / extractEmbeddedJpeg (scratch audit probe, not
+          // retained): all 25 batch_run_samples DNGs carry a usable embedded
           // JPEG; the two Bayer-mosaic DNGs in the tree root carry none.
           const knownPreviewLess = kSampleNoPreviewDngs;
 
@@ -950,7 +892,7 @@ void main() {
 
   });
 
-  group('photo_source_single_probe_test.dart', () {
+  group('photo source single probe', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       final jpgDir = sampleJpgDir;
@@ -1154,7 +1096,7 @@ void main() {
 
   });
 
-  group('photo_source_composite_gate_test.dart', () {
+  group('photo source composite gate', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       // TC-902
@@ -1236,13 +1178,13 @@ void main() {
 
   });
 
-  group('photo_source_fullres_handle_test.dart', () {
+  group('photo source fullres handle', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       // TC-827a
       test('orientation 1 hands back the decoder buffer and no handle', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeFullres,
+          loader: needsRawDecodeLoader,
           dngDecoder: _decoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1255,7 +1197,7 @@ void main() {
       // TC-827b
       test('orientation 6 hands back a live oriented handle', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated,
+          loader: needsRawDecodeLoaderOrientation6,
           dngDecoder: _decoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1270,7 +1212,7 @@ void main() {
       // TC-827c -- a decode that fails leaves no handle and no fullRes.
       test('a throwing decoder returns no handle to leak', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated,
+          loader: needsRawDecodeLoaderOrientation6,
           dngDecoder: _throwingDecoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1281,13 +1223,13 @@ void main() {
 
   });
 
-  group('photo_source_reencode_test.dart', () {
+  group('photo source reencode', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       // TC-364
       test('load() re-encodes a decoded RAW into a plain EncodedPayload', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: _fakeEncoder,
         );
@@ -1301,7 +1243,7 @@ void main() {
       // TC-364b — the two decode paths must not diverge
       test('loadExpensive() re-encodes identically', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: _fakeEncoder,
         );
@@ -1313,7 +1255,7 @@ void main() {
       // TC-365
       test('no encoder configured -> unchanged PixelPayload behaviour', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: throwingPayloadEncoder,
         );
@@ -1429,7 +1371,7 @@ void main() {
 
   });
 
-  group('photo_source_single_materialize_test.dart', () {
+  group('photo source single materialize', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       final collected = <String>[];
@@ -1453,7 +1395,7 @@ void main() {
       });
 
       /// 8x6 opaque RGBA, matching the convention in
-      /// photo_source_fullres_handle_test.dart / p0_perf_instrumentation_test.dart.
+      /// the 'photo source fullres handle' group / the 'p0 perf instrumentation' group (lane_priority_misc_test.dart).
       DecodedRgba decodedFixture() {
         final bytes = Uint8List(8 * 6 * 4);
         for (var p = 0; p < 8 * 6; p++) {
@@ -1476,7 +1418,7 @@ void main() {
         () async {
           lastDecodedFixture = decodedFixture();
           const source = PhotoSource(
-            loader: _needsRawDecodeOrientation6,
+            loader: needsRawDecodeLoaderOrientation6,
             dngDecoder: _fixtureDecoder,
             payloadEncoder: throwingPayloadEncoder,
           );
@@ -1545,7 +1487,7 @@ void main() {
 
   });
 
-  group('photo_source_lazy_fallback_test.dart', () {
+  group('photo source lazy fallback', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     setUp(() {
@@ -1562,7 +1504,7 @@ void main() {
     // encode succeeds must never materialize the window-resolution pixels.
     test('success path builds no pixel fallback', () async {
       const source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder: _fakeEncoder,
       );
@@ -1576,7 +1518,7 @@ void main() {
     // displayable result: the thunk fires exactly once when the encoder throws.
     test('encode failure still yields a displayable payload', () async {
       final source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder:
             (rgba, {required width, required height, required quality}) async =>
@@ -1600,7 +1542,7 @@ void main() {
         PerfLog.enabled = true;
         PerfLog.testSink = lines.add;
         final source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: encoder,
         );
@@ -1639,7 +1581,7 @@ void main() {
     test('the fallback closure is not retained past a successful encode',
         () async {
       const source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder: _fakeEncoder,
       );
@@ -1683,18 +1625,12 @@ void main() {
   });
 }
 
-// --- top-level helpers from photo_source_single_materialize_test.dart (trailing) ---
+// --- top-level helpers for the 'photo source single materialize' group (trailing) ---
 Future<NativeImageResult> _unusedLoader(
   String path, {
   required ImageRequestPurpose purpose,
   int? targetLongEdge,
 }) async => throw StateError('decodePhaseExpensive must not call loader');
-
-Future<NativeImageResult> _needsRawDecodeOrientation6(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
 
 /// Set immediately before each `PhotoSource` call in this file -- `const`
 /// `PhotoSource` construction requires top-level function references, so the

@@ -13,8 +13,10 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import '../../support/preload_fixtures.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
+import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
-// --- from image_preload_window_test.dart ---
+// --- helpers for the 'image preload window' group ---
 // Precache-span guarantees (AC2, AC3) and the SERIAL LANE law (TC-098a..d).
 //
 // The spans under test:
@@ -44,8 +46,6 @@ import 'dart:ui' as ui;
 // drains when its frame hook fires, and a plain test() never pumps a real
 // frame on its own. The pacer re-arms itself after each drained item, so
 // a synchronous hook fully drains the queue before submit() returns.
-void _microtaskFrame(void Function() callback) => callback();
-
 // `_finishOffLane`'s encode continuation is deliberately unawaited by the
 // controller (it has no caller). If a test ends -- and `addTearDown`
 // disposes the controller -- while that continuation is still in flight,
@@ -76,7 +76,7 @@ bool controllerWindowFilled(
   return true;
 }
 
-// --- from image_preload_stage_overlap_test.dart ---
+// --- helpers for the 'image preload stage overlap' group ---
 // Plan Task 12 (S4): the stage-overlap guarantee and the bytes-in-flight bound.
 //
 // TC-841 / TC-842 / TC-839b
@@ -102,19 +102,9 @@ DecodedRgba decodedFixture() {
   return DecodedRgba(rgba: rgba, width: 4, height: 4);
 }
 
-List<PhotoItem> rawItems(List<String> ids) => [
-  for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-];
-
 /// Four RAW items: enough for the lane to still have work queued once the
 /// first hand-off has happened, which is what makes the overlap observable.
 List<PhotoItem> fourRawItems() => rawItems(['a', 'b', 'c', 'd']);
-
-Future<NativeImageResult> _needsRawDecodeLoader(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 ImagePreloadController buildController({
   required Future<DecodedRgba> Function(String path) decoder,
@@ -129,7 +119,7 @@ ImagePreloadController buildController({
   int? inflightByteBudget,
 }) {
   return ImagePreloadController(
-    imageLoader: _needsRawDecodeLoader,
+    imageLoader: needsRawDecodeLoader,
     dngDecoder: (path) => decoder(path),
     payloadEncoder: encoder,
     decodeLaneWidth: decodeLaneWidth,
@@ -137,17 +127,17 @@ ImagePreloadController buildController({
   );
 }
 
-Future<void> pumpMicrotasks([int rounds = 40]) async {
+Future<void> pumpWallMillis([int rounds = 40]) async {
   for (var i = 0; i < rounds; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 
-// --- from image_preload_controller_sequential_decode_retention_test.dart ---
+// --- helpers for the 'image preload controller sequential decode retention' group ---
 // Amendment-3 scheduling controls. This historical-lane file is committed on
 // top of untouched production 0e6407e so its RED is a genuine pre-fix result.
 
-// --- from image_preload_controller_folder_generation_test.dart ---
+// --- helpers for the 'image preload controller folder generation' group ---
 /// P2 folder gate. No FFI decode is cancellable, so `reset()` cannot stop an
 /// in-flight expensive load -- it can only clear the maps that load is about to
 /// write into. These cases pin what happens to the load that lands afterwards.
@@ -175,8 +165,8 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
   return byteData!.buffer.asUint8List();
 }
 
-// --- from image_preload_reset_tier_one_evict_test.dart ---
-// --- from image_preload_reencode_tier_two_test.dart ---
+// --- helpers for the 'image preload reset tier one evict' group ---
+// --- helpers for the 'image preload reencode tier two' group ---
 // Phase 13 (one-buffer payload re-encode) tier-2 rebuild tests.
 //
 // Contract: docs/logs/2026-08-30/plan-payload-reencode.md Task 4, TC-366/367.
@@ -188,7 +178,7 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
 // test discriminates: with re-encoding disabled the same navigation script
 // costs a second decode, exactly as it did before this phase.
 //
-// Modelled on image_preload_controller_dual_window_tier2_test.dart's fakes
+// Modelled on the 'image preload controller dual window tier2' group's fakes (image_preload_controller_test.dart)
 // and navigation helpers -- same fake loader/decoder shapes, no new harness.
 //
 // DEVIATION FROM THE PLAN'S LITERAL SCRIPT (documented per team-lead request):
@@ -237,7 +227,7 @@ Future<Uint8List> _encodeRealPngReencode(int width, int height) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('image_preload_window_test.dart', () {
+  group('image preload window', () {
     // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
     // debug-only identity short-circuit asserts sampled alpha is opaque.
     // Same repair as commits 253b89f / d43c2a1.
@@ -250,7 +240,7 @@ void main() {
     );
 
     ImagePreloadController cheapController() => ImagePreloadController(
-      scheduleFrameCallback: _microtaskFrame,
+      scheduleFrameCallback: immediateFrameCallback,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
       dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
@@ -274,7 +264,7 @@ void main() {
         // Debounce shortened to 40ms via navigationDebounce; the property under
         // test (band shape after settle) is unaffected by its absolute length.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: const Duration(milliseconds: 40),
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
@@ -351,7 +341,7 @@ void main() {
         'window, not just +/-1 (criterion 2)', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -403,7 +393,7 @@ void main() {
       var inFlight = 0;
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -441,7 +431,7 @@ void main() {
       var cheapInFlight = 0;
       var cheapMaxInFlight = 0;
       final cheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           cheapInFlight++;
           if (cheapInFlight > cheapMaxInFlight) {
@@ -489,7 +479,7 @@ void main() {
         '-3, +4, +5 (criterion 4)', () async {
       final starts = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -535,7 +525,7 @@ void main() {
       final starts = <String>[];
       final gates = <Completer<void>>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -660,7 +650,7 @@ void main() {
       // itself with RAW decodes outside +/-1.
       var loaderCalls = 0;
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: const Duration(milliseconds: 40),
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           loaderCalls++;
@@ -729,7 +719,7 @@ void main() {
           payloadByteBudget: 402653184,
         );
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => fakeDecoded(),
@@ -804,7 +794,7 @@ void main() {
       var maxInFlight = 0;
       var call = 0;
       final wide = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -849,7 +839,7 @@ void main() {
         'starts are distances 0, +1, -1', () async {
       final starts = <String>[];
       final wide = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -891,7 +881,7 @@ void main() {
     });
   });
 
-  group('image_preload_stage_overlap_test.dart', () {
+  group('image preload stage overlap', () {
     // TC-841 / TC-842 -- the stage-overlap proof.
     //
     // DETERMINISTIC BY CONSTRUCTION, not by timing: the first encode parks on a
@@ -949,7 +939,7 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpWallMillis();
 
       // The first encode is STILL PARKED (its tick is not recorded yet), and
       // decodes entered after it started: the stages overlap.
@@ -972,7 +962,7 @@ void main() {
       expect(peakDecodes, lessThanOrEqualTo(controller.decodeLaneWidth));
 
       firstEncodeGate.complete();
-      await pumpMicrotasks();
+      await pumpWallMillis();
       expect(controller.debugInflightBytes, 0);
     });
 
@@ -1056,7 +1046,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_sequential_decode_retention_test.dart', () {
+  group('image preload controller sequential decode retention', () {
     List<PhotoItem> items(int count) => List.generate(count, (index) {
       final id = 'IMG_${index.toString().padLeft(4, '0')}';
       return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
@@ -1107,7 +1097,7 @@ void main() {
         var maxConcurrent = 0;
         var started = 0;
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
@@ -1167,7 +1157,7 @@ void main() {
         'evict identically at -4', () async {
       Future<ImagePreloadController> make(bool expensive) async {
         return ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               expensive
               ? const NativeImageNeedsRawDecode(exifOrientation: 1)
@@ -1224,7 +1214,7 @@ void main() {
       var isFirst = true;
       var firstRequested = false;
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) {
           if (isFirst) {
             isFirst = false;
@@ -1268,7 +1258,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_folder_generation_test.dart', () {
+  group('image preload controller folder generation', () {
     List<PhotoItem> makeItems() => List.generate(14, (i) {
       final id = 'IMG_${i.toString().padLeft(4, '0')}';
       return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
@@ -1291,12 +1281,6 @@ void main() {
       }
       return DecodedRgba(rgba: rgba, width: 64, height: 48);
     }
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     /// Waits until [predicate] holds, or fails with [reason].
     Future<void> until(bool Function() predicate, String reason) async {
@@ -1571,7 +1555,7 @@ void main() {
     });
   });
 
-  group('image_preload_reset_tier_one_evict_test.dart', () {
+  group('image preload reset tier one evict', () {
     setUp(clearImageCacheSetUp);
 
     // TC-487 (I6 bytes-identity). AC-P2a review (docs/logs/2026-09-12/
@@ -1591,7 +1575,7 @@ void main() {
       // the subject item is a RAW with a throwing encoder, and the navigation
       // debounce (250ms) is not waited out.
       final controller = ImagePreloadController(
-        imageLoader: _needsRawDecodeLoader,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           final rgba = Uint8List(64 * 48 * 4);
           for (var i = 3; i < rgba.length; i += 4) {
@@ -1646,18 +1630,7 @@ void main() {
     });
   });
 
-  group('image_preload_reencode_tier_two_test.dart', () {
-    List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-      final id = 'IMG_${index.toString().padLeft(4, '0')}';
-      return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-    });
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
+  group('image preload reencode tier two', () {
     // Real, decodable image bytes ENCODED AT THE CALLER-SUPPLIED DIMENSIONS:
     // the tier-2 catch-up path (publishEncoded) resolves them through a real
     // ImageProvider (MemoryImage), so a non-image placeholder like
@@ -1675,7 +1648,7 @@ void main() {
       required int quality,
     }) => _encodeRealPngReencode(width, height);
 
-    final items = rawItems(14);
+    final items = paddedItems(14, extension: 'dng');
 
     /// An OPAQUE 64x48 RGBA frame. Alpha must be 0xFF: the identity
     /// short-circuit in decoded_rgba_image_provider.dart asserts (debug-only)

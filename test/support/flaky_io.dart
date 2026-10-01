@@ -6,9 +6,9 @@ import 'dart:typed_data';
 // cases (transient read failure must not be reported as "no embedded preview").
 //
 // Injection is through `IOOverrides.runZoned(createFile: ...)`, the same seam
-// photo_source_single_probe_test.dart already uses to count opens: no
-// production seam is added for testability, and the extractor under test is
-// exercised exactly as it ships.
+// the 'photo source single probe' group (photo_source_test.dart) already uses
+// to count opens: no production seam is added for testability, and the
+// extractor under test is exercised exactly as it ships.
 //
 // Two fault shapes, deliberately kept separate:
 //   * THROWN error   -- the read raises (EIO and friends).
@@ -63,8 +63,8 @@ abstract class _DelegatingRandomAccessFile implements RandomAccessFile {
 }
 
 /// Reads throw while [shouldFail] holds.
-class ThrowingRandomAccessFile extends _DelegatingRandomAccessFile {
-  ThrowingRandomAccessFile(super.inner, {required this.shouldFail});
+class _ThrowingRandomAccessFile extends _DelegatingRandomAccessFile {
+  _ThrowingRandomAccessFile(super.inner, {required this.shouldFail});
 
   final bool shouldFail;
 
@@ -88,8 +88,8 @@ class ThrowingRandomAccessFile extends _DelegatingRandomAccessFile {
 /// the test came back green because the 8MB strip still fitted inside the
 /// surviving half (repro-experiment.md §3). Shortening every read by one byte
 /// cannot miss the range under test, whatever the fixture's layout.
-class ShortReadRandomAccessFile extends _DelegatingRandomAccessFile {
-  ShortReadRandomAccessFile(super.inner, {required this.shouldTruncate});
+class _ShortReadRandomAccessFile extends _DelegatingRandomAccessFile {
+  _ShortReadRandomAccessFile(super.inner, {required this.shouldTruncate});
 
   final bool shouldTruncate;
 
@@ -113,8 +113,8 @@ class ShortReadRandomAccessFile extends _DelegatingRandomAccessFile {
 }
 
 /// A [File] whose opened handle is wrapped by [wrap].
-class FaultInjectingFile implements File {
-  FaultInjectingFile(this._inner, this._wrap);
+class _FaultInjectingFile implements File {
+  _FaultInjectingFile(this._inner, this._wrap);
 
   final File _inner;
   final RandomAccessFile Function(RandomAccessFile raf) _wrap;
@@ -165,16 +165,16 @@ Future<FaultRun<T>> withInjectedReadFaults<T>({
     },
     // Zone.root escapes this override, so the wrapped File is a real one rather
     // than an infinite regress through the factory.
-    createFile: (path) => FaultInjectingFile(Zone.root.run(() => File(path)), (
+    createFile: (path) => _FaultInjectingFile(Zone.root.run(() => File(path)), (
       raf,
     ) {
       final fault = opens++ < failFirstOpens;
       return switch (shape) {
-        ReadFaultShape.thrown => ThrowingRandomAccessFile(
+        ReadFaultShape.thrown => _ThrowingRandomAccessFile(
           raf,
           shouldFail: fault,
         ),
-        ReadFaultShape.short => ShortReadRandomAccessFile(
+        ReadFaultShape.short => _ShortReadRandomAccessFile(
           raf,
           shouldTruncate: fault,
         ),

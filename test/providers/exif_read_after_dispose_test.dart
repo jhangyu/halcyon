@@ -37,8 +37,7 @@ void main() {
 
   test('TC-1058: a selection EXIF read landing after dispose does not notify',
       () async {
-    final dir = await Directory.systemTemp.createTemp('halcyon_exif_dispose_');
-    addTempDirTeardown(dir);
+    final dir = await makeTempDir('halcyon_exif_dispose_');
     await File('${dir.path}/IMG_0001.jpg').writeAsBytes([0]);
 
     // Held open so the read is guaranteed to still be in flight at dispose().
@@ -71,6 +70,10 @@ void main() {
 
     // Let the continuation run. Without the guard this is where
     // notifyListeners() throws on the disposed notifier.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // The continuation after the reader await is synchronous (no timer, no
+    // further await -- app_state.dart _readSelectionExif), so draining the
+    // event queue runs it deterministically; a regressed guard still throws
+    // inside this test.
+    await pumpEventQueue();
   });
 }

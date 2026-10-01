@@ -1,10 +1,12 @@
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fixture_files.dart';
+
+const _stubBytes = <int>[1, 2, 3];
 
 /// F-16 "Open With" entry point coverage for [AppState.openPhotoAtPath].
 ///
@@ -21,10 +23,9 @@ void main() {
 
   group('AppState.openPhotoAtPath', () {
     test('TC-160 keeps the loaded folder when the file does not exist', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.jpg');
+      final dir = await makeTempDir('halcyon_openwith_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -41,9 +42,8 @@ void main() {
     test(
       'TC-161 keeps the loaded folder when the parent directory is missing',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-        addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
+        final dir = await makeTempDir('halcyon_openwith_');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
         final state = testState();
         await state.loadFolder(dir);
@@ -59,10 +59,9 @@ void main() {
     );
 
     test('TC-162 still opens a real file and selects it', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_ok_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      await _touch(dir, 'IMG_0002.dng');
+      final dir = await makeTempDir('halcyon_openwith_ok_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      await writeFixtureBytes(dir, 'IMG_0002.dng', _stubBytes);
 
       final state = testState();
       await state.openPhotoAtPath(p.join(dir.path, 'IMG_0002.dng'));
@@ -73,12 +72,10 @@ void main() {
     });
 
     test('TC-163 ignores unsupported extensions', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_openwith_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'IMG_0001.jpg');
-      final other = await Directory.systemTemp.createTemp('halcyon_other_');
-      addTempDirTeardown(other);
-      await _touch(other, 'notes.txt');
+      final dir = await makeTempDir('halcyon_openwith_');
+      await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final other = await makeTempDir('halcyon_other_');
+      await writeFixtureBytes(other, 'notes.txt', _stubBytes);
 
       final state = testState();
       await state.loadFolder(dir);
@@ -88,9 +85,5 @@ void main() {
       expect(state.selectedItemID, 'IMG_0001');
     });
   });
-}
-
-Future<void> _touch(Directory dir, String name) {
-  return File(p.join(dir.path, name)).writeAsBytes(<int>[1, 2, 3]);
 }
 

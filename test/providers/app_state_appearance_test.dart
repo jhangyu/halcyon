@@ -13,6 +13,7 @@ import 'package:halcyon_flutter/providers/app_settings.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
+import '../support/temp_dirs.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -130,8 +131,7 @@ void main() {
 
   test('TC-805 resetAllSettings does not touch a photo folder status file',
       () async {
-    final dir = await Directory.systemTemp.createTemp('halcyon-reset-test');
-    addTearDown(() => dir.delete(recursive: true));
+    final dir = await makeTempDir('halcyon-reset-test');
     final statusFile = File('${dir.path}/.halcyon_status.json');
     const contents = '{"marks":{"IMG_0001.jpg":"starred"}}';
     await statusFile.writeAsString(contents);

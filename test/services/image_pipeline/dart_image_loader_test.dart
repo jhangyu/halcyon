@@ -17,7 +17,7 @@ import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
 void main() {
-  group('dart_image_loader_test.dart', () {
+  group('dart image loader', () {
       final sampleDir = sampleDngDir;
       List<File> dngs() => sampleDngFiles();
 
@@ -89,8 +89,7 @@ void main() {
       });
 
       test('jpeg returns its exact bytes without decoding', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader');
         final jpeg = File('${dir.path}/a.jpg');
         await jpeg.writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xD9]); // SOI+EOI only
         final result = await dartImageLoad(
@@ -160,8 +159,7 @@ void main() {
       // pins the new behaviour. Nothing was relaxed to make the change pass.
       test('browse-only RAW (.cr2): embedded preview is served, no-preview is an'
           ' explicit unsupported state (never the raw-decode signal)', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_raw');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_raw');
         var hits = 0, misses = 0;
         for (final f in dngs()) {
           final full = previewCache[f.path];
@@ -186,8 +184,7 @@ void main() {
 
       test('engine-decodable non-DNG RAW (.arw): embedded preview is served,'
           ' no-preview now routes to RAW decode', () async {
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_arw');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_arw');
         var hits = 0, misses = 0;
         for (final f in dngs()) {
           final full = previewCache[f.path];
@@ -247,10 +244,7 @@ void main() {
 
       test('F-20: a header claiming a 40000x40000 decode is refused, never'
           ' handed to a raw decode', () async {
-        final dir = await Directory.systemTemp.createTemp(
-          'dart_image_loader_oversized',
-        );
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('dart_image_loader_oversized');
         final huge = File('${dir.path}/huge.dng');
         await huge.writeAsBytes(handcraftedOversizedTiff());
         final result = await dartImageLoad(
@@ -866,8 +860,7 @@ void main() {
           'gives a clean read, instead of being permanently stuck on the '
           'fault-derived miss',
           () async {
-            final dir = await Directory.systemTemp.createTemp('p1b_fault_');
-            addTempDirTeardown(dir);
+            final dir = await makeTempDir('p1b_fault_');
             final path = await writeSyntheticDng(
               buildSyntheticDng(
                 candidates: const [SyntheticCandidate(width: 3200, height: 2133)],
@@ -941,7 +934,7 @@ void main() {
       });
   });
 
-  group('dart_image_loader_no_method_channel_test.dart', () {
+  group('dart image loader no method channel', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       late int channelCalls;

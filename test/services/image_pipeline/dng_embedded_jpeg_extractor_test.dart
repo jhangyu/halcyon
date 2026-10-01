@@ -8,9 +8,10 @@ import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/flaky_io.dart';
 import 'package:flutter/foundation.dart' show listEquals;
+import '../../support/temp_dirs.dart';
 
 void main() {
-  group('dng_embedded_jpeg_extractor_test.dart', () {
+  group('dng embedded jpeg extractor', () {
       final sampleDir = sampleDngDir;
 
       // Perf note (test-speedup campaign, 2026-09-06): a handful of cases below
@@ -210,10 +211,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_orientation_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_orientation_');
         });
 
         // raw tag value -> what every orientation read in the file must report.
@@ -282,10 +280,7 @@ void main() {
           late String path;
 
           setUp(() async {
-            tmp = await Directory.systemTemp.createTemp('halcyon_minlongedge_');
-            addTearDown(() async {
-              if (await tmp.exists()) await tmp.delete(recursive: true);
-            });
+            tmp = await makeTempDir('halcyon_minlongedge_');
             path = await writeSyntheticDng(
               buildSyntheticDng(
                 candidates: const [SyntheticCandidate(width: 160, height: 120)],
@@ -392,10 +387,10 @@ void main() {
       // bitstreams inline in vendor tags 0x002E (JpgFromRaw) and 0x0127
       // (JpgFromRaw2). Accepting version 85 without teaching the walker those tags
       // would have been a no-op; that is measured, not assumed
-      // (`scripts/tmp/rw2_ifd_probe.py`, output under `tmp/verify/`).
+      // (scratch IFD probe, not retained).
       //
       // The real sample lives outside the repo and is untracked, so the real-file
-      // check stays in `scripts/tmp/rw2_walker_check.dart`. Everything below runs
+      // check lived in a scratch walker script (not retained). Everything below runs
       // on synthetic containers so this suite passes on a machine that has never
       // seen a Panasonic file.
       // -------------------------------------------------------------------
@@ -403,10 +398,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_panasonic_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_panasonic_');
         });
 
         Future<String> write(Uint8List bytes, String name) =>
@@ -813,10 +805,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_known_strip_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_known_strip_');
         });
 
         test(
@@ -953,7 +942,7 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_endian_test.dart', () {
+  group('dng embedded jpeg extractor endian', () {
       const candidates = <SyntheticCandidate>[
         SyntheticCandidate(width: 400, height: 300),
         SyntheticCandidate(width: 1600, height: 1200),
@@ -963,10 +952,7 @@ void main() {
       late Directory tmp;
 
       setUp(() async {
-        tmp = await Directory.systemTemp.createTemp('halcyon_endian_');
-        addTearDown(() async {
-          if (await tmp.exists()) await tmp.delete(recursive: true);
-        });
+        tmp = await makeTempDir('halcyon_endian_');
       });
 
       // Perf note (test-speedup campaign, 2026-09-06): every call to writePair()
@@ -1001,13 +987,10 @@ void main() {
       }
 
       setUpAll(() async {
-        sharedTmp = await Directory.systemTemp.createTemp('halcyon_endian_shared_');
+        sharedTmp = await makeTempDir('halcyon_endian_shared_');
         sharedPair = await buildPair(sharedTmp);
       });
 
-      tearDownAll(() async {
-        if (await sharedTmp.exists()) await sharedTmp.delete(recursive: true);
-      });
 
       Future<({String little, String big})> writePair() async => sharedPair;
 
@@ -1164,15 +1147,12 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_sony_ifd_chain_test.dart', () {
+  group('dng embedded jpeg extractor sony ifd chain', () {
       group('Sony-style IFD chain + JPEGInterchangeFormat (round-2 D4)', () {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_sony_chain_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_sony_chain_');
         });
 
         Future<String> write(Uint8List bytes, String name) async {
@@ -1419,7 +1399,7 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_long_edge_selection_test.dart', () {
+  group('dng embedded jpeg extractor long edge selection', () {
       final sampleDir = sampleDngDir;
 
       // Kept in lockstep with the first group's list (kSamplePreviewDngs).
@@ -1813,18 +1793,15 @@ void main() {
 
   });
 
-  group('dng_extractor_transient_read_retry_test.dart', () {
+  group('dng extractor transient read retry', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       late Directory dir;
 
       setUp(() async {
-        dir = await Directory.systemTemp.createTemp('tc540_');
+        dir = await makeTempDir('tc540_');
       });
 
-      tearDown(() async {
-        if (dir.existsSync()) await dir.delete(recursive: true);
-      });
 
       // A container that DOES carry a preview clearing the frozen 2800 floor:
       // without an injected fault every assertion below must find it.
@@ -1946,10 +1923,10 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart', () {
+  group('dng embedded jpeg extractor buffer copy semantics', () {
       final sampleDir = sampleDngDir;
 
-      // Orientation 1 (per dng_embedded_jpeg_extractor_long_edge_selection_test.dart AC2), so the
+      // Orientation 1 (per the 'dng embedded jpeg extractor long edge selection' group, AC2), so the
       // returned bytes are exactly the `_MemorySource.read` slice with no
       // `_injectExifOrientation` rebuild in the way.
       const sampleName = kSamplePreviewDng;

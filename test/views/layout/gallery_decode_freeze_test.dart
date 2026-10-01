@@ -66,8 +66,7 @@ void main() {
 
     late _RecordingAppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_freeze_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_freeze_');
       await File('${dir.path}/IMG_0001.jpg')
           .writeAsBytes(Uint8List.fromList(_transparentPng));
       state = _RecordingAppState();

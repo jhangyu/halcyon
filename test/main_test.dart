@@ -77,8 +77,7 @@ void main() {
   Future<AppState> stateForFolder(WidgetTester tester) async {
     late AppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_main_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_main_');
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       state = AppState(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {

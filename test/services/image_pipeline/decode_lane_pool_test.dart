@@ -30,7 +30,7 @@ import '../../support/preload_fixtures.dart';
 }
 
 void main() {
-  group('decode_lane_test.dart', () {
+  group('decode lane', () {
     test('TC-340 width 1 runs one body at a time', () async {
       final lane = DecodeLane(width: 1);
       var inFlight = 0;
@@ -199,7 +199,7 @@ void main() {
   });
 
   // WP2-H (pool-retire-plan-v2 Task 2.4, 2026-09-08): the
-  // `decode_pool_killswitch_test.dart` group (TC-944) covered
+  // former 'decode pool killswitch' tests (removed in 0f61a49) (TC-944) covered
   // `kDecodePoolDefine`/`kDecodePoolEnabled` and the legacy `Isolate.run`
   // fallback arms they selected. Both consts and both legacy arms were
   // deleted from `dng_decode_service.dart` — the pool route is now the only
@@ -208,7 +208,7 @@ void main() {
   // `decodePoolEnabledFor` free function it used to test was deleted too
   // (user-ruled parking-lot cleanup, task #8, 2026-09-08).
 
-  group('decode_pool_width_sink_test.dart', () {
+  group('decode pool width sink', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     tearDown(() {
@@ -271,7 +271,7 @@ void main() {
     );
   });
 
-  group('decode_pool_wiring_test.dart', () {
+  group('decode pool wiring', () {
     late List<int> pushed;
     late void Function(int) original;
 
@@ -335,7 +335,7 @@ void main() {
     );
   });
 
-  group('stage_widths_test.dart', () {
+  group('stage widths', () {
     group('StageWidths.derive', () {
       test('TC-1020: derives every stage width from one number, secondary '
           'stages equal to the decode lane width (user ruling 2026-09-06: '
@@ -385,7 +385,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_lane_race_test.dart', () {
+  group('image preload controller lane race', () {
     // TC-380 (provisional number -- re-verify against the SOP register at merge).
     // Defect A from docs/logs/2026-08-30/lane-race-arch-verdict.md §1.A:
     // _ensurePayload checks `_loadingKeys.contains(id)` BEFORE the probe await but

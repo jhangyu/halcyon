@@ -22,73 +22,36 @@
 //   eye judges, and the sweep deliberately covers 91->130 because that is the
 //   band the reflow lives in (a sweep that started above 120 would be green
 //   for free — the 08-17 "unobservable resolution" false-green family).
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
-
-PixelPayload _payload() =>
-    PixelPayload(width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/event_loop.dart';
+import '../../support/view_fixtures.dart';
 
 const ValueKey<String> _columnKey = ValueKey<String>('round4-gallery-column');
-
-/// Bounded stand-in for `pumpAndSettle()`: enough frames (well past any
-/// scroll/drag animation's default curve duration) for layout and scroll
-/// physics to finish, without blocking on the animation-completion poll
-/// `pumpAndSettle()` performs.
-Future<void> _settle(WidgetTester tester) async {
-  await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
 
 MainSurface _surface(
   List<PhotoItem> items,
   String selectedId, {
   Widget? menu,
-}) => MainSurface(
+}) => testSurface(
   viewport: const ColoredBox(color: Colors.red),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: selectedId,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => _payload(),
-    onVisibleRange: (_, __) {},
-  ),
-  identity: const PhotoIdentity(
-    displayName: 'IMG_0001.jpg',
-    indexInFolder: 16,
-    folderCount: 30,
-    status: PhotoStatus.unmarked,
-    exif: null,
-  ),
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    // Defaults to a real 48px IconButton, not a shrink placeholder: the marks
-    // `Wrap`'s run height (and therefore the reflow TC-647 is about) depends
-    // on it. The paper case overrides it — paper's 44px gutter head Row is a
-    // plain `Row` that overflows at a 90px gutter when the menu is a real
-    // IconButton, which is a separate paper defect (parked, round-4
-    // parking-lot) and would mask the anchoring measurement here.
-    menu: menu ?? IconButton(icon: const Icon(Icons.more_horiz),
-        onPressed: () {}),
-  ),
+  items: items,
+  selectedId: selectedId,
+  payloadFor: (_) => tinyPixelPayload(),
+  identity: const PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 16, folderCount: 30, status: PhotoStatus.unmarked, exif: null),
+  // Defaults to a real 48px IconButton, not a shrink placeholder: the marks
+  // `Wrap`'s run height (and therefore the reflow TC-647 is about) depends
+  // on it. The paper case overrides it — paper's 44px gutter head Row is a
+  // plain `Row` that overflows at a 90px gutter when the menu is a real
+  // IconButton, which is a separate paper defect (parked, round-4
+  // parking-lot) and would mask the anchoring measurement here.
+  menu: menu ?? IconButton(icon: const Icon(Icons.more_horiz), onPressed: () {}),
 );
 
 /// Owns the width state and feeds `onWidthDelta` back into it, as
@@ -138,7 +101,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 40; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 40; i++) itemFor('p$i')];
       const selectedId = 'p20';
       await tester.pumpWidget(
         MaterialApp(
@@ -154,7 +117,7 @@ void main() {
           ),
         ),
       );
-      await _settle(tester);
+      await settleFrames(tester);
 
       // The paper strip has no "keep the selection visible" autoscroll, so
       // scroll it by hand until the selected chip is on screen AND the list is
@@ -163,7 +126,7 @@ void main() {
       // would pass for free.
       final listFinder = find.byType(GridView).first;
       await tester.drag(listFinder, const Offset(0, -600));
-      await _settle(tester);
+      await settleFrames(tester);
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
@@ -202,7 +165,7 @@ void main() {
         samples.add(offsetNow());
       }
       await gesture.up();
-      await _settle(tester);
+      await settleFrames(tester);
       samples.add(offsetNow());
 
       expect(
@@ -230,12 +193,12 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 30; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 30; i++) itemFor('p$i')];
       const selectedId = 'p15';
       await tester.pumpWidget(
         _WidthHarness(initialWidth: 91, surface: _surface(items, selectedId)),
       );
-      await _settle(tester);
+      await settleFrames(tester);
 
       final chipKey = const ValueKey<String>('gallery-chip-$selectedId');
       final stripHeights = <double>{};
@@ -267,7 +230,7 @@ void main() {
         samples.add(absoluteYNow());
       }
       await gesture.up();
-      await _settle(tester);
+      await settleFrames(tester);
 
       // Instrument check: the sweep must actually have crossed a reflow, i.e.
       // the strip viewport must really have changed height during it.

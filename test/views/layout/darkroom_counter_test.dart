@@ -12,28 +12,12 @@ import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_desktop.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_palette.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
-MainSurface _surface({PhotoIdentity? identity}) => MainSurface(
-      viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-      statusOverlay: const SizedBox.shrink(),
-      strip: PhotoStripModel(
-        items: const [],
-        selectedId: null,
-        recycleMode: false,
-        onSelect: (_) {},
-        payloadFor: (_) => null,
-        onVisibleRange: (_, __) {},
-      ),
-      identity: identity,
-      actions: PhotoActions(
-        recycleMode: false,
-        onStar: () {},
-        onTrash: () {},
-        onToggleRecycleMode: () {},
-        onOpenFolder: () {},
-        menu: const SizedBox.shrink(),
-      ),
-    );
+MainSurface _surface({PhotoIdentity? identity}) => testSurface(
+  viewport: kRedViewport,
+  identity: identity,
+);
 
 const PhotoIdentity _identity = PhotoIdentity(
   displayName: '_DSF4187.RAF',

@@ -18,8 +18,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 
 import '../../support/preload_fixtures.dart';
 import '../../support/sample_photos.dart';
-
-void _microtaskFrame(void Function() callback) => callback();
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -91,7 +90,7 @@ void main() {
         }
         final decodeStarted = Completer<void>();
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             fail('no embedded preview: loader must not be asked for pixels');
           },
@@ -165,7 +164,7 @@ void main() {
       () async {
         var notified = 0;
         final cheap = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -224,7 +223,7 @@ void main() {
       () async {
         var notifyCount = 0;
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -339,7 +338,7 @@ void main() {
         // synchronous tail of the pass and its 250ms debounce fires into a
         // real full-size decode, which the barrier used to make unreachable.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),

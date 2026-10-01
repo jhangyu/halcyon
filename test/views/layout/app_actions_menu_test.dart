@@ -17,15 +17,7 @@ import 'package:halcyon_flutter/views/rename_dialog/rename_dialog.dart';
 import 'package:halcyon_flutter/views/settings_dialog.dart';
 
 import '../../support/temp_dirs.dart';
-
-/// Bounded stand-in for `pumpAndSettle()`: enough frames to clear the popup
-/// menu's open animation without polling for full animation rest.
-Future<void> _settle(WidgetTester tester) async {
-  await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
+import '../../support/event_loop.dart';
 
 /// White-box checks on the overflow menu that was extracted from the old
 /// per-list sidebar widget (T4). The interactive value-routing tests
@@ -54,8 +46,7 @@ void main() {
   Future<AppState> stateWithTrashedItem(WidgetTester tester) async {
     late AppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_menu_danger_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_menu_danger_');
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       state = AppState(
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
@@ -275,7 +266,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await _settle(tester);
+    await settleFrames(tester);
 
     final icons = tester.widgetList<Icon>(
       find.descendant(
@@ -326,7 +317,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await _settle(tester);
+    await settleFrames(tester);
 
     final palette = GalleryPalette.of(
       tester.element(find.text('Copy Starred…')),
@@ -350,7 +341,7 @@ void main() {
     await pumpMenu(tester, state);
 
     await tester.tap(find.byType(PopupMenuButton<String>));
-    await _settle(tester);
+    await settleFrames(tester);
 
     final danger = tester.widget<Text>(find.text('Delete Trashed'));
     final errorColor = Theme.of(

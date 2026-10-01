@@ -21,14 +21,14 @@ import 'package:flutter/painting.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import '../../support/preload_fixtures.dart';
 
-// --- top-level helpers from payload_normalizer_test.dart ---
+// --- top-level helpers for the 'payload normalizer' group ---
 Uint8List _bytes(int length, {int fill = 7}) =>
     Uint8List.fromList(List<int>.filled(length, fill));
 
 ({Uint8List rgba, int width, int height}) _rgba(int w, int h) =>
     (rgba: Uint8List(w * h * 4), width: w, height: h);
 
-// --- top-level helpers from dng_decoder_smoke_test.dart ---
+// --- top-level helpers for the 'dng decoder smoke' group ---
 /// Round-3b smoke test: proves `decodeDngFull` really decodes a DNG that has
 /// no embedded full-size JPEG preview, through the actual native dylib.
 ///
@@ -43,7 +43,7 @@ Uint8List _bytes(int length, {int fill = 7}) =>
 /// vendors it, via dng_bindings.dart's own search order — this file must never
 /// leak that workaround into lib/.
 
-// --- top-level helpers from raw_coverage_wiring_test.dart ---
+// --- top-level helpers for the 'raw coverage wiring' group ---
 /// Contract: docs/logs/2026-08-26/raw-support-contract.md
 ///
 /// T4 scope: full-decoder wiring through the preload controller / app_state
@@ -53,13 +53,13 @@ Uint8List _bytes(int length, {int fill = 7}) =>
 /// photo_source_test.dart's design note) rather than asserting on those
 /// files' internals.
 
-// --- top-level helpers from raw_pixels_image_test.dart ---
+// --- top-level helpers for the 'raw pixels image' group ---
 // Plain test(), never testWidgets(): decoding awaits a real engine future
 // (ui.decodeImageFromPixels), which hangs forever inside testWidgets'
 // FakeAsync zone.
 
 void main() {
-  group('payload_normalizer_test.dart', () {
+  group('payload normalizer', () {
       setUp(() {
         resetNormalizeCounters();
         resetReencodeCounters();
@@ -212,7 +212,7 @@ void main() {
 
   });
 
-  group('dng_decoder_smoke_test.dart', () {
+  group('dng decoder smoke', () {
       test(
         'decodeDngFull decodes the vivo sample at full resolution',
         () async {
@@ -263,7 +263,7 @@ void main() {
 
   });
 
-  group('raw_coverage_wiring_test.dart', () {
+  group('raw coverage wiring', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       test(
@@ -560,7 +560,7 @@ void main() {
 
   });
 
-  group('raw_pixels_image_test.dart', () {
+  group('raw pixels image', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       setUp(clearImageCacheSetUp);
@@ -658,7 +658,7 @@ void main() {
   });
 }
 
-// --- top-level helpers from dng_decoder_smoke_test.dart (trailing) ---
+// --- top-level helpers for the 'dng decoder smoke' group (trailing) ---
 /// Resolves the vendored dylib via `.dart_tool/package_config.json`, without
 /// hardcoding a dev machine path.
 ///

@@ -4,6 +4,7 @@ import 'package:halcyon_flutter/views/layout/common/resizable_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 /// Builds the desktop surface at a fixed 1440x900 window with a minimal,
 /// unthemed [MainSurface].
@@ -26,31 +27,6 @@ Future<void> pumpDesktop(
   );
 }
 
-MainSurface minimalSurface({Widget? viewport}) {
-  return MainSurface(
-    viewport:
-        viewport ?? const ColoredBox(key: kViewportKey, color: Colors.red),
-    statusOverlay: const SizedBox.shrink(),
-    strip: PhotoStripModel(
-      items: const [],
-      selectedId: null,
-      recycleMode: false,
-      onSelect: (_) {},
-      payloadFor: (_) => null,
-      onVisibleRange: (_, __) {},
-    ),
-    identity: null,
-    actions: PhotoActions(
-      recycleMode: false,
-      onStar: () {},
-      onTrash: () {},
-      onToggleRecycleMode: () {},
-      onOpenFolder: () {},
-      menu: const SizedBox.shrink(),
-    ),
-  );
-}
-
 void main() {
   // USER RULING 2026-09-02 supersedes the float rule this group used to
   // assert. The gutter must PUSH the photo, not cover it, so the viewport is
@@ -62,7 +38,7 @@ void main() {
       testWidgets('viewport at column width ${width.round()}',
           (tester) async {
         await tester.binding.setSurfaceSize(const Size(1440, 900));
-        await pumpDesktop(tester, surface: minimalSurface());
+        await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
         if (width > 90) {
           await _dragColumnTo(tester, width);
@@ -81,7 +57,7 @@ void main() {
       testWidgets('no overlap at column width ${width.round()}',
           (tester) async {
         await tester.binding.setSurfaceSize(const Size(1440, 900));
-        await pumpDesktop(tester, surface: minimalSurface());
+        await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
         if (width > 90) {
           await _dragColumnTo(tester, width);
@@ -102,7 +78,7 @@ void main() {
   group('TC-506 the gutter never paints a float shadow (removed 2026-09-02)', () {
     testWidgets('no shadow key at rest (width 90)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       expect(find.byKey(kGalleryColumnShadowKey), findsNothing);
       await tester.binding.setSurfaceSize(null);
@@ -110,7 +86,7 @@ void main() {
 
     testWidgets('no shadow key while dragged wide (width 120)', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       await _dragColumnTo(tester, 120);
 
@@ -124,7 +100,7 @@ void main() {
   group('width readout badge only while a drag is in flight', () {
     testWidgets('absent at rest', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       expect(find.byKey(kGalleryWidthBadgeKey), findsNothing);
       await tester.binding.setSurfaceSize(null);
@@ -133,7 +109,7 @@ void main() {
     testWidgets('present mid-drag and hidden again after the drag stalls',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       // Start a real handle drag but don't release yet: the badge must be up.
       final gesture = await tester.startGesture(_handleStart(tester));
@@ -164,7 +140,7 @@ void main() {
   group('TC-507 both drag clamps, both directions', () {
     testWidgets('drag far left from 90 clamps to 90', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       // Drag the handle -300 logical px from the resting 90.
       await _dragColumnHandle(tester, const Offset(-300, 0));
@@ -175,7 +151,7 @@ void main() {
 
     testWidgets('drag far right from 200 clamps to 200', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       // First push the column to the ceiling.
       await _dragColumnTo(tester, 200);

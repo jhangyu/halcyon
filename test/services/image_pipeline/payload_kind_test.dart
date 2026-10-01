@@ -9,37 +9,17 @@
 // NON-ZERO number, which is what the third case does (a schema field added
 // without a wired consumer reports 0 forever and looks like a pass).
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload_cache.dart';
 
 import '../../support/preload_fixtures.dart';
-
-Future<NativeImageResult> _needsRawDecodeLoader(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-DecodedRgba _decodedFixture() {
-  final rgba = Uint8List(4 * 4 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 4, height: 4);
-}
-
-List<PhotoItem> _rawItems(List<String> ids) => [
-  for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-];
+import '../../support/loader_stubs.dart';
+import '../../support/rgba_fixtures.dart';
 
 void main() {
   late ImageCache imageCache;
@@ -63,7 +43,7 @@ void main() {
     imageCache.clearLiveImages();
   });
 
-  group('payload_kind_test.dart', () {
+  group('payload kind', () {
     test(
       'TC-1226 a cache holding one payload of each kind reports the per-kind '
       'split and a total that still equals the sum',
@@ -112,12 +92,12 @@ void main() {
         final decodeCounts = <String, int>{};
         var encodeCalls = 0;
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             final n = (decodeCounts[path] ?? 0) + 1;
             decodeCounts[path] = n;
             if (n > 1) throw StateError('second decode of $path refused');
-            return _decodedFixture();
+            return opaqueRgba(4, 4);
           },
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async {
@@ -132,7 +112,7 @@ void main() {
         // `b` first, so it is the item whose encode is call #1.
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['b', 'a']),
+            items: rawItems(['b', 'a']),
             selectedItemId: 'b',
             notifyLoaded: () {},
           ),

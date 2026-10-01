@@ -58,8 +58,7 @@ void main() {
 
   group('AC1 — folder scan surfaces a file of every derived-list extension', () {
     test('over a fake directory listing, every decodable+browse-only ext is picked up', () async {
-      final tmpDir = await Directory.systemTemp.createTemp('halcyon_fmt_test_');
-      addTempDirTeardown(tmpDir);
+      final tmpDir = await makeTempDir('halcyon_fmt_test_');
 
       final allExts = SupportedPhotoFormats.rawExtensions
           .followedBy(const ['.jpg', '.jpeg', '.png']);
@@ -127,7 +126,7 @@ void main() {
       expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
       // Codec expansion (2026-08-30, Task 13): AVIF (via the existing libheif
       // arm) and JXL (a new arm) joined the bitmap-decode set --
-      // `full_decoder_dispatch_test.dart`'s "codec expansion: AVIF and JXL
+      // the 'full decoder dispatch' group's (decoded_rgba_test.dart) "codec expansion: AVIF and JXL
       // routing" group pins the routing itself.
       expect(SupportedPhotoFormats.bitmapDecodeExtensions,
           {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});
