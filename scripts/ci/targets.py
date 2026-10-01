@@ -285,6 +285,13 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-CEYX-SYMBOLS",
+            # Same as "windows": reads the PE import/delay-import directories
+            # structurally (assertions.py _assert_engine_delayload, valid_on
+            # windows). Architecture-independent: windows/CMakeLists.txt:64-67
+            # applies /DELAYLOAD to every Windows build, and the std-handle
+            # hazard it guards (EnsureStdOutputHandles before the engine CRT
+            # initialises) is the same on ARM64.
+            "H-ENGINE-DELAYLOAD",
         ],
         "pin_platform": "windows-arm64",
     },
