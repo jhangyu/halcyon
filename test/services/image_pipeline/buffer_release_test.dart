@@ -11,13 +11,13 @@ import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/loader_stubs.dart';
 
 /// WP6b (gc-remediation plan, Steps 7.7-7.11): the native buffer a pooled
 /// decode hands over is returned to `CeyxNativeBufferPool` at end-of-
@@ -53,12 +53,6 @@ void main() {
       for (final id in ['a', 'b'])
         PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
     ];
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     ImagePreloadController buildController({
       required Future<DecodedRgba> Function(String path) decoder,
@@ -211,15 +205,6 @@ void main() {
       );
     });
 
-    /// A 4x4 opaque frame declared with EXIF orientation 6, so the full-res
-    /// path ROTATES: `decodedRgbaToOrientedFullRes` returns a fresh readback
-    /// plus a non-null `ui.Image` (decoded_rgba_image_provider.dart:308-316).
-    Future<NativeImageResult> rotatedLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
     // TC-1271 -- rotated encode-failure path: the retained PixelPayload is a
     // GPU readback, so the native buffer has no reader and goes back.
     test('a rotated PixelPayload fallback DOES release the native buffer',
@@ -227,7 +212,7 @@ void main() {
       final released = <String, int>{};
       final firstRelease = Completer<void>();
       final controller = ImagePreloadController(
-        imageLoader: rotatedLoader,
+        imageLoader: needsRawDecodeLoaderOrientation6,
         dngDecoder: (path) async => decodedFixture(
           releaseNative: () {
             released[path] = (released[path] ?? 0) + 1;

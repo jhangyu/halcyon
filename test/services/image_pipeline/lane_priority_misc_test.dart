@@ -27,6 +27,7 @@ import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.
 import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
+import '../../support/loader_stubs.dart';
 
 /// Counts `open()` calls on files created inside an [IOOverrides] zone.
 ///
@@ -59,12 +60,6 @@ Future<int> _countingOpens(Future<void> Function() body) async {
   return opens;
 }
 
-Future<NativeImageResult> _rawLoaderPriority(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
 DecodedRgba _tinyPriority() {
   final rgba = Uint8List(8 * 8 * 4);
   for (var i = 3; i < rgba.length; i += 4) {
@@ -72,38 +67,6 @@ DecodedRgba _tinyPriority() {
   }
   return DecodedRgba(rgba: rgba, width: 8, height: 8);
 }
-
-/// P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
-/// pipeline-architecture-v2.md §5-P0): proves every new emit site this task
-/// owns actually reaches the log file when enabled, and is structurally
-/// inert (no PerfLog writes at all) when the flag is off.
-///
-/// Two DIFFERENT event names are exercised deliberately (lead's ownership-
-/// extension ruling): `decode.ffi` (photo_source.dart -- FFI decode wall
-/// time) and `materialize` (the architecture doc's own 4 sites -- GPU
-/// texture/engine-buffer hand-off cost). `lane.width` (main.dart) is not
-/// exercised here -- it fires off an AppState listener in `main()`, which is
-/// not a unit-testable seam from this file's ownership; its emission is
-/// covered by direct code inspection + `flutter analyze` (see task report).
-///
-/// Plain test(), never testWidgets(), wherever a real `ui.decodeImageFromPixels`
-/// engine future is awaited -- it hangs forever inside testWidgets' FakeAsync
-/// zone (see the 'raw pixels image' group's notes in decode_misc_test.dart).
-Future<NativeImageResult> _needsRawDecode(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-// Orientation 6 (not identity): forces decodedRgbaToPixelPayload /
-// decodedRgbaToOrientedFullRes past their identity short-circuit and into
-// the real `ui.decodeImageFromPixels` GPU pass this task instruments --
-// matching the 'photo source fullres handle' group's TC-827b (photo_source_test.dart) convention.
-Future<NativeImageResult> _needsRawDecodeRotated(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
 
 DecodedRgba _decodedFixture() {
   // 8x6 opaque RGBA, matching the convention in
@@ -919,7 +882,7 @@ void main() {
         () async {
           final gate = Completer<void>();
           final controller = ImagePreloadController(
-            imageLoader: _rawLoaderPriority,
+            imageLoader: needsRawDecodeLoader,
             dngDecoder: (path) async {
               // Gated so every enqueued key stays PENDING and its priority is
               // observable; the lane is width 1 so one key occupies the slot.
@@ -1042,7 +1005,7 @@ void main() {
         () async {
           final gate = Completer<void>();
           final controller = ImagePreloadController(
-            imageLoader: _rawLoaderPriority,
+            imageLoader: needsRawDecodeLoader,
             dngDecoder: (path) async {
               // Gated forever, so nothing the lane admits ever finishes and
               // the merged pending order stays observable. NOTE what this
@@ -1196,7 +1159,7 @@ void main() {
       () async {
         PerfLog.init(logPath);
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated, // orientation 6: forces the GPU pass too
+          loader: needsRawDecodeLoaderOrientation6, // orientation 6: forces the GPU pass too
           dngDecoder: _decoder,
           payloadEncoder: _okEncoder,
         );
@@ -1333,7 +1296,7 @@ void main() {
       () async {
         PerfLog.enabled = false; // explicit: default state, but be defensive.
         const source = PhotoSource(
-          loader: _needsRawDecode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _decoder,
           payloadEncoder: _okEncoder,
         );
@@ -1390,8 +1353,7 @@ void main() {
       () async {
         PerfLog.init(logPath);
         final decoded = _decodedFixture();
-        // Orientation 6 (not identity): forces the GPU pass this test targets;
-        // see _needsRawDecodeRotated's comment above.
+        // Orientation 6 (not identity): forces the GPU pass this test targets.
         await decodedRgbaToPixelPayload(decoded, exifOrientation: 6, longEdge: 8);
         await PerfLog.flush();
 

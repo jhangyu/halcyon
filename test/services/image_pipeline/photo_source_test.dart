@@ -15,6 +15,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'dart:async';
 import 'package:halcyon_flutter/services/image_pipeline/payload_normalizer.dart';
 import 'package:halcyon_flutter/perf/perf_log.dart';
+import '../../support/loader_stubs.dart';
 
 // --- top-level helpers for the 'photo source' group ---
 /// M2: source-selection was moved from an inline check in
@@ -177,18 +178,6 @@ DecodedRgba _decodedCompositeGate() {
 }
 
 // --- top-level helpers for the 'photo source fullres handle' group ---
-Future<NativeImageResult> _needsRawDecodeFullres(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-Future<NativeImageResult> _needsRawDecodeRotated(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
 /// 8x6 opaque RGBA so the premultiplied/straight equivalence holds.
 DecodedRgba _decodedFullres() {
   final bytes = Uint8List(8 * 6 * 4);
@@ -229,12 +218,6 @@ Future<T> withStubDecoder<T>(
   }
 }
 
-Future<NativeImageResult> _needsRawDecodeReencode(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
 /// Opaque (alpha 0xFF): the identity-transform short-circuit in
 /// decoded_rgba_image_provider.dart asserts every RAW decode is opaque, so a
 /// zero-filled buffer would trip it.
@@ -262,7 +245,7 @@ Future<Uint8List> _fakeEncoder(
 /// [PhotoSource.decodePhaseExpensive] materialize the decoded RGBA buffer
 /// into a `ui.Image` EXACTLY ONCE per decode, for a non-identity EXIF
 /// orientation (orientation 6 forces the GPU pass -- see
-/// the 'p0 perf instrumentation' group's (lane_priority_misc_test.dart) `_needsRawDecodeRotated` convention).
+/// the 'p0 perf instrumentation' group's (lane_priority_misc_test.dart) `needsRawDecodeLoaderOrientation6` convention).
 ///
 /// Observation seam: `PerfLog.testSink` (lib/perf/perf_log.dart:245),
 /// deliberately NOT `debugPrint` capture (lessons-learned 2026-08-17:
@@ -1242,7 +1225,7 @@ void main() {
       // TC-827a
       test('orientation 1 hands back the decoder buffer and no handle', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeFullres,
+          loader: needsRawDecodeLoader,
           dngDecoder: _decoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1255,7 +1238,7 @@ void main() {
       // TC-827b
       test('orientation 6 hands back a live oriented handle', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated,
+          loader: needsRawDecodeLoaderOrientation6,
           dngDecoder: _decoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1270,7 +1253,7 @@ void main() {
       // TC-827c -- a decode that fails leaves no handle and no fullRes.
       test('a throwing decoder returns no handle to leak', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated,
+          loader: needsRawDecodeLoaderOrientation6,
           dngDecoder: _throwingDecoderFullres,
           payloadEncoder: _encoderFullres,
         );
@@ -1287,7 +1270,7 @@ void main() {
       // TC-364
       test('load() re-encodes a decoded RAW into a plain EncodedPayload', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: _fakeEncoder,
         );
@@ -1301,7 +1284,7 @@ void main() {
       // TC-364b — the two decode paths must not diverge
       test('loadExpensive() re-encodes identically', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: _fakeEncoder,
         );
@@ -1313,7 +1296,7 @@ void main() {
       // TC-365
       test('no encoder configured -> unchanged PixelPayload behaviour', () async {
         const source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: throwingPayloadEncoder,
         );
@@ -1476,7 +1459,7 @@ void main() {
         () async {
           lastDecodedFixture = decodedFixture();
           const source = PhotoSource(
-            loader: _needsRawDecodeOrientation6,
+            loader: needsRawDecodeLoaderOrientation6,
             dngDecoder: _fixtureDecoder,
             payloadEncoder: throwingPayloadEncoder,
           );
@@ -1562,7 +1545,7 @@ void main() {
     // encode succeeds must never materialize the window-resolution pixels.
     test('success path builds no pixel fallback', () async {
       const source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder: _fakeEncoder,
       );
@@ -1576,7 +1559,7 @@ void main() {
     // displayable result: the thunk fires exactly once when the encoder throws.
     test('encode failure still yields a displayable payload', () async {
       final source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder:
             (rgba, {required width, required height, required quality}) async =>
@@ -1600,7 +1583,7 @@ void main() {
         PerfLog.enabled = true;
         PerfLog.testSink = lines.add;
         final source = PhotoSource(
-          loader: _needsRawDecodeReencode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _fakeDecoder,
           payloadEncoder: encoder,
         );
@@ -1639,7 +1622,7 @@ void main() {
     test('the fallback closure is not retained past a successful encode',
         () async {
       const source = PhotoSource(
-        loader: _needsRawDecodeReencode,
+        loader: needsRawDecodeLoader,
         dngDecoder: _fakeDecoder,
         payloadEncoder: _fakeEncoder,
       );
@@ -1689,12 +1672,6 @@ Future<NativeImageResult> _unusedLoader(
   required ImageRequestPurpose purpose,
   int? targetLongEdge,
 }) async => throw StateError('decodePhaseExpensive must not call loader');
-
-Future<NativeImageResult> _needsRawDecodeOrientation6(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
 
 /// Set immediately before each `PhotoSource` call in this file -- `const`
 /// `PhotoSource` construction requires top-level function references, so the

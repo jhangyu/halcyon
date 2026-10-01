@@ -21,20 +21,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/preload_fixtures.dart';
-
-/// Task 7 (plan `docs/logs/2026-08-30/shared-payload-cache-plan.md`):
-/// "scrolling fills the payload cache" (D5 decision 4). A visible row with no
-/// payload asks the SHARED lane to make one, at the sidebar's own low
-/// priority -- so the second, unthrottled decoder the old sidebar owned (F5's
-/// `laneWidth + 1` overshoot) is gone.
-///
-/// Helpers are copied rather than imported from the Task 6 file: test files do
-/// not export to one another.
-Future<NativeImageResult> _rawLoaderLane(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
+import '../../support/loader_stubs.dart';
 
 // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
 // debug-only identity short-circuit asserts sampled alpha is opaque.
@@ -82,12 +69,6 @@ class CountingDecoder {
     return DecodedRgba(rgba: rgba, width: 8, height: 8);
   }
 }
-
-Future<NativeImageResult> _rawLoaderShared(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 Future<void> _settleShared([int ms = 400]) =>
     Future<void>.delayed(Duration(milliseconds: ms));
@@ -162,18 +143,6 @@ Future<void> _pollUntilPixel(
   }
 }
 
-/// Contract `docs/logs/2026-09-06/sidebar-fix-and-async-plan-contract.md` D1:
-/// AC1 (visible-before-margin) and AC2 (priority-freeze fix).
-///
-/// Both tests gate the decoder so lane entries stay PENDING after the sweep's
-/// 100ms debounce fires, letting [ImagePreloadController.debugLanePendingPriorityFor]
-/// observe the priority DecodeLane actually queued each key at.
-Future<NativeImageResult> _rawLoaderPriority(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
 DecodedRgba _tinyPriority() {
   final rgba = Uint8List(8 * 8 * 4);
   for (var i = 3; i < rgba.length; i += 4) {
@@ -210,7 +179,7 @@ void main() {
     test('a far visible row gets a tile via lane-produced payload', () async {
       var calls = 0;
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           calls++;
           return _tinyLane();
@@ -267,7 +236,7 @@ void main() {
       }
 
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: slowDecoder,
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
@@ -299,7 +268,7 @@ void main() {
     test('a row inside the navigation window is not demoted by the sweep', () async {
       final gate = Completer<void>();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           await gate.future;
           return _tinyLane();
@@ -373,7 +342,7 @@ void main() {
       }
 
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: slowDecoder,
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
@@ -448,7 +417,7 @@ void main() {
     test('a cached payload yields a tile with no further decoder call', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -524,7 +493,7 @@ void main() {
     test('one decode serves both the preview and the sidebar tile', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -570,7 +539,7 @@ void main() {
     test('a viewport move before derivation lands writes nothing stale', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -603,7 +572,7 @@ void main() {
     // TC-433
     test('a permanent-miss item becomes a sidebar permanent miss', () async {
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: null, // no decoder => permanent miss
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -735,7 +704,7 @@ void main() {
       () async {
         final gate = Completer<void>();
         final controller = ImagePreloadController(
-          imageLoader: _rawLoaderPriority,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
             return _tinyPriority();
@@ -828,7 +797,7 @@ void main() {
       () async {
         final gate = Completer<void>();
         final controller = ImagePreloadController(
-          imageLoader: _rawLoaderPriority,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
             return _tinyPriority();

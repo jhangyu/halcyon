@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -8,12 +7,12 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/encode_stage.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 import '../../support/preload_fixtures.dart' show until;
+import '../../support/loader_stubs.dart';
 
 void main() {
   group('encode stage', () {
@@ -125,24 +124,12 @@ void main() {
       return DecodedRgba(rgba: rgba, width: 4, height: 4);
     }
 
-    List<PhotoItem> rawItems(List<String> ids) => [
-      for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-    ];
-
     List<PhotoItem> twoRawItems() => rawItems(['a', 'b']);
 
     /// 26 RAW items, 'a'..'z'. Navigating from 'a' to 'z' takes 'a' out of the
     /// retention window (-3..+5) entirely.
     List<PhotoItem> manyRawItems() =>
         rawItems([for (var c = 0; c < 26; c++) String.fromCharCode(0x61 + c)]);
-
-    /// Every RAW item needs a real decode: the loader answers NeedsRawDecode, so
-    /// the item is deferred to the serial lane exactly as a preview-less DNG is.
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     ImagePreloadController buildController({
       required Future<DecodedRgba> Function(String path) decoder,
@@ -375,14 +362,8 @@ void main() {
         // Orientation 3 (180deg, no mirror) is non-identity, so
         // decodedRgbaToOrientedFullRes renders a `ui.Image` and hands back a
         // non-null `image` -- the rotated path this test targets.
-        Future<NativeImageResult> rotatedLoader(
-          String path, {
-          required ImageRequestPurpose purpose,
-          int? targetLongEdge,
-        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
-
         final controller = ImagePreloadController(
-          imageLoader: rotatedLoader,
+          imageLoader: needsRawDecodeLoaderOrientation3,
           dngDecoder: (path) async => decodedFixture(),
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async =>
@@ -486,14 +467,8 @@ void main() {
       () async {
         var pointerCalls = 0;
         var copyCalls = 0;
-        Future<NativeImageResult> rotatedLoader(
-          String path, {
-          required ImageRequestPurpose purpose,
-          int? targetLongEdge,
-        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
-
         final controller = ImagePreloadController(
-          imageLoader: rotatedLoader,
+          imageLoader: needsRawDecodeLoaderOrientation3,
           dngDecoder: (path) async => DecodedRgba(
             rgba: decodedFixture().rgba,
             width: 4,

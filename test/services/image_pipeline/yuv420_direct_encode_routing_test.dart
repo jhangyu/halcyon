@@ -25,19 +25,17 @@
 // produced were exactly that shape.
 
 import 'dart:ffi' as ffi;
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ceyx/ceyx.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 import 'package:image/image.dart' as img;
+import '../../support/loader_stubs.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,16 +44,6 @@ void main() {
   const height = 8;
 
   tearDown(debugResetUpconvertSeam);
-
-  List<PhotoItem> rawItems() => [
-        PhotoItem(id: 'a', files: [File('/tmp/a.dng')]),
-      ];
-
-  Future<NativeImageResult> loader(
-    String path, {
-    required ImageRequestPurpose purpose,
-    int? targetLongEdge,
-  }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
   Future<void> pumpMicrotasks([int rounds = 40]) async {
     for (var i = 0; i < rounds; i++) {
@@ -133,7 +121,7 @@ void main() {
     };
 
     final controller = ImagePreloadController(
-      imageLoader: loader,
+      imageLoader: needsRawDecodeLoader,
       dngDecoder: (path) async => DecodedRgba(
         rgba: planarView,
         width: width,
@@ -190,7 +178,7 @@ void main() {
     controller.updateTargetSize(32, 32);
 
     await controller.preloadImages(
-      items: rawItems(),
+      items: rawItems(['a']),
       selectedItemId: 'a',
       notifyLoaded: () {},
     );
@@ -381,7 +369,7 @@ void main() {
       };
       var releases = 0;
       final source = PhotoSource(
-        loader: loader,
+        loader: needsRawDecodeLoader,
         dngDecoder: (path) async => DecodedRgba(
           rgba: view,
           width: width,

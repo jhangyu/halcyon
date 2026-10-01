@@ -7,11 +7,11 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 import '../../support/preload_fixtures.dart' show until;
+import '../../support/loader_stubs.dart';
 
 void main() {
   // S1.1/S1.4 (2026-09-11). Replaces the `inflightByteBudgetFor` group, which
@@ -182,16 +182,6 @@ void main() {
       }
       return DecodedRgba(rgba: rgba, width: 4, height: 4);
     }
-
-    List<PhotoItem> rawItems(List<String> ids) => [
-          for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-        ];
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     ImagePreloadController buildController({
       required Future<DecodedRgba> Function(String path) decoder,
@@ -792,12 +782,6 @@ void main() {
       }
       return DecodedRgba(rgba: rgba, width: 4, height: 4);
     }
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     ImagePreloadController build({
       required RetentionPolicy retention,

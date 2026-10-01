@@ -984,11 +984,6 @@ void main() {
     // ---------------------------------------------------------------------
 
     group('raw-decode path', () {
-      List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-        final id = 'IMG_${index.toString().padLeft(4, '0')}';
-        return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-      });
-
       /// A 2x2 RGBA8 stand-in for the 4080x3056 the real decoder emits: small
       /// enough to decode instantly, structurally identical. Alpha must be
       /// opaque (0xFF): decoded_rgba_image_provider.dart's debug-only identity
@@ -1109,7 +1104,7 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final items = rawItems(14);
+        final items = paddedItems(14, extension: 'dng');
         await controller.preloadImages(
           items: items,
           selectedItemId: items[5].id,
@@ -1201,7 +1196,7 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final items = rawItems(20);
+        final items = paddedItems(20, extension: 'dng');
         final target = items[5].files.single.path;
         int decodesOfTarget() => decodeCalls.where((p) => p == target).length;
 
@@ -1296,7 +1291,7 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final items = rawItems(20);
+        final items = paddedItems(20, extension: 'dng');
         await controller.preloadImages(
           items: items,
           selectedItemId: items[5].id,
@@ -1370,7 +1365,7 @@ void main() {
           },
         );
 
-        final items = rawItems(20);
+        final items = paddedItems(20, extension: 'dng');
         await controller.preloadImages(
           items: items,
           selectedItemId: items[5].id,
@@ -1407,7 +1402,7 @@ void main() {
             dngDecoder: (path) async => fakeDecoded(),
           );
           addTearDown(controller.dispose);
-          final items = rawItems(14);
+          final items = paddedItems(14, extension: 'dng');
           await controller.preloadImages(
             items: items,
             selectedItemId: items[5].id,
@@ -1454,7 +1449,7 @@ void main() {
           );
           addTearDown(controller.dispose);
 
-          final items = rawItems(20);
+          final items = paddedItems(20, extension: 'dng');
           final targetPath = items[8].files.single.path;
           int requestsForTarget() =>
               previewRequests.where((p) => p == targetPath).length;
@@ -1514,7 +1509,7 @@ void main() {
           );
           addTearDown(controller.dispose);
 
-          final items = rawItems(20);
+          final items = paddedItems(20, extension: 'dng');
           // One payload is 2x2 RGBA8 = 16 bytes; the -3..+5 window is 9 items.
           const perPayload = 2 * 2 * 4;
           for (final idx in [3, 6, 9, 12, 15]) {
@@ -1552,7 +1547,7 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final items = rawItems(20);
+        final items = paddedItems(20, extension: 'dng');
         await controller.preloadImages(
           items: items,
           selectedItemId: items[3].id,
@@ -1597,7 +1592,7 @@ void main() {
           );
           addTearDown(controller.dispose);
 
-          final items = rawItems(14);
+          final items = paddedItems(14, extension: 'dng');
           await controller.preloadImages(
             items: items,
             selectedItemId: items[5].id,
@@ -1648,7 +1643,7 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final items = rawItems(14);
+        final items = paddedItems(14, extension: 'dng');
         await controller.preloadImages(
           items: items,
           selectedItemId: items[5].id,
@@ -1679,7 +1674,7 @@ void main() {
           );
           addTearDown(controller.dispose);
 
-          final items = rawItems(14);
+          final items = paddedItems(14, extension: 'dng');
           await controller.preloadImages(
             items: items,
             selectedItemId: items[5].id,
@@ -1711,7 +1706,7 @@ void main() {
           );
           addTearDown(controller.dispose);
 
-          final items = rawItems(14);
+          final items = paddedItems(14, extension: 'dng');
           await controller.preloadImages(
             items: items,
             selectedItemId: items[5].id,

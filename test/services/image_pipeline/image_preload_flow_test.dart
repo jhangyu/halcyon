@@ -13,6 +13,7 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import '../../support/preload_fixtures.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
+import '../../support/loader_stubs.dart';
 
 // --- helpers for the 'image preload window' group ---
 // Precache-span guarantees (AC2, AC3) and the SERIAL LANE law (TC-098a..d).
@@ -102,19 +103,9 @@ DecodedRgba decodedFixture() {
   return DecodedRgba(rgba: rgba, width: 4, height: 4);
 }
 
-List<PhotoItem> rawItems(List<String> ids) => [
-  for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-];
-
 /// Four RAW items: enough for the lane to still have work queued once the
 /// first hand-off has happened, which is what makes the overlap observable.
 List<PhotoItem> fourRawItems() => rawItems(['a', 'b', 'c', 'd']);
-
-Future<NativeImageResult> _needsRawDecodeLoader(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
 ImagePreloadController buildController({
   required Future<DecodedRgba> Function(String path) decoder,
@@ -129,7 +120,7 @@ ImagePreloadController buildController({
   int? inflightByteBudget,
 }) {
   return ImagePreloadController(
-    imageLoader: _needsRawDecodeLoader,
+    imageLoader: needsRawDecodeLoader,
     dngDecoder: (path) => decoder(path),
     payloadEncoder: encoder,
     decodeLaneWidth: decodeLaneWidth,
@@ -1292,12 +1283,6 @@ void main() {
       return DecodedRgba(rgba: rgba, width: 64, height: 48);
     }
 
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
     /// Waits until [predicate] holds, or fails with [reason].
     Future<void> until(bool Function() predicate, String reason) async {
       final deadline = DateTime.now().add(const Duration(seconds: 5));
@@ -1591,7 +1576,7 @@ void main() {
       // the subject item is a RAW with a throwing encoder, and the navigation
       // debounce (250ms) is not waited out.
       final controller = ImagePreloadController(
-        imageLoader: _needsRawDecodeLoader,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           final rgba = Uint8List(64 * 48 * 4);
           for (var i = 3; i < rgba.length; i += 4) {
@@ -1647,17 +1632,6 @@ void main() {
   });
 
   group('image preload reencode tier two', () {
-    List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
-      final id = 'IMG_${index.toString().padLeft(4, '0')}';
-      return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
-    });
-
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
     // Real, decodable image bytes ENCODED AT THE CALLER-SUPPLIED DIMENSIONS:
     // the tier-2 catch-up path (publishEncoded) resolves them through a real
     // ImageProvider (MemoryImage), so a non-image placeholder like
@@ -1675,7 +1649,7 @@ void main() {
       required int quality,
     }) => _encodeRealPngReencode(width, height);
 
-    final items = rawItems(14);
+    final items = paddedItems(14, extension: 'dng');
 
     /// An OPAQUE 64x48 RGBA frame. Alpha must be 0xFF: the identity
     /// short-circuit in decoded_rgba_image_provider.dart asserts (debug-only)
