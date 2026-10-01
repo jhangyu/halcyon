@@ -1,25 +1,21 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import '../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:halcyon_flutter/services/platform/trash_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fixture_files.dart';
+import '../support/app_state_fixtures.dart';
 
-Future<void> _touch(Directory dir, String name) async {
-  await File(p.join(dir.path, name)).writeAsBytes([0]);
-}
+const _stubBytes = <int>[0];
 
 AppState _stateWithTrash(Future<void> Function(File file) trashFile) {
   return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-    },
+    imageLoader: bytesStubLoader,
     fileActions: PhotoFileActions(trashFile: trashFile),
   );
 }
@@ -37,8 +33,8 @@ void main() {
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_mixed_');
         addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
-        await _touch(dir, 'IMG_0002.jpg');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
         var call = 0;
         final state = _stateWithTrash((file) async {
@@ -72,7 +68,7 @@ void main() {
       () async {
         final dir = await Directory.systemTemp.createTemp('halcyon_latch_');
         addTempDirTeardown(dir);
-        await _touch(dir, 'IMG_0001.jpg');
+        await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
 
         final state = _stateWithTrash((file) async {
           throw const TrashException('unavailable', bridgeUnavailable: true);

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/platform/file_retry.dart';
@@ -7,12 +6,9 @@ import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/app_state_fixtures.dart';
+import '../support/fixture_files.dart';
 
-Future<void> _touch(Directory dir, String name) async {
-  await File('${dir.path}${Platform.pathSeparator}$name').writeAsBytes(
-    Uint8List.fromList(<int>[1, 2, 3]),
-  );
-}
+const _stubBytes = <int>[1, 2, 3];
 
 void main() {
   setUp(() {
@@ -34,8 +30,8 @@ void main() {
     addTearDown(
       () => retryOnSharingViolation(() => dir.delete(recursive: true)),
     );
-    await _touch(dir, 'IMG_0001.jpg');
-    await _touch(dir, 'IMG_0002.jpg');
+    await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+    await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
     final state = testState();
     addTearDown(state.dispose);

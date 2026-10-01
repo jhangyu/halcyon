@@ -5,6 +5,9 @@ import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:path/path.dart' as p;
+import '../../support/fixture_files.dart';
+
+const _stubBytes = <int>[1, 2, 3];
 
 void main() {
   group('PhotoFileActions.deleteTrashed', () {
@@ -14,9 +17,9 @@ void main() {
         final dir = await Directory.systemTemp.createTemp('halcyon_trash_');
         addTempDirTeardown(dir);
 
-        final photo = await _touch(dir, 'IMG_0001.jpg');
-        final sidecar = await _touch(dir, '._IMG_0001.jpg');
-        final untouched = await _touch(dir, 'IMG_0002.jpg');
+        final photo = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        final sidecar = await writeFixtureBytes(dir, '._IMG_0001.jpg', _stubBytes);
+        final untouched = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
         final trashedPaths = <String>[];
 
         final actions = PhotoFileActions(
@@ -50,7 +53,7 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('halcyon_trash_fail_');
       addTempDirTeardown(dir);
 
-      final photo = await _touch(dir, 'IMG_0001.jpg');
+      final photo = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       final actions = PhotoFileActions(
         trashFile: (file) async {
           throw const FileSystemException('trash failed');
@@ -74,8 +77,8 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('halcyon_dt_');
       addTempDirTeardown(dir);
 
-      final bad = await _touch(dir, 'IMG_0001.jpg');
-      final good = await _touch(dir, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final actions = PhotoFileActions(
         trashFile: (file) async {
@@ -110,8 +113,8 @@ void main() {
         );
         addTempDirTeardown(dest);
 
-        final starred = await _touch(src, 'IMG_0001.jpg');
-        final unstarred = await _touch(src, 'IMG_0002.jpg');
+        final starred = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final unstarred = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -150,8 +153,8 @@ void main() {
         );
         addTempDirTeardown(dest);
 
-        final starred = await _touch(src, 'IMG_0001.jpg');
-        final unstarred = await _touch(src, 'IMG_0002.jpg');
+        final starred = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final unstarred = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -182,8 +185,8 @@ void main() {
       final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
       addTempDirTeardown(dest);
 
-      final jpg = await _touch(src, 'IMG_0001.jpg');
-      final dng = await _touch(src, 'IMG_0001.dng');
+      final jpg = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      final dng = await writeFixtureBytes(src, 'IMG_0001.dng', _stubBytes);
 
       await PhotoFileActions().processStarred([
         PhotoItem(id: 'IMG_0001', files: [jpg, dng], status: PhotoStatus.starred),
@@ -268,9 +271,9 @@ void main() {
         );
         addTempDirTeardown(dest);
 
-        final photo = await _touch(src, 'IMG_0001.jpg');
-        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
-        await _touch(dest, '._IMG_0001.jpg');
+        final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final srcSidecar = await writeFixtureBytes(src, '._IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dest, '._IMG_0001.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -306,8 +309,8 @@ void main() {
         );
         addTempDirTeardown(dest);
 
-        final photo = await _touch(src, 'IMG_0001.jpg');
-        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
+        final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final srcSidecar = await writeFixtureBytes(src, '._IMG_0001.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -334,7 +337,7 @@ void main() {
       final src = await Directory.systemTemp.createTemp('halcyon_star_nodest_');
       addTempDirTeardown(src);
       final missingDest = Directory(p.join(src.path, 'does_not_exist'));
-      final photo = await _touch(src, 'IMG_0001.jpg');
+      final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
 
       await PhotoFileActions().processStarred([
         PhotoItem(id: 'IMG_0001', files: [photo], status: PhotoStatus.starred),
@@ -349,8 +352,8 @@ void main() {
       addTempDirTeardown(src);
       addTempDirTeardown(dest);
 
-      final bad = await _touch(src, 'IMG_0001.jpg');
-      final good = await _touch(src, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
       // Make the first destination path unwritable by putting a DIRECTORY there.
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
 
@@ -377,10 +380,10 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_');
       addTempDirTeardown(dir);
 
-      final jpg = await _touch(dir, 'IMG_0001.jpg');
-      final dng = await _touch(dir, 'IMG_0001.dng');
-      final sidecar = await _touch(dir, '._IMG_0001.jpg');
-      final untouched = await _touch(dir, 'IMG_0002.jpg');
+      final jpg = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final dng = await writeFixtureBytes(dir, 'IMG_0001.dng', _stubBytes);
+      final sidecar = await writeFixtureBytes(dir, '._IMG_0001.jpg', _stubBytes);
+      final untouched = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final outcome = await PhotoFileActions().recycleTrashed([
         PhotoItem(
@@ -438,8 +441,8 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('halcyon_recycle_err_');
       addTempDirTeardown(dir);
 
-      final bad = await _touch(dir, 'IMG_0001.jpg');
-      final good = await _touch(dir, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final actions = PhotoFileActions(
         moveFile: (file, newPath) async {
@@ -472,6 +475,3 @@ void main() {
   });
 }
 
-Future<File> _touch(Directory dir, String name) {
-  return File(p.join(dir.path, name)).writeAsBytes(<int>[1, 2, 3]);
-}

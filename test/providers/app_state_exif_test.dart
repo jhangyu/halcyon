@@ -10,11 +10,14 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../support/fakes.dart';
+import '../support/fixture_files.dart';
+import '../support/app_state_fixtures.dart';
+
+const _jpegMagic = <int>[0xFF, 0xD8, 0xFF, 0xE0];  // tiny fake JPEG magic
 
 /// T13 — per-selection EXIF read + cache (round1-plan T13, TC-501..504 —
 /// the full gallery block shifted +7 by user ruling 2026-09-02).
@@ -48,8 +51,8 @@ void main() {
         'notifies listeners once on landing', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif494_');
       addTempDirTeardown(dir);
-      await _touch(dir, 'P1.jpg');
-      await _touch(dir, 'P2.jpg');
+      await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
       final callPaths = <String>[];
       final gate = Completer<List<ExifMetadata?>>();
@@ -93,7 +96,7 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif495_');
       addTempDirTeardown(dir);
       for (final id in ['P1', 'P2', 'P3', 'P4', 'P5']) {
-        await _touch(dir, '$id.jpg');
+        await writeFixtureBytes(dir, '$id.jpg', _jpegMagic);
       }
 
       final callPaths = <String>[];
@@ -129,8 +132,8 @@ void main() {
         'discarded', () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif496_');
       addTempDirTeardown(dir);
-      await _touch(dir, 'P1.jpg');
-      await _touch(dir, 'P2.jpg');
+      await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
       // Gated reader: each path's first read parks until the test completes it.
       final gates = <String, Completer<List<ExifMetadata?>>>{};
@@ -181,8 +184,8 @@ void main() {
         () async {
       final dir = await Directory.systemTemp.createTemp('halcyon_exif497_');
       addTempDirTeardown(dir);
-      await _touch(dir, 'A.jpg');
-      await _touch(dir, 'B.jpg');
+      await writeFixtureBytes(dir, 'A.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'B.jpg', _jpegMagic);
 
       final callPaths = <String>[];
       final state = _state(
@@ -243,8 +246,7 @@ List<PhotoItem> _exifItems(Directory dir, List<String> ids) => [
 class _SilentPreload extends ImagePreloadController {
   _SilentPreload()
       : super(
-          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
+          imageLoader: bytesStubLoader,
         );
 
   @override
@@ -275,16 +277,10 @@ AppState _state({
 }) {
   return AppState(
     scanner: FixedScanner(_exifItems(dir, ids)),
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-        NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
+    imageLoader: bytesStubLoader,
     preloadController: _SilentPreload(),
     exifReader: exifReader,
     exifDebounce: exifDebounce,
   );
 }
 
-Future<void> _touch(Directory dir, String name) async {
-  await File(p.join(dir.path, name)).writeAsBytes(
-    Uint8List.fromList(const [0xFF, 0xD8, 0xFF, 0xE0]), // tiny fake JPEG magic
-  );
-}
