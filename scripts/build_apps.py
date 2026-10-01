@@ -81,7 +81,7 @@ HALIDE_PLATFORMS = {
 #      observer is the only thing that turns TOFU into a pin.
 #   2. If it matches, record WHO verified it and WHEN next to the value here.
 #   3. If it differs, stop - that is the attack this table exists to catch.
-# Re-print with: python3 scripts/build_apps.py --print-halide-pins
+# Re-read the server's view with the curl command at the top of this comment.
 HALIDE_SHA256 = {
     "arm-64-osx": "040a6fbde5ba264870df4975138417ce2ff2c8e9de550302c8b17f36c36e5afa",
     "x86-64-osx": "d7d26c91adcfe62528e20e248ba673aa635de519669b19c47e5a367f856a8ab0",
@@ -140,7 +140,7 @@ FLUTTER_BUILD_ARGS = {
 
 TARGET_HELP = [
     ("macos", "macOS app. Default target. Requires a macOS host."),
-    ("ios", "iOS app (--no-codesign unless --ios-codesign). macOS host."),
+    ("ios", "iOS app (always --no-codesign; not a release target). macOS host."),
     ("android", "Android APK. Alias of android-apk."),
     ("android-apk", "Android APK."),
     ("android-aab", "Android App Bundle."),
@@ -2927,10 +2927,9 @@ def build_flutter(target, layout, mode, args, placed_native):
         "build", *FLUTTER_BUILD_ARGS[target], f"--{mode}",
         f"--dart-define=HALCYON_BUILD_COMMIT={build_commit}",
     ]
-    if target == "ios" and not args.ios_codesign:
-        # ponytail: unattended builds have no signing identity configured here.
-        # Upgrade path: drop --no-codesign and pass --ios-codesign once an
-        # export/signing configuration exists in ios/.
+    if target == "ios":
+        # iOS is not a release target; builds are always --no-codesign (flag
+        # removed 2026-10-02, re-add with a signing config in ios/ if iOS returns).
         build_args.append("--no-codesign")
     if target == "macos" and args.macos_arch != "universal":
         # flutter has no --arch flag for macOS; FLUTTER_XCODE_<SETTING> is the
@@ -3151,7 +3150,7 @@ def make_parser():
         "  0  success",
         "  1  a check, a build step or a verification failed",
         "  2  the build worked but the runbook S4 colour gate was skipped via",
-        "     --no-colour-gate (or --strict was given and warnings were raised)",
+        "     --no-colour-gate",
         "",
         "Build outputs land under ./build/. The platform folders (macos/, android/,",
         "windows/, ...) are source/config, not build output.",
@@ -3222,8 +3221,6 @@ def make_parser():
     p.add_argument("--clean", action="store_true",
                    help="Delete this target's build output before building (needed after a CMake "
                         "target rename - a cached target name cannot be updated in place).")
-    p.add_argument("--strict", action="store_true",
-                   help="Exit 2 if any warning was raised.")
     p.add_argument("--macos-arch", choices=["arm64", "x86_64", "universal"],
                    default=MACOS_DEFAULT_ARCH,
                    help=f"macOS architecture (default: {MACOS_DEFAULT_ARCH}). x86_64 (Intel) is "
@@ -3234,29 +3231,7 @@ def make_parser():
                         "supported: the release publishes no fat archive, so there is no asset to "
                         "fetch and the build is refused rather than silently linking an x86_64 "
                         "slice with no native RAW decoder.")
-    p.add_argument("--print-halide-pins", action="store_true",
-                   help="Print the pinned Halide sha256 table and exit.")
-    p.add_argument("--ios-codesign", action="store_true",
-                   help="Let `flutter build ios` codesign (default: --no-codesign).")
     return p
-
-
-def print_halide_pins():
-    print(f"Halide v{HALIDE_VERSION} @ {HALIDE_COMMIT}")
-    for (os_name, arch), (plat, ext) in sorted(HALIDE_PLATFORMS.items()):
-        pin = HALIDE_SHA256.get(plat)
-        print(f"  {os_name:<8} {arch:<8} Halide-{HALIDE_VERSION}-{plat}-{HALIDE_COMMIT}.{ext}")
-        print(f"           sha256 {pin if pin else 'MISSING - integrity unverified on this host'}")
-    print()
-    print("STATUS: trust-on-first-use, NOT an independently verified pin.")
-    print("  Read from the GitHub release API on 2026-08-22 - the same authority that serves")
-    print("  the bytes. Catches a future asset substitution; cannot catch one that predates")
-    print("  that date. Upstream publishes no .sha256/.asc/.sig asset to cross-check.")
-    print("  To turn these into a real pin: have someone else, on a different machine and")
-    print("  network, run `shasum -a 256 <asset>` and confirm the value, then record who")
-    print("  verified it and when beside the constant in this script.")
-    print("Re-read the server's view with:")
-    print("  curl -s https://api.github.com/repos/halide/Halide/releases/tags/v21.0.0")
 
 
 def main():
@@ -3270,10 +3245,6 @@ def main():
     # cwd dependency for every downstream consumer.
     if args.cfa_sample_dng:
         args.cfa_sample_dng = os.path.abspath(args.cfa_sample_dng)
-
-    if args.print_halide_pins:
-        print_halide_pins()
-        return
 
     print("=" * 62)
     print(" Halcyon build_apps.py - native + Flutter, one entry point")
@@ -3351,9 +3322,6 @@ def main():
 
     if COLOUR_GATE_SKIPPED:
         print(" EXIT 2: a native library was placed WITHOUT the runbook S4 colour gate.")
-        sys.exit(2)
-    if args.strict and WARNING_COUNT:
-        print(f" EXIT 2: --strict and {WARNING_COUNT} warning(s).")
         sys.exit(2)
 
 
