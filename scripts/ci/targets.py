@@ -78,7 +78,10 @@ TARGETS: dict = {
         # The pre-rewrite workflow ran it immediately before pod install
         # (the pre-rewrite ci.yml macOS job); the rewrite dropped it, which is
         # the 2026-08-31 round-1 macOS provision failure.
-        "provision": [["flutter", "pub", "get"], ["pod", "install"]],
+        "provision": [
+            {"argv": ["flutter", "pub", "get"], "cwd": None},
+            {"argv": ["pod", "install"], "cwd": "macos"},
+        ],
         "artifact_kind": "app_bundle",
         "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
         # macos/Runner/Configs/AppInfo.xcconfig — PRODUCT_NAME = Halcyon;
@@ -128,7 +131,10 @@ TARGETS: dict = {
         "build_flags": ["--macos-arch", "x86_64", "--fetch-native"],
         # Identical to the arm64 leg: same Podfile, same gitignored
         # Flutter-Generated.xcconfig that only `pub get` creates.
-        "provision": [["flutter", "pub", "get"], ["pod", "install"]],
+        "provision": [
+            {"argv": ["flutter", "pub", "get"], "cwd": None},
+            {"argv": ["pod", "install"], "cwd": "macos"},
+        ],
         "artifact_kind": "app_bundle",
         # Same output path as the arm64 build — the two never coexist on one
         # runner, because each CI/release matrix leg builds exactly one of them.
@@ -214,8 +220,8 @@ TARGETS: dict = {
         # §A3, S-A3).
         "build_flags": ["--fetch-native"],
         "provision": [
-            ["sudo", "apt-get", "update"],
-            ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],
+            {"argv": ["sudo", "apt-get", "update"], "cwd": None},
+            {"argv": ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"], "cwd": None},
         ],
         # The arch segment is host-dependent (build_apps.py flutter_artifact()), hence glob.
         "artifact_kind": "glob_dir",
@@ -323,6 +329,12 @@ def _validate():
             raise ValueError(
                 f"target {name!r}: missing keys {missing}, unexpected keys {extra}"
             )
+        for item in entry["provision"]:
+            if not isinstance(item, dict) or set(item) != {"argv", "cwd"}:
+                raise ValueError(
+                    f"target {name!r}: provision item {item!r} must be a dict with "
+                    "exactly the keys 'argv' and 'cwd' (cwd: repo-root-relative str or None)"
+                )
 
 
 _validate()
