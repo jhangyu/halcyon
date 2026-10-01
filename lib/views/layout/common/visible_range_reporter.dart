@@ -81,6 +81,36 @@ mixin VisibleRangeReporter<T extends StatefulWidget> on State<T> {
       );
     });
   }
+
+  String? _lastFollowedSelectedId;
+
+  /// The keyboard-navigation follow-scroll (G-046), structural: call once per
+  /// `build()`. Detects a selection change and schedules the shared
+  /// [ensureSelectedRowVisible] post-frame, using THIS mixin's geometry
+  /// getters -- so the follow-scroll and the visible-range report can never
+  /// disagree on columns or row extent.
+  ///
+  /// [_lastFollowedSelectedId] starts null, so a non-null initial selection
+  /// is followed on the first build. No-ops when the strip has no controller
+  /// or no uniform row extent (the horizontal mobile strip passes null);
+  /// opt-in, so strips that never call it are unchanged.
+  void followSelection() {
+    final strip = rangeStrip;
+    if (strip.selectedId == _lastFollowedSelectedId) return;
+    _lastFollowedSelectedId = strip.selectedId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = rangeScrollController;
+      final extent = rangeRowExtent;
+      if (controller == null || extent == null || extent <= 0) return;
+      ensureSelectedRowVisible(
+        controller: controller,
+        strip: rangeStrip,
+        columns: rangeColumns,
+        rowExtent: extent,
+      );
+    });
+  }
 }
 
 /// The resize re-anchor every filmstrip performs in `didUpdateWidget`.

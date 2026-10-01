@@ -108,7 +108,6 @@ class _DarkroomColumnState extends State<DarkroomColumn>
   /// every row's pixel position under a fixed scroll offset, which is the
   /// stale-offset flicker.
   final AnchoredScrollController _scrollController = AnchoredScrollController();
-  String? _lastSelectedId;
 
   int get _columns => darkroomGridColumnsForWidth(widget.width);
 
@@ -123,15 +122,6 @@ class _DarkroomColumnState extends State<DarkroomColumn>
 
   @override
   double? get rangeRowExtent => darkroomRowExtentForWidth(widget.width);
-
-  @override
-  void initState() {
-    super.initState();
-    _lastSelectedId = widget.surface.strip.selectedId;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _ensureSelectedVisible();
-    });
-  }
 
   @override
   void dispose() {
@@ -154,30 +144,12 @@ class _DarkroomColumnState extends State<DarkroomColumn>
     }
   }
 
-  // Keyboard navigation (or any other selection change) at a FIXED width
-  // never goes through `didUpdateWidget`'s width branch above, so it needs
-  // its own follow-scroll — this is the AC1 fix (see
-  // `common/visible_range_reporter.dart`'s `ensureSelectedRowVisible`).
-  void _ensureSelectedVisible() {
-    ensureSelectedRowVisible(
-      controller: _scrollController,
-      strip: widget.surface.strip,
-      columns: _columns,
-      rowExtent: darkroomRowExtentForWidth(widget.width),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final palette = DarkroomPalette.of(context);
     final strip = widget.surface.strip;
     final items = strip.items;
-    if (strip.selectedId != _lastSelectedId) {
-      _lastSelectedId = strip.selectedId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _ensureSelectedVisible();
-      });
-    }
+    followSelection();
 
     return Stack(
       key: const ValueKey<String>('darkroom-column'),
