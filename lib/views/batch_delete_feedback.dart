@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../models/status_message.dart';
+import '../services/library/photo_file_actions.dart' show BatchDeleteResult;
 
 /// Feedback for a finished batch delete.
 ///

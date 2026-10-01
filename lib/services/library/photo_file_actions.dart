@@ -44,6 +44,28 @@ class BatchFileOutcome {
   final bool bridgeUnavailable;
 }
 
+/// Outcome of a batch delete, returned to the view layer so feedback lives
+/// in the widgets rather than the provider. Failures are never swallowed.
+class BatchDeleteResult {
+  const BatchDeleteResult({
+    required this.recycled,
+    required this.movedCount,
+    required this.failures,
+    this.trashDirPath,
+    this.mixedDestination = false,
+  });
+
+  final bool recycled;
+  final int movedCount;
+  final List<String> failures;
+  final String? trashDirPath;
+
+  /// True when the batch began deleting through the system trash and only
+  /// finished in `.trash/` because the bridge went away mid-batch. Callers
+  /// must not report "moved to system trash" when this is true.
+  final bool mixedDestination;
+}
+
 class PhotoFileActions {
   PhotoFileActions({TrashFile? trashFile, MoveFile? moveFile})
     : _trashFile = trashFile ?? TrashService.trashFile,
