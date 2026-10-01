@@ -1244,20 +1244,19 @@ def macho_uuid_of(path):
     if shutil.which("dwarfdump") is None:
         return None
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             ["dwarfdump", "--uuid", str(path)],
             capture_output=True, text=True, check=False,
-        ).stdout
+        )
     except OSError:
         return None
-    # Expected line shape: "UUID: 328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA (arm64) <path>"
-    for line in out.splitlines():
-        line = line.strip()
-        if line.startswith("UUID:"):
-            parts = line.split()
-            if len(parts) >= 2:
-                return parts[1]
-    return None
+    # A nonzero exit disowns whatever UUID-shaped text it printed: never let the
+    # pin writer record an identifier dwarfdump itself failed to produce.
+    if proc.returncode != 0:
+        return None
+    from ci.binfmt import parse_dwarfdump_uuid  # lazy: --help must not need the ci package
+
+    return parse_dwarfdump_uuid(proc.stdout)
 
 
 def _skip_doc(name):

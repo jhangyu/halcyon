@@ -84,3 +84,20 @@ def pe_imports(data):
             cursor += stride
 
     return names(1, 20, 12), names(13, 32, 4)
+
+
+def parse_dwarfdump_uuid(stdout):
+    """First LC_UUID in `dwarfdump --uuid` output, or None.
+
+    Expected line shape: "UUID: 328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA (arm64) <path>".
+    A universal binary prints one line per slice; the FIRST is returned. The
+    single parser for both readers (assertions.py H-DECODER-HASH stage 3 and
+    build_apps.py's pin writer), so they cannot drift into two derivations of
+    the same identifier."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line.startswith("UUID:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                return parts[1]
+    return None

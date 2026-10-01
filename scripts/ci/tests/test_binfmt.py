@@ -136,5 +136,68 @@ class PeImportsTests(unittest.TestCase):
             binfmt.pe_imports(bytes(image))
 
 
+_ARM64_LINE = "UUID: 328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA (arm64) /x/libfoo.dylib"
+_X86_LINE = "UUID: 11111111-2222-3333-4444-555555555555 (x86_64) /x/libfoo.dylib"
+
+
+class DwarfdumpUuidParseTests(unittest.TestCase):
+    def test_single_arch_line(self):
+        self.assertEqual(binfmt.parse_dwarfdump_uuid(_ARM64_LINE + "\n"),
+                         "328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA")
+
+    def test_universal_binary_returns_the_first_slice(self):
+        self.assertEqual(binfmt.parse_dwarfdump_uuid(f"{_X86_LINE}\n{_ARM64_LINE}\n"),
+                         "11111111-2222-3333-4444-555555555555")
+
+    def test_no_uuid_is_none(self):
+        for stdout in ("", "garbage\n", "UUID:\n", "error: not a Mach-O file\n"):
+            with self.subTest(stdout=stdout):
+                self.assertIsNone(binfmt.parse_dwarfdump_uuid(stdout))
+
+    def test_both_readers_use_the_shared_parser(self):
+        import build_apps  # noqa: PLC0415
+        from ci import assertions  # noqa: PLC0415
+
+        for reader in (assertions._macho_uuid_of_file, build_apps.macho_uuid_of):
+            with self.subTest(reader=reader.__qualname__):
+                self.assertIn("parse_dwarfdump_uuid", reader.__code__.co_names)
+                self.assertNotIn("UUID:", reader.__code__.co_consts)
+
+
+class DwarfdumpReturnCodeTests(unittest.TestCase):
+    """Both readers return None when dwarfdump exits nonzero, even if it printed
+    a UUID-shaped line (canned output; no dwarfdump needed on the host)."""
+
+    def _completed(self, rc):
+        import subprocess  # noqa: PLC0415
+
+        return subprocess.CompletedProcess(["dwarfdump"], rc, stdout=_ARM64_LINE + "\n", stderr="")
+
+    def test_assertions_reader_nonzero_rc_is_none(self):
+        from unittest import mock  # noqa: PLC0415
+        from ci import assertions  # noqa: PLC0415
+
+        with mock.patch.object(assertions.shutil, "which", return_value="/usr/bin/dwarfdump"), \
+                mock.patch.object(assertions, "run", return_value=self._completed(1)):
+            self.assertIsNone(assertions._macho_uuid_of_file("/x/libfoo.dylib"))
+
+    def test_build_apps_reader_nonzero_rc_is_none(self):
+        from unittest import mock  # noqa: PLC0415
+        import build_apps  # noqa: PLC0415
+
+        with mock.patch.object(build_apps.shutil, "which", return_value="/usr/bin/dwarfdump"), \
+                mock.patch.object(build_apps.subprocess, "run", return_value=self._completed(1)):
+            self.assertIsNone(build_apps.macho_uuid_of("/x/libfoo.dylib"))
+
+    def test_build_apps_reader_zero_rc_returns_the_uuid(self):
+        from unittest import mock  # noqa: PLC0415
+        import build_apps  # noqa: PLC0415
+
+        with mock.patch.object(build_apps.shutil, "which", return_value="/usr/bin/dwarfdump"), \
+                mock.patch.object(build_apps.subprocess, "run", return_value=self._completed(0)):
+            self.assertEqual(build_apps.macho_uuid_of("/x/libfoo.dylib"),
+                             "328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA")
+
+
 if __name__ == "__main__":
     unittest.main()

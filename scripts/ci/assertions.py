@@ -534,21 +534,15 @@ def _assert_decoder_deps(ctx):
 def _macho_uuid_of_file(path):
     """The Mach-O LC_UUID of an on-disk file, or None if unreadable/absent.
 
-    Mirrors build_apps.py's macho_uuid_of (same `dwarfdump --uuid` instrument)
-    so the pin-writer and this reader can never drift into two different
-    ways of deriving the same identifier."""
+    Shares binfmt.parse_dwarfdump_uuid with build_apps.py's macho_uuid_of, and
+    both treat a nonzero dwarfdump exit as "no UUID", so the pin writer and this
+    reader cannot drift into two derivations of the same identifier."""
     if shutil.which("dwarfdump") is None:
         return None
     result = run(["dwarfdump", "--uuid", os.fspath(path)])
     if result.returncode != 0:
         return None
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("UUID:"):
-            parts = line.split()
-            if len(parts) >= 2:
-                return parts[1]
-    return None
+    return binfmt.parse_dwarfdump_uuid(result.stdout)
 
 
 def _assert_decoder_hash(ctx):
