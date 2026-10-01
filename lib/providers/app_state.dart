@@ -22,6 +22,7 @@ import '../services/image_pipeline/idle_publish_scheduler.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
+import '../services/image_pipeline/memory_ledger_snapshot.dart';
 import '../services/image_pipeline/payload_state.dart';
 import '../services/image_pipeline/photo_payload.dart';
 import '../services/image_pipeline/retention_policy.dart';

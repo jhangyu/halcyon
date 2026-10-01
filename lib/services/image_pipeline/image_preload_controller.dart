@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:ffi' show Finalizable;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
@@ -32,104 +30,13 @@ import 'stage_widths.dart';
 import 'decode_lane.dart';
 import 'deferred_full_size_encoder.dart';
 import 'lane_priority.dart';
+import 'memory_ledger_snapshot.dart';
+import 'native_jpeg_encode.dart';
 import 'encode_stage.dart';
 import 'inflight_bytes_budget.dart';
 import 'publication_pacer.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
-
-/// Production binding for [PayloadEncoder] (user ruling 2026-08-30, after the
-/// Task 0 STOP gate): pure-Dart `encodeJpegFromRgba` measured 4102ms median at
-/// q80, 8x over the 500ms lane-budget gate. This calls ceyx's native
-/// libjpeg-turbo encoder instead (in-process gate median 89ms). The pure-Dart
-/// encoder is UNCHANGED and remains the sidebar codec's encoder and the
-/// default test/seam binding -- only the controller's default wiring changes.
-Future<Uint8List> _encodeJpegNative(
-  Uint8List rgba, {
-  required int width,
-  required int height,
-  required int quality,
-}) {
-  return CeyxEncodeService().encodeJpegNative(
-    rgba,
-    width: width,
-    height: height,
-    quality: quality,
-  );
-}
-
-/// Production binding for [PointerPayloadEncoder] (R2b, gc-remediation
-/// 2026-09-06): the WP3/WP3b pointer entry, wired end-to-end so a
-/// native-backed identity-path decode skips the `TransferableTypedData.
-/// fromList` copy [_encodeJpegNative] pays. [keepAlive] arrives as `Object?`
-/// (the `PointerPayloadEncoder` typedef, `payload_reencoder.dart`, is
-/// decoder-package-agnostic by design -- E-WP3b); ceyx's entry point wants a
-/// `Finalizable` specifically.
-///
-/// AMENDED 2026-09-20 (all-RAW crash fix). This used to be a HARD cast, on the
-/// stated invariant that a non-zero `nativeAddress` always travelled with a
-/// `DngImage` handle. THAT INVARIANT NO LONGER HOLDS: the buffer under the
-/// address can be a pooled slot produced by `materialiseRgba` (which survives
-/// on the degrade and non-yuv420 arms), whose keep-alive is a
-/// `CeyxNativeBuffer` -- not `Finalizable`. The identity path no longer
-/// materialises at all (q70-decouple), so it never reaches here with one.
-/// A hard cast throws `TypeError` on every such frame, and because the
-/// pointer call sits inside `reencodePayload`'s try/degrade that throw would be
-/// SWALLOWED into a byte-arm fallback: the zero-copy path silently off, nothing
-/// red. Hence the `is` test.
-///
-/// Passing null for the pooled destination is safe, and not merely tolerable:
-/// a pooled slot's lifetime is governed by explicit release
-/// (`OrientedFullRes.releaseNative`), not by finalization, and the record that
-/// owns it is held by `PhotoSource.encodePhase` across this await -- so the
-/// slot is reachable for the whole encode. `Finalizable` is what the DngImage
-/// handle needs; the pool slot does not need it and cannot supply it.
-Future<Uint8List> _encodeJpegFromNativeRgba({
-  required int nativeAddress,
-  required int width,
-  required int height,
-  required int quality,
-  Object? keepAlive,
-}) {
-  return CeyxEncodeService().encodeJpegFromNativeRgba(
-    rgbaAddress: nativeAddress,
-    width: width,
-    height: height,
-    quality: quality,
-    keepAlive: keepAlive is Finalizable ? keepAlive : null,
-  );
-}
-
-/// Production binding for [PointerYuv420PayloadEncoder] (2026-09-20
-/// direct-yuv420-encode contract, Option D).
-///
-/// Same SOFT `is Finalizable` test as its rgba8 sibling above, and for the
-/// same reason: the planar frame's keep-alive is whatever the decoder handed
-/// back, which is a `CeyxNativeBuffer` for a pooled slot and NOT
-/// `Finalizable`. A hard cast would throw `TypeError`, and because the caller
-/// wraps this in a try/degrade that throw would be swallowed into the byte
-/// arm -- the zero-copy path silently off, nothing red. That exact defect
-/// already happened once on the rgba8 arm (see its dartdoc).
-///
-/// `CeyxFormatUnsupportedException` from a dylib predating the entry is NOT
-/// caught here: the caller degrades and logs it, so the reason survives.
-Future<Uint8List> _encodeJpegFromNativeYuv420({
-  required int nativeAddress,
-  required int srcCapacity,
-  required int width,
-  required int height,
-  required int quality,
-  Object? keepAlive,
-}) {
-  return CeyxEncodeService().encodeJpegFromNativeYuv420(
-    srcAddress: nativeAddress,
-    srcCapacity: srcCapacity,
-    width: width,
-    height: height,
-    quality: quality,
-    keepAlive: keepAlive is Finalizable ? keepAlive : null,
-  );
-}
 
 /// Shared tier-1 (window-resolution) provider factory. MUST be used by both
 /// the display widget and the precache path with the SAME [bytes] object
@@ -212,13 +119,13 @@ class ImagePreloadController {
     // `AppState.forTesting`, which this file does not own) is unaffected
     // until the composition root chooses to pass one.
     DngOrientingFullDecoder? orientingDngDecoder,
-    PayloadEncoder payloadEncoder = _encodeJpegNative,
-    PointerPayloadEncoder? pointerPayloadEncoder = _encodeJpegFromNativeRgba,
+    PayloadEncoder payloadEncoder = encodeJpegNative,
+    PointerPayloadEncoder? pointerPayloadEncoder = encodeJpegFromNativeRgba,
     // OPTION D. Defaulted like its rgba8 sibling, so production gets the
     // direct planar encode without any call site opting in; a test that wants
     // the pre-D behaviour passes null.
     PointerYuv420PayloadEncoder? pointerYuv420PayloadEncoder =
-        _encodeJpegFromNativeYuv420,
+        encodeJpegFromNativeYuv420,
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int decodeLaneWidth = 1,
     FrameHook? scheduleFrameCallback,
@@ -3199,75 +3106,4 @@ class _PendingIntent {
   List<PhotoItem>? thumbItems;
   int? thumbStartIdx;
   int? thumbEndIdx;
-}
-
-/// One coherent reading of every byte ledger `ImagePreloadController` owns,
-/// for the S3.0 memory-attribution capture (WP0.2).
-///
-/// A value object rather than loose getters so the capture cannot accidentally
-/// mix readings taken at different instants, and so the field set is a stable
-/// schema its consumer can parse against.
-///
-/// THE TRANSIENT TOTAL IS TWO NUMBERS, NOT ONE. Since S1.3 a frame past the
-/// decode->encode stage boundary is charged to [encodePublishTailBytes], not to
-/// [decodeInflightBytes]; anything that reports a single "in flight" figure
-/// silently under-counts the tail, which at wide lane settings is the larger of
-/// the two.
-class MemoryLedgerSnapshot {
-  const MemoryLedgerSnapshot({
-    required this.decodeInflightBytes,
-    required this.encodePublishTailBytes,
-    required this.retainedPayloadBytes,
-    required this.retainedPayloadByteBudget,
-    required this.decodeInflightByteBudget,
-    required this.payloadCachePixelEntryCount,
-    required this.payloadCachePixelByteTotal,
-    required this.payloadCacheEncodedByteTotal,
-  });
-
-  /// Bytes charged to decodes currently in flight (pre-decode nominal estimate
-  /// until the decode returns, real size afterwards).
-  final int decodeInflightBytes;
-
-  /// Bytes charged to frames that have left the decode lane and are still alive
-  /// through encode, publication pacing and the idle-publish wait. Always the
-  /// REAL frame size, never the nominal estimate.
-  final int encodePublishTailBytes;
-
-  /// LIVE retained payload bytes -- what the retention cache is actually
-  /// holding right now. Not to be confused with
-  /// [retainedPayloadByteBudget], which is only its ceiling.
-  final int retainedPayloadBytes;
-
-  /// The retention tier's payload ceiling.
-  final int retainedPayloadByteBudget;
-
-  /// The decode gate's ceiling, derived from the decode lane width.
-  final int decodeInflightByteBudget;
-
-  /// How many retained entries are still in the PIXEL form, and their cost.
-  ///
-  /// AC-1 of spec v2 is a claim about this number being zero in steady state.
-  /// It is part of the schema (not a loose getter) because the capture harness
-  /// parses the schema, and a per-kind number read at a different instant from
-  /// [retainedPayloadBytes] would describe a state the app was never in.
-  final int payloadCachePixelEntryCount;
-  final int payloadCachePixelByteTotal;
-
-  /// Retained bytes in the ENCODED form. Its sum with
-  /// [payloadCachePixelByteTotal] is [retainedPayloadBytes]; a fall in the
-  /// total accompanied by a fall in BOTH terms is items disappearing, not the
-  /// pixel->encoded shift this round expects (invariant I9).
-  final int payloadCacheEncodedByteTotal;
-
-  @override
-  String toString() =>
-      'MemoryLedgerSnapshot(decodeInflightBytes: $decodeInflightBytes, '
-      'encodePublishTailBytes: $encodePublishTailBytes, '
-      'retainedPayloadBytes: $retainedPayloadBytes, '
-      'retainedPayloadByteBudget: $retainedPayloadByteBudget, '
-      'decodeInflightByteBudget: $decodeInflightByteBudget, '
-      'payloadCachePixelEntryCount: $payloadCachePixelEntryCount, '
-      'payloadCachePixelByteTotal: $payloadCachePixelByteTotal, '
-      'payloadCacheEncodedByteTotal: $payloadCacheEncodedByteTotal)';
 }

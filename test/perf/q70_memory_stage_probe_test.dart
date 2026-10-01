@@ -132,7 +132,7 @@ void main() {
           track(decodeDngFullOriented(p, exifOrientation: exifOrientation)),
       deferredEncodeDecoder: () => dec,
       // Counting wrapper, byte-identical to the controller's private
-      // _encodeJpegFromNativeYuv420.
+      // encodeJpegFromNativeYuv420.
       pointerYuv420PayloadEncoder: ({
         required int nativeAddress,
         required int srcCapacity,
