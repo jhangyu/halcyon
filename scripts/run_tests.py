@@ -18,10 +18,9 @@ This script deliberately does NOT reimplement anything already in `scripts/ci/`:
                               produces a green report indistinguishable from a
                               full run)
 
-`scripts/ci.py verify` keeps its own monolithic `flutter test -j 1` step,
-because a CI runner has no foreground-timeout problem. This script is the
-canonical entry point for humans and agents on a laptop, and it is safe to point
-CI at it too (`python3 scripts/run_tests.py`).
+CI never runs this script (compile-only decree: CI builds and packages, it runs
+no functional tests); it is the canonical local entry point for humans and
+agents.
 
 USAGE
 -----

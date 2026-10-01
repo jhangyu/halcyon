@@ -186,9 +186,8 @@ def print_plan(repo_root: Path, target: str) -> int:
 def selftest(repo_root: Path) -> int:
     """Runs scripts/ci/tests/ in-process and returns 0/1.
 
-    These 21 cases existed for months with nothing executing them, and four of
-    them were red the whole time (2026-09-03 ROI audit). A test suite no job
-    runs is a suite that reports whatever it last happened to believe.
+    A suite no job runs reports whatever it last happened to believe
+    (2026-09-03 ROI audit) — hence selftest is a CI step.
 
     In-process, not a subprocess: the discovery is the same one a developer runs
     (`-s scripts/ci/tests -t scripts`), and there is no second interpreter whose

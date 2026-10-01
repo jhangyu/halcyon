@@ -9,6 +9,7 @@ the same command is runnable on a laptop. All logic lives in `scripts/ci/`:
     phases.py    provision / verify / build / package / release-preflight
     assertions.py the R-7 capability suite
     report.py    artifact logs + machine-checkable summary lines
+    release_gate.py auto-release gate: pubspec version -> tag existence -> release dispatch
 
 Frozen CLI surface (workflows depend on these exact strings):
 
@@ -69,7 +70,7 @@ def build_parser():
     p.add_argument("--target", help="target name (used with --print-plan)")
     sub = p.add_subparsers(dest="command")
     _add_target_command(sub, "provision", "run the target's provisioning steps")
-    sub.add_parser("verify", help="flutter pub get -> analyze -> test -j 1 (all three always run)")
+    sub.add_parser("verify", help="flutter pub get -> analyze (compile-only: CI runs no tests)")
     sub.add_parser("selftest", help="run scripts/ci/tests/ (argv rendering + policy lints)")
     b = _add_target_command(sub, "build", "delegate to scripts/build_apps.py")
     b.add_argument("--mode", default="release")
