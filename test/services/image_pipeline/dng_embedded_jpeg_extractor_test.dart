@@ -10,7 +10,7 @@ import '../../support/flaky_io.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 
 void main() {
-  group('dng_embedded_jpeg_extractor_test.dart', () {
+  group('dng embedded jpeg extractor', () {
       final sampleDir = sampleDngDir;
 
       // Perf note (test-speedup campaign, 2026-09-06): a handful of cases below
@@ -953,7 +953,7 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_endian_test.dart', () {
+  group('dng embedded jpeg extractor endian', () {
       const candidates = <SyntheticCandidate>[
         SyntheticCandidate(width: 400, height: 300),
         SyntheticCandidate(width: 1600, height: 1200),
@@ -1164,7 +1164,7 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_sony_ifd_chain_test.dart', () {
+  group('dng embedded jpeg extractor sony ifd chain', () {
       group('Sony-style IFD chain + JPEGInterchangeFormat (round-2 D4)', () {
         late Directory tmp;
 
@@ -1419,7 +1419,7 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_long_edge_selection_test.dart', () {
+  group('dng embedded jpeg extractor long edge selection', () {
       final sampleDir = sampleDngDir;
 
       // Kept in lockstep with the first group's list (kSamplePreviewDngs).
@@ -1813,7 +1813,7 @@ void main() {
 
   });
 
-  group('dng_extractor_transient_read_retry_test.dart', () {
+  group('dng extractor transient read retry', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       late Directory dir;
@@ -1946,10 +1946,10 @@ void main() {
 
   });
 
-  group('dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart', () {
+  group('dng embedded jpeg extractor buffer copy semantics', () {
       final sampleDir = sampleDngDir;
 
-      // Orientation 1 (per dng_embedded_jpeg_extractor_long_edge_selection_test.dart AC2), so the
+      // Orientation 1 (per the 'dng embedded jpeg extractor long edge selection' group, AC2), so the
       // returned bytes are exactly the `_MemorySource.read` slice with no
       // `_injectExifOrientation` rebuild in the way.
       const sampleName = kSamplePreviewDng;

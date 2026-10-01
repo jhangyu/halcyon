@@ -1,12 +1,13 @@
 // Merged (round 4 M2 consolidation) from:
-//   publication_pacer_test.dart
-//   idle_publish_scheduler_test.dart
-//   intent_coalescing_test.dart
-//   image_preload_pacer_test.dart
-// Each source file's tests are wrapped in a group() named after its basename
+//   'publication pacer' group
+//   'idle publish scheduler' group
+//   'intent coalescing' group
+//   'image preload pacer' group
+// Each source file's tests are wrapped in a group() named after its stem
 // to keep setUp/tearDown scoping and test names intact. Top-level helper name
 // collisions across files were resolved with a private `_<shortname>` suffix
 // (Rule 2); no test behavior was changed.
+// (Group names are the former file stems with underscores as spaces.)
 
 import 'dart:async';
 import 'dart:io';
@@ -26,7 +27,7 @@ import 'package:halcyon_flutter/services/image_pipeline/publication_pacer.dart';
 import '../../support/preload_fixtures.dart';
 
 // ---------------------------------------------------------------------------
-// Helpers from publication_pacer_test.dart
+// Helpers for the 'publication pacer' group
 // ---------------------------------------------------------------------------
 
 /// A fake frame clock: `arm` records the drain callback, `frame()` runs it.
@@ -44,7 +45,7 @@ class FakeFramesPublicationPacer {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from idle_publish_scheduler_test.dart
+// Helpers for the 'idle publish scheduler' group
 // ---------------------------------------------------------------------------
 
 /// Refuses every task below `Priority.animation`, exactly as
@@ -66,7 +67,7 @@ Future<void> pumpEventLoop([int rounds = 8]) async {
 const Duration kNeverFires = Duration(hours: 1);
 
 // ---------------------------------------------------------------------------
-// Helpers from intent_coalescing_test.dart
+// Helpers for the 'intent coalescing' group
 // ---------------------------------------------------------------------------
 
 void _microtaskFrame(void Function() callback) => callback();
@@ -79,7 +80,7 @@ ImagePreloadController _cheapController() => ImagePreloadController(
 );
 
 // ---------------------------------------------------------------------------
-// Helpers from image_preload_pacer_test.dart
+// Helpers for the 'image preload pacer' group
 // ---------------------------------------------------------------------------
 
 /// Collects the pacer's armed drains and runs them only when the test says so.
@@ -128,7 +129,7 @@ Future<void> pumpMicrotasks([int rounds = 24]) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('publication_pacer_test.dart', () {
+  group('publication pacer', () {
     // TC-835
     test('at most one publication per frame', () {
       final frames = FakeFramesPublicationPacer();
@@ -402,7 +403,7 @@ void main() {
     });
   });
 
-  group('idle_publish_scheduler_test.dart', () {
+  group('idle publish scheduler', () {
     // Deliverable 1 (docs/logs/2026-09-03/decode-jank-remediation-contract.md):
     // idle-priority scheduling for pacer publishes, with a safeguard so publishes
     // cannot stall indefinitely on an app that is animating.
@@ -600,7 +601,7 @@ void main() {
     });
   });
 
-  group('intent_coalescing_test.dart', () {
+  group('intent coalescing', () {
     // Phase 6 — intent coalescing at the scheduler entrance
     // (async-pipeline-refactor-plan.md §3 Phase 6).
     //
@@ -981,7 +982,7 @@ void main() {
     });
   });
 
-  group('image_preload_pacer_test.dart', () {
+  group('image preload pacer', () {
     // Plan Task 11 (S4): tier-1 ImageCache registration is paced into the frame.
     //
     // TC-835b / TC-836b / TC-837b

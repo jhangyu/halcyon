@@ -63,7 +63,7 @@ void main() {
     imageCache.clearLiveImages();
   });
 
-  group('payload_kind_test.dart', () {
+  group('payload kind', () {
     test(
       'TC-1226 a cache holding one payload of each kind reports the per-kind '
       'split and a total that still equals the sum',

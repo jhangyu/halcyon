@@ -30,7 +30,7 @@ import '../../support/temp_dirs.dart';
 
 /// Counts `open()` calls on files created inside an [IOOverrides] zone.
 ///
-/// Same instrument TC-090 uses in `photo_source_single_probe_test.dart`: only
+/// Same instrument TC-090 uses in the 'photo source single probe' group (photo_source_test.dart): only
 /// `open()` is implemented, so a probe that reaches the filesystem another way
 /// fails loudly instead of quietly under-counting.
 class _CountingFile implements File {
@@ -88,7 +88,7 @@ DecodedRgba _tinyPriority() {
 ///
 /// Plain test(), never testWidgets(), wherever a real `ui.decodeImageFromPixels`
 /// engine future is awaited -- it hangs forever inside testWidgets' FakeAsync
-/// zone (see raw_pixels_image_test.dart's header note).
+/// zone (see the 'raw pixels image' group's notes in decode_misc_test.dart).
 Future<NativeImageResult> _needsRawDecode(
   String path, {
   required ImageRequestPurpose purpose,
@@ -98,7 +98,7 @@ Future<NativeImageResult> _needsRawDecode(
 // Orientation 6 (not identity): forces decodedRgbaToPixelPayload /
 // decodedRgbaToOrientedFullRes past their identity short-circuit and into
 // the real `ui.decodeImageFromPixels` GPU pass this task instruments --
-// matching photo_source_fullres_handle_test.dart's TC-827b convention.
+// matching the 'photo source fullres handle' group's TC-827b (photo_source_test.dart) convention.
 Future<NativeImageResult> _needsRawDecodeRotated(
   String path, {
   required ImageRequestPurpose purpose,
@@ -107,7 +107,7 @@ Future<NativeImageResult> _needsRawDecodeRotated(
 
 DecodedRgba _decodedFixture() {
   // 8x6 opaque RGBA, matching the convention in
-  // photo_source_fullres_handle_test.dart.
+  // the 'photo source fullres handle' group (photo_source_test.dart).
   final bytes = Uint8List(8 * 6 * 4);
   for (var p = 0; p < 8 * 6; p++) {
     bytes[p * 4 + 3] = 255;
@@ -136,7 +136,7 @@ PixelPayload _pixels(int w, int h) =>
 
 Future<Uint8List> _bigPng() async {
   // Synthesize a >512KB encoded PNG, same recipe as
-  // sidebar_thumbnail_codec_test.dart's bigPng() -- no sample-file
+  // the 'sidebar thumbnail codec' group's bigPng() (sidebar_test.dart) -- no sample-file
   // dependency, forces sidebarCacheBytes' decode/re-encode branch.
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
@@ -152,7 +152,7 @@ Future<Uint8List> _bigPng() async {
 }
 
 void main() {
-  group('bitmap_container_probe_test.dart', () {
+  group('bitmap container probe', () {
     late Directory tmp;
 
     setUpAll(() {
@@ -258,7 +258,7 @@ void main() {
     });
   });
 
-  group('preview_floor_longedge_test.dart', () {
+  group('preview floor longedge', () {
     // F4 / AC6: ONE threshold answers "is the embedded preview big enough?".
     //
     // The routing verdict (`PhotoSource.probeSource`) compares the largest
@@ -371,7 +371,7 @@ void main() {
     });
   });
 
-  group('shared_display_quality_test.dart', () {
+  group('shared display quality', () {
     test('TC-438 the shared display quality constant is q70', () {
       expect(kDisplayJpegQuality, 70);
     });
@@ -393,7 +393,7 @@ void main() {
     });
   });
 
-  group('cost_memo_longedge_test.dart', () {
+  group('cost memo longedge', () {
     // F5 / AC7: the cost memo must not stay frozen against the BOOTSTRAP viewport.
     //
     // `_longEdge` answers `kDefaultPreviewLongEdge` (2800) until the viewport's
@@ -591,7 +591,7 @@ void main() {
     });
   });
 
-  group('lane_priority_test.dart', () {
+  group('lane priority', () {
     // Phase 4 — the unified lane priority function
     // (async-pipeline-refactor-plan.md §3 Phase 4, with contract override S4).
     //
@@ -1166,7 +1166,7 @@ void main() {
     });
   });
 
-  group('p0_perf_instrumentation_test.dart', () {
+  group('p0 perf instrumentation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     late Directory tmpDir;

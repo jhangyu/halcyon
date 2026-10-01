@@ -29,7 +29,7 @@ import '../../support/preload_fixtures.dart';
 /// `decoded.rgba` itself, but only as the transient `fullRes` record whose
 /// last use is the release site.
 void main() {
-  group('buffer_release_test.dart', () {
+  group('buffer release', () {
     /// A 4x4 OPAQUE RGBA frame, orientation 1 -- so the full-res path takes
     /// the identity short-circuit (the aliasing branch under test) and no
     /// `ui.Image` handle is created.

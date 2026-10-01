@@ -35,7 +35,7 @@ void _microtaskFrame(void Function() callback) => callback();
 /// completer and never observes completion.
 class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
 
-// --- absorbed from image_preload_controller_probe_first_navigation_test.dart ---
+// --- helpers for the 'image preload controller probe first navigation' group ---
 // In-suite translation of an earlier one-off scratch probe script. The
 // original probe's behavior remains the frozen spec this file was derived
 // from. This file applies the approved translation table from
@@ -44,7 +44,7 @@ class _NeverCompletingImageStreamCompleter extends ImageStreamCompleter {}
 //   debugDisposed                 -> payloadFor(x) == null
 //   decodedProviderFor(x) != null -> cache holds a payload for x
 
-// --- absorbed from image_preload_controller_dual_window_tier2_test.dart ---
+// --- helpers for the 'image preload controller dual window tier2' group ---
 // M5 dual-window RAW full-resolution tier-2 tests.
 //
 // Contract: docs/logs/2026-08-24/m5-dual-window-design.md, AC-M5-2..6, AC-M5-9.
@@ -91,7 +91,7 @@ Future<ui.Image> _decodeTinyImage() {
   return completer.future;
 }
 
-// --- absorbed from image_preload_controller_permanent_miss_test.dart ---
+// --- helpers for the 'image preload controller permanent miss' group ---
 // M4 (scheduling unification). Three acceptance conditions of the frozen
 // convergence contract `docs/logs/2026-08-24/m4-m6-convergence-contract.md`:
 //
@@ -105,7 +105,7 @@ Future<ui.Image> _decodeTinyImage() {
 //   AC3  the step-3b fallback failure path records a permanent miss, which is
 //        what keeps invariant T1 (no spinner-forever) true.
 
-// --- absorbed from image_preload_controller_cheap_on_serial_lane_test.dart ---
+// --- helpers for the 'image preload controller cheap on serial lane' group ---
 // TC-718 / TC-719 (registered in docs/sop/unit_test.md; renumbered twice --
 // provisional TC-550/551 collided with a parallel layout session, and the
 // replacement TC-651/652 collided with an untracked theme session holding
@@ -147,7 +147,7 @@ DecodedRgba _opaque2x2() => DecodedRgba(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('image_preload_controller_test.dart', () {
+  group('image preload controller', () {
     // Synchronise on the ACTUAL signal a piece of controller work produces,
     // never on a guessed number of event-loop turns or a fixed sleep. Reaching
     // most observable state here crosses at least one `await` (an async content
@@ -1768,7 +1768,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_probe_first_navigation_test.dart', () {
+  group('image preload controller probe first navigation', () {
     // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
     // debug-only identity short-circuit asserts sampled alpha is opaque.
     // Same repair as commits 253b89f / d43c2a1.
@@ -2287,7 +2287,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_dual_window_tier2_test.dart', () {
+  group('image preload controller dual window tier2', () {
     // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
     // debug-only identity short-circuit asserts sampled alpha is opaque,
     // because it returns STRAIGHT RGBA where the old readback path returned
@@ -2952,7 +2952,7 @@ void main() {
     );
   });
 
-  group('image_preload_controller_permanent_miss_test.dart', () {
+  group('image preload controller permanent miss', () {
     test('M4-AC1 a permanently failing sidebar thumbnail is requested EXACTLY ONCE '
         'across three preloadThumbnails sweeps', () async {
       // RE-WIRED 2026-08-30 (plan Task 6): the invariant is unchanged -- a row
@@ -3414,7 +3414,7 @@ void main() {
     );
   });
 
-  group('image_preload_controller_cheap_on_serial_lane_test.dart', () {
+  group('image preload controller cheap on serial lane', () {
     late Directory dir;
 
     setUp(() {

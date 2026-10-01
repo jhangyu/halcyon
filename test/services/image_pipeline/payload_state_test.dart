@@ -1,13 +1,14 @@
 // Merged (round 4 M2 consolidation) from:
 //   payload_state_test.dart (this file's own tests, base)
-//   payload_state_disposal_race_test.dart
-//   payload_state_eviction_race_test.dart
-//   photo_payload_cache_test.dart
-//   shared_payload_retention_test.dart
-// Each source file's tests are wrapped in a group() named after its basename
+//   'payload state disposal race' group
+//   'payload state eviction race' group
+//   'photo payload cache' group
+//   'shared payload retention' group
+// Each source file's tests are wrapped in a group() named after its stem
 // to keep setUp/tearDown scoping and test names intact. Top-level helper name
 // collisions across files were resolved with a private `_<shortname>` suffix
 // (Rule 2); no test behavior was changed.
+// (Group names are the former file stems with underscores as spaces.)
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -25,7 +26,7 @@ import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import '../../support/preload_fixtures.dart';
 
 // ---------------------------------------------------------------------------
-// Helpers from payload_state_test.dart (base file)
+// Helpers for the 'payload state' group (base file)
 // ---------------------------------------------------------------------------
 
 void _microtaskFrame(void Function() callback) => callback();
@@ -66,13 +67,13 @@ void expectPrefixOfLadder(List<PayloadStage> observed, {String? reason}) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from payload_state_disposal_race_test.dart
+// Helpers for the 'payload state disposal race' group
 // ---------------------------------------------------------------------------
 
 void _microtaskFrameDisposalRace(void Function() callback) => callback();
 
 // ---------------------------------------------------------------------------
-// Helpers from shared_payload_retention_test.dart
+// Helpers for the 'shared payload retention' group
 // ---------------------------------------------------------------------------
 
 Future<NativeImageResult> _bytesLoader(
@@ -99,7 +100,7 @@ Future<void> _pollUntil(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('payload_state_test.dart', () {
+  group('payload state', () {
     setUp(clearImageCacheSetUp);
 
     group('TC-985 stage ladder', () {
@@ -495,7 +496,7 @@ void main() {
     });
   });
 
-  group('payload_state_disposal_race_test.dart', () {
+  group('payload state disposal race', () {
     // Race B (P1, `docs/logs/2026-09-06/p3-plan-P1.md` Task 2): the sidebar's
     // wanted set is rewritten ONLY inside its 100ms debounce timer
     // (`sidebar_thumbnail_controller.dart:448-483`). A row built during that
@@ -649,7 +650,7 @@ void main() {
     );
   });
 
-  group('payload_state_eviction_race_test.dart', () {
+  group('payload state eviction race', () {
     // Without the binding, the controller's very first landing never completes
     // (and dispose() throws from _evictTierOneKeys reaching PaintingBinding),
     // so every assertion below would fail for a harness reason instead of the
@@ -795,7 +796,7 @@ void main() {
     );
   });
 
-  group('photo_payload_cache_test.dart', () {
+  group('photo payload cache', () {
     // Both kinds at exactly the same byteCost, so any difference in how the
     // cache treats them is a difference in KIND, never in size.
     const side = 64;
@@ -986,7 +987,7 @@ void main() {
     });
   });
 
-  group('shared_payload_retention_test.dart', () {
+  group('shared payload retention', () {
     // TC-427
     test(
       'retention is the union of the navigation window and the sidebar set',

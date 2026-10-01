@@ -79,7 +79,7 @@ void main() {
     imageCache.clearLiveImages();
   });
 
-  group('deferred_residency_test.dart', () {
+  group('deferred residency', () {
     test(
       'TC-1232 (AC-5 liveness) a slot whose INLINE encode failed acquires a '
       'full-size JPEG payload through the deferred path, carrying the '

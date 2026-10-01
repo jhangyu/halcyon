@@ -127,7 +127,7 @@ void main() {
       expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
       // Codec expansion (2026-08-30, Task 13): AVIF (via the existing libheif
       // arm) and JXL (a new arm) joined the bitmap-decode set --
-      // `full_decoder_dispatch_test.dart`'s "codec expansion: AVIF and JXL
+      // the 'full decoder dispatch' group's (decoded_rgba_test.dart) "codec expansion: AVIF and JXL
       // routing" group pins the routing itself.
       expect(SupportedPhotoFormats.bitmapDecodeExtensions,
           {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});

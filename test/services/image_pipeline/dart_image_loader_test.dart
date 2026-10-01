@@ -17,7 +17,7 @@ import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 
 void main() {
-  group('dart_image_loader_test.dart', () {
+  group('dart image loader', () {
       final sampleDir = sampleDngDir;
       List<File> dngs() => sampleDngFiles();
 
@@ -1171,7 +1171,7 @@ void main() {
       });
   });
 
-  group('dart_image_loader_no_method_channel_test.dart', () {
+  group('dart image loader no method channel', () {
       TestWidgetsFlutterBinding.ensureInitialized();
 
       late int channelCalls;

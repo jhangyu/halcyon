@@ -166,7 +166,7 @@ const _expected = <int, List<List<int>>>{
 /// 1.0, plus a downscale-arm shape/placement check.
 ///
 /// Marker fixture and `_expected` table borrowed verbatim from
-/// decoded_rgba_image_provider_test.dart (same file, same convention) so a
+/// the 'decoded rgba image provider' group (same file, same convention) so a
 /// wrong orientation cannot pass by shape alone -- 90CW/90CCW share a shape,
 /// mirrored/unmirrored share a shape, only per-pixel markers discriminate
 /// all 8 cases.
@@ -276,7 +276,7 @@ DecodedRgba _fakeDecoded({int width = 4, int height = 2}) {
 }
 
 void main() {
-  group('decoded_rgba_shortcircuit_test.dart', () {
+  group('decoded rgba shortcircuit', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-819 -- INVERTED by T6 (mem8 SR-2): the short-circuit still skips the
@@ -511,7 +511,7 @@ void main() {
     });
   });
 
-  group('decoded_rgba_composite_gate_test.dart', () {
+  group('decoded rgba composite gate', () {
     // Deliverable 2 (docs/logs/2026-09-03/decode-jank-remediation-contract.md):
     // EXIF-orientation compositing no longer runs immediately on decode-result
     // arrival; it waits for a pacing slot. TC-898 .. TC-901.
@@ -647,7 +647,7 @@ void main() {
     });
   });
 
-  group('decoded_rgba_image_provider_test.dart', () {
+  group('decoded rgba image provider', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     group('decodedRgbaToImage orientation (AC B3)', () {
@@ -871,7 +871,7 @@ void main() {
     });
   });
 
-  group('decoded_rgba_image_provider_orientation_test.dart', () {
+  group('decoded rgba image provider orientation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     group('TC-1002: OLD vs NEW shape, byte-equal at scale 1.0, all 8 orientations', () {
@@ -908,7 +908,7 @@ void main() {
     group('TC-1003: downscale arm (dimensions + corner placement, not byte-exactness)', () {
       // Same 2x3 marker layout, each marker inflated to a uniform 2x2 block so
       // a 0.5x downscale collapses each block back to one pixel of its own
-      // marker -- same recipe as decoded_rgba_image_provider_test.dart's
+      // marker -- same recipe as the 'decoded rgba image provider' group's
       // blockySource(), reused here rather than re-derived so a formula bug in
       // one file cannot rubber-stamp the same bug in the other.
       DecodedRgba blockySource() {
@@ -1003,7 +1003,7 @@ void main() {
     // silently dropped.
   });
 
-  group('full_decoder_dispatch_test.dart', () {
+  group('full decoder dispatch', () {
     late Directory tmp;
 
     setUpAll(() {
@@ -1305,7 +1305,7 @@ void main() {
     });
   });
 
-  group('decoded_rgba_residual_orientation_test.dart', () {
+  group('decoded rgba residual orientation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     /// A 2x3 opaque frame whose decoder already applied orientation
@@ -1405,7 +1405,7 @@ void main() {
     });
   });
 
-  group('exif_orientation_test.dart', () {
+  group('exif orientation', () {
     test('TC-213 exifTransformFor maps all eight EXIF values', () {
       expect(exifTransformFor(1), (quarterTurnsCw: 0, mirrored: false));
       expect(exifTransformFor(2), (quarterTurnsCw: 0, mirrored: true));

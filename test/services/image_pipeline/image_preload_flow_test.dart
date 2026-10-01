@@ -14,7 +14,7 @@ import '../../support/preload_fixtures.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-// --- from image_preload_window_test.dart ---
+// --- helpers for the 'image preload window' group ---
 // Precache-span guarantees (AC2, AC3) and the SERIAL LANE law (TC-098a..d).
 //
 // The spans under test:
@@ -76,7 +76,7 @@ bool controllerWindowFilled(
   return true;
 }
 
-// --- from image_preload_stage_overlap_test.dart ---
+// --- helpers for the 'image preload stage overlap' group ---
 // Plan Task 12 (S4): the stage-overlap guarantee and the bytes-in-flight bound.
 //
 // TC-841 / TC-842 / TC-839b
@@ -143,11 +143,11 @@ Future<void> pumpMicrotasks([int rounds = 40]) async {
   }
 }
 
-// --- from image_preload_controller_sequential_decode_retention_test.dart ---
+// --- helpers for the 'image preload controller sequential decode retention' group ---
 // Amendment-3 scheduling controls. This historical-lane file is committed on
 // top of untouched production 0e6407e so its RED is a genuine pre-fix result.
 
-// --- from image_preload_controller_folder_generation_test.dart ---
+// --- helpers for the 'image preload controller folder generation' group ---
 /// P2 folder gate. No FFI decode is cancellable, so `reset()` cannot stop an
 /// in-flight expensive load -- it can only clear the maps that load is about to
 /// write into. These cases pin what happens to the load that lands afterwards.
@@ -175,8 +175,8 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
   return byteData!.buffer.asUint8List();
 }
 
-// --- from image_preload_reset_tier_one_evict_test.dart ---
-// --- from image_preload_reencode_tier_two_test.dart ---
+// --- helpers for the 'image preload reset tier one evict' group ---
+// --- helpers for the 'image preload reencode tier two' group ---
 // Phase 13 (one-buffer payload re-encode) tier-2 rebuild tests.
 //
 // Contract: docs/logs/2026-08-30/plan-payload-reencode.md Task 4, TC-366/367.
@@ -188,7 +188,7 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
 // test discriminates: with re-encoding disabled the same navigation script
 // costs a second decode, exactly as it did before this phase.
 //
-// Modelled on image_preload_controller_dual_window_tier2_test.dart's fakes
+// Modelled on the 'image preload controller dual window tier2' group's fakes (image_preload_controller_test.dart)
 // and navigation helpers -- same fake loader/decoder shapes, no new harness.
 //
 // DEVIATION FROM THE PLAN'S LITERAL SCRIPT (documented per team-lead request):
@@ -237,7 +237,7 @@ Future<Uint8List> _encodeRealPngReencode(int width, int height) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('image_preload_window_test.dart', () {
+  group('image preload window', () {
     // Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
     // debug-only identity short-circuit asserts sampled alpha is opaque.
     // Same repair as commits 253b89f / d43c2a1.
@@ -891,7 +891,7 @@ void main() {
     });
   });
 
-  group('image_preload_stage_overlap_test.dart', () {
+  group('image preload stage overlap', () {
     // TC-841 / TC-842 -- the stage-overlap proof.
     //
     // DETERMINISTIC BY CONSTRUCTION, not by timing: the first encode parks on a
@@ -1056,7 +1056,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_sequential_decode_retention_test.dart', () {
+  group('image preload controller sequential decode retention', () {
     List<PhotoItem> items(int count) => List.generate(count, (index) {
       final id = 'IMG_${index.toString().padLeft(4, '0')}';
       return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
@@ -1268,7 +1268,7 @@ void main() {
     });
   });
 
-  group('image_preload_controller_folder_generation_test.dart', () {
+  group('image preload controller folder generation', () {
     List<PhotoItem> makeItems() => List.generate(14, (i) {
       final id = 'IMG_${i.toString().padLeft(4, '0')}';
       return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);
@@ -1571,7 +1571,7 @@ void main() {
     });
   });
 
-  group('image_preload_reset_tier_one_evict_test.dart', () {
+  group('image preload reset tier one evict', () {
     setUp(clearImageCacheSetUp);
 
     // TC-487 (I6 bytes-identity). AC-P2a review (docs/logs/2026-09-12/
@@ -1646,7 +1646,7 @@ void main() {
     });
   });
 
-  group('image_preload_reencode_tier_two_test.dart', () {
+  group('image preload reencode tier two', () {
     List<PhotoItem> rawItems(int count) => List.generate(count, (index) {
       final id = 'IMG_${index.toString().padLeft(4, '0')}';
       return PhotoItem(id: id, files: [File('/tmp/$id.dng')]);

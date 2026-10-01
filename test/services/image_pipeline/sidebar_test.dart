@@ -203,7 +203,7 @@ Future<({int width, int height})> _dimsOfDerivation(Uint8List encoded) async {
 }
 
 void main() {
-  group('sidebar_lane_production_test.dart', () {
+  group('sidebar lane production', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-434
@@ -434,7 +434,7 @@ void main() {
     });
   });
 
-  group('sidebar_shared_payload_test.dart', () {
+  group('sidebar shared payload', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-430
@@ -483,7 +483,7 @@ void main() {
       // Every row whose payload was already resident got a tile, and NONE of
       // them bought a second decode. (Rows outside the navigation window DO get
       // decoded by the sweep -- that is Task 7's "scrolling fills the payload
-      // cache" and is asserted in sidebar_lane_production_test.dart.)
+      // cache" and is asserted in the 'sidebar lane production' group.)
       for (var i = 0; i <= 5; i++) {
         expect(controller.thumbnailPayloadFor('p$i'), isNotNull, reason: 'tile p$i');
         expect(
@@ -592,7 +592,7 @@ void main() {
     });
   });
 
-  group('sidebar_pixel_thumbnail_test.dart', () {
+  group('sidebar pixel thumbnail', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     setUp(() {
@@ -603,8 +603,8 @@ void main() {
     // E-C1): both asserted that the SIDEBAR ran its own sized RAW decode and
     // stored the resulting PixelPayload. That producer is deleted -- the sidebar
     // derives every tile from the shared q70 payload now. Their replacements are
-    // TC-430/TC-431 in sidebar_shared_payload_test.dart (a tile appears, and one
-    // decode serves both tiers) and TC-434 in sidebar_lane_production_test.dart
+    // TC-430/TC-431 in the 'sidebar shared payload' group (a tile appears, and one
+    // decode serves both tiers) and TC-434 in the 'sidebar lane production' group
     // (a far row's payload is produced on the shared lane).
 
     test('TC-374 INV-MEM: the sidebar cache stays viewport-bound', () async {
@@ -673,7 +673,7 @@ void main() {
     });
   });
 
-  group('sidebar_priority_ordering_test.dart', () {
+  group('sidebar priority ordering', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-963 (AC1): every visible row's lane priority must strictly outrank
@@ -854,7 +854,7 @@ void main() {
     );
   });
 
-  group('sidebar_thumbnail_codec_test.dart', () {
+  group('sidebar thumbnail codec', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     Future<Uint8List> bigPng() async {
@@ -1019,7 +1019,7 @@ void main() {
     });
   });
 
-  group('thumbnail_derivation_test.dart', () {
+  group('thumbnail derivation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-424
@@ -1055,7 +1055,7 @@ void main() {
     });
   });
 
-  group('jpeg_encoder_pool_test.dart', () {
+  group('jpeg encoder pool', () {
     // Plan Task 6 (WP5): the sidebar used to spawn one `Isolate.run` per tile
     // encode (170 spawns/20.8s, allocation lens site #5). This group pins the
     // spawn-count bound (AC6.1), byte-identical output vs the pre-change

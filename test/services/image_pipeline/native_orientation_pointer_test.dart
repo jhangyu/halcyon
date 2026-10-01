@@ -53,7 +53,7 @@ void main() {
     }
   }
 
-  group('native_orientation_pointer_test.dart', () {
+  group('native orientation pointer', () {
     // AC-8.1 / AC-8.4: a fake orienting decoder reporting it already applied
     // the declared orientation (residual == identity) and handing back a
     // native-backed buffer must take the pointer encoder, never the byte

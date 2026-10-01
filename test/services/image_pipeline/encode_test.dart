@@ -16,7 +16,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import '../../support/preload_fixtures.dart' show until;
 
 void main() {
-  group('encode_stage_test.dart', () {
+  group('encode stage', () {
     test('runningCount never exceeds width', () async {
       final stage = EncodeStage(width: 2);
       final gates = List.generate(10, (_) => Completer<void>());
@@ -93,7 +93,7 @@ void main() {
     });
   });
 
-  group('image_preload_encode_stage_test.dart', () {
+  group('image preload encode stage', () {
     // Plan Task 10 (S4): the JPEG re-encode runs OFF the DecodeLane.
     //
     // TC-828 / TC-829 / TC-830 (docs/logs/2026-09-03/plan-decode-optimizations.md).
@@ -536,7 +536,7 @@ void main() {
     );
   });
 
-  group('jpeg_encoder_test.dart', () {
+  group('jpeg encoder', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-360
@@ -562,7 +562,7 @@ void main() {
     });
   });
 
-  group('payload_reencoder_test.dart', () {
+  group('payload reencoder', () {
     PixelPayload pixelsRe(int w, int h) =>
         PixelPayload(rgba: Uint8List(w * h * 4), width: w, height: h);
 
