@@ -13,6 +13,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 const _noop = _NoopVoidCallback();
 
@@ -27,35 +28,15 @@ MainSurface _surfaceFor({
   required PhotoStatus status,
   required bool recycleMode,
 }) {
-  return MainSurface(
-    viewport: const ColoredBox(
-      key: ValueKey<String>('gallery-test-viewport'),
-      color: Colors.red,
-    ),
-    statusOverlay: const SizedBox.shrink(),
-    strip: PhotoStripModel(
-      items: const [],
-      selectedId: null,
-      recycleMode: recycleMode,
-      onSelect: (_) {},
-      payloadFor: (_) => null,
-      onVisibleRange: (first, last) {},
-    ),
-    identity: PhotoIdentity(
-      displayName: 'IMG_0001.jpg',
-      indexInFolder: 1,
-      folderCount: 1,
-      status: status,
-      exif: null,
-    ),
-    actions: PhotoActions(
-      recycleMode: recycleMode,
-      onStar: _noop.call,
-      onTrash: _noop.call,
-      onToggleRecycleMode: _noop.call,
-      onOpenFolder: _noop.call,
-      menu: _emptyMenu,
-    ),
+  return testSurface(
+    viewport: const ColoredBox(key: ValueKey<String>('gallery-test-viewport'), color: Colors.red),
+    recycleMode: recycleMode,
+    identity: PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 1, folderCount: 1, status: status, exif: null),
+    onStar: _noop.call,
+    onTrash: _noop.call,
+    onToggleRecycleMode: _noop.call,
+    onOpenFolder: _noop.call,
+    menu: _emptyMenu,
   );
 }
 

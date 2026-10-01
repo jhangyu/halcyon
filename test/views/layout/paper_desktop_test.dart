@@ -17,27 +17,9 @@ import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
 import '../../support/view_fixtures.dart';
 
-MainSurface _emptySurface() => MainSurface(
-      viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-      statusOverlay: const SizedBox.shrink(),
-      strip: PhotoStripModel(
-        items: const [],
-        selectedId: null,
-        recycleMode: false,
-        onSelect: (_) {},
-        payloadFor: (_) => null,
-        onVisibleRange: (_, __) {},
-      ),
-      identity: null,
-      actions: PhotoActions(
-        recycleMode: false,
-        onStar: () {},
-        onTrash: () {},
-        onToggleRecycleMode: () {},
-        onOpenFolder: () {},
-        menu: const SizedBox.shrink(),
-      ),
-    );
+MainSurface _emptySurface() => testSurface(
+  viewport: kRedViewport,
+);
 
 const PhotoIdentity _identity = PhotoIdentity(
   displayName: 'DSCF4417.RAF',
@@ -50,30 +32,13 @@ const PhotoIdentity _identity = PhotoIdentity(
 /// A surface with [count] items and a caption-bearing identity — the fixture
 /// the layout gates need (an empty surface renders a zero-size ExifCaption,
 /// which would make a disjointness assertion pass for free).
-MainSurface _loadedSurface(int count) => MainSurface(
-      viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-      statusOverlay: const SizedBox.shrink(),
-      strip: PhotoStripModel(
-        items: [
-          for (var i = 0; i < count; i++)
-            PhotoItem(id: 'p$i', files: [File('src/p$i.jpg')]),
-        ],
-        selectedId: 'p0',
-        recycleMode: false,
-        onSelect: (_) {},
-        payloadFor: (_) => tinyPixelPayload(),
-        onVisibleRange: (_, __) {},
-      ),
-      identity: _identity,
-      actions: PhotoActions(
-        recycleMode: false,
-        onStar: () {},
-        onTrash: () {},
-        onToggleRecycleMode: () {},
-        onOpenFolder: () {},
-        menu: const SizedBox.shrink(),
-      ),
-    );
+MainSurface _loadedSurface(int count) => testSurface(
+  viewport: kRedViewport,
+  items: [for (var i = 0; i < count; i++) PhotoItem(id: 'p$i', files: [File('src/p$i.jpg')])],
+  selectedId: 'p0',
+  payloadFor: (_) => tinyPixelPayload(),
+  identity: _identity,
+);
 
 /// Asserts the painted strip, the preview and the caption occupy disjoint
 /// horizontal regions. Touching edges are allowed; overlap is not.
