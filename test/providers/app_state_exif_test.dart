@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/preload_fixtures.dart' show until;
 import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
@@ -55,6 +56,7 @@ void main() {
       final state = _state(
         dir: dir,
         ids: const ['P1', 'P2'],
+        exifDebounce: const Duration(milliseconds: 10),
         exifReader: (paths, {onProgress}) {
           callPaths.addAll(paths);
           return gate.future;
@@ -71,9 +73,7 @@ void main() {
 
       // Quiet for past the debounce: the reader is invoked for P1 and parks
       // on the gate.
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.isNotEmpty, reason: 'the P1 read to start');
       expect(callPaths, [p.join(dir.path, 'P1.jpg')]);
       expect(state.currentExif, isNull, reason: 'reader result still in flight');
 
@@ -117,9 +117,7 @@ void main() {
       state.selectItem('P4');
       state.selectItem('P5');
 
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => state.currentExif != null, reason: 'the P5 read to land');
 
       expect(callPaths, hasLength(1), reason: 'passed-through photos are not read');
       expect(callPaths, [p.join(dir.path, 'P5.jpg')]);
@@ -152,9 +150,7 @@ void main() {
 
       await pumpEventQueue();
       await state.loadFolder(dir); // selects P1, schedules P1 read
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.length == 1, reason: 'the P1 read to start');
       expect(callPaths, [p.join(dir.path, 'P1.jpg')]);
 
       // Move on to P2: bumps the generation and reschedules; P1's parked read
@@ -173,9 +169,7 @@ void main() {
 
       // P2's own read then lands normally and is the only thing currentExif
       // reflects.
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.length == 2, reason: 'the P2 read to start');
       expect(callPaths, hasLength(2));
       gates[p.join(dir.path, 'P2.jpg')]!.complete([p2Meta]);
       await pumpEventQueue();
@@ -194,6 +188,7 @@ void main() {
       final state = _state(
         dir: dir,
         ids: const ['A', 'B'],
+        exifDebounce: const Duration(milliseconds: 10),
         exifReader: (paths, {onProgress}) async {
           callPaths.addAll(paths);
           final day = paths.single.endsWith('A.jpg') ? 1 : 2;
@@ -204,24 +199,27 @@ void main() {
 
       await pumpEventQueue();
       await state.loadFolder(dir); // selects A, reads it after quiet
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
+      await until(
+        () => callPaths.length == 1 && state.currentExif != null,
+        reason: 'the A read to land',
       );
       expect(callPaths, hasLength(1));
       expect(state.currentExif!.captureDate, DateTime(2026, 1, 1));
 
       state.selectItem('B');
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
+      await until(
+        () =>
+            callPaths.length == 2 &&
+            state.currentExif?.captureDate == DateTime(2026, 1, 2),
+        reason: 'the B read to land',
       );
       expect(callPaths, hasLength(2), reason: 'B is a first visit');
       expect(state.currentExif!.captureDate, DateTime(2026, 1, 2));
 
       // Back to A: cached, so no new read, and the cache answers immediately.
       state.selectItem('A');
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      // Absence window (D5): 20x the injected 10ms debounce.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
       expect(callPaths, hasLength(2),
           reason: 'revisiting an already-read photo must not re-read');
       expect(state.selectedItemID, 'A');
@@ -280,6 +278,7 @@ AppState _state({
     void Function(int done, int total)? onProgress,
   })
   exifReader,
+  Duration exifDebounce = kSelectionExifDebounce,
 }) {
   return AppState(
     scanner: _FixedScanner(_exifItems(dir, ids)),
@@ -287,6 +286,7 @@ AppState _state({
         NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
     preloadController: _SilentPreload(),
     exifReader: exifReader,
+    exifDebounce: exifDebounce,
   );
 }
 

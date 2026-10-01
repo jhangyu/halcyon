@@ -49,6 +49,7 @@ void main() {
           if (path.contains('IMG_0002')) await landingGate.future;
           return NativeImageBytes(Uint8List.fromList(tinyPngBytes));
         },
+        exifDebounce: const Duration(milliseconds: 10),
       );
       addTearDown(state.dispose);
       // A gate that is never released would hang the run at the `until`
@@ -77,8 +78,8 @@ void main() {
       state.selectItem('IMG_0002');
 
       // Wait for every unrelated whole-app notify source to go quiet before
-      // arming. The quiet period must exceed kSelectionExifDebounce (250ms),
-      // which `selectItem` above has just armed; the loop also covers the
+      // arming. The quiet period must exceed the injected 10ms EXIF debounce
+      // (100ms = 10x), which `selectItem` above has just armed; the loop also covers the
       // startup hydration notifies, whose latency is unbounded under load.
       var lastNotifyAt = DateTime.now();
       void settleWatcher() => lastNotifyAt = DateTime.now();
@@ -86,7 +87,7 @@ void main() {
       await until(
         () =>
             DateTime.now().difference(lastNotifyAt) >
-            const Duration(milliseconds: 600),
+            const Duration(milliseconds: 100),
         reason: 'unrelated whole-app notifies (selection EXIF, prefs '
             'hydration, capability probe) to go quiet before arming',
       );
