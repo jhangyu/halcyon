@@ -8,6 +8,7 @@ import '../../support/sample_photos.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/flaky_io.dart';
 import 'package:flutter/foundation.dart' show listEquals;
+import '../../support/temp_dirs.dart';
 
 void main() {
   group('dng embedded jpeg extractor', () {
@@ -210,10 +211,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_orientation_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_orientation_');
         });
 
         // raw tag value -> what every orientation read in the file must report.
@@ -282,10 +280,7 @@ void main() {
           late String path;
 
           setUp(() async {
-            tmp = await Directory.systemTemp.createTemp('halcyon_minlongedge_');
-            addTearDown(() async {
-              if (await tmp.exists()) await tmp.delete(recursive: true);
-            });
+            tmp = await makeTempDir('halcyon_minlongedge_');
             path = await writeSyntheticDng(
               buildSyntheticDng(
                 candidates: const [SyntheticCandidate(width: 160, height: 120)],
@@ -403,10 +398,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_panasonic_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_panasonic_');
         });
 
         Future<String> write(Uint8List bytes, String name) =>
@@ -813,10 +805,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_known_strip_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_known_strip_');
         });
 
         test(
@@ -963,10 +952,7 @@ void main() {
       late Directory tmp;
 
       setUp(() async {
-        tmp = await Directory.systemTemp.createTemp('halcyon_endian_');
-        addTearDown(() async {
-          if (await tmp.exists()) await tmp.delete(recursive: true);
-        });
+        tmp = await makeTempDir('halcyon_endian_');
       });
 
       // Perf note (test-speedup campaign, 2026-09-06): every call to writePair()
@@ -1001,13 +987,10 @@ void main() {
       }
 
       setUpAll(() async {
-        sharedTmp = await Directory.systemTemp.createTemp('halcyon_endian_shared_');
+        sharedTmp = await makeTempDir('halcyon_endian_shared_');
         sharedPair = await buildPair(sharedTmp);
       });
 
-      tearDownAll(() async {
-        if (await sharedTmp.exists()) await sharedTmp.delete(recursive: true);
-      });
 
       Future<({String little, String big})> writePair() async => sharedPair;
 
@@ -1169,10 +1152,7 @@ void main() {
         late Directory tmp;
 
         setUp(() async {
-          tmp = await Directory.systemTemp.createTemp('halcyon_sony_chain_');
-          addTearDown(() async {
-            if (await tmp.exists()) await tmp.delete(recursive: true);
-          });
+          tmp = await makeTempDir('halcyon_sony_chain_');
         });
 
         Future<String> write(Uint8List bytes, String name) async {
@@ -1819,12 +1799,9 @@ void main() {
       late Directory dir;
 
       setUp(() async {
-        dir = await Directory.systemTemp.createTemp('tc540_');
+        dir = await makeTempDir('tc540_');
       });
 
-      tearDown(() async {
-        if (dir.existsSync()) await dir.delete(recursive: true);
-      });
 
       // A container that DOES carry a preview clearing the frozen 2800 floor:
       // without an injected fault every assertion below must find it.

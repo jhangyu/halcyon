@@ -5,18 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/library/photo_status_store.dart';
 import 'package:path/path.dart' as p;
+import '../../support/temp_dirs.dart';
 
 void main() {
   late Directory tempDir;
   final store = PhotoStatusStore();
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('halcyon_status_test_');
+    tempDir = await makeTempDir('halcyon_status_test_');
   });
 
-  tearDown(() async {
-    if (await tempDir.exists()) await tempDir.delete(recursive: true);
-  });
 
   Future<Map<String, dynamic>> readJson() async {
     final file = store.statusFileFor(tempDir);

@@ -23,6 +23,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../support/preload_fixtures.dart';
 import '../../support/loader_stubs.dart';
 import '../../support/rgba_fixtures.dart';
+import '../../support/temp_dirs.dart';
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
 /// a real debounce/async-drain still gets its full budget if it needs it, but
@@ -83,31 +84,11 @@ Future<NativeImageResult> _alwaysFailLoaderPixel(
 }
 
 Future<Directory> _tempDirWithPixel(List<String> names) async {
-  final dir = await Directory.systemTemp.createTemp('halcyon_sidebar_pixels_');
+  final dir = await makeTempDir('halcyon_sidebar_pixels_');
   for (final name in names) {
     await File(p.join(dir.path, name)).writeAsBytes([1, 2, 3]);
   }
   return dir;
-}
-
-/// TC-374's temp-dir teardown (errno-32 on Windows): each test already gets
-/// its OWN uniquely-suffixed dir from `createTemp`, so this is not a shared
-/// path -- but a transient handle (AV scanner, a still-draining async decode
-/// holding the file open a beat longer under load) can still make a single
-/// `delete(recursive: true)` fail. Retry a few times with a short backoff and
-/// only then give up, so cleanup never fails the test itself.
-Future<void> _deleteDirTolerant(Directory dir) async {
-  for (var attempt = 0; attempt < 5; attempt++) {
-    try {
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-      return;
-    } on FileSystemException {
-      if (attempt == 4) return; // best-effort cleanup, not a test assertion
-      await Future<void>.delayed(Duration(milliseconds: 50 * (attempt + 1)));
-    }
-  }
 }
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
@@ -597,7 +578,6 @@ void main() {
     test('TC-374 INV-MEM: the sidebar cache stays viewport-bound', () async {
       final names = [for (var i = 0; i < 200; i++) 'f${i.toString().padLeft(3, "0")}.dng'];
       final dir = await _tempDirWithPixel(names);
-      addTearDown(() => _deleteDirTolerant(dir));
 
       final controller = ImagePreloadController(
         imageLoader: _alwaysFailLoaderPixel,
@@ -636,7 +616,6 @@ void main() {
     test('TC-378 a stale generation writes nothing into the sidebar cache',
         () async {
       final dir = await _tempDirWithPixel(['c.dng']);
-      addTearDown(() => _deleteDirTolerant(dir));
 
       final gate = Completer<void>();
       final entered = Completer<void>();

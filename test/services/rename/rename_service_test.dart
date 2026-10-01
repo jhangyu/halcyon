@@ -6,6 +6,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:halcyon_flutter/services/rename/rename_service.dart';
 import 'package:path/path.dart' as p;
+import '../../support/temp_dirs.dart';
 
 void main() {
   const dir = '/photos';
@@ -116,12 +117,9 @@ void main() {
     late Directory tempDir;
 
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_test_');
+      tempDir = await makeTempDir('halcyon_rename_test_');
     });
 
-    tearDown(() async {
-      if (await tempDir.exists()) await tempDir.delete(recursive: true);
-    });
 
     Future<File> touch(String name) async {
       final f = File(p.join(tempDir.path, name));
@@ -433,12 +431,9 @@ void main() {
     late Directory tempDir;
 
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_verify_');
+      tempDir = await makeTempDir('halcyon_rename_verify_');
     });
 
-    tearDown(() async {
-      if (await tempDir.exists()) await tempDir.delete(recursive: true);
-    });
 
     test('TC-722 a rename that lands on disk but reports a transient error is '
         'recorded as applied, so its marks are remapped', () async {
@@ -550,12 +545,9 @@ void main() {
     late Directory tempDir;
 
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('halcyon_rename_guard_');
+      tempDir = await makeTempDir('halcyon_rename_guard_');
     });
 
-    tearDown(() async {
-      if (await tempDir.exists()) await tempDir.delete(recursive: true);
-    });
 
     // Byte-distinct on purpose: precomposed U+00E9 vs `e` + combining acute
     // U+0301. If these two literals ever become identical the tests below
