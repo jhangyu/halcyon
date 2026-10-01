@@ -1219,63 +1219,18 @@ class AppState extends ChangeNotifier {
 
   Future<BatchDeleteResult> deleteTrashed() async {
     final dir = _currentDir;
-    final intendedRecycle = _recycleMode;
-    // The branch actually taken below depends on both the intent flag AND
-    // `dir != null`; feedback (recycled field) must reflect that actual
-    // branch, not just the intent flag, or it can claim recycling happened
-    // when the fallback direct-delete branch ran instead.
-    final tookRecycleBranch = intendedRecycle && dir != null;
-
-    var movedCount = 0;
-    final failures = <String>[];
-    String? trashDirPath;
-    var recycledResult = tookRecycleBranch;
-    var mixed = false;
-
-    try {
-      if (tookRecycleBranch) {
-        trashDirPath = p.join(dir.path, '.trash');
-        final outcome = await _fileActions.recycleTrashed(_items, dir);
-        movedCount = outcome.movedCount;
-        failures.addAll(outcome.failures);
-      } else {
-        final outcome = await _fileActions.deleteTrashed(_items);
-        failures.addAll(outcome.failures);
-        if (outcome.bridgeUnavailable) {
-          _bridgeUnavailableLatched = true;
-          if (dir != null) {
-            // Finish the batch where it CAN land. Files already in the
-            // system trash stay there; both destinations are recoverable,
-            // but the result must not claim a single destination (S2.4).
-            trashDirPath = p.join(dir.path, '.trash');
-            final fallback = await _fileActions.recycleTrashed(_items, dir);
-            movedCount = fallback.movedCount;
-            failures.addAll(fallback.failures);
-            recycledResult = true;
-            mixed = outcome.processedCount > 0;
-          } else {
-            // No folder in view: nowhere to recycle to. Report as before.
-            failures.add('Trash service is unavailable');
-          }
-        }
-      }
-    } catch (e) {
-      // Previously this only debugPrint()ed, so a card where the system trash
-      // is unavailable looked like a broken app. Report it instead.
-      failures.add('$e');
-    }
-
+    final out = await _fileActions.deleteBatch(
+      _items,
+      dir,
+      recycleMode: _recycleMode,
+    );
+    // Process-lifetime UI policy (read by loadFolder's recycle heuristic):
+    // the service reports the fact, the provider owns the latch.
+    if (out.bridgeUnavailable) _bridgeUnavailableLatched = true;
     if (dir != null) {
       await _reloadPreservingSelection(dir);
     }
-
-    return BatchDeleteResult(
-      recycled: recycledResult,
-      movedCount: movedCount,
-      failures: failures,
-      trashDirPath: trashDirPath,
-      mixedDestination: mixed,
-    );
+    return out.result;
   }
 
   Future<String?> loadSavedRenameRule() =>
