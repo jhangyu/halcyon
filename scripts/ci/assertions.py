@@ -12,13 +12,13 @@ them, 2026-08-30):
     the five, and ``run_suite()`` calls it first, so an under-specified
     assertion can never run.
   * The instrument must test the capability, not a proxy for it. The
-    sized-symbol assertion is a functional FFI probe (``DynamicLibrary.open`` +
-    ``lookup``) because that is the question the loader answers at runtime on
-    every platform. The ``nm``/``dumpbin`` symbol-table instrument is kept only
-    as the secondary record ``H-SIZED-SYMBOL-NM``, and is NOT ``valid_on``
-    windows: PE exports nothing by default, so on Windows the symbol table
-    measures a build-system setting rather than reachability (OQ-1 ruling c,
-    PL-9).
+    entry-point assertion ``H-CEYX-SYMBOLS`` is a functional FFI probe
+    (``DynamicLibrary.open`` + ``lookup``) because that is the question the
+    loader answers at runtime on every platform. The ``nm``/``dumpbin``
+    symbol-table instrument is kept only as the secondary record
+    ``H-CEYX-SYMBOLS-NM``, and is NOT ``valid_on`` windows: PE exports nothing
+    by default, so on Windows the symbol table measures a build-system setting
+    rather than reachability (OQ-1 ruling c, PL-9).
   * A silently skipped gate produces a green report indistinguishable from a
     full run (2026-08-25). So: a skip for an artefact on its OWN platform is a
     FAILURE, every legitimate skip prints exactly one ``SKIP:`` line, and the
@@ -56,23 +56,17 @@ from .run import run
 SYMBOL = "ceyx_decode_into_buffer_oriented"
 
 # 2026-09-08 (ceyx v0.1.19 re-pin): SYMBOL used to be
-# "dng_decode_and_process_sized". Upstream DELETED that entry point in ceyx
-# 53d61d1 (decode-pool retirement), so the single-symbol record was measuring a
-# name that no longer exists and every capability leg went red. It now points at
+# "dng_decode_and_process_sized"; upstream DELETED that entry point in ceyx
+# 53d61d1 (decode-pool retirement). It now names
 # ceyx_decode_into_buffer_oriented — upstream's own replacement positive control
 # (ceyx 364b962): always compiled, always CEYX_FFI_EXPORT'd, hence valid on PE
-# too. The assertion IDS are deliberately unchanged (H-SIZED-SYMBOL / -NM):
-# they are stable identifiers referenced by scripts/ci/targets.py and by the
-# archived red-state artefacts, and renaming them would invalidate that record
-# without measuring anything new.
+# too. It is CEYX_SYMBOLS[0] and ffi_probe.dart's default symbol.
 #
-# The full entry-point set the Dart side looks up in the shipped decoder. SYMBOL
-# above is the single-symbol record (H-SIZED-SYMBOL / -NM); this tuple is what
-# H-CEYX-SYMBOLS-NM checks, and it includes SYMBOL so that assertion is a strict
-# superset rather than a parallel truth. Verified present in the v0.1.19 shipped
-# dylib on 2026-09-08 (`nm -gU` dumped to a file, then matched — see
-# docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt: all three listed, and neither
-# dng_decode_and_process nor …_sized survives).
+# The full entry-point set the Dart side looks up in the shipped decoder; this
+# tuple is what H-CEYX-SYMBOLS and H-CEYX-SYMBOLS-NM check. Verified present in
+# the v0.1.19 shipped dylib on 2026-09-08 (`nm -gU` dumped to a file, then
+# matched — see docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt: all three
+# listed, and neither dng_decode_and_process nor …_sized survives).
 # NOTE the leading-underscore convention: Mach-O prefixes C symbols with "_", so
 # nm prints "_ceyx_probe_output_size". check_symbol() does a substring match, so
 # the undecorated spelling below matches on both Mach-O and ELF.
@@ -258,58 +252,6 @@ SUITE = {
             "file's LC_UUID == the pin's uuid field"
         ),
     ),
-    "H-SIZED-SYMBOL": Assertion(
-        id="H-SIZED-SYMBOL",
-        measures=(
-            f"{SYMBOL} is REACHABLE at runtime in the shipped decoder — the "
-            "loader resolves it, not merely a symbol table listing it"
-        ),
-        valid_on=("macos", "linux", "windows"),
-        why_valid=(
-            "scripts/ci/probe/ffi_probe.dart performs DynamicLibrary.open + "
-            "lookup, i.e. it asks the platform loader the same question the app "
-            "asks. This is capability, not proxy, and it is format-agnostic — "
-            "which is exactly why it, and not nm/dumpbin, is valid on Windows "
-            "(OQ-1 ruling c). It can only run where the library is loadable, so "
-            "it applies on the artefact's own platform; on a foreign host it "
-            "reports a SKIP with that reason rather than a false pass."
-        ),
-        red_state=(
-            "point the probe at a nonexistent path or a library built without "
-            "the symbol: PROBE-FAIL on stderr and exit 1 (demonstrated: "
-            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt; re-demonstrated "
-            "for the v0.1.19 symbol rename in "
-            "docs/logs/2026-09-08/red-probe-bogus-symbol.txt, green control in "
-            "docs/logs/2026-09-08/green-probe-oriented.txt)"
-        ),
-        expected="probe exits 0 printing PROBE-OK",
-    ),
-    "H-SIZED-SYMBOL-NM": Assertion(
-        id="H-SIZED-SYMBOL-NM",
-        measures=(
-            f"{SYMBOL} appears in the decoder's dynamic symbol table "
-            "(secondary cross-check of H-SIZED-SYMBOL)"
-        ),
-        valid_on=("macos", "linux"),
-        why_valid=(
-            "On Mach-O and ELF, default symbol visibility is permissive: a "
-            "symbol listed by nm really is resolvable by dlsym, so the table "
-            "agrees with the runtime. WINDOWS IS DELIBERATELY EXCLUDED from "
-            "valid_on: PE exports nothing unless the build declares it, so "
-            "dumpbin /exports measures a build-system setting, not runtime "
-            "reachability — ceyx spent two rounds forcing a healthy artefact to "
-            "satisfy that instrument (2026-08-30). Windows may only be "
-            "re-included after its red state is demonstrated on a real Windows "
-            "runner (PL-9). nm's output is captured to a str and matched in "
-            "Python, never piped to grep (G-3: `nm | grep -q` returns 141 under "
-            "pipefail when the symbol IS found)."
-        ),
-        red_state=(
-            "run against a library built without the symbol, or strip it: nm's "
-            "captured output does not contain the symbol and the assertion fails"
-        ),
-        expected=f"'{SYMBOL}' occurs in the captured nm output",
-    ),
     "H-DECODER-ARCH": Assertion(
         id="H-DECODER-ARCH",
         measures=(
@@ -349,17 +291,20 @@ SUITE = {
         ),
         valid_on=("macos", "linux"),
         why_valid=(
-            "Same instrument and same validity argument as H-SIZED-SYMBOL-NM "
-            "(Mach-O/ELF default visibility means a listed symbol really is "
-            "dlsym-resolvable), applied to the whole set instead of one member "
-            "of it. It exists because a guarded FFI lookup nulls out the ENTIRE "
-            "binding when ANY one symbol is missing, so a decoder carrying only "
-            "the historical symbol ships a silently absent feature — the "
-            "2026-09-06 incident. Windows is excluded for the identical reason "
-            "H-SIZED-SYMBOL-NM excludes it (PE exports nothing by default, so "
-            "the symbol table measures a build setting, not reachability). The "
-            "tool's output is captured to a str and matched in Python, never "
-            "piped to grep (G-3)."
+            "Mach-O/ELF default symbol visibility is permissive: a symbol "
+            "listed by nm really is dlsym-resolvable, so the table agrees with "
+            "the runtime. It exists because a guarded FFI lookup nulls out the "
+            "ENTIRE binding when ANY one symbol is missing, so a decoder "
+            "carrying only the historical symbol ships a silently absent "
+            "feature — the 2026-09-06 incident. WINDOWS IS DELIBERATELY "
+            "EXCLUDED from valid_on: PE exports nothing unless the build "
+            "declares it, so dumpbin /exports measures a build-system setting, "
+            "not runtime reachability — ceyx spent two rounds forcing a "
+            "healthy artefact to satisfy that instrument (2026-08-30). Windows "
+            "may only be re-included after its red state is demonstrated on a "
+            "real Windows runner (PL-9). The tool's output is captured to a str "
+            "and matched in Python, never piped to grep (G-3: `nm | grep -q` "
+            "returns 141 under pipefail when the symbol IS found)."
         ),
         red_state=(
             "run against a decoder built without ceyx_decode_into_buffer_oriented "
@@ -378,25 +323,31 @@ SUITE = {
         ),
         valid_on=("macos", "linux", "windows"),
         why_valid=(
-            "Same instrument and same validity argument as H-SIZED-SYMBOL: "
             "scripts/ci/probe/ffi_probe.dart performs DynamicLibrary.open + "
             "lookup, which asks the platform loader the same question the app "
             "asks, so it is capability, not proxy, and it is format-agnostic — "
             "which is exactly why it, and not nm/dumpbin, is valid on Windows "
-            "(OQ-1 ruling c — the 2026-08/09 ci-rewrite campaign's OQ-1, "
-            "already cited at assertions.py:266 and ffi_probe.dart:1; NOT this "
-            "campaign's OQ-C1). It exists because a guarded FFI lookup nulls "
-            "out the ENTIRE binding when ANY one symbol is missing, so a "
-            "decoder carrying only the historical symbol ships a silently "
-            "absent feature — the 2026-09-06 incident. Checking the whole SET "
-            "functionally, not just the symbol table, is what closes that gap "
-            "on Windows too, where the symbol table is not a valid instrument."
+            "(OQ-1 ruling c — the 2026-08/09 ci-rewrite campaign's OQ-1, also "
+            "cited in ffi_probe.dart's header; NOT this campaign's OQ-C1). It "
+            "can only run where the library is loadable, so it applies on the "
+            "artefact's own platform; on a foreign host it reports a SKIP with "
+            "that reason rather than a false pass. It exists because a guarded "
+            "FFI lookup nulls out the ENTIRE binding when ANY one symbol is "
+            "missing, so a decoder carrying only the historical symbol ships a "
+            "silently absent feature — the 2026-09-06 incident. Checking the "
+            "whole SET functionally, not just the symbol table, is what closes "
+            "that gap on Windows too, where the symbol table is not a valid "
+            "instrument."
         ),
         red_state=(
             "append a bogus symbol to the probe invocation against the real "
             "shipped decoder: exit 1 with PROBE-FAIL naming that symbol "
             "(demonstrated: docs/logs/2026-09-12/red-ceyx-symbols.txt, green "
-            "control docs/logs/2026-09-12/green-ceyx-symbols.txt)"
+            "control docs/logs/2026-09-12/green-ceyx-symbols.txt; the same "
+            "probe's earlier single-symbol red states: "
+            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt and "
+            "docs/logs/2026-09-08/red-probe-bogus-symbol.txt, green control "
+            "docs/logs/2026-09-08/green-probe-oriented.txt)"
         ),
         expected="probe exits 0 printing one PROBE-OK line per symbol in "
         + ", ".join(CEYX_SYMBOLS),
@@ -947,10 +898,10 @@ def _decoder_disk_path(ctx):
 
 
 def _run_probe(ctx, symbols):
-    """Shared body of H-SIZED-SYMBOL and H-CEYX-SYMBOLS.
+    """Shared body of H-CEYX-SYMBOLS (callable with any symbol list).
 
-    ``symbols`` is appended to the probe argv; an empty list preserves
-    ffi_probe.dart's own default (the single historical SYMBOL).
+    ``symbols`` is appended to the probe argv; an empty list falls back to
+    ffi_probe.dart's own default (SYMBOL).
     """
     if ctx["host"] != ctx["artefact_platform"]:
         return "skip", (
@@ -982,35 +933,8 @@ def _run_probe(ctx, symbols):
     return "pass", tail if tail != "(no output)" else f"{ok_count} PROBE-OK line(s)"
 
 
-def _assert_sized_symbol(ctx):
-    return _run_probe(ctx, [])
-
-
 def _assert_ceyx_symbols(ctx):
     return _run_probe(ctx, list(CEYX_SYMBOLS))
-
-
-def _assert_sized_symbol_nm(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    tool = entry.get("tool")
-    if not tool or shutil.which(tool) is None:
-        return "skip", f"symbol-table tool {tool!r} is not on PATH"
-    path, error = _decoder_disk_path(ctx)
-    if path is None:
-        return "fail", error
-    # The instrument is check_dng_ffi_artifacts.check_symbol itself, imported
-    # rather than re-implemented, so this gate and the manual cross-platform
-    # checker can never drift into two different instruments. It captures the
-    # tool's output to a str and matches in Python — never `nm | grep -q`,
-    # which returns 141 under pipefail when the symbol IS found (G-3).
-    status = _check_symbol()(path, tool, entry.get("tool_args", []), SYMBOL)
-    if status == "skipped":
-        return "skip", f"{tool} resolved but could not inspect {path.name}"
-    if status != "present":
-        return "fail", f"{SYMBOL} absent from {tool} output for {path.name}"
-    return "pass", f"{SYMBOL} listed by {tool} for {path.name}"
 
 
 def _assert_decoder_arch(ctx):
@@ -1177,8 +1101,6 @@ _IMPLEMENTATIONS = {
     "H-DECODER-PRESENT": _assert_decoder_present,
     "H-DECODER-DEPS": _assert_decoder_deps,
     "H-DECODER-HASH": _assert_decoder_hash,
-    "H-SIZED-SYMBOL": _assert_sized_symbol,
-    "H-SIZED-SYMBOL-NM": _assert_sized_symbol_nm,
     "H-DECODER-ARCH": _assert_decoder_arch,
     "H-CEYX-SYMBOLS-NM": _assert_ceyx_symbols_nm,
     "H-CEYX-SYMBOLS": _assert_ceyx_symbols,

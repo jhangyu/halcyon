@@ -84,8 +84,6 @@ TARGETS: dict = {
             "H-DECODER-PRESENT",
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL",
-            "H-SIZED-SYMBOL-NM",
             "H-CEYX-SYMBOLS",
             "H-CEYX-SYMBOLS-NM",
         ],
@@ -115,7 +113,7 @@ TARGETS: dict = {
         # cross-compile, which is exactly what the local proof did, and it keeps
         # both macOS legs on one runner image rather than depending on the
         # retiring Intel image. The cost is stated, not hidden — see the
-        # H-SIZED-SYMBOL omission in "assertions" below.
+        # H-CEYX-SYMBOLS omission in "assertions" below.
         "runs_on": "macos-14",
         "build_flags": ["--macos-arch", "x86_64", "--fetch-native"],
         # Identical to the arm64 leg: same Podfile, same gitignored
@@ -128,15 +126,15 @@ TARGETS: dict = {
         "app_executable": "Halcyon",
         "archive_name": "Halcyon-macos-x64-{version}.zip",
         "archive_format": "zip",
-        # H-SIZED-SYMBOL (the functional FFI probe) is DELIBERATELY ABSENT, for
-        # the same class of reason H-SIZED-SYMBOL-NM is absent on windows: the
+        # H-CEYX-SYMBOLS (the functional FFI probe) is DELIBERATELY ABSENT, for
+        # the same class of reason H-CEYX-SYMBOLS-NM is absent on windows: the
         # instrument is structurally invalid here. The probe is
         # `dart run` + DynamicLibrary.open, and an arm64 dart process cannot
         # load an x86_64 dylib, so on this runner it could only ever report a
         # loader failure that says nothing about the artefact. It is omitted in
         # DATA, visibly, rather than silently skipped at run time. What replaces
         # it: H-DECODER-ARCH (the shipped dylib really is x86_64) and
-        # H-SIZED-SYMBOL-NM / H-CEYX-SYMBOLS-NM (nm reads a foreign-arch Mach-O
+        # H-CEYX-SYMBOLS-NM (nm reads a foreign-arch Mach-O
         # file fine on any host, because it parses the file rather than loading
         # it). Runtime loadability on real Intel hardware is therefore NOT
         # measured by this leg and must not be claimed from a green run.
@@ -156,7 +154,6 @@ TARGETS: dict = {
             "H-DECODER-ARCH",
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL-NM",
             "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "macos-x86_64",
@@ -178,14 +175,13 @@ TARGETS: dict = {
         "app_executable": "halcyon.exe",
         "archive_name": "Halcyon-windows-x64-{version}.zip",
         "archive_format": "zip",
-        # H-SIZED-SYMBOL-NM is deliberately absent: the symbol-table instrument is
+        # H-CEYX-SYMBOLS-NM is deliberately absent: the symbol-table instrument is
         # structurally invalid on PE (no default export visibility). PL-9.
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL",
             "H-CEYX-SYMBOLS",
             "H-ENGINE-DELAYLOAD",
         ],
@@ -216,8 +212,6 @@ TARGETS: dict = {
             "H-ARCH",
             "H-DECODER-PRESENT",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL",
-            "H-SIZED-SYMBOL-NM",
             "H-CEYX-SYMBOLS",
             "H-CEYX-SYMBOLS-NM",
         ],

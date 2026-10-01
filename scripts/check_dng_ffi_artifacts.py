@@ -54,7 +54,7 @@ def check_symbol(binary_path: Path, tool: str, tool_args: list[str], symbol: str
     """Return 'present', 'absent', or 'skipped' for the given symbol.
 
     Importable: ``scripts/ci/assertions.py`` reuses this exact function for the
-    H-SIZED-SYMBOL-NM secondary record, so the CI gate and this manual checker
+    H-CEYX-SYMBOLS-NM secondary record, so the CI gate and this manual checker
     can never drift into two different symbol-table instruments. Note the
     output is captured to a str and matched in Python — never ``| grep``, which
     inverts under ``pipefail`` (2026-08-28).

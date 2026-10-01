@@ -40,7 +40,7 @@
         "valid_on": [
           "macos"
         ],
-        "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-SIZED-SYMBOL is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
+        "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-CEYX-SYMBOLS is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
         "red_state": "fetch the macos-arm64 pin entry for this leg (or build without --macos-arch x86_64): H-DECODER-ARCH / H-ARCH fail naming expected x86_64 vs observed arm64",
         "expected": "present=True, arch=x86_64 for both the app executable and the decoder, and all of ceyx_decode_into_buffer_oriented / ceyx_probe_output_size / ceyx_decode_into_buffer listed by nm"
       },

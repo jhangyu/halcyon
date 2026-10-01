@@ -2333,9 +2333,9 @@ FFI_EXPORT_SYMBOLS = {
 # No "linux" key, deliberately: Linux is FETCH-ONLY (no NATIVE_SPECS entry, so
 # native_target_for() never returns "linux"). Its provenance is gated at the pin's
 # per-asset sha256, its exports upstream by ceyx linux_build.yml AC-L3/L5 and
-# downstream by H-SIZED-SYMBOL / H-SIZED-SYMBOL-NM on the linux CI leg. Adding a
-# key here would declare a gate for a code path that never runs — the shape
-# build_apps.py:334-338 already regrets for the Windows/Linux HEIF rows.
+# downstream by H-CEYX-SYMBOLS / H-CEYX-SYMBOLS-NM on the linux CI leg. Adding a
+# key here would declare a gate for a code path that never runs — the shape the
+# CEYX_FETCH_SPECS Windows/Linux HEIF-row comment already regrets.
 
 
 def _android_export_listing_commands(built):
