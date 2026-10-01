@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../models/status_message.dart';
 
 /// Bottom-of-window transient status line, replacing SnackBar.
 ///

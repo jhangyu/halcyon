@@ -19,7 +19,7 @@ class SupportedPhotoFormats {
     '.mrw',
   };
 
-  // static final: computed once (folder scans call isSupportedPath/isRawPath
+  // static final: computed once (folder scans call isSupportedPath/isDecodablePath
   // per entry, so these must not re-allocate on every call — they were const
   // before decodableExtensions made them derived). Unmodifiable so callers
   // can't corrupt process-global format policy via `.add`.
@@ -69,15 +69,6 @@ class SupportedPhotoFormats {
     engineBitstreamExtensions.union(bitmapDecodeExtensions).union(rawExtensions),
   );
 
-  /// Everything with a route to RGBA through the `DngFullDecoder` seam:
-  /// engine-decodable RAW plus the bitmap containers above. Deliberately
-  /// distinct from [decodableExtensions] — AD-021's `minLongEdge` floor and
-  /// AD-022's malformed-container finding stay gated on THAT set, because both
-  /// are statements about embedded previews in a RAW container.
-  static final Set<String> fullDecodeExtensions = Set.unmodifiable(
-    decodableExtensions.union(bitmapDecodeExtensions),
-  );
-
   /// Cheap-format sibling ranking, cheapest-to-display first. Order set by
   /// user ruling 2026-08-30 (Q6): jpg > heic > webp > avif > jxl, with png
   /// retained last. `.tif`/`.tiff` stay absent ON PURPOSE — a TIFF can be a
@@ -95,10 +86,6 @@ class SupportedPhotoFormats {
 
   static bool isSupportedPath(String path) {
     return supportedExtensions.contains(p.extension(path).toLowerCase());
-  }
-
-  static bool isRawPath(String path) {
-    return rawExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static bool isDecodablePath(String path) {
@@ -135,10 +122,6 @@ class SupportedPhotoFormats {
 
   static bool isJxlPath(String path) {
     return jxlExtensions.contains(p.extension(path).toLowerCase());
-  }
-
-  static bool hasFullDecodeRoute(String path) {
-    return fullDecodeExtensions.contains(p.extension(path).toLowerCase());
   }
 
   static String photoIdFor(File file) {

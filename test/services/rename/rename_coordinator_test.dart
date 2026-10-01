@@ -7,6 +7,7 @@ import '../../support/temp_dirs.dart';
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
+import 'package:halcyon_flutter/models/status_message.dart';
 import 'package:halcyon_flutter/services/rename/rename_coordinator.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';

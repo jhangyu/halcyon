@@ -58,11 +58,11 @@ void main() {
 
       final state = testState();
       await state.loadFolder(dir);
-      expect(state.status, isNull, reason: 'writable folder stays quiet');
+      expect(state.statusEvents.value, isNull, reason: 'writable folder stays quiet');
 
       await makeDirReadOnly(dir);
       await state.loadFolder(dir);
-      expect(state.status?.text, contains('唯讀'));
+      expect(state.statusEvents.value?.message.text, contains('唯讀'));
       expect(
         File(p.join(dir.path, '.halcyon_write_probe')).existsSync(),
         isFalse,
@@ -173,13 +173,6 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
-        // RETIRED half (2026-08-30, plan Task 6 / amendment E-C2): this used
-        // to also assert `contains(ImageRequestPurpose.sidebarThumbnail)`. The
-        // controller no longer asks the loader for tiles -- it derives them
-        // from the shared payload -- so the sidebar purpose never reaches the
-        // loader from here. The enum value and its loader semantics are still
-        // pinned by test/services/image_pipeline/dart_image_loader_test.dart.
-        expect(calls, isNot(contains(ImageRequestPurpose.sidebarThumbnail)));
       },
     );
 
@@ -282,9 +275,9 @@ void main() {
 
       await state.processStarred(dest.path, false);
 
-      expect(state.status, isNotNull);
-      expect(state.status!.text, contains('1'));
-      expect(state.status!.text, contains('失敗'));
+      expect(state.statusEvents.value, isNotNull);
+      expect(state.statusEvents.value!.message.text, contains('1'));
+      expect(state.statusEvents.value!.message.text, contains('失敗'));
     });
 
     test('TC-224 a scan failure surfaces a status message', () async {
@@ -301,8 +294,8 @@ void main() {
 
       await state.loadFolder(dir);
 
-      expect(state.status, isNotNull);
-      expect(state.status!.text, contains('無法讀取'));
+      expect(state.statusEvents.value, isNotNull);
+      expect(state.statusEvents.value!.message.text, contains('無法讀取'));
     });
 
     test('TC-225 readMetadataFor chunks once and reports progress', () async {

@@ -3,10 +3,10 @@ import 'dng_decode_contract.dart';
 import 'photo_payload.dart';
 import 'sidebar_thumbnail_codec.dart';
 
-/// The sidebar tile's long edge. Equal to
-/// `ImageRequestPurpose.sidebarThumbnail.targetSize`, restated here because
-/// this unit no longer participates in the loader's purpose vocabulary at all
-/// -- nothing here requests anything from a loader.
+/// The sidebar tile's long edge -- the ONE definition of 200 (also the
+/// default of `sidebarCacheBytes`). This unit does not participate in the
+/// loader's purpose vocabulary at all -- nothing here requests anything from
+/// a loader.
 const int kSidebarThumbnailLongEdge = 200;
 
 /// Derives a sidebar tile from an ALREADY-PRODUCED payload.

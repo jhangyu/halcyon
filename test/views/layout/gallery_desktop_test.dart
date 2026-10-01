@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/views/layout/common/resizable_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
@@ -153,7 +154,7 @@ void main() {
       expect(find.byKey(kGalleryWidthBadgeKey), findsOneWidget);
 
       await tester.pump(
-        kGalleryWidthBadgeDelay + const Duration(milliseconds: 50),
+        kColumnDragStallDelay + const Duration(milliseconds: 50),
       );
       expect(find.byKey(kGalleryWidthBadgeKey), findsNothing);
       await tester.binding.setSurfaceSize(null);

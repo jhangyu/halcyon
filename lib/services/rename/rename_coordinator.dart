@@ -5,7 +5,7 @@ import '../../models/photo_item.dart';
 import '../library/photo_status_store.dart';
 import '../../models/rename_rule.dart';
 import 'rename_service.dart';
-import '../../providers/app_state.dart' show StatusMessage;
+import '../../models/status_message.dart';
 
 /// Owns the rename domain that used to live directly on `AppState`: renaming
 /// a folder's files from EXIF-derived names, the undo journal, and the

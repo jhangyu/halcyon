@@ -126,15 +126,16 @@ void main() {
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
         await until(
-          () => state.status?.text.contains('已匯出') ?? false,
+          () =>
+              state.statusEvents.value?.message.text.contains('已匯出') ?? false,
           reason: 'the export to finish and set the "已匯出" status message',
           pollInterval: const Duration(milliseconds: 5),
         );
       });
       await tester.pump();
 
-      expect(state.status?.text, contains('已匯出'));
-      expect(state.status?.revealPath, exportDest.path);
+      expect(state.statusEvents.value?.message.text, contains('已匯出'));
+      expect(state.statusEvents.value?.message.revealPath, exportDest.path);
       expect(outFile.existsSync(), isTrue);
     },
   );

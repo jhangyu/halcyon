@@ -133,10 +133,11 @@ Future<DecodedRgba> decodeTiffFull(
   return decodeBytes(await File(path).readAsBytes());
 }
 
-/// `isDecodablePath`, NOT `isRawPath`: the latter also matches D2 browse-only
-/// containers (.cr2/.iiq/.mrw) the engine cannot decode, and routing one of
-/// those to the engine arm would be a guaranteed-failing FFI round trip
-/// instead of the immediate refusal the D2 ruling wants.
+/// `isDecodablePath`, NOT membership in `rawExtensions`: the latter also
+/// contains D2 browse-only containers (.cr2/.iiq/.mrw) the engine cannot
+/// decode, and routing one of those to the engine arm would be a
+/// guaranteed-failing FFI round trip instead of the immediate refusal the D2
+/// ruling wants.
 ///
 /// HEIC is checked FIRST and with its own predicate: `.heic` is also in
 /// `bitmapDecodeExtensions`, so a plain `isBitmapDecodePath` test would send

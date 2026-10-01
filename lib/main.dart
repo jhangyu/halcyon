@@ -13,9 +13,7 @@ import 'services/platform/open_with_channel.dart';
 import 'views/layout/layout_registry.dart';
 import 'views/main_screen.dart';
 
-// Flutter's ImageCache defaults to 100MB, which only fits ~1 full-frame
-// decoded 24MP JPEG. Tier-1 (window resolution) + tier-2 (full size)
-// precaching needs headroom for several images at once.
+// ImageCache budget: derived below (S3.1), not Flutter's 100MB default.
 
 void configureImageCache({int? physicalMemoryBytes}) {
   // S3.1 (2026-09-11), re-derived under spec v2 the same day: the budget is
@@ -88,7 +86,7 @@ Future<void> main() async {
     orientingDngDecoder: halcyonOrientingFullDecoder,
     retention: retention,
     physicalMemoryBytes: physicalMemoryBytes,
-  ); // PERF-INSTRUMENTATION
+  );
   // PERF-INSTRUMENTATION (P0, docs/logs/2026-09-05/pool-round-contract.md
   // AC7 / pipeline-architecture-v2.md §5-P0): decodeLaneWidth is only known
   // once AppState's async `_initPrefs` resolves the stored pref (it is not
@@ -119,11 +117,12 @@ Future<void> main() async {
   startMemoryPressureResponse(appState);
   runApp(
     ChangeNotifierProvider.value(
-      value: appState, // PERF-INSTRUMENTATION
+      value: appState,
       child: const HalcyonApp(),
     ),
   );
-  // PERF-INSTRUMENTATION
+  // PERF-INSTRUMENTATION: requires --dart-define=HALCYON_PERF_DRIVER=1 at
+  // build time AND HALCYON_PERF_DIR at run time (see kPerfDriver).
   if (PerfDriver.active) {
     PerfDriver.run(appState);
   }

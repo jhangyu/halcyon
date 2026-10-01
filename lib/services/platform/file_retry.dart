@@ -29,6 +29,9 @@ bool isSharingViolation(Object error) {
   return code == kWindowsSharingViolation || code == kWindowsLockViolation;
 }
 
+/// Shared retry cadence (ms) for sharing-violation / transient-error retries.
+const List<int> kRetryDelaysMs = <int>[20, 40, 80, 160];
+
 /// Runs [action], retrying only while it fails with a Windows sharing/lock
 /// violation, and rethrowing the ORIGINAL exception once the budget is spent.
 ///
@@ -73,7 +76,7 @@ bool isSharingViolation(Object error) {
 /// place) rather than at the call sites.
 Future<T> retryOnSharingViolation<T>(
   Future<T> Function() action, {
-  List<int> delaysMs = const <int>[20, 40, 80, 160],
+  List<int> delaysMs = kRetryDelaysMs,
 }) async {
   for (var attempt = 0; ; attempt++) {
     try {

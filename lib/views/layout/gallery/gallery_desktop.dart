@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../common/exif_caption.dart';
 import '../common/photo_viewport.dart';
+import '../common/resizable_column.dart';
 import '../main_surface.dart';
 import 'gallery_column.dart';
 
@@ -32,11 +33,6 @@ const ValueKey<String> kGalleryColumnSlotKey =
 const ValueKey<String> kGalleryHandleDeadZoneKey =
     ValueKey<String>('gallery.handle.deadzone');
 
-/// How long after the last width delta the width-readout badge stays visible.
-/// Deltas keep arriving for the whole gesture, so this is reset on every delta
-/// and only expires once the drag truly stalls.
-const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
-
 /// The desktop arrangement of the `gallery` theme (T6 of the gallery layout
 /// plan).
 ///
@@ -57,14 +53,14 @@ const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
 ///
 /// ## The reflow rule (USER RULING 2026-09-02, supersedes plan R5)
 ///
-/// The viewport's left inset is the LIVE `_columnWidth`. A widened gutter
+/// The viewport's left inset is the LIVE `columnWidth`. A widened gutter
 /// pushes the photo instead of floating over it, so the strip never covers
 /// any part of the image; the seam and the handle dead zone ride the same
 /// edge. The photo is 1350 × 900 only at the resting width of 90 — above it
 /// the photo is narrower by exactly the extra gutter width.
 ///
 /// What this deliberately gives up, recorded so nobody "rediscovers" it as a
-/// bug: the previous `min(_columnWidth, 90)` inset kept the constraints the
+/// bug: the previous `min(columnWidth, 90)` inset kept the constraints the
 /// viewport's internal `LayoutBuilder` sees CONSTANT during a drag, so
 /// `setViewportSize` never changed mid-drag and the tier-1 `ImageProvider`
 /// cache key was stable by construction (AD-011). With a reflowing viewport
@@ -75,7 +71,7 @@ const Duration kGalleryWidthBadgeDelay = Duration(milliseconds: 400);
 ///
 /// ## Holding the decode size still during a drag
 ///
-/// The viewport is wrapped in a [DecodeSizeFreeze] carrying `_dragActive`.
+/// The viewport is wrapped in a [DecodeSizeFreeze] carrying `dragActive`.
 /// Layout still reflows on every frame — the photo visibly gives up width as
 /// the gutter grows — but [PhotoViewport] keeps REPORTING and decoding at the
 /// last settled target while the flag is true, so the tier-1 `ImageProvider`
@@ -92,61 +88,13 @@ class GalleryDesktopSurface extends StatefulWidget {
   State<GalleryDesktopSurface> createState() => _GalleryDesktopSurfaceState();
 }
 
-class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
-  // The EXACT accumulated width, resting at the free gutter width (which IS
-  // the minimum of the range).
-  //
-  // Load-bearing that this is unrounded: pointer deltas arrive fractional (a
-  // trackpad or a slow mouse move reports well under 1 logical px per event).
-  // Rounding the accumulator itself — `_columnWidth = (_columnWidth + dx)
-  // .roundToDouble()` — quantises every individual delta instead of the
-  // total, so a stream of 0.4px deltas rounds to +0 forever and the gutter
-  // never moves at all, while 0.6px deltas each round to +1 and it moves
-  // nearly twice as fast as the pointer. Measured before the fix: 150 x 0.4px
-  // (a 60px drag) produced 0px of movement; 100 x 0.6px produced 100px.
-  double _rawColumnWidth = kGalleryColumnMinWidth;
-
-  /// The width actually handed to layout: whole pixels, so the gutter never
-  /// paints on a subpixel seam. Rounding happens HERE, at the consumer, never
-  /// in the accumulator above.
-  double get _columnWidth => _rawColumnWidth.roundToDouble();
-
-  // True only while a drag is in flight, so the width readout badge is shown
-  // during the gesture and hidden once it stalls (see [GalleryDesktopSurface]).
-  bool _dragActive = false;
-  Timer? _dragStallTimer;
+class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface>
+    with ResizableColumnDrag<GalleryDesktopSurface> {
+  @override
+  double get columnMinWidth => kGalleryColumnMinWidth;
 
   @override
-  void dispose() {
-    _dragStallTimer?.cancel();
-    super.dispose();
-  }
-
-  /// The column's drag callback (main_screen.dart:74-78 arithmetic, bounds
-  /// re-ruled R5a/R8): add the pointer delta, round to whole px (prevents
-  /// subpixel seams), then clamp to [90, 200]. `num.clamp` returns `num`, so
-  /// the `toDouble()` is load-bearing for the `double` field.
-  ///
-  /// Every delta also marks the "drag in flight" flag true and resets the
-  /// stall timer, so the width badge shows while deltas keep flowing and hides
-  /// [kGalleryWidthBadgeDelay] after they stop.
-  void _onWidthDelta(double dx) {
-    _dragStallTimer?.cancel();
-    setState(() {
-      // Accumulate raw, clamp raw, round only on the way out (see the field).
-      // Clamping the accumulator (rather than only the rounded output) is what
-      // keeps the gutter responsive the instant the pointer turns around: an
-      // unclamped accumulator would wind far past the bound while the user
-      // keeps pushing, then owe that whole distance back before anything moved.
-      _rawColumnWidth = (_rawColumnWidth + dx)
-          .clamp(kGalleryColumnMinWidth, kGalleryColumnMaxWidth)
-          .toDouble();
-      _dragActive = true;
-    });
-    _dragStallTimer = Timer(kGalleryWidthBadgeDelay, () {
-      if (mounted) setState(() => _dragActive = false);
-    });
-  }
+  double get columnMaxWidth => kGalleryColumnMaxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -156,7 +104,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
     // therefore the LIVE column width, so the strip and the photo always
     // partition the window between them and nothing is overlapped. See the
     // class doc for the decode cost this trades away.
-    final viewportLeft = _columnWidth;
+    final viewportLeft = columnWidth;
     final colors = Theme.of(context).colorScheme;
 
     // ⌘O / Ctrl+O — Open Folder. Used to be hard-coded here via
@@ -185,7 +133,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
           // Reflow the layout every frame, but hold the DECODE target steady
           // until the drag stalls (see the class doc's trade-off note).
           child: DecodeSizeFreeze(
-            frozen: _dragActive,
+            frozen: dragActive,
             child: surface.viewport,
           ),
         ),
@@ -221,14 +169,14 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
         // flight, so it never lingers over the photo at rest.
         //
         // The width readout occupies a PERMANENT slot and empties itself when
-        // idle; it must never be a `if (_dragActive) Positioned(...)`
+        // idle; it must never be a `if (dragActive) Positioned(...)`
         // conditional child. Every child of this Stack is an unkeyed
         // `Positioned`, so `Widget.canUpdate` returns true between ANY pair of
         // them: inserting one mid-list shifts every following slot by one, and
         // Flutter then updates each surviving element with its NEIGHBOUR's
         // widget. The gutter's element (and with it the resize handle's
         // GestureDetector, and with it the live pan recognizer) was therefore
-        // destroyed the instant the first delta set `_dragActive` — which is
+        // destroyed the instant the first delta set `dragActive` — which is
         // why a resize drag moved 1-2px and then went dead for the rest of the
         // gesture. Measured: a 60px drag delivered 4px before the fix and the
         // full 60px after it.
@@ -236,7 +184,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
           top: 14,
           right: 14,
           child: IgnorePointer(
-            child: !_dragActive
+            child: !dragActive
                 ? const SizedBox.shrink()
                 : Container(
                     key: kGalleryWidthBadgeKey,
@@ -250,7 +198,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '${_columnWidth.round()} px',
+                      '${columnWidth.round()} px',
                       style: TextStyle(
                         fontSize: 10,
                         letterSpacing: 0.08 * 10, // 0.08 em at 10px
@@ -272,11 +220,11 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
           left: 0,
           top: 0,
           bottom: 0,
-          width: _columnWidth,
+          width: columnWidth,
           child: GalleryColumn(
             surface: surface,
-            width: _columnWidth,
-            onWidthDelta: _onWidthDelta,
+            width: columnWidth,
+            onWidthDelta: onWidthDelta,
           ),
         ),
         // The outer half of the resize handle's hit region. The gutter's own
@@ -287,7 +235,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
         // it paints nothing and only forwards the same deltas the grip does.
         Positioned(
           key: kGalleryHandleDeadZoneKey,
-          left: _columnWidth,
+          left: columnWidth,
           top: 0,
           bottom: 0,
           width: kGalleryHandleOverhang,
@@ -295,7 +243,7 @@ class _GalleryDesktopSurfaceState extends State<GalleryDesktopSurface> {
             cursor: SystemMouseCursors.resizeColumn,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onPanUpdate: (details) => _onWidthDelta(details.delta.dx),
+              onPanUpdate: (details) => onWidthDelta(details.delta.dx),
             ),
           ),
         ),

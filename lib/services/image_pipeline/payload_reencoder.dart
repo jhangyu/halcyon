@@ -8,7 +8,10 @@ import 'photo_payload.dart';
 ///
 /// Injected rather than called directly so the pipeline can be unit-tested
 /// without spawning an isolate, mirroring the `DngFullDecoder` seam. The
-/// production binding is `encodeJpegFromRgba` (`jpeg_encoder.dart`).
+/// production default binding is the native (ceyx libjpeg-turbo) encode
+/// (`encodeJpegNative`, `native_jpeg_encode.dart`) that
+/// `ImagePreloadController` installs as its `payloadEncoder` default;
+/// `encodeJpegFromRgba` (`jpeg_encoder.dart`) is the pure-Dart fallback binding.
 ///
 /// Erratum E-WP3b (gc-remediation R2, 2026-09-06): the plan's original design
 /// widened this typedef with two extra OPTIONAL named parameters

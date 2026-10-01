@@ -29,7 +29,7 @@ import 'package:halcyon_flutter/views/layout/main_surface.dart';
 ///       following slot and Flutter updated each surviving element with its
 ///       neighbour's widget — destroying the gutter's element, its
 ///       `GestureDetector` and the live recognizer mid-gesture.
-///   (b) `_onWidthDelta` rounded the ACCUMULATOR (`(w + dx).roundToDouble()`),
+///   (b) `onWidthDelta` rounded the ACCUMULATOR (`(w + dx).roundToDouble()`),
 ///       quantising each individual delta rather than the total. 150 deltas of
 ///       0.4px (a 60px drag) moved the gutter 0px; 100 deltas of 0.6px moved
 ///       it 100px.

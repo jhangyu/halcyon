@@ -47,8 +47,8 @@ class ExportTab extends StatelessWidget {
     // A format with no runtime capability is dropped from the UI entirely
     // rather than shown disabled -- do not reintroduce a "shown but
     // disabled" treatment without re-confirming that's still wanted.
-    // `selectableExportFiletypes` is build intent INTERSECTED with runtime
-    // capability (ruling Q4), resolved once at startup.
+    // `selectableExportFiletypes` is the runtime capability set (ruling Q4),
+    // resolved once at startup.
     final available = state.selectableExportFiletypes;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

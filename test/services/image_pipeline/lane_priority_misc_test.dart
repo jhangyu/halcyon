@@ -1029,7 +1029,7 @@ void main() {
     // ROUND B REVIEW BLOCKER (fix cycle 1). The Phase 4 rebase moved three
     // producers onto the band table and missed a FOURTH: TierTwoScheduler's
     // catch-up sweep also enqueues the `(payload, id)` key, and it was still
-    // handing the lane a bare `laneRankFor(distance)` (0..N).
+    // handing the lane a bare `laneRankForDistance(distance)` (0..N).
     //
     // That is not a cosmetic inconsistency. DecodeLane RE-RANKS a pending key on
     // re-enqueue, so the sweep pulled the slots it touches (the tier-2 window,

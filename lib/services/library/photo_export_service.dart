@@ -65,9 +65,9 @@ const int kOriginalExportLongEdge = 0;
 
 /// Default long edge (px) an export is resized to before re-encoding, unless
 /// the user picked [kOriginalExportLongEdge]. Matches the pre-existing
-/// hardcoded `2048` this replaced (`ImageRequestPurpose.export.targetSize`
-/// remains 2048 and is unrelated -- it sizes the PRE-resize decode/preview
-/// fetch, not this service's own resize target).
+/// hardcoded `2048` this replaced (the PRE-resize decode/preview fetch is
+/// sized by `ImageRequestPurpose.preview`, not by this service's own resize
+/// target).
 const int kDefaultExportLongEdge = 2048;
 
 /// The complete, ordered set of stops the "Export JPEG Size" slider offers.
@@ -90,39 +90,33 @@ String exportLongEdgeLabel(int longEdge) =>
     longEdge == kOriginalExportLongEdge ? 'Original' : '${longEdge}px';
 
 /// The output codec an export is encoded as (grown from two to six entries
-/// in the 2026-08-30 codec-expansion round). [buildIntent] is a compile-time
-/// "this app wants to offer the format" flag; the settings panel and
-/// `AppState._normaliseExportFiletype` must NOT gate on it alone -- see
-/// [buildIntent]'s own doc. Real selectability is
-/// `AppState.selectableExportFiletypes` (build intent INTERSECTED with
-/// runtime capability, ruling Q4).
+/// in the 2026-08-30 codec-expansion round). What is actually selectable is
+/// `AppState.selectableExportFiletypes` -- the entries INTERSECTED with the
+/// runtime capability the native library reports (ruling Q4); never gate UI
+/// on this enum alone (HEIF is absent on Android, for example).
 enum ExportFiletype {
   jpeg(
     label: 'JPEG',
     extension: 'jpg',
     format: CeyxImageFormat.jpeg,
-    buildIntent: true,
     usesQuality: true,
   ),
   heif(
     label: 'HEIF',
     extension: 'heic',
     format: CeyxImageFormat.heic,
-    buildIntent: true,
     usesQuality: true,
   ),
   webpLossy(
     label: 'WebP (lossy)',
     extension: 'webp',
     format: CeyxImageFormat.webp,
-    buildIntent: true,
     usesQuality: true,
   ),
   webpLossless(
     label: 'WebP (lossless)',
     extension: 'webp',
     format: CeyxImageFormat.webp,
-    buildIntent: true,
     usesQuality: false,
     lossless: true,
   ),
@@ -130,14 +124,12 @@ enum ExportFiletype {
     label: 'AVIF',
     extension: 'avif',
     format: CeyxImageFormat.avif,
-    buildIntent: true,
     usesQuality: true,
   ),
   jxl(
     label: 'JPEG XL',
     extension: 'jxl',
     format: CeyxImageFormat.jxl,
-    buildIntent: true,
     usesQuality: true,
   );
 
@@ -145,7 +137,6 @@ enum ExportFiletype {
     required this.label,
     required this.extension,
     required this.format,
-    required this.buildIntent,
     required this.usesQuality,
     this.lossless = false,
   });
@@ -155,14 +146,6 @@ enum ExportFiletype {
 
   /// The native format selector this entry encodes to.
   final CeyxImageFormat format;
-
-  /// BUILD INTENT only -- "this app wants to offer the format". Real
-  /// availability is build intent INTERSECTED with the runtime capability
-  /// the native library reports (user ruling Q4, 2026-08-30). Never gate UI
-  /// on this field alone: HEIF is absent on Android, WebP was absent on
-  /// Windows before this round, and a const flag cannot know that --
-  /// `AppState.selectableExportFiletypes` is the source of truth.
-  final bool buildIntent;
 
   /// False for formats whose encoder ignores the quality knob (currently
   /// only [webpLossless]).
@@ -277,9 +260,9 @@ class PhotoExportService {
     }
 
     final transform = exifTransformFor(orientation);
-    // ImageRequestPurpose.export.targetSize (2048) sizes the PRE-resize
-    // fetch/decode above via dartImageLoad; it is unrelated to this
-    // service's own resize target, which is the user-settable [longEdge].
+    // The PRE-resize fetch/decode above (dartImageLoad, purpose: preview) is
+    // unrelated to this service's own resize target, which is the
+    // user-settable [longEdge].
     final maxEdge = longEdge;
 
     // Everything below is pure CPU on `package:image`, so it runs on a worker

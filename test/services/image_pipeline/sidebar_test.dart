@@ -6,12 +6,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
+import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
