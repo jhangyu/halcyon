@@ -70,35 +70,12 @@ class _WidthHarnessState extends State<_WidthHarness> {
   }
 }
 
-MainSurface _surface(List<PhotoItem> items, String selectedId) => MainSurface(
-  viewport: const ColoredBox(
-    key: ValueKey<String>('gallery-test-viewport'),
-    color: Colors.red,
-  ),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: selectedId,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => tinyPixelPayload(),
-    onVisibleRange: (_, __) {},
-  ),
-  identity: const PhotoIdentity(
-    displayName: 'IMG_0001.jpg',
-    indexInFolder: 16,
-    folderCount: 30,
-    status: PhotoStatus.unmarked,
-    exif: null,
-  ),
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
+MainSurface _surface(List<PhotoItem> items, String selectedId) => testSurface(
+  viewport: const ColoredBox(key: ValueKey<String>('gallery-test-viewport'), color: Colors.red),
+  items: items,
+  selectedId: selectedId,
+  payloadFor: (_) => tinyPixelPayload(),
+  identity: const PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 16, folderCount: 30, status: PhotoStatus.unmarked, exif: null),
 );
 
 void main() {

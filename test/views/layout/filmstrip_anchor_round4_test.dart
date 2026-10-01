@@ -39,39 +39,19 @@ MainSurface _surface(
   List<PhotoItem> items,
   String selectedId, {
   Widget? menu,
-}) => MainSurface(
+}) => testSurface(
   viewport: const ColoredBox(color: Colors.red),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: selectedId,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => tinyPixelPayload(),
-    onVisibleRange: (_, __) {},
-  ),
-  identity: const PhotoIdentity(
-    displayName: 'IMG_0001.jpg',
-    indexInFolder: 16,
-    folderCount: 30,
-    status: PhotoStatus.unmarked,
-    exif: null,
-  ),
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    // Defaults to a real 48px IconButton, not a shrink placeholder: the marks
-    // `Wrap`'s run height (and therefore the reflow TC-647 is about) depends
-    // on it. The paper case overrides it — paper's 44px gutter head Row is a
-    // plain `Row` that overflows at a 90px gutter when the menu is a real
-    // IconButton, which is a separate paper defect (parked, round-4
-    // parking-lot) and would mask the anchoring measurement here.
-    menu: menu ?? IconButton(icon: const Icon(Icons.more_horiz),
-        onPressed: () {}),
-  ),
+  items: items,
+  selectedId: selectedId,
+  payloadFor: (_) => tinyPixelPayload(),
+  identity: const PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 16, folderCount: 30, status: PhotoStatus.unmarked, exif: null),
+  // Defaults to a real 48px IconButton, not a shrink placeholder: the marks
+  // `Wrap`'s run height (and therefore the reflow TC-647 is about) depends
+  // on it. The paper case overrides it — paper's 44px gutter head Row is a
+  // plain `Row` that overflows at a 90px gutter when the menu is a real
+  // IconButton, which is a separate paper defect (parked, round-4
+  // parking-lot) and would mask the anchoring measurement here.
+  menu: menu ?? IconButton(icon: const Icon(Icons.more_horiz), onPressed: () {}),
 );
 
 /// Owns the width state and feeds `onWidthDelta` back into it, as

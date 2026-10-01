@@ -26,26 +26,12 @@ import '../../support/view_fixtures.dart';
 MainSurface _surface(
   List<PhotoItem> items,
   void Function(int first, int last) onVisibleRange,
-) => MainSurface(
-  viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: items.first.id,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => tinyPixelPayload(),
-    onVisibleRange: onVisibleRange,
-  ),
-  identity: null,
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
+) => testSurface(
+  viewport: kRedViewport,
+  items: items,
+  selectedId: items.first.id,
+  payloadFor: (_) => tinyPixelPayload(),
+  onVisibleRange: onVisibleRange,
 );
 
 void main() {

@@ -23,35 +23,12 @@ import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import '../../support/view_fixtures.dart';
 
 MainSurface _surface(List<PhotoItem> items, String? selectedId) =>
-    MainSurface(
-      viewport: const ColoredBox(
-        key: ValueKey<String>('sidebar-follow-test-viewport'),
-        color: Colors.red,
-      ),
-      statusOverlay: const SizedBox.shrink(),
-      strip: PhotoStripModel(
-        items: items,
-        selectedId: selectedId,
-        recycleMode: false,
-        onSelect: (_) {},
-        payloadFor: (_) => tinyPixelPayload(),
-        onVisibleRange: (_, __) {},
-      ),
-      identity: const PhotoIdentity(
-        displayName: 'IMG_0001.jpg',
-        indexInFolder: 1,
-        folderCount: 30,
-        status: PhotoStatus.unmarked,
-        exif: null,
-      ),
-      actions: PhotoActions(
-        recycleMode: false,
-        onStar: () {},
-        onTrash: () {},
-        onToggleRecycleMode: () {},
-        onOpenFolder: () {},
-        menu: const SizedBox.shrink(),
-      ),
+    testSurface(
+      viewport: const ColoredBox(key: ValueKey<String>('sidebar-follow-test-viewport'), color: Colors.red),
+      items: items,
+      selectedId: selectedId,
+      payloadFor: (_) => tinyPixelPayload(),
+      identity: const PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 1, folderCount: 30, status: PhotoStatus.unmarked, exif: null),
     );
 
 /// Owns `selectedId` and rebuilds the child with a fresh [MainSurface] on
