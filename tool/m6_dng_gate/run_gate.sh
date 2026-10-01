@@ -1,7 +1,7 @@
 #!/bin/bash
 # M7 Task 7 -- tracked DNG decode gate runner.
-# Promotes the gitignored scripts/tmp/m6-r1-bench / scripts/tmp/m6-r2-verify
-# harnesses into tool/, unchanged in method (audit gap 9).
+# Promotes the since-deleted scratch m6-r1-bench / m6-r2-verify harnesses
+# into tool/, unchanged in method (audit gap 9).
 #
 # Usage: bash tool/m6_dng_gate/run_gate.sh <sample-dir> <out-file>
 #
@@ -74,7 +74,7 @@ DYLIB="${DNG_DYLIB:-/Users/jhangyu/project/ceyx/plugin/macos/Libraries/libdng_de
   echo "literal constant (see verdict_dng_extract.py FLOOR_MS), never a"
   echo "tunable. Applied mechanically, after this run, by"
   echo "tool/m6_dng_gate/verdict_dng_extract.py against its embedded"
-  echo "baseline table (transcribed from scripts/tmp/m6-r2-verify/p5-3-verify.txt)."
+  echo "baseline table (transcribed from a since-deleted scratch verification capture)."
   echo ""
   echo "No re-running with different parameters until a run passes: a"
   echo "failing run stays in this artifact."

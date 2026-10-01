@@ -1,12 +1,12 @@
 # `tool/m6_dng_gate` — tracked DNG decode gate
 
-Promotes the M6 decode-benchmark harness from gitignored `scripts/tmp/` into
-tracked `tool/` (M7 Task 7, audit gap 9: "the decode gate governs every
-performance decision in this project, and it currently exists only under
-gitignored `scripts/tmp/` — not re-runnable from a clean checkout"). The
+Promotes the M6 decode-benchmark harness from a since-deleted gitignored
+scratch area into tracked `tool/` (M7 Task 7, audit gap 9: "the decode gate
+governs every performance decision in this project, and it currently exists
+only in gitignored scratch — not re-runnable from a clean checkout"). The
 method is ported **unchanged**:
 
-- `g1_extract_bench.dart` — port of `scripts/tmp/m6-r1-bench/g1_dart.dart`.
+- `g1_extract_bench.dart` — port of the scratch `g1_dart.dart` harness (since deleted).
   Measures `DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path)`
   directly (informational; not verdict-bearing here since this tool ships
   with no native-side comparison binary).
@@ -96,7 +96,8 @@ discarded and re-attempted.
 ## Method-stability note
 
 Per Task 7's constraint, the harness's method was not redesigned during the
-port. If a bug is found in the original `scripts/tmp/` harness, it is
+port. If a bug is found that predates the port (the original, since-deleted
+scratch harness), it is
 reported to the team lead rather than silently fixed here — silently fixing
 it inside the port would make the reproduction check against the recorded
 G'''' result meaningless.

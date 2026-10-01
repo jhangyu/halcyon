@@ -1,4 +1,4 @@
-// M7 Task 7 -- tracked port of scripts/tmp/m6-r1-bench/g1_dart.dart.
+// M7 Task 7 -- tracked port of the since-deleted scratch g1_dart.dart harness.
 // Under test: lib/services/dng_embedded_jpeg_extractor.dart
 // `DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path)`.
 //
@@ -21,8 +21,8 @@ import 'dart:typed_data';
 import 'package:halcyon_flutter/services/image_pipeline/dng_embedded_jpeg_extractor.dart';
 
 /// Baseline JPEG SOF0..SOF15 scan; byte-for-byte the same algorithm as the
-/// original scripts/tmp/m6-r1-bench/g1_native.swift `sofDims` and
-/// scripts/tmp/m6-r1-bench/g1_dart.dart `sofDims`.
+/// original scratch g1_native.swift `sofDims` and g1_dart.dart `sofDims`
+/// implementations (since deleted).
 String sofDims(Uint8List d) {
   final n = d.length;
   if (n < 4) return '?';
