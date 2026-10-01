@@ -148,7 +148,12 @@ class AppState extends ChangeNotifier {
     // 2026-09-11). Optional with a null default so no test needs a RAM fake;
     // `main.dart` passes the one reading it already took.
     int? physicalMemoryBytes,
+    // Test-only seam: lets tests shrink the 250ms selection-EXIF quiet period
+    // instead of waiting it out in real time. Production callers must not pass
+    // this. Precedent: ImagePreloadController.navigationDebounce.
+    Duration exifDebounce = kSelectionExifDebounce,
   }) : _decodeLaneWidth = kDefaultDecodeLaneWidth,
+       _exifDebounce = exifDebounce,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -215,6 +220,7 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   AppState.forTesting({required Set<ExportFiletype> runtimeCapabilities})
     : _decodeLaneWidth = kDefaultDecodeLaneWidth,
+      _exifDebounce = kSelectionExifDebounce,
       _scanner = PhotoLibraryScanner(),
       _exifReader = ExifMetadataService.readBatch,
       _statusStore = PhotoStatusStore(),
@@ -377,6 +383,7 @@ class AppState extends ChangeNotifier {
   final Map<String, ExifMetadata?> _exifCache = <String, ExifMetadata?>{};
   int _exifGeneration = 0;
   Timer? _exifDebounceTimer;
+  final Duration _exifDebounce;
 
   // Settings
   bool _autoAdvance = false;
@@ -1391,7 +1398,7 @@ class AppState extends ChangeNotifier {
     _exifGeneration++;
     final generation = _exifGeneration;
     _exifDebounceTimer?.cancel();
-    _exifDebounceTimer = Timer(kSelectionExifDebounce, () {
+    _exifDebounceTimer = Timer(_exifDebounce, () {
       _readSelectionExif(id, generation);
     });
   }
