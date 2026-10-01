@@ -358,8 +358,6 @@ class AppState extends ChangeNotifier {
   void dropBeyondBandTierTwoPixels() =>
       _preloadController.dropBeyondBandTierTwoPixels();
 
-  bool get isRenaming => _renameCoordinator.isRenaming;
-
   void cancelRename() => _renameCoordinator.cancelRename();
 
   Directory? _currentDir;
@@ -433,9 +431,8 @@ class AppState extends ChangeNotifier {
   // fresh process re-discovers it on its first delete.
   bool _bridgeUnavailableLatched = false;
 
-  // The status line's current message. [_statusSeq] bumps on every show so the
-  // view can restart its timer even when the same text repeats.
-  StatusMessage? _status;
+  // Bumps on every show so the view can restart its timer even when the
+  // same text repeats (carried on [StatusEvent.seq]).
   int _statusSeq = 0;
 
   /// Fires once per [showStatus] call (see [StatusEvent]); [StatusLine]
@@ -494,7 +491,7 @@ class AppState extends ChangeNotifier {
     }
     _shortcuts = bindings;
 
-    // Guards the same race documented on resolveExportCapabilities (:514):
+    // Guards the same race documented on resolveExportCapabilities:
     // this method awaits SharedPreferences.getInstance() before reaching
     // here, and a short-lived AppState (e.g. a test) may already be disposed
     // by the time that resolves -- notifyListeners() on a disposed
@@ -622,15 +619,14 @@ class AppState extends ChangeNotifier {
 
   ExportFiletype get exportFiletype => _exportFiletype;
 
-  /// Build intent INTERSECTED with runtime capability (ruling Q4). The
+  /// The export filetypes the native library reported as available at runtime
+  /// (ruling Q4), in enum order; just the default when none were. The
   /// settings panel's segmented control and [_normaliseExportFiletype] both
-  /// read this, not [ExportFiletype.buildIntent] alone.
+  /// read this.
   List<ExportFiletype> get selectableExportFiletypes {
     final caps = _runtimeExportCapabilities;
     if (caps.isEmpty) return const [kDefaultExportFiletype];
-    return ExportFiletype.values
-        .where((f) => f.buildIntent && caps.contains(f))
-        .toList();
+    return ExportFiletype.values.where(caps.contains).toList();
   }
 
   /// Probes the native library once. Safe to call before the dylib exists:
@@ -641,7 +637,6 @@ class AppState extends ChangeNotifier {
     final svc = service ?? CeyxEncodeService();
     final found = <ExportFiletype>{};
     for (final ft in ExportFiletype.values) {
-      if (!ft.buildIntent) continue;
       if (await svc.supports(ft.format)) found.add(ft);
     }
     // The probe above is fired-and-forgotten from `_initPrefs`/the app-startup
@@ -668,11 +663,7 @@ class AppState extends ChangeNotifier {
   bool get isRetentionTierOverridden => _retentionTierOverride != null;
   ShortcutBindings get shortcutBindings => _shortcuts;
 
-  StatusMessage? get status => _status;
-  int get statusSeq => _statusSeq;
-
   void showStatus(StatusMessage message) {
-    _status = message;
     _statusSeq++;
     statusEvents.value = StatusEvent(_statusSeq, message);
   }
@@ -1440,8 +1431,8 @@ class AppState extends ChangeNotifier {
       all = const [null];
     }
     if (generation != _exifGeneration) return;
-    // Guards the same race documented on `_initPrefs` (:399) and
-    // `resolveExportCapabilities` (:549): this method awaits the EXIF reader,
+    // Guards the same race documented on `_initPrefs` and
+    // `resolveExportCapabilities`: this method awaits the EXIF reader,
     // and a short-lived AppState (a test, or a view torn down mid-read) may
     // already be disposed by the time that resolves -- `notifyListeners()` on
     // a disposed ChangeNotifier throws. `dispose()` cancels the debounce

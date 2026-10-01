@@ -58,11 +58,11 @@ void main() {
 
       final state = testState();
       await state.loadFolder(dir);
-      expect(state.status, isNull, reason: 'writable folder stays quiet');
+      expect(state.statusEvents.value, isNull, reason: 'writable folder stays quiet');
 
       await makeDirReadOnly(dir);
       await state.loadFolder(dir);
-      expect(state.status?.text, contains('唯讀'));
+      expect(state.statusEvents.value?.message.text, contains('唯讀'));
       expect(
         File(p.join(dir.path, '.halcyon_write_probe')).existsSync(),
         isFalse,
@@ -275,9 +275,9 @@ void main() {
 
       await state.processStarred(dest.path, false);
 
-      expect(state.status, isNotNull);
-      expect(state.status!.text, contains('1'));
-      expect(state.status!.text, contains('失敗'));
+      expect(state.statusEvents.value, isNotNull);
+      expect(state.statusEvents.value!.message.text, contains('1'));
+      expect(state.statusEvents.value!.message.text, contains('失敗'));
     });
 
     test('TC-224 a scan failure surfaces a status message', () async {
@@ -294,8 +294,8 @@ void main() {
 
       await state.loadFolder(dir);
 
-      expect(state.status, isNotNull);
-      expect(state.status!.text, contains('無法讀取'));
+      expect(state.statusEvents.value, isNotNull);
+      expect(state.statusEvents.value!.message.text, contains('無法讀取'));
     });
 
     test('TC-225 readMetadataFor chunks once and reports progress', () async {
