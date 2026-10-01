@@ -89,6 +89,58 @@ class AppState extends ChangeNotifier {
     // instead of waiting it out in real time. Production callers must not pass
     // this. Precedent: ImagePreloadController.navigationDebounce.
     Duration exifDebounce = kSelectionExifDebounce,
+  }) : this._(
+          scanner: scanner,
+          statusStore: statusStore,
+          fileActions: fileActions,
+          preloadController: preloadController,
+          imageLoader: imageLoader,
+          dngDecoder: dngDecoder,
+          orientingDngDecoder: orientingDngDecoder,
+          exportService: exportService,
+          exifReader: exifReader,
+          retention: retention,
+          physicalMemoryBytes: physicalMemoryBytes,
+          exifDebounce: exifDebounce,
+          hydrate: true,
+        );
+
+  /// Test-only constructor: skips prefs hydration and native capability
+  /// resolution entirely, seeding [_runtimeExportCapabilities] directly.
+  /// [resolveExportCapabilities] talks to the real (or injected)
+  /// [CeyxEncodeService], which `flutter test` cannot resolve outside a
+  /// built app bundle -- this seam lets UI-filtering tests exercise
+  /// [selectableExportFiletypes] without going anywhere near that call.
+  ///
+  /// A factory (not a redirecting generative ctor) because it has a body:
+  /// it builds exactly what the production ctor builds with every
+  /// collaborator defaulted, then seeds the capability set.
+  @visibleForTesting
+  factory AppState.forTesting({
+    required Set<ExportFiletype> runtimeCapabilities,
+  }) {
+    final state = AppState._(hydrate: false);
+    state._runtimeExportCapabilities = runtimeCapabilities;
+    return state;
+  }
+
+  /// The ONE construction path. [hydrate] is the only difference between
+  /// production and [AppState.forTesting]: whether prefs hydration (and the
+  /// capability probe it fires) runs.
+  AppState._({
+    PhotoLibraryScanner? scanner,
+    PhotoStatusStore? statusStore,
+    PhotoFileActions? fileActions,
+    ImagePreloadController? preloadController,
+    NativeImageLoad? imageLoader,
+    DngFullDecoder? dngDecoder,
+    DngOrientingFullDecoder? orientingDngDecoder,
+    PhotoExportService? exportService,
+    ExifBatchReader? exifReader,
+    RetentionPolicy retention = const RetentionPolicy.floor(),
+    int? physicalMemoryBytes,
+    Duration exifDebounce = kSelectionExifDebounce,
+    required bool hydrate,
   }) : _exifDebounce = exifDebounce,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
@@ -144,45 +196,9 @@ class AppState extends ChangeNotifier {
     // Derived once, from the policy main.dart already probed for. No second
     // RAM probe, and an injected controller cannot drift from it.
     _autoRetentionTier = tierForPolicy(retention);
-    _initPrefs();
+    if (hydrate) _initPrefs();
   }
 
-  /// Test-only constructor: skips prefs hydration and native capability
-  /// resolution entirely, seeding [_runtimeExportCapabilities] directly.
-  /// [resolveExportCapabilities] talks to the real (or injected)
-  /// [CeyxEncodeService], which `flutter test` cannot resolve outside a
-  /// built app bundle -- this seam lets UI-filtering tests exercise
-  /// [selectableExportFiletypes] without going anywhere near that call.
-  @visibleForTesting
-  AppState.forTesting({required Set<ExportFiletype> runtimeCapabilities})
-    : _exifDebounce = kSelectionExifDebounce,
-      _scanner = PhotoLibraryScanner(),
-      _exifReader = ExifMetadataService.readBatch,
-      _statusStore = PhotoStatusStore(),
-      _fileActions = PhotoFileActions(),
-      _exportService = PhotoExportService(),
-      _publishScheduler = IdlePublishScheduler() {
-    _preloadController = ImagePreloadController(
-      imageLoader: dartImageLoad,
-      dngDecoder: null,
-      retention: const RetentionPolicy.floor(),
-      decodeLaneWidth: kDefaultDecodeLaneWidth,
-      scheduleFrameCallback: _publishScheduler.schedule,
-      compositeGate: _publishScheduler.awaitSlot,
-    );
-    _autoRetentionTier = tierForPolicy(const RetentionPolicy.floor());
-    _renameCoordinator = RenameCoordinator(
-      statusStore: _statusStore,
-      itemsOf: () => _items,
-      dirOf: () => _currentDir,
-      selectedIdOf: () => _selectedItemID,
-      readMetadata: readMetadataFor,
-      showStatus: showStatus,
-      reloadFolder: loadFolder,
-      notify: notifyListeners,
-    );
-    _runtimeExportCapabilities = runtimeCapabilities;
-  }
 
   final PhotoLibraryScanner _scanner;
   final PhotoStatusStore _statusStore;
