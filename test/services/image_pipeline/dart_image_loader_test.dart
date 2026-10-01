@@ -35,7 +35,7 @@ void main() {
       // `purpose: preview` over the SAME full corpus of real sample DNGs, purely
       // to re-check the hit/miss classification against `previewCache` (they
       // never mutate global state -- the memo/walk-count assertions live in
-      // separate groups that explicitly `resetSidebarWalkMemo()` first). That is
+      // separate groups that explicitly `resetFileProbeMemo()` first). That is
       // a real, deterministic full-corpus preview decode repeated ~4x. Hoisted
       // here into a single shared pass so those tests consume the cached result
       // instead of re-decoding every real sample DNG from disk again each time.
@@ -144,16 +144,6 @@ void main() {
         skip: samplePhotosSkipReason,
       );
 
-      test('sidebar purpose never returns the raw-decode signal', () async {
-        for (final f in dngs()) {
-          final result = await dartImageLoad(
-            f.path,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-          );
-          expect(result is! NativeImageNeedsRawDecode, isTrue, reason: f.path);
-        }
-      }, skip: samplePhotosSkipReason);
-
       test('missing file is a failure, not a throw', () async {
         final result = await dartImageLoad(
           '/nonexistent/x.dng',
@@ -226,32 +216,6 @@ void main() {
         expect(misses, greaterThan(0));
       }, skip: samplePhotosSkipReason);
 
-      test('the sidebar still never returns the raw-decode signal for an'
-          ' engine-decodable non-DNG RAW', () async {
-        // The permanent-miss logic in image_preload_controller depends on this;
-        // generalising the preview route must not leak into the sidebar branch.
-        // The `export` purpose is included for completeness of the guard, but note
-        // (F4) the shipped export path never passes it — see
-        // `photo_export_service.dart:57-58`.
-        final dir = await Directory.systemTemp.createTemp('dart_image_loader_sb');
-        addTempDirTeardown(dir);
-        for (final f in dngs()) {
-          final asArw = File('${dir.path}/${f.uri.pathSegments.last}.arw');
-          await f.copy(asArw.path);
-          for (final purpose in const [
-            ImageRequestPurpose.sidebarThumbnail,
-            ImageRequestPurpose.export,
-          ]) {
-            final result = await dartImageLoad(asArw.path, purpose: purpose);
-            expect(
-              result is! NativeImageNeedsRawDecode,
-              isTrue,
-              reason: '${asArw.path} @ ${purpose.name}',
-            );
-          }
-        }
-      }, skip: samplePhotosSkipReason);
-
       // M6 P3.7 (F-20): oversized-image guard — same 1.5GB decoded-pixel budget
       // the deleted native guard (AppDelegate.swift renderCGImage) enforced.
       Uint8List handcraftedOversizedTiff() {
@@ -317,7 +281,7 @@ void main() {
       //
       // These use a synthetic container rather than a real sample on purpose.
       // Measured over the former local DNG corpus (26 files,
-      // scripts/tmp/m7-t2/newly-routed.txt): ZERO samples are newly routed by this
+      // scratch routing census, not retained): ZERO samples are newly routed by this
       // rule -- 13 already have no qualifying candidate, 13 have one that already
       // clears 2800. So no real file in the corpus can exercise this behaviour,
       // and a test built on the corpus would pass without testing anything.
@@ -354,32 +318,6 @@ void main() {
                 'previously this returned NativeImageBytes with a 160x120 '
                 'rendition; G-2 makes it a decode request',
           );
-        });
-
-        test('(b) the sidebar stays lenient (P-11/P-13)', () async {
-          final result = await dartImageLoad(
-            dngPath,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-          );
-          expect(result, isA<NativeImageBytes>());
-          expect((result as NativeImageBytes).bytes, isNotEmpty);
-        });
-
-        // F4 (round-1 reviewer): this pins the loader's `export` PURPOSE, not the
-        // export FEATURE. `photo_export_service.dart:57-58` enters the loader with
-        // `purpose: preview`, so a real export gets the strict floor, not this
-        // lenient arm. Nothing in lib/ passes `ImageRequestPurpose.export` to the
-        // loader, so this arm is currently unreachable in production. Kept because
-        // the purpose exists and its semantics should stay pinned — but do not
-        // read a green here as "exports are lenient".
-        test('(b) the loader\'s export PURPOSE stays lenient (unreachable from the '
-            'shipped export path — see F4 note above)', () async {
-          final result = await dartImageLoad(
-            dngPath,
-            purpose: ImageRequestPurpose.export,
-          );
-          expect(result, isA<NativeImageBytes>());
-          expect((result as NativeImageBytes).bytes, isNotEmpty);
         });
 
         // Was asserted on `.arw`. A-6's principle is "stay lenient where a
@@ -495,15 +433,6 @@ void main() {
             (result as NativeImageNeedsRawDecode).declaredPreviewsUnreadable,
             isTrue,
           );
-        });
-
-        test('(c) the sidebar branch is unchanged: still NO_THUMBNAIL', () async {
-          final result = await dartImageLoad(
-            corruptPath,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-          );
-          expect(result, isA<NativeImageFailure>());
-          expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
         });
 
         test('(b) a real preview-less DNG still yields NeedsRawDecode — the '
@@ -688,8 +617,8 @@ void main() {
           return file.path;
         }
 
-        test('TC-303: a .webp takes the encoded-bitstream branch for all three '
-            'purposes and returns the file\'s own bytes', () async {
+        test('TC-303: a .webp takes the encoded-bitstream branch and returns '
+            'the file\'s own bytes', () async {
           // Content need not be a valid WebP: this branch never decodes, it only
           // hands the bytes to the engine. Using a marker payload proves the
           // returned buffer is the FILE's bytes, not something re-encoded.
@@ -697,11 +626,10 @@ void main() {
             0x52, 0x49, 0x46, 0x46, 0xDE, 0xAD, 0xBE, 0xEF,
           ]);
           final path = await writeBytes('a.webp', marker);
-          for (final purpose in ImageRequestPurpose.values) {
-            final result = await dartImageLoad(path, purpose: purpose);
-            expect(result, isA<NativeImageBytes>(), reason: 'purpose $purpose');
-            expect((result as NativeImageBytes).bytes, marker);
-          }
+          final result =
+              await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+          expect(result, isA<NativeImageBytes>());
+          expect((result as NativeImageBytes).bytes, marker);
         });
 
         test('TC-305: a .tif at preview returns NeedsRawDecode with the IFD0 '
@@ -734,21 +662,6 @@ void main() {
             (result as NativeImageNeedsRawDecode).exifOrientation,
             kDefaultExifOrientation,
           );
-        });
-
-        test('TC-306: a .tif at sidebarThumbnail is a failure and NEVER '
-            'NeedsRawDecode', () async {
-          final path = await writeBytes(
-            'c.tiff',
-            buildSyntheticTiffHeader(width: 800, height: 600, orientation: 6),
-          );
-          final result = await dartImageLoad(
-            path,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-          );
-          expect(result, isNot(isA<NativeImageNeedsRawDecode>()));
-          expect(result, isA<NativeImageFailure>());
-          expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
         });
 
         test('TC-307: a TIFF header declaring 30000x30000 is IMAGE_TOO_LARGE',
@@ -861,29 +774,6 @@ void main() {
           );
         });
 
-        test('TC-326: a .heic at sidebarThumbnail is a failure and NEVER '
-            'NeedsRawDecode', () async {
-          final path = await writeHeic('c.heic');
-          var probeCalls = 0;
-          final result = await dartImageLoad(
-            path,
-            purpose: ImageRequestPurpose.sidebarThumbnail,
-            probe: (_) async {
-              probeCalls++;
-              return (width: 4032, height: 3024, orientation: 1);
-            },
-          );
-          expect(result, isNot(isA<NativeImageNeedsRawDecode>()));
-          expect(result, isA<NativeImageFailure>());
-          expect((result as NativeImageFailure).code, 'NO_THUMBNAIL');
-          expect(
-            probeCalls,
-            0,
-            reason: 'the sidebar bails before the probe: an FFI round trip per '
-                'thumbnail would be paid for an answer that is discarded',
-          );
-        });
-
         test('TC-331: a HEIC declaring 30000x30000 is IMAGE_TOO_LARGE', () async {
           final path = await writeHeic('huge.heic');
           // 30000 * 30000 * 4 == 3.6e9 > 1.5e9. The file is 8 bytes long, so any
@@ -898,160 +788,39 @@ void main() {
         });
       });
 
-      group('W4b: sidebar embedded-JPEG walk memo', () {
-        test(
-          'a second sidebarThumbnail load of the SAME (path, longEdge) hits the '
-          'memo instead of repeating the IFD/strip walk, and produces the exact '
-          'same bytes as the first',
-          () async {
-            final samples = dngs();
-            expect(samples, isNotEmpty, reason: 'no sample DNGs under $sampleDir');
-            final sample = samples.first;
-            resetSidebarWalkMemo();
-            final before = debugSidebarWalkCount;
-
-            final first = await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
-            final afterFirst = debugSidebarWalkCount;
-            expect(
-              afterFirst,
-              before + 1,
-              reason: 'first load must perform exactly one real walk',
-            );
-
-            // BLOCKER-2 regression guard: the memo entry must be a small verdict
-            // record, never a Uint8List/DngEmbeddedJpeg holding the decoded
-            // bitstream. `is! Uint8List` on the raw stored value is a genuine
-            // runtime assertion (not just a compile-time type argument), since
-            // `debugSidebarWalkMemoRawValueFor` returns `Object?`.
-            final storedRaw = debugSidebarWalkMemoRawValueFor(
-              sample.path,
-              ImageRequestPurpose.sidebarThumbnail.targetSize,
-            );
-            expect(
-              storedRaw,
-              isNot(same(debugSidebarWalkMemoNoEntry)),
-              reason: 'the first load must have written an entry',
-            );
-            expect(
-              storedRaw,
-              isNot(isA<Uint8List>()),
-              reason: 'memo must not retain the JPEG bitstream itself',
-            );
-            expect(
-              storedRaw,
-              isNot(isA<DngEmbeddedJpeg>()),
-              reason: 'memo must not retain the whole extraction result object',
-            );
-            if (storedRaw != null) {
-              // A verdict record only: this closed record type structurally
-              // cannot hold anything larger than three ints, which is the actual
-              // size bound the fix provides -- proven by construction, not by
-              // measuring bytes at runtime.
-              expect(
-                storedRaw,
-                isA<({int offset, int byteCount, int orientation})>(),
-              );
-            }
-
-            final second = await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
-            expect(
-              debugSidebarWalkCount,
-              afterFirst,
-              reason:
-                  'second load of the same (path, longEdge) must hit the memo '
-                  '-- no additional walk',
-            );
-
-            // Same observable answer either way, memo hit or not.
-            expect(second.runtimeType, first.runtimeType);
-            if (first is NativeImageBytes) {
-              expect((second as NativeImageBytes).bytes, first.bytes);
-            } else {
-              expect((second as NativeImageFailure).code, (first as NativeImageFailure).code);
-            }
-
-            // resetSidebarWalkMemo() (the folder-reload seam) makes the walk
-            // happen again rather than latching the answer forever.
-            resetSidebarWalkMemo();
-            await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
-            expect(
-              debugSidebarWalkCount,
-              afterFirst + 1,
-              reason: 'after reset, the next load must walk again',
-            );
-
-            // A DIFFERENT longEdge is a different key: also walks again, mirroring
-            // PrefetchScheduler's F5/AC7 keying (prefetch_scheduler.dart).
-            final beforeDifferentEdge = debugSidebarWalkCount;
-            await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.preview,
-            );
-            // ImageRequestPurpose.preview does not go through the sidebar branch
-            // at all, so this must NOT touch the sidebar walk counter -- proves
-            // the memo/counter is scoped to the sidebar branch only.
-            expect(debugSidebarWalkCount, beforeDifferentEdge);
-          },
-          skip: samplePhotosSkipReason,
-        );
-      });
-
       group('P1b: single-walk probe record', () {
         test(
-          'TC-945: an orientation/dimensions-driven preview load followed by a '
-          'sidebar load of the same path performs exactly ONE probeFile walk',
+          'TC-945: a second preview load of an already-probed path is answered '
+          'from the per-path probe memo -- exactly ONE probeFile walk',
           () async {
             final samples = dngs();
             expect(samples, isNotEmpty, reason: 'no sample DNGs under $sampleDir');
             final sample = samples.first;
-            resetSidebarWalkMemo();
+            resetFileProbeMemo();
             final before = debugFileProbeWalkCount;
 
-            // The preview branch asks the shared probe first (it needs
-            // orientation/dimensions on a RAW-decode-signal path and the
-            // full-size embedded-preview candidate).
             await dartImageLoad(sample.path, purpose: ImageRequestPurpose.preview);
-            final afterPreview = debugFileProbeWalkCount;
+            final afterFirst = debugFileProbeWalkCount;
             expect(
-              afterPreview,
+              afterFirst,
               before + 1,
               reason: 'the first question about this path must walk exactly once',
             );
 
-            // The sidebar branch asks a DIFFERENT question (a different
-            // long-edge candidate selection) about the SAME path. Under the old
-            // four-separate-questions design this would have been a second,
-            // independent IFD/SubIFD walk; under the P1b single-walk probe
-            // record it must be answered entirely from the memoized record.
-            await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
+            // Same path again: must be served entirely from the memoized
+            // DngFileProbe record, with zero additional IFD/SubIFD walks.
+            await dartImageLoad(sample.path, purpose: ImageRequestPurpose.preview);
             expect(
               debugFileProbeWalkCount,
-              afterPreview,
-              reason:
-                  'the sidebar question about an already-probed path must not '
-                  'trigger a second walk -- one walk serves both consumers',
+              afterFirst,
+              reason: 'an already-probed path must not trigger a second walk',
             );
 
-            // resetSidebarWalkMemo() also clears the shared probe memo, so the
-            // next question about this path walks again.
-            resetSidebarWalkMemo();
-            await dartImageLoad(
-              sample.path,
-              purpose: ImageRequestPurpose.sidebarThumbnail,
-            );
-            expect(debugFileProbeWalkCount, afterPreview + 1);
+            // resetFileProbeMemo() (the folder-reload seam) makes the next
+            // question about this path walk again.
+            resetFileProbeMemo();
+            await dartImageLoad(sample.path, purpose: ImageRequestPurpose.preview);
+            expect(debugFileProbeWalkCount, afterFirst + 1);
           },
           skip: samplePhotosSkipReason,
         );
@@ -1106,7 +875,7 @@ void main() {
               dir: dir,
               name: 'preview_bearing.dng',
             );
-            resetSidebarWalkMemo();
+            resetFileProbeMemo();
 
             // 4 faulted `File(path)` constructions: 1 for `dartImageLoad`'s own
             // `File(path).exists()` check (forwarded, unaffected by the fault --
@@ -1123,7 +892,7 @@ void main() {
                 final walksBefore = debugFileProbeWalkCount;
                 final first = await dartImageLoad(
                   path,
-                  purpose: ImageRequestPurpose.sidebarThumbnail,
+                  purpose: ImageRequestPurpose.preview,
                 );
                 final afterFirst = debugFileProbeWalkCount;
                 expect(
@@ -1133,11 +902,12 @@ void main() {
                 );
                 expect(
                   first,
-                  isA<NativeImageFailure>(),
+                  isNot(isA<NativeImageBytes>()),
                   reason:
-                      'every attempt faulted, so this question surfaces as a '
-                      'miss -- the bug is specifically about what gets CACHED, '
-                      'not this answer',
+                      'every attempt faulted, so this question cannot serve the '
+                      'embedded preview (on the preview purpose a .dng routes to '
+                      'RAW decode) -- the bug is specifically about what gets '
+                      'CACHED, not this answer',
                 );
 
                 // Before the BLOCKER-3 fix, the fault-derived null was memoized
@@ -1145,7 +915,7 @@ void main() {
                 // question would hit the memo and never walk again.
                 final second = await dartImageLoad(
                   path,
-                  purpose: ImageRequestPurpose.sidebarThumbnail,
+                  purpose: ImageRequestPurpose.preview,
                 );
                 expect(
                   debugFileProbeWalkCount,
@@ -1162,7 +932,7 @@ void main() {
               run.value,
               isA<NativeImageBytes>(),
               reason:
-                  'once the volume gives a clean read, the sidebar must serve '
+                  'once the volume gives a clean read, the preview must serve '
                   'the preview normally -- not a permanently cached miss from '
                   'the earlier transient fault',
             );

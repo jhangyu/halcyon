@@ -173,13 +173,6 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
-        // RETIRED half (2026-08-30, plan Task 6 / amendment E-C2): this used
-        // to also assert `contains(ImageRequestPurpose.sidebarThumbnail)`. The
-        // controller no longer asks the loader for tiles -- it derives them
-        // from the shared payload -- so the sidebar purpose never reaches the
-        // loader from here. The enum value and its loader semantics are still
-        // pinned by test/services/image_pipeline/dart_image_loader_test.dart.
-        expect(calls, isNot(contains(ImageRequestPurpose.sidebarThumbnail)));
       },
     );
 

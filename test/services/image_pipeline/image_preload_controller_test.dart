@@ -182,9 +182,6 @@ void main() {
           scheduleFrameCallback: _microtaskFrame,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-            if (purpose == ImageRequestPurpose.sidebarThumbnail) {
-              await gate.future;
-            }
             return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
           },
         );
@@ -2958,8 +2955,8 @@ void main() {
       // RE-WIRED 2026-08-30 (plan Task 6): the invariant is unchanged -- a row
       // that can never produce a tile is asked ONCE per folder load, not once
       // per sweep (design authority 2.2, invariant I8). What changed is WHO is
-      // asked. The sidebar no longer calls the loader with
-      // `purpose: sidebarThumbnail`; it asks the shared PAYLOAD producer, so
+      // asked. The sidebar no longer calls the loader at all (the sidebar
+      // purpose was deleted 2026-10-02); it asks the shared PAYLOAD producer, so
       // the failure has to be injected there and the "ask" counted there.
       final producerAsks = <String>[];
       final items = List.generate(5, (i) {

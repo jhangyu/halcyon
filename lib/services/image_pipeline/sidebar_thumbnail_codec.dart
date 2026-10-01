@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../perf/perf_log.dart';
 import 'jpeg_encoder.dart';
+import 'thumbnail_derivation.dart' show kSidebarThumbnailLongEdge;
 
 /// Bounds what the sidebar byte cache stores (M6 F-10 half 2).
 ///
@@ -23,7 +24,7 @@ import 'jpeg_encoder.dart';
 /// carry alpha, which is likewise fine for photographic sources.
 Future<Uint8List> sidebarCacheBytes(
   Uint8List encoded, {
-  int longEdge = 200, // = ImageRequestPurpose.sidebarThumbnail.targetSize
+  int longEdge = kSidebarThumbnailLongEdge,
   int reencodeThreshold = 512 * 1024,
   int jpegQuality = kDisplayJpegQuality,
 }) async {

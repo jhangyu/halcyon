@@ -9,7 +9,7 @@ import 'package:flutter/painting.dart';
 
 import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
-import 'dart_image_loader.dart' show resetSidebarWalkMemo;
+import 'dart_image_loader.dart' show resetFileProbeMemo;
 import 'decoded_rgba_image_provider.dart' show OrientedFullRes;
 import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart'
@@ -1498,9 +1498,9 @@ class ImagePreloadController {
     _tierTwoScheduler.cancelDebounce();
     _tierTwo.clear();
     _scheduler.reset();
-    // W4b: the sidebar walk memo is keyed by path and must not survive a
-    // folder switch, same lifetime as the prefetch memo reset above.
-    resetSidebarWalkMemo();
+    // The per-path probe memo must not survive a folder switch, same
+    // lifetime as the prefetch memo reset above.
+    resetFileProbeMemo();
     _permanentMisses.clear();
     _noNativeDecoderMisses.clear();
     _exifOrientations.clear();

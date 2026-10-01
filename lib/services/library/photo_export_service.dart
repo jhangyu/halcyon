@@ -65,9 +65,9 @@ const int kOriginalExportLongEdge = 0;
 
 /// Default long edge (px) an export is resized to before re-encoding, unless
 /// the user picked [kOriginalExportLongEdge]. Matches the pre-existing
-/// hardcoded `2048` this replaced (`ImageRequestPurpose.export.targetSize`
-/// remains 2048 and is unrelated -- it sizes the PRE-resize decode/preview
-/// fetch, not this service's own resize target).
+/// hardcoded `2048` this replaced (the PRE-resize decode/preview fetch is
+/// sized by `ImageRequestPurpose.preview`, not by this service's own resize
+/// target).
 const int kDefaultExportLongEdge = 2048;
 
 /// The complete, ordered set of stops the "Export JPEG Size" slider offers.
@@ -277,9 +277,9 @@ class PhotoExportService {
     }
 
     final transform = exifTransformFor(orientation);
-    // ImageRequestPurpose.export.targetSize (2048) sizes the PRE-resize
-    // fetch/decode above via dartImageLoad; it is unrelated to this
-    // service's own resize target, which is the user-settable [longEdge].
+    // The PRE-resize fetch/decode above (dartImageLoad, purpose: preview) is
+    // unrelated to this service's own resize target, which is the
+    // user-settable [longEdge].
     final maxEdge = longEdge;
 
     // Everything below is pure CPU on `package:image`, so it runs on a worker

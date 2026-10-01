@@ -27,7 +27,7 @@ const double kChipHeight = kChipWidth / kChipAspect; // 49.33 at rest
 /// chip is drawn.
 ///
 /// USER CLARIFICATION 2026-09-02: sidebar thumbnails are ALREADY produced at a
-/// 200px long edge (`ImageRequestPurpose.sidebarThumbnail`), and 200 is also
+/// 200px long edge (`kSidebarThumbnailLongEdge`), and 200 is also
 /// the gutter's maximum width — so a chip can never be drawn larger than the
 /// bitmap it already has. This is therefore a pure layout change: the existing
 /// decode is kept and the widget scales it DOWN at narrower widths. No

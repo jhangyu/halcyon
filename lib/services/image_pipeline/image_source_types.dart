@@ -11,8 +11,13 @@ import 'dart:typed_data';
 /// (`dart_image_loader.dart`); this file exists so both the production
 /// producer and every test fake can share one vocabulary without importing a
 /// channel-backed service that no longer exists.
+/// The purpose an image-bytes request is made for. Deliberately a ONE-value
+/// enum (2026-10-02 tech-debt T1): the sidebar and export purposes were
+/// deleted once nothing in lib/ requested them (AD-042: the sidebar is a
+/// payload consumer; the export service enters through `preview` on purpose).
+/// The `purpose` parameter stays in [NativeImageLoad] so the many test fakes
+/// keep their signature; do not turn this into a signature change.
 enum ImageRequestPurpose {
-  sidebarThumbnail(targetSize: 200, platformValue: 'sidebarThumbnail'),
   // 2800px approximates a typical retina window long edge x2. It is now only a
   // DEFAULT: the per-request value the comment below anticipated exists, as
   // [NativeImageLoad]'s `targetLongEdge`, and the preload pipeline passes the
@@ -20,26 +25,11 @@ enum ImageRequestPurpose {
   // what a caller with no viewport of its own still gets --
   // `photo_export_service.dart` and `perf_driver.dart` -- so their behaviour is
   // unchanged.
-  preview(targetSize: 2800, platformValue: 'preview'),
-  // Social-media export: long edge capped at 2048px, aspect ratio preserved,
-  // core EXIF (Make/Model/DateTime[Original]/Artist/ExposureTime/FNumber/
-  // FocalLength/ISO/LensModel/GPS lat-long) re-read from the ORIGINAL source
-  // file and carried over, with Orientation forced to 1 (pixels are already
-  // rotated). This is a best-effort re-read of a fixed tag set, not a
-  // byte-for-byte copy of the source's full EXIF block (no maker notes) --
-  // see `PhotoExportService._attachSourceExif` (M6 P3 review P-14
-  // ruling). Handled in Dart by `photo_export_service.dart`'s
-  // `exportBytesFor` (M6 F-11): decode -> resize -> encode, replacing the
-  // native export branch AppDelegate.swift used to run.
-  export(targetSize: 2048, platformValue: 'export');
+  preview(targetSize: 2800);
 
-  const ImageRequestPurpose({
-    required this.targetSize,
-    required this.platformValue,
-  });
+  const ImageRequestPurpose({required this.targetSize});
 
   final int targetSize;
-  final String platformValue;
 }
 
 /// Outcome of an image-bytes request through the `NativeImageLoad` seam.
