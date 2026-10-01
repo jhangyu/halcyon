@@ -1853,7 +1853,7 @@ class ImagePreloadController {
     // the event loop rather than after every window item's file IO.
     //
     // The near-to-far walk survives and still decides the rank each slot is
-    // enqueued with (`laneRankFor(distance)` inside `_enqueueSerialLoad`).
+    // enqueued with (`laneRankForDistance(distance)` inside `_enqueueSerialLoad`).
     // That rank -- not this loop's completion order -- is what the lane sorts
     // by, which is why removing the barrier does not re-open the round-1
     // IO-jitter defect (plan risk R8).
@@ -1901,7 +1901,7 @@ class ImagePreloadController {
   /// This IS the serial lane's start order (contract criterion 4), so it lives
   /// next to the pass that feeds the lane rather than inside it: the lane
   /// orders by the rank it is handed, and the rank comes from the same signed
-  /// distance this walk uses ([laneRankFor]).
+  /// distance this walk uses ([laneRankForDistance]).
   static Iterable<int> _nearToFarIndices(
     int currentIndex,
     int startIdx,
@@ -2071,7 +2071,7 @@ class ImagePreloadController {
   ///
   /// Ordering is NOT delegated to arrival order: `_ensurePayload` performs its
   /// serial-lane enqueue synchronously when handed a `precomputedProbe`, and
-  /// that enqueue carries `laneRankFor(distance)`. The lane is a min-priority
+  /// that enqueue carries `laneRankForDistance(distance)`. The lane is a min-priority
   /// queue, so IO jitter can change which slot is enqueued first but not which
   /// pending slot runs next (plan risk R8 -- the property is asserted on
   /// `debugLanePendingPriorityFor`, never on enqueue order).
@@ -2955,7 +2955,7 @@ class ImagePreloadController {
       id,
       _tierOneProviderForPayload(payload, width: width, height: height),
       payload: payload,
-      rank: laneRankFor(distance),
+      rank: laneRankForDistance(distance),
       exempt: isSelectedExempt(distance),
     );
   }
@@ -3046,7 +3046,7 @@ class ImagePreloadController {
         item.id,
         _tierOneProviderForPayload(payload, width: width, height: height),
         payload: payload,
-        rank: laneRankFor(i - currentIndex),
+        rank: laneRankForDistance(i - currentIndex),
         exempt: isSelectedExempt(i - currentIndex),
       );
     }

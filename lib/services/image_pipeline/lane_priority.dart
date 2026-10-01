@@ -178,9 +178,12 @@ int sidebarPriorityFor({
 /// The near-to-far rank of a signed distance: 0, +1, -1, +2, -2, ... maps to
 /// 0, 1, 2, 3, 4, ...
 ///
-/// Moved here verbatim from `decode_lane.dart`'s `laneRankFor` so that every
-/// input to a lane priority comes from this file. `laneRankFor` remains as a
-/// deprecated alias for callers outside the pipeline.
+/// Produces exactly the user-ruled start order 0, +1, -1, +2, -2, +3, -3, +4,
+/// +5 (2026-08-26 ruling): forward before backward at equal absolute distance,
+/// because browsing is overwhelmingly forwards -- the same asymmetry the
+/// retention window (-3..+5) already encodes. Moved here from
+/// `decode_lane.dart` so every input to a lane priority comes from this file;
+/// the old alias was deleted 2026-10-02.
 int laneRankForDistance(int signedDistance) {
   final d = signedDistance.abs();
   if (d == 0) return 0;

@@ -265,11 +265,11 @@ class TierTwoScheduler {
     // this id against the later `publish` line -- H3's 32ms safeguard tax.
     PerfLog.log(
       'submit|id=$id|path=$source|exempt=$exempt|paced=${!exempt}'
-      '|rank=${laneRankFor(distance)}',
+      '|rank=${laneRankForDistance(distance)}',
     );
     _publishPacer(
       id: id,
-      rank: laneRankFor(distance),
+      rank: laneRankForDistance(distance),
       exempt: exempt,
       stillValid: () =>
           _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
@@ -318,11 +318,11 @@ class TierTwoScheduler {
     // `paced=false` claim.
     PerfLog.log(
       'submit|id=$id|path=publishEncoded|exempt=$exempt|paced=${!exempt}'
-      '|rank=${laneRankFor(distance)}',
+      '|rank=${laneRankForDistance(distance)}',
     );
     _publishPacer(
       id: id,
-      rank: laneRankFor(distance),
+      rank: laneRankForDistance(distance),
       exempt: exempt,
       stillValid: () =>
           _windowIds.contains(id) && identical(_currentPayloadFor(id), payload),
@@ -719,7 +719,7 @@ class TierTwoScheduler {
     }
 
     pendingUpgrades.sort(
-      (a, b) => laneRankFor(a.distance).compareTo(laneRankFor(b.distance)),
+      (a, b) => laneRankForDistance(a.distance).compareTo(laneRankForDistance(b.distance)),
     );
     for (final upgrade in pendingUpgrades) {
       _enqueueFullResUpgrade(
@@ -762,7 +762,7 @@ class TierTwoScheduler {
       // (5), inverting the 2026-08-26 start-order ruling.
       //
       // Before Phase 4 this site and `_enqueueSerialLoad` both used
-      // `laneRankFor`, so they agreed by accident; Phase 4 rebased that one
+      // `laneRankForDistance`, so they agreed by accident; Phase 4 rebased that one
       // and missed this one. TC-984 is the regression pin, and it is the only
       // test that mixes the two producers.
       priority: navigationPriorityFor(distance),
