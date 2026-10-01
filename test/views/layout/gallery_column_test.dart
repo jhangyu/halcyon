@@ -3,26 +3,15 @@
 // 503->TC-510, 504->TC-511, 505 (tooltips)->TC-512, 506 (drag delta)->TC-513.
 // These labels are final and occupy no registry slot outside the assigned
 // gallery block; the lead owns the docs registration.
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/common/photo_thumbnail.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
-
-/// A valid 4x4 RGBA8 `PixelPayload`: constructible without decode.
-PixelPayload _payload() => PixelPayload(
-      width: 4,
-      height: 4,
-      rgba: Uint8List(4 * 4 * 4),
-    );
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 /// Builds the column at [width] in a 1200x900 window with a strip of
 /// `itemIds`. [rangeLog] collects every (first, last) visible-range report.
@@ -37,7 +26,7 @@ Future<void> pumpColumn(
   VoidCallback? onToggleRecycle,
   void Function(int first, int last)? onVisibleRange,
 }) async {
-  final items = [for (final id in itemIds) _item(id)];
+  final items = [for (final id in itemIds) itemFor(id)];
   final surface = MainSurface(
     viewport: const ColoredBox(
       key: ValueKey<String>('gallery-test-viewport'),
@@ -49,7 +38,7 @@ Future<void> pumpColumn(
       selectedId: selectedId,
       recycleMode: recycleMode,
       onSelect: (_) {},
-      payloadFor: (_) => _payload(),
+      payloadFor: (_) => tinyPixelPayload(),
       onVisibleRange: (first, last) {
         rangeLog?.addAll([first, last]);
         onVisibleRange?.call(first, last);
@@ -302,11 +291,11 @@ void main() {
                   ),
                   statusOverlay: const SizedBox.shrink(),
                   strip: PhotoStripModel(
-                    items: [for (final id in ['n0', 'n1', 'n2']) _item(id)],
+                    items: [for (final id in ['n0', 'n1', 'n2']) itemFor(id)],
                     selectedId: null,
                     recycleMode: false,
                     onSelect: (_) {},
-                    payloadFor: (_) => _payload(),
+                    payloadFor: (_) => tinyPixelPayload(),
                     onVisibleRange: (first, last) {
                       rangeLog.addAll([first, last]);
                     },

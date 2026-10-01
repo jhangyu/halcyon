@@ -5,7 +5,6 @@
 // real assembled app (tapping a chip actually changes `AppState.currentItem`
 // through main_screen's `onSelect: state.selectItem` binding).
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,19 +15,11 @@ import 'package:halcyon_flutter/main.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 
 import '../../support/temp_dirs.dart';
-
-PixelPayload _payload() => PixelPayload(
-  width: 4,
-  height: 4,
-  rgba: Uint8List(4 * 4 * 4),
-);
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 void main() {
   setUp(() {
@@ -47,11 +38,11 @@ void main() {
         ),
         statusOverlay: const SizedBox.shrink(),
         strip: PhotoStripModel(
-          items: [for (final id in ['a0', 'a1', 'a2']) _item(id)],
+          items: [for (final id in ['a0', 'a1', 'a2']) itemFor(id)],
           selectedId: 'a0',
           recycleMode: false,
           onSelect: selected.add,
-          payloadFor: (_) => _payload(),
+          payloadFor: (_) => tinyPixelPayload(),
           onVisibleRange: (_, __) {},
         ),
         identity: const PhotoIdentity(

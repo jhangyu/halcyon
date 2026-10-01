@@ -5,18 +5,17 @@
 // pumps PaperDesktopSurface directly with a hand-built MainSurface, same
 // pattern as gallery_desktop_test.dart's TC-505.
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart' show ExifMetadata;
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
+import '../../support/view_fixtures.dart';
 
 MainSurface _emptySurface() => MainSurface(
       viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
@@ -40,9 +39,6 @@ MainSurface _emptySurface() => MainSurface(
       ),
     );
 
-PixelPayload _payload() =>
-    PixelPayload(width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
-
 const PhotoIdentity _identity = PhotoIdentity(
   displayName: 'DSCF4417.RAF',
   indexInFolder: 34,
@@ -65,7 +61,7 @@ MainSurface _loadedSurface(int count) => MainSurface(
         selectedId: 'p0',
         recycleMode: false,
         onSelect: (_) {},
-        payloadFor: (_) => _payload(),
+        payloadFor: (_) => tinyPixelPayload(),
         onVisibleRange: (_, __) {},
       ),
       identity: _identity,

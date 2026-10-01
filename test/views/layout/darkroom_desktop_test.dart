@@ -9,6 +9,7 @@ import 'package:halcyon_flutter/views/layout/darkroom/darkroom_layout.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_palette.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 /// The viewport key the geometry gate measures, matching gallery's own test
 /// convention (`gallery_desktop_test.dart`).
@@ -21,36 +22,6 @@ Future<void> pumpDesktop(
     MaterialApp(
       theme: darkroomThemeData(brightness),
       home: Scaffold(body: DarkroomDesktopSurface(surface: surface)),
-    ),
-  );
-}
-
-MainSurface minimalSurface({
-  Widget? viewport,
-  List<PhotoItem>? items,
-  String? selectedId,
-  PhotoIdentity? identity,
-}) {
-  return MainSurface(
-    viewport:
-        viewport ?? const ColoredBox(key: kViewportKey, color: Colors.red),
-    statusOverlay: const SizedBox.shrink(),
-    strip: PhotoStripModel(
-      items: items ?? const [],
-      selectedId: selectedId,
-      recycleMode: false,
-      onSelect: (_) {},
-      payloadFor: (_) => null,
-      onVisibleRange: (_, __) {},
-    ),
-    identity: identity,
-    actions: PhotoActions(
-      recycleMode: false,
-      onStar: () {},
-      onTrash: () {},
-      onToggleRecycleMode: () {},
-      onOpenFolder: () {},
-      menu: const SizedBox.shrink(),
     ),
   );
 }
@@ -94,7 +65,7 @@ void main() {
           '${entry.key.round()}',
           (tester) async {
             await tester.binding.setSurfaceSize(const Size(1440, 900));
-            await pumpDesktop(tester, surface: minimalSurface());
+            await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
             if (entry.key > kDarkroomColumnMinWidth) {
               await dragColumnTo(tester, entry.key);
@@ -115,7 +86,7 @@ void main() {
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       await dragColumnTo(tester, 150);
 
@@ -134,7 +105,7 @@ void main() {
   group('TC-880 disjointness probe, 1px steps across the whole drag range', () {
     testWidgets('no width in [90, 200] overlaps the photo', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       final gesture = await tester.startGesture(_handlePoint(tester));
       final overlaps = <String>[];
@@ -176,7 +147,7 @@ void main() {
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       var openFolderCalls = 0;
-      final surface = minimalSurface();
+      final surface = testSurface(viewport: kRedViewport);
       final withMenu = MainSurface(
         viewport: surface.viewport,
         statusOverlay: surface.statusOverlay,
@@ -238,7 +209,7 @@ void main() {
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       final gear = find.byKey(
         const ValueKey<String>('darkroom-rail-options'),
@@ -280,7 +251,7 @@ void main() {
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       final cluster = tester.getRect(
         find.byKey(const ValueKey<String>('darkroom-verdict')),
@@ -309,7 +280,7 @@ void main() {
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      final surface = minimalSurface();
+      final surface = testSurface(viewport: kRedViewport);
       final withMenu = MainSurface(
         viewport: surface.viewport,
         statusOverlay: surface.statusOverlay,
@@ -373,13 +344,13 @@ void main() {
       testWidgets(
         'no overflow when the menu is a real 48x48 IconButton, not a stub',
         (tester) async {
-          // Regression: `minimalSurface()`'s menu stub is a SizedBox(34,34),
+          // Regression: `testSurface()`'s menu stub is a SizedBox(34,34),
           // which is smaller than the natural size of a real Flutter
           // IconButton/PopupMenuButton (48x48 minimum tap target, unaffected
           // by ButtonStyle.fixedSize). The stub therefore could not catch a
           // railtop row that only fits stub-sized buttons.
           await tester.binding.setSurfaceSize(const Size(1440, 900));
-          final surface = minimalSurface();
+          final surface = testSurface(viewport: kRedViewport);
           final withRealMenu = MainSurface(
             viewport: surface.viewport,
             statusOverlay: surface.statusOverlay,
@@ -420,7 +391,7 @@ void main() {
   group('TC-582 drag range clamps at 90 and 200', () {
     testWidgets('drag far left clamps to the 90 floor', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       final gesture = await tester.startGesture(_handlePoint(tester));
       await gesture.moveBy(const Offset(-300, 0));
@@ -434,7 +405,7 @@ void main() {
 
     testWidgets('drag far right clamps to the 200 ceiling', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
-      await pumpDesktop(tester, surface: minimalSurface());
+      await pumpDesktop(tester, surface: testSurface(viewport: kRedViewport));
 
       await dragColumnTo(tester, 200);
       final gesture = await tester.startGesture(_handlePoint(tester));
@@ -459,7 +430,8 @@ void main() {
       ];
       await pumpDesktop(
         tester,
-        surface: minimalSurface(
+        surface: testSurface(
+          viewport: kRedViewport,
           items: items,
           selectedId: 'a',
           identity: PhotoIdentity(
@@ -508,7 +480,8 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       await pumpDesktop(
         tester,
-        surface: minimalSurface(
+        surface: testSurface(
+          viewport: kRedViewport,
           identity: PhotoIdentity(
             displayName: 'sample.jpg',
             indexInFolder: 1,
@@ -570,7 +543,7 @@ void main() {
           theme: layout.themeDataFor(Brightness.dark),
           home: Builder(
             builder: (context) => Scaffold(
-              body: layout.buildMainSurface(context, minimalSurface()),
+              body: layout.buildMainSurface(context, testSurface(viewport: kRedViewport)),
             ),
           ),
         ),

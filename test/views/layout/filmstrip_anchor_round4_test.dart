@@ -22,23 +22,16 @@
 //   eye judges, and the sweep deliberately covers 91->130 because that is the
 //   band the reflow lives in (a sweep that started above 120 would be green
 //   for free — the 08-17 "unobservable resolution" false-green family).
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
 import '../../support/event_loop.dart';
-
-PixelPayload _payload() =>
-    PixelPayload(width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 const ValueKey<String> _columnKey = ValueKey<String>('round4-gallery-column');
 
@@ -54,7 +47,7 @@ MainSurface _surface(
     selectedId: selectedId,
     recycleMode: false,
     onSelect: (_) {},
-    payloadFor: (_) => _payload(),
+    payloadFor: (_) => tinyPixelPayload(),
     onVisibleRange: (_, __) {},
   ),
   identity: const PhotoIdentity(
@@ -128,7 +121,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1440, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 40; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 40; i++) itemFor('p$i')];
       const selectedId = 'p20';
       await tester.pumpWidget(
         MaterialApp(
@@ -220,7 +213,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 30; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 30; i++) itemFor('p$i')];
       const selectedId = 'p15';
       await tester.pumpWidget(
         _WidthHarness(initialWidth: 91, surface: _surface(items, selectedId)),

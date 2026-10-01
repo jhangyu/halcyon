@@ -13,24 +13,14 @@
 // current scroll position, at a constant width, and assert the controller's
 // scroll offset moves to bring the newly-selected chip back into the
 // viewport.
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
-
-PixelPayload _payload() => PixelPayload(
-  width: 4,
-  height: 4,
-  rgba: Uint8List(4 * 4 * 4),
-);
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 MainSurface _surface(List<PhotoItem> items, String? selectedId) =>
     MainSurface(
@@ -44,7 +34,7 @@ MainSurface _surface(List<PhotoItem> items, String? selectedId) =>
         selectedId: selectedId,
         recycleMode: false,
         onSelect: (_) {},
-        payloadFor: (_) => _payload(),
+        payloadFor: (_) => tinyPixelPayload(),
         onVisibleRange: (_, __) {},
       ),
       identity: const PhotoIdentity(
@@ -106,7 +96,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 40; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 40; i++) itemFor('p$i')];
       const columnKey = ValueKey<String>('darkroom-column-under-test');
 
       final harnessKey = GlobalKey<_SelectionHarnessState>();
@@ -170,7 +160,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1400, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 40; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 40; i++) itemFor('p$i')];
       const surfaceKey = ValueKey<String>('paper-surface-under-test');
 
       final harnessKey = GlobalKey<_SelectionHarnessState>();

@@ -7,6 +7,7 @@ import 'package:halcyon_flutter/views/layout/darkroom/darkroom_mobile.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_mobile_empty_state.dart';
 import 'package:halcyon_flutter/views/layout/darkroom/darkroom_palette.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 /// 390 x 844 — the mobile mockup's own geometry
 /// (`c2-mobile-{light,dark}.html:17`).
@@ -35,42 +36,12 @@ Future<void> pumpPhone(
   );
 }
 
-MainSurface minimalSurface({
-  Widget? viewport,
-  List<PhotoItem>? items,
-  String? selectedId,
-  PhotoIdentity? identity,
-}) {
-  return MainSurface(
-    viewport:
-        viewport ?? const ColoredBox(key: kViewportKey, color: Colors.red),
-    statusOverlay: const SizedBox.shrink(),
-    strip: PhotoStripModel(
-      items: items ?? const [],
-      selectedId: selectedId,
-      recycleMode: false,
-      onSelect: (_) {},
-      payloadFor: (_) => null,
-      onVisibleRange: (_, __) {},
-    ),
-    identity: identity,
-    actions: PhotoActions(
-      recycleMode: false,
-      onStar: () {},
-      onTrash: () {},
-      onToggleRecycleMode: () {},
-      onOpenFolder: () {},
-      menu: const SizedBox.shrink(),
-    ),
-  );
-}
-
 void main() {
   group('TC-640 empty folder renders the mobile welcome frame (.mwel)', () {
     testWidgets('welcome frame shown when there are no items', (
       tester,
     ) async {
-      await pumpPhone(tester, surface: minimalSurface());
+      await pumpPhone(tester, surface: testSurface(viewport: kRedViewport));
 
       expect(
         find.byType(DarkroomMobileEmptyState),
@@ -86,7 +57,7 @@ void main() {
     testWidgets('the desktop "or drop a folder" line is NOT carried over', (
       tester,
     ) async {
-      await pumpPhone(tester, surface: minimalSurface());
+      await pumpPhone(tester, surface: testSurface(viewport: kRedViewport));
 
       expect(
         find.textContaining('drop a folder onto the window'),
@@ -97,7 +68,7 @@ void main() {
     testWidgets('the welcome button is alone on its row (no off-axis sibling)', (
       tester,
     ) async {
-      await pumpPhone(tester, surface: minimalSurface());
+      await pumpPhone(tester, surface: testSurface(viewport: kRedViewport));
 
       final buttonFinder = find.byKey(
         const ValueKey('darkroom-mobile-welcome-open'),
@@ -113,7 +84,7 @@ void main() {
     testWidgets(
       'button background is the accent-wash token, not colorScheme.primary',
       (tester) async {
-        await pumpPhone(tester, surface: minimalSurface());
+        await pumpPhone(tester, surface: testSurface(viewport: kRedViewport));
 
         final button = tester.widget<ElevatedButton>(
           find.byKey(const ValueKey('darkroom-mobile-welcome-open')),
@@ -135,7 +106,7 @@ void main() {
       ];
       await pumpPhone(
         tester,
-        surface: minimalSurface(items: items, selectedId: 'a'),
+        surface: testSurface(viewport: kRedViewport, items: items, selectedId: 'a'),
       );
 
       expect(
@@ -157,7 +128,7 @@ void main() {
       final items = [PhotoItem(id: 'a', files: const [])];
       await pumpPhone(
         tester,
-        surface: minimalSurface(items: items, selectedId: 'a'),
+        surface: testSurface(viewport: kRedViewport, items: items, selectedId: 'a'),
       );
 
       expect(
@@ -178,7 +149,7 @@ void main() {
       ];
       await pumpPhone(
         tester,
-        surface: minimalSurface(items: items, selectedId: 'a'),
+        surface: testSurface(viewport: kRedViewport, items: items, selectedId: 'a'),
       );
 
       final selectedRect = tester.getRect(
@@ -201,7 +172,8 @@ void main() {
       final items = [PhotoItem(id: 'a', files: const [])];
       await pumpPhone(
         tester,
-        surface: minimalSurface(
+        surface: testSurface(
+          viewport: kRedViewport,
           items: items,
           selectedId: 'a',
           identity: PhotoIdentity(
@@ -233,7 +205,7 @@ void main() {
       testWidgets('resolves for $brightness', (tester) async {
         await pumpPhone(
           tester,
-          surface: minimalSurface(),
+          surface: testSurface(viewport: kRedViewport),
           brightness: brightness,
         );
         expect(find.byType(DarkroomMobileSurface), findsOneWidget);
