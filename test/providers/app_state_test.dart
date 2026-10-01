@@ -7,6 +7,7 @@ import '../support/app_state_fixtures.dart';
 import '../support/temp_dirs.dart';
 import '../support/fixture_files.dart';
 import '../support/fs_permissions.dart';
+import '../support/preload_fixtures.dart' show until;
 import 'package:path/path.dart' as p;
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -147,7 +148,8 @@ void main() {
         await state.loadFolder(dir);
         state.setAutoAdvance(true);
         state.markCurrent(PhotoStatus.starred);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await until(() => state.selectedItemID == 'IMG_0002',
+            reason: 'auto-advance after markCurrent');
 
         expect(state.items.first.status, PhotoStatus.starred);
         expect(state.selectedItemID, 'IMG_0002');
@@ -170,6 +172,9 @@ void main() {
         );
 
         await state.loadFolder(dir);
+        await until(() => calls.contains(ImageRequestPurpose.preview),
+            reason: 'the preview load to be requested');
+        // Absence margin (D5): the retired sidebar purpose must not follow.
         await Future<void>.delayed(const Duration(milliseconds: 180));
 
         expect(calls, contains(ImageRequestPurpose.preview));
@@ -196,7 +201,8 @@ void main() {
         state.setAutoAdvance(true);
 
         state.markCurrent(PhotoStatus.starred);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await until(() => state.selectedItemID == 'IMG_0002',
+            reason: 'auto-advance after markCurrent');
         expect(state.items.first.status, PhotoStatus.starred);
         expect(state.selectedItemID, 'IMG_0002');
 
@@ -205,6 +211,9 @@ void main() {
 
         // Toggling the same status off must not advance the selection.
         state.markCurrent(PhotoStatus.starred);
+        await until(() => state.items.first.status == PhotoStatus.unmarked,
+            reason: 'the toggle-off to apply');
+        // Absence margin (D5): the selection must NOT advance.
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(state.items.first.status, PhotoStatus.unmarked);

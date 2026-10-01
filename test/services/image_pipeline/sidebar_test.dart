@@ -386,7 +386,12 @@ void main() {
         endIdx: 158,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await until(
+        () =>
+            decoded.isNotEmpty &&
+            controller.debugSidebarEnqueuedIds.length > 20,
+        reason: 'the first range decoding and queued behind the gated body',
+      );
       // Lane width 1 and the one running body is gated, so the whole first
       // range (130..178 with the margin) is sitting PENDING behind it.
       final duringFirstRange = List<String>.of(decoded);
@@ -403,6 +408,8 @@ void main() {
       // MOVED before the queue is allowed to drain. Releasing the gate first
       // would let every pending body run while the old viewport was still the
       // live one, which tests nothing about the turn-time re-check.
+      // Fixed wait kept on purpose (D5 two-class rule): absence-shaped, and
+      // `_thumbWantedIds` has no test-visible getter.
       await Future<void>.delayed(const Duration(milliseconds: 250));
       gate.complete();
       await _pollUntilLane(
@@ -452,6 +459,16 @@ void main() {
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.payloadFor('p0') != null &&
+            [
+              for (var i = 0; i <= 5; i++)
+                decoder.callsFor('p$i') >= (i <= 1 ? 2 : 1),
+            ].every((reached) => reached),
+        reason: 'p0..p5 preview decodes (+ in-band fallback) to land',
+      );
+      // Absence margin (D5): the exact counts below must also not overshoot.
       await _settleShared();
       expect(controller.payloadFor('p0'), isNotNull);
       // The navigation window is -3..+5, so p0..p5 are decoded exactly once each
@@ -478,6 +495,14 @@ void main() {
         endIdx: 3,
         notifyLoaded: () {},
       );
+      await until(
+        () => [
+          for (var i = 0; i <= 5; i++)
+            controller.thumbnailPayloadFor('p$i') != null,
+        ].every((landed) => landed),
+        reason: 'tiles p0..p5 to land',
+      );
+      // Absence margin (D5): no tile may buy a further decode.
       await _settleShared();
 
       // Every row whose payload was already resident got a tile, and NONE of
@@ -513,12 +538,22 @@ void main() {
         endIdx: 0,
         notifyLoaded: () {},
       );
+      // Fixed wait kept on purpose (D5): ordering, not assertion-gating -- the
+      // row must still be a WAITER when the preview lands, so waiting for the
+      // tile itself would change the scenario.
       await Future<void>.delayed(const Duration(milliseconds: 150));
       await controller.preloadImages(
         items: items,
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.payloadFor('p0') != null &&
+            controller.thumbnailPayloadFor('p0') != null,
+        reason: 'payload and tile for p0 to land',
+      );
+      // Absence margin (D5): decoder.calls must stay exactly 1.
       await _settleShared();
 
       expect(controller.payloadFor('p0'), isNotNull);
@@ -553,6 +588,8 @@ void main() {
         endIdx: 154,
         notifyLoaded: () {},
       );
+      // Fixed wait kept on purpose (D5): every assertion below is
+      // absence-shaped (p0 stays null, cache stays bounded).
       await _settleShared(600);
 
       expect(controller.thumbnailPayloadFor('p0'), isNull);
@@ -583,6 +620,13 @@ void main() {
         endIdx: 4,
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.hasFailed('p0') &&
+            controller.debugThumbPermanentMisses.contains('p0'),
+        reason: 'p0 to become a preview and sidebar permanent miss',
+      );
+      // Absence margin (D5): the tile must stay null.
       await _settleShared();
 
       expect(controller.hasFailed('p0'), isTrue);
@@ -652,9 +696,11 @@ void main() {
       addTearDown(() => _deleteDirTolerant(dir));
 
       final gate = Completer<void>();
+      final entered = Completer<void>();
       final controller = ImagePreloadController(
         imageLoader: _alwaysFailLoaderPixel,
         dngDecoder: (path) async {
+          if (!entered.isCompleted) entered.complete();
           await gate.future; // still in flight when the generation is bumped
           return _rawFixturePixel();
         },
@@ -663,10 +709,12 @@ void main() {
       final state = AppState(preloadController: controller);
       await state.loadFolder(dir);
       await state.preloadThumbnails(0, 0);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await entered.future; // the decode is in flight before the bump
 
       controller.reset(); // bumps _thumbBatchGeneration
       gate.complete();
+      // Fixed wait kept on purpose (D5): absence-shaped (the stale landing
+      // must write nothing; the cache is empty before AND after).
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       expect(controller.debugThumbnailCacheLength, 0);
@@ -764,6 +812,7 @@ void main() {
         );
 
         gate.complete();
+        // pre-dispose drain, not assertion-gating (D5).
         await Future<void>.delayed(const Duration(milliseconds: 200));
         controller.dispose();
       },
@@ -848,6 +897,7 @@ void main() {
         );
 
         gate.complete();
+        // pre-dispose drain, not assertion-gating (D5).
         await Future<void>.delayed(const Duration(milliseconds: 200));
         controller.dispose();
       },

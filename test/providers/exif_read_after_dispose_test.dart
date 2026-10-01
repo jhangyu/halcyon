@@ -71,6 +71,10 @@ void main() {
 
     // Let the continuation run. Without the guard this is where
     // notifyListeners() throws on the disposed notifier.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // The continuation after the reader await is synchronous (no timer, no
+    // further await -- app_state.dart _readSelectionExif), so draining the
+    // event queue runs it deterministically; a regressed guard still throws
+    // inside this test.
+    await pumpEventQueue();
   });
 }
