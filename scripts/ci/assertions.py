@@ -407,6 +407,39 @@ SUITE = {
         expected="probe exits 0 printing one PROBE-OK line per symbol in "
         + ", ".join(CEYX_SYMBOLS),
     ),
+    "H-ENGINE-DELAYLOAD": Assertion(
+        id="H-ENGINE-DELAYLOAD",
+        measures=(
+            "the shipped halcyon.exe imports flutter_windows.dll, and every "
+            "bundled DLL that itself imports flutter_windows.dll (the plugin "
+            "DLLs), through its DELAY-import table only, never its static one"
+        ),
+        valid_on=("windows",),
+        why_valid=(
+            "The engine statically links its own CRT, which captures stdout/"
+            "stderr once when flutter_windows.dll initializes. A double-clicked "
+            "launch has no std handles, so the runner must point them at NUL "
+            "(EnsureStdOutputHandles, windows/runner/utils.cpp) BEFORE that "
+            "initialization; otherwise every dart:io stdout/stderr write fails "
+            "with errno 6 and kills ceyx's decode workers (v1.0.13-v1.0.15). A "
+            "static import of the engine, or of any DLL that imports it, loads "
+            "it before wWinMain. The import and delay-import directories (data "
+            "directories 1 and 13) are read structurally from the PE file in "
+            "pure Python, and the plugin set is discovered from the bundle's "
+            "own DLLs, not from FLUTTER_PLUGIN_LIST, so a plugin linked by any "
+            "route is covered"
+        ),
+        red_state=(
+            "run against the v1.0.15 zip (built before the delay-load): exit 1 "
+            "naming flutter_windows.dll, desktop_drop_plugin.dll and "
+            "file_selector_windows_plugin.dll as static imports (demonstrated: "
+            "scripts/tmp/debug2/fix/pe_gate.txt)"
+        ),
+        expected=(
+            "flutter_windows.dll is in the delay imports and neither it nor "
+            "any bundled DLL importing it is in the static imports"
+        ),
+    ),
 }
 
 _MANDATORY_FIELDS = ("measures", "valid_on", "why_valid", "red_state", "expected")
@@ -1051,6 +1084,86 @@ def _assert_ceyx_symbols_nm(ctx):
     return "pass", f"{tool} lists all of {', '.join(CEYX_SYMBOLS)} for {path.name}"
 
 
+_ENGINE_DLL = "flutter_windows.dll"
+
+
+def pe_imports(data):
+    """Return (static, delayed) imported DLL names of a PE image, lowercased.
+
+    Read from data directories 1 (import) and 13 (delay import); raises
+    ValueError when the bytes are not a PE image.
+    """
+    if data[:2] != b"MZ":
+        raise ValueError("not a PE image (no MZ header)")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
+        raise ValueError("MZ header without a PE signature")
+    sections_count = struct.unpack_from("<H", data, pe_offset + 6)[0]
+    optional_size = struct.unpack_from("<H", data, pe_offset + 20)[0]
+    optional = pe_offset + 24
+    magic = struct.unpack_from("<H", data, optional)[0]
+    directories = optional + (112 if magic == 0x20B else 96)
+    sections = [
+        struct.unpack_from("<IIII", data, optional + optional_size + i * 40 + 8)
+        for i in range(sections_count)
+    ]
+
+    def offset(rva):
+        for virtual_size, virtual_address, raw_size, raw_offset in sections:
+            if virtual_address <= rva < virtual_address + max(virtual_size, raw_size):
+                return rva - virtual_address + raw_offset
+        raise ValueError(f"RVA 0x{rva:x} lies in no section")
+
+    def names(index, stride, name_field):
+        rva = struct.unpack_from("<I", data, directories + index * 8)[0]
+        found = []
+        if not rva:
+            return found
+        cursor = offset(rva)
+        while True:
+            name_rva = struct.unpack_from("<I", data, cursor + name_field)[0]
+            if not name_rva:
+                return found
+            start = offset(name_rva)
+            found.append(data[start : data.index(b"\x00", start)].decode("ascii").lower())
+            cursor += stride
+
+    return names(1, 20, 12), names(13, 32, 4)
+
+
+def _assert_engine_delayload(ctx):
+    executable = ctx["spec"]["app_executable"]
+    source = ctx["source"]
+    hits = source.find([executable])
+    if not hits:
+        return "fail", f"no {executable!r} in {source.describe()}"
+    exe = hits[0]
+    folder = exe.rsplit("/", 1)[0] + "/" if "/" in exe else ""
+    try:
+        static, delayed = pe_imports(source.read(exe))
+        engine_importers = {_ENGINE_DLL}
+        for name in source.members():
+            base = name.rsplit("/", 1)[-1]
+            if name == folder + base and base.lower().endswith(".dll"):
+                if _ENGINE_DLL in pe_imports(source.read(name))[0]:
+                    engine_importers.add(base.lower())
+    except ValueError as exc:
+        return "fail", f"PE import table unreadable: {exc}"
+    eager = sorted(engine_importers & set(static))
+    if eager:
+        return "fail", (
+            f"{exe} statically imports {', '.join(eager)}, so the engine's CRT "
+            "captures the std handles before EnsureStdOutputHandles() runs "
+            "(windows/CMakeLists.txt /DELAYLOAD block missing or incomplete)"
+        )
+    if _ENGINE_DLL not in delayed:
+        return "fail", f"{exe} does not delay-import {_ENGINE_DLL} (delay imports: {delayed})"
+    return "pass", (
+        f"{exe} delay-imports {', '.join(sorted(engine_importers & set(delayed)))}; "
+        "none statically"
+    )
+
+
 def _check_symbol():
     """Import scripts/check_dng_ffi_artifacts.py's check_symbol lazily.
 
@@ -1075,6 +1188,7 @@ _IMPLEMENTATIONS = {
     "H-DECODER-ARCH": _assert_decoder_arch,
     "H-CEYX-SYMBOLS-NM": _assert_ceyx_symbols_nm,
     "H-CEYX-SYMBOLS": _assert_ceyx_symbols,
+    "H-ENGINE-DELAYLOAD": _assert_engine_delayload,
 }
 
 

@@ -186,6 +186,7 @@ TARGETS: dict = {
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-CEYX-SYMBOLS",
+            "H-ENGINE-DELAYLOAD",
         ],
         "pin_platform": "windows",
     },
