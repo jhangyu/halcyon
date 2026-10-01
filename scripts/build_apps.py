@@ -490,7 +490,7 @@ CEYX_FETCH_SPECS = {
     # libwebp-dist-android intentionally absent - user ruling A', 2026-09-13):
     # this is not an oversight. build_apps.py has no Android *fetch* path for
     # native libraries at all (see the "Android is out of scope" note at
-    # build_apps.py:211) - a Halcyon Android build links against the
+    # the ceyx release-fetch section header) - a Halcyon Android build links against the
     # committed plugin/android/src/main/jniLibs tree, never anything
     # downloaded via this dict, so there is no integrity surface for those
     # three archives to join. They are also structurally unlike their
@@ -1715,7 +1715,7 @@ def ceyx_check_pin(layout):
     mismatch (the caller decides the exit code). Reuses _ceyx_stale_members()
     so the preflight and the fetch gate (ceyx_fetch_is_due) can never drift
     into two different notions of "stale" - the same "one instrument, two
-    readers" discipline assertions.py:921-926 applies to check_symbol.
+    readers" discipline assertions.py _check_symbol() applies to check_symbol.
     PIN-ABSENT is printed but is NOT treated as a mismatch: Linux legitimately
     ships only a .gitkeep locally until fetched, and "assertion skipped must
     be visible" is satisfied by printing the line, not by failing the run

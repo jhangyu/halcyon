@@ -7,20 +7,21 @@ here, and no behaviour: a reader must be able to audit every platform fact by
 reading one screen of literals against the workflow files they were copied from.
 
 Provenance of every value below (transcribed byte-for-byte, not re-derived):
-  build_flags   ci.yml:125, release.yml:60/102/138
-  provision     release.yml:137 (apt), ci.yml:121 / release.yml:57 (pod install)
-  artifact_path build_apps.py:1730-1752 (flutter_artifact)
-  archive_name  release.yml:66/105/144
-  build_target  build_apps.py:2820-2845 (the positional `target` argparse accepts)
-  app_executable macos/Runner/Configs/AppInfo.xcconfig:8 (PRODUCT_NAME),
-                 windows/CMakeLists.txt:7 and linux/CMakeLists.txt:7 (BINARY_NAME)
+  build_flags   the pre-rewrite per-platform workflow build steps (the workflows
+                now pass only --target; this table is the source)
+  provision     same origin (linux apt step; macOS pod-install step)
+  artifact_path build_apps.py flutter_artifact()
+  archive_name  the pre-rewrite release.yml per-platform package steps
+  build_target  build_apps.py make_parser() (the positional `target` argparse accepts)
+  app_executable macos/Runner/Configs/AppInfo.xcconfig (PRODUCT_NAME),
+                 windows/CMakeLists.txt and linux/CMakeLists.txt (BINARY_NAME)
 
 ``build_target`` vs the dict KEY. The key is the CI TARGET NAME (what
 ``ci.py --target`` takes and what a workflow matrix leg names);
 ``build_target`` is the positional ``scripts/build_apps.py`` is invoked with.
 For five of the six they are identical. They are NOT identical for
 ``macos-x64``: build_apps.py has no separate Intel target, it has a
-``--macos-arch`` FLAG on the one ``macos`` target (build_apps.py:2838-2840),
+``--macos-arch`` FLAG on the one ``macos`` target (build_apps.py make_parser()),
 so that CI leg renders ``build_apps.py macos --macos-arch x86_64 …``. Keeping
 the two names as separate fields is what lets one build entry point serve two
 CI legs without any name-equality branching anywhere else (G-5).
@@ -63,17 +64,17 @@ TARGETS: dict = {
         # concern this migration does not alter).
         "build_flags": ["--fetch-native"],
         # `flutter pub get` (cwd=<repo_root>) then `pod install` (cwd=<repo_root>/macos,
-        # ci.yml:121-123). The pub get is NOT optional and NOT a duplicate of the
-        # one `flutter build` does implicitly: macos/Podfile:12-17 raises unless
+        # see phases.provision()). The pub get is NOT optional and NOT a duplicate of the
+        # one `flutter build` does implicitly: macos/Podfile (its Flutter-Generated.xcconfig check) raises unless
         # macos/Flutter/ephemeral/Flutter-Generated.xcconfig exists, and that
-        # directory is gitignored (macos/.gitignore:2), so only pub get creates it.
+        # directory is gitignored (macos/.gitignore), so only pub get creates it.
         # The pre-rewrite workflow ran it immediately before pod install
-        # (main:.github/workflows/ci.yml:117-121); the rewrite dropped it, which is
+        # (the pre-rewrite ci.yml macOS job); the rewrite dropped it, which is
         # the 2026-08-31 round-1 macOS provision failure.
         "provision": [["flutter", "pub", "get"], ["pod", "install"]],
         "artifact_kind": "app_bundle",
         "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
-        # macos/Runner/Configs/AppInfo.xcconfig:8 — PRODUCT_NAME = Halcyon;
+        # macos/Runner/Configs/AppInfo.xcconfig — PRODUCT_NAME = Halcyon;
         # the binary lives at Halcyon.app/Contents/MacOS/Halcyon.
         "app_executable": "Halcyon",
         "archive_name": "Halcyon-macos-arm64-{version}.zip",
@@ -93,9 +94,9 @@ TARGETS: dict = {
     "macos-x64": {
         # Intel macOS, CROSS-COMPILED on the same Apple-silicon runner image the
         # arm64 leg uses. build_apps.py has no separate Intel target: it has one
-        # `macos` target plus a `--macos-arch` flag (build_apps.py:2838-2840),
-        # which sets FLUTTER_XCODE_ARCHS (2560-2565), selects the pin's
-        # "macos-x86_64" asset via fetch_target_for() (1440-1467), and already
+        # `macos` target plus a `--macos-arch` flag (build_apps.py make_parser()),
+        # which sets FLUTTER_XCODE_ARCHS (build_flutter()), selects the pin's
+        # "macos-x86_64" asset via fetch_target_for(), and already
         # refuses to finish if the produced app's slices are not exactly
         # {x86_64} (2405) or the fetched dylib's are not (2702). Hence
         # build_target "macos" with the arch carried in build_flags.
@@ -167,12 +168,12 @@ TARGETS: dict = {
         # --fetch-native, not plain auto: ceyx still carries a committed
         # dng_decoder_native.dll (hand-built, no S4 colour-gate record). Auto-fetch
         # only fires when the destination is ABSENT, so without this flag Windows
-        # would keep shipping that unvalidated binary. release.yml:96-101.
+        # would keep shipping that unvalidated binary.
         "build_flags": ["--fetch-native"],
         "provision": [],
         "artifact_kind": "dir",
         "artifact_path": "build/windows/x64/runner/Release",
-        # windows/CMakeLists.txt:7 — set(BINARY_NAME "halcyon"); LOWERCASE, and
+        # windows/CMakeLists.txt — set(BINARY_NAME "halcyon"); LOWERCASE, and
         # the runner is emitted as <BINARY_NAME>.exe.
         "app_executable": "halcyon.exe",
         "archive_name": "Halcyon-windows-x64-{version}.zip",
@@ -204,10 +205,10 @@ TARGETS: dict = {
             ["sudo", "apt-get", "update"],
             ["sudo", "apt-get", "install", "-y", "ninja-build", "libgtk-3-dev"],
         ],
-        # The arch segment is host-dependent (build_apps.py:1748-1751), hence glob.
+        # The arch segment is host-dependent (build_apps.py flutter_artifact()), hence glob.
         "artifact_kind": "glob_dir",
         "artifact_path": "build/linux/*/release/bundle",
-        # linux/CMakeLists.txt:7 — set(BINARY_NAME "halcyon").
+        # linux/CMakeLists.txt — set(BINARY_NAME "halcyon").
         "app_executable": "halcyon",
         "archive_name": "Halcyon-linux-x64-{version}.tar.gz",
         "archive_format": "gztar",

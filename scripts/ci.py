@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 # Repo root is derived from this script's own on-disk location, never from the
-# invocation cwd — the same pattern check_dng_ffi_artifacts.py:98-103 uses, so
+# invocation cwd — the same pattern check_dng_ffi_artifacts.py's own repo-root resolution uses, so
 # behaviour is identical whether CI runs from Halcyon/ or from the workspace root.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

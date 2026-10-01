@@ -54,7 +54,7 @@ def provision(repo_root: Path, target: str) -> int:
     rc = 0
     for argv in commands:
         # targets.py's frozen schema (Plan §2) carries no explicit cwd field.
-        # `pod install` is only ever invoked from <repo_root>/macos (ci.yml:121-123);
+        # `pod install` is only ever invoked from <repo_root>/macos (the macOS legs' provision step);
         # every other provisioning command runs from repo_root. This branches on
         # the *command itself*, not on `target`/`platform` (G-5's forbidden forms).
         cwd = (repo_root / "macos") if argv[:1] == ["pod"] else repo_root

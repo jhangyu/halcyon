@@ -168,7 +168,7 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
         self.assertIn(
             "--fetch-native",
             plans["build"],
-            "windows build argv must contain --fetch-native (release.yml:96-101)",
+            "windows build argv must contain --fetch-native (targets.py windows build_flags)",
         )
 
     def test_macos_has_fetch_native(self):
@@ -176,7 +176,7 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
         self.assertIn(
             "--fetch-native",
             plans["build"],
-            "macos migrated to the ceyx release pin (targets.py:30-42, pin key "
+            "macos migrated to the ceyx release pin (targets.py macos entry, pin key "
             "macos-arm64): its CI leg fetches the prebuilt decoder stack just "
             "like windows/linux, it no longer carries committed dylibs",
         )
@@ -225,8 +225,8 @@ class MacosX64ArgvTestCase(GoldenArgvTestCase):
 
 
 class ChildInterpreterTestCase(unittest.TestCase):
-    """`ci.py:51-60` refuses an MSYS-style interpreter for the PARENT process.
-    Rendering the literal ``"python3"`` let ``run.py:60``'s ``shutil.which``
+    """`ci.py check_python_interpreter()` refuses an MSYS-style interpreter for the PARENT process.
+    Rendering the literal ``"python3"`` let ``run.py _resolve_argv()``'s ``shutil.which``
     pick a DIFFERENT interpreter for the child, so the refusal was bypassed for
     every build. The child must be the interpreter that was already vetted."""
 

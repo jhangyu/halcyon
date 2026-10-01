@@ -102,7 +102,7 @@ jobs:
           - {os: ubuntu-latest,  target: linux}
     runs-on: ${{ matrix.os }}
     env:
-      # Same rationale as the verify job's PYTHONUTF8 (ci.yml:35-40): this job
+      # Same rationale as the verify job's PYTHONUTF8 comment: this job
       # now runs on windows-latest too, where Python defaults text I/O to the
       # console codepage (cp1252) instead of UTF-8 without this.
       PYTHONUTF8: "1"

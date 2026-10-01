@@ -24,7 +24,7 @@ MUST reference these exact stems — do not invent local aliases.
 Verify: `grep -n 'x86-64' scripts/ceyx_release_pin.json` → zero hits. In
 `scripts/build_apps.py`, scope the check to the ceyx `CEYX_FETCH_SPECS` table
 and any string built into a fetch/asset URL — do not grep the whole file:
-`build_apps.py:199-232` legitimately contains `x86-64`-style strings for
+`build_apps.py`'s Halide tables (`HALIDE_PLATFORMS`, `HALIDE_SHA256`) legitimately contain `x86-64`-style strings for
 unrelated pre-existing Halide distribution names that are not ceyx asset
 names. Correct check: `sed -n '/^CEYX_FETCH_SPECS/,/^}/p' scripts/build_apps.py
 | grep -n 'x86-64'` → zero hits.

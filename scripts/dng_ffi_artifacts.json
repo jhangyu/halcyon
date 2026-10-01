@@ -31,7 +31,7 @@
       "tool_args": [
         "-gU"
       ],
-      "comment": "Intel/x86_64 macOS. SAME on-disk path as the 'macos' entry on purpose: build_apps.py places whichever architecture --macos-arch selected at that one path (fetch_target_for(), build_apps.py:1440-1467), so only ONE of the two can be on disk at a time and the manual checker reads whichever the last build fetched. The CI assertions do NOT read this path -- they read the member inside the built/packaged artefact -- so the shared path is not a source of ambiguity there. expected_arch is what distinguishes this entry: it is the value H-ARCH and H-DECODER-ARCH judge the macos-x64 leg against.",
+      "comment": "Intel/x86_64 macOS. SAME on-disk path as the 'macos' entry on purpose: build_apps.py places whichever architecture --macos-arch selected at that one path (fetch_target_for() in build_apps.py), so only ONE of the two can be on disk at a time and the manual checker reads whichever the last build fetched. The CI assertions do NOT read this path -- they read the member inside the built/packaged artefact -- so the shared path is not a source of ambiguity there. expected_arch is what distinguishes this entry: it is the value H-ARCH and H-DECODER-ARCH judge the macos-x64 leg against.",
       "ci_target": "macos-x64",
       "decoder_artifact": "libdng_decoder_native.dylib",
       "expected_arch": "x86_64",
