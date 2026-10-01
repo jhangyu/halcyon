@@ -38,6 +38,8 @@ coverage/
 /tmp/
 __pycache__/
 scripts/tmp/
+# Test scratch output never lives under test/ — use scripts/tmp/ instead.
+/test/tmp/
 # Agent-tooling state (not project source)
 .claude/
 .codex
