@@ -33,6 +33,7 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
+import '../../support/event_loop.dart';
 
 PixelPayload _payload() =>
     PixelPayload(width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
@@ -40,17 +41,6 @@ PixelPayload _payload() =>
 PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
 
 const ValueKey<String> _columnKey = ValueKey<String>('round4-gallery-column');
-
-/// Bounded stand-in for `pumpAndSettle()`: enough frames (well past any
-/// scroll/drag animation's default curve duration) for layout and scroll
-/// physics to finish, without blocking on the animation-completion poll
-/// `pumpAndSettle()` performs.
-Future<void> _settle(WidgetTester tester) async {
-  await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
 
 MainSurface _surface(
   List<PhotoItem> items,
@@ -154,7 +144,7 @@ void main() {
           ),
         ),
       );
-      await _settle(tester);
+      await settleFrames(tester);
 
       // The paper strip has no "keep the selection visible" autoscroll, so
       // scroll it by hand until the selected chip is on screen AND the list is
@@ -163,7 +153,7 @@ void main() {
       // would pass for free.
       final listFinder = find.byType(GridView).first;
       await tester.drag(listFinder, const Offset(0, -600));
-      await _settle(tester);
+      await settleFrames(tester);
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
@@ -202,7 +192,7 @@ void main() {
         samples.add(offsetNow());
       }
       await gesture.up();
-      await _settle(tester);
+      await settleFrames(tester);
       samples.add(offsetNow());
 
       expect(
@@ -235,7 +225,7 @@ void main() {
       await tester.pumpWidget(
         _WidthHarness(initialWidth: 91, surface: _surface(items, selectedId)),
       );
-      await _settle(tester);
+      await settleFrames(tester);
 
       final chipKey = const ValueKey<String>('gallery-chip-$selectedId');
       final stripHeights = <double>{};
@@ -267,7 +257,7 @@ void main() {
         samples.add(absoluteYNow());
       }
       await gesture.up();
-      await _settle(tester);
+      await settleFrames(tester);
 
       // Instrument check: the sweep must actually have crossed a reflow, i.e.
       // the strip viewport must really have changed height during it.

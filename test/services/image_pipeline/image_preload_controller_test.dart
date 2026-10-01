@@ -17,6 +17,7 @@ import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart'
 import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
+import '../../support/event_loop.dart';
 
 // Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
 // in AutomatedTestWidgetsFlutterBinding) frame -- see REPAIR 3 /
@@ -24,8 +25,6 @@ import '../../support/temp_dirs.dart';
 // drains when its frame hook fires, and a plain test() never pumps a real
 // frame on its own. The pacer re-arms itself after each drained item, so
 // a synchronous hook fully drains the queue before submit() returns.
-void _microtaskFrame(void Function() callback) => callback();
-
 /// An ImageStreamCompleter that never emits an image and never errors --
 /// used to deterministically simulate a decode that is PENDING forever,
 /// without racing a real (near-instant) engine decode. When pre-inserted
@@ -179,7 +178,7 @@ void main() {
         final gate = Completer<void>();
 
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             if (purpose == ImageRequestPurpose.sidebarThumbnail) {
@@ -211,7 +210,7 @@ void main() {
       'preloadImages evicts preview cache entries outside the sliding window',
       () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             return NativeImageBytes(Uint8List.fromList([path.hashCode & 0xFF]));
@@ -272,7 +271,7 @@ void main() {
         final completers = <String, Completer<NativeImageResult>>{};
 
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) {
             requestOrder.add(path);
@@ -341,7 +340,7 @@ void main() {
         // `debugLanePendingPriorityFor`, not on `requestOrder`.
         final startedPaths = <String>[];
         final expensive = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -411,7 +410,7 @@ void main() {
       var secondNotify = 0;
 
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) {
           final completer = Completer<NativeImageResult>();
@@ -629,7 +628,7 @@ void main() {
           // room for the 5-15ms mid-window check below.
           const shortDebounce = Duration(milliseconds: 40);
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: shortDebounce,
             // (q70 rewrite) The debounce now gates ONLY the counted file
             // fallback, which is how a PixelPayload item reaches full-res. An
@@ -693,7 +692,7 @@ void main() {
           // Debounce shortened to 40ms: the ordering under test is "each
           // navigation resets the timer", not its absolute length.
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: const Duration(milliseconds: 40),
             // (q70 rewrite) RAW / PixelPayload source: see AC3a. The debounce
             // only gates the counted file fallback now.
@@ -780,7 +779,7 @@ void main() {
           // instant, well under 40ms) so the tier-2 sweep never runs mid-
           // excursion, matching the test's original intent.
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: const Duration(milliseconds: 40),
             // A fresh Uint8List every call -- an item reloaded after leaving
             // the -3..+5 bytes window gets a NEW bytes object, exactly as the
@@ -873,7 +872,7 @@ void main() {
           // the tier-2 ImageCache key (bytes identity) computable up front.
           final item5Bytes = Uint8List.fromList(tinyPngBytes);
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: const Duration(milliseconds: 40),
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1093,7 +1092,7 @@ void main() {
           'tiers', () async {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1185,7 +1184,7 @@ void main() {
           'and is dropped only on leaving the -3..+5 RETENTION window', () async {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1283,7 +1282,7 @@ void main() {
       test('TC-079 leaving the tier-2 window evicts the ImageCache entry while the '
           'payload stays retained', () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1355,7 +1354,7 @@ void main() {
           'leaks no handle', () async {
         final live = installImageBalanceCounter();
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1394,7 +1393,7 @@ void main() {
         'TC-081 reset() drops every payload and every ImageCache entry',
         () async {
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1437,7 +1436,7 @@ void main() {
           // the raw one (invariant I6).
           final previewRequests = <String>[];
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader: (path, {required purpose, int? targetLongEdge}) async {
               if (purpose == ImageRequestPurpose.preview) {
@@ -1500,7 +1499,7 @@ void main() {
         'TC-083 retained cost stays bounded by the window across a long sweep',
         () async {
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1535,7 +1534,7 @@ void main() {
           'resurrect a retained entry', () async {
         final live = installImageBalanceCounter();
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1580,7 +1579,7 @@ void main() {
         () async {
           final decodeCalls = <String>[];
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1635,7 +1634,7 @@ void main() {
 
       test('NO DECODER: an immediate permanent miss, not a spinner', () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1664,7 +1663,7 @@ void main() {
         'THROWING DECODER: an immediate permanent miss, not a spinner',
         () async {
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1696,7 +1695,7 @@ void main() {
         'an ordinary (bytes) item is untouched by the raw-decode path',
         () async {
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1738,7 +1737,7 @@ void main() {
 
     test('TC-350 controller lane width defaults to 1 and is settable', () {
       final c = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
       );
@@ -1750,7 +1749,7 @@ void main() {
       );
 
       final wide = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         decodeLaneWidth: 3,
@@ -1804,7 +1803,7 @@ void main() {
       // preloadImages itself performs before this poll's first check, so this
       // one keeps the real interval.
       final cheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -1867,7 +1866,7 @@ void main() {
       var inFlight = 0;
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1933,7 +1932,7 @@ void main() {
         );
         final targetCalls = <String>[];
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async {
             targetCalls.add(path);
@@ -1975,7 +1974,7 @@ void main() {
       var inFlight = 0;
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2022,7 +2021,7 @@ void main() {
       expect(expensive.payloadFor(raws[5].id), isNotNull);
 
       final cheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
@@ -2066,7 +2065,7 @@ void main() {
       expect(previewDng.existsSync(), isTrue, reason: 'preview sample missing');
       var realCheapCalls = 0;
       final realCheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           realCheapCalls++;
@@ -2099,7 +2098,7 @@ void main() {
       () async {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2157,7 +2156,7 @@ void main() {
         'the payload; JPEG bytes still survive identically', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2207,7 +2206,7 @@ void main() {
 
       final cheapCalls = <String>[];
       final cheapController = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           cheapCalls.add(path);
@@ -2247,7 +2246,7 @@ void main() {
       );
 
       final jpgController = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
@@ -2358,7 +2357,7 @@ void main() {
         'pixel payloads alike', () async {
       // --- cheap (encoded) sub-case: whole window is populated in one pass.
       final cheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
@@ -2429,7 +2428,7 @@ void main() {
       // tier-2 window [4,8] triggers the catch-up upgrade for every band id
       // that does not already carry a live tier-2 entry.
       ImagePreloadController buildPixelController() => ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2535,7 +2534,7 @@ void main() {
       'entry distinct from its window-resolution tier-1 entry',
       () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2649,7 +2648,7 @@ void main() {
         'and one counted file fallback', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2695,7 +2694,7 @@ void main() {
       () async {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2778,7 +2777,7 @@ void main() {
       final target = items[8].files.single.path;
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2882,7 +2881,7 @@ void main() {
       'M5-DW6 a full-res upgrade adds ZERO bytes to the payload cache',
       () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),

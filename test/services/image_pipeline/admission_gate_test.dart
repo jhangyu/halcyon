@@ -12,6 +12,7 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 import '../../support/preload_fixtures.dart' show until;
 import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   // S1.1/S1.4 (2026-09-11). Replaces the `inflightByteBudgetFor` group, which
@@ -208,12 +209,6 @@ void main() {
       );
     }
 
-    Future<void> pumpMicrotasks([int rounds = 24]) async {
-      for (var i = 0; i < rounds; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
-    }
-
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-1043
@@ -235,14 +230,14 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(
         controller.debugInflightBytes,
         greaterThan(0),
         reason: 'bytes must be charged before the decoder returns',
       );
       gate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
     });
 
     // TC-1044 -- deadlock regression: the byte gate REFUSES an admission and
@@ -340,7 +335,7 @@ void main() {
         reason: 'two full frames must be admitted concurrently',
       );
       encodeGate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
     });
 
     // TC-1046 -- erratum E-WP2-C2: the charge spans the OFF-LANE ENCODE, not
@@ -366,14 +361,14 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(
         controller.debugInflightBytes,
         greaterThan(0),
         reason: 'the decode is done but its frame is still alive in the encode',
       );
       encodeGate.complete();
-      await pumpMicrotasks(64);
+      await pumpEventLoop(64);
       expect(
         controller.debugInflightBytes,
         0,
@@ -405,7 +400,7 @@ void main() {
             notifyLoaded: () {},
           )
           .timeout(const Duration(seconds: 5));
-      await pumpMicrotasks(64);
+      await pumpEventLoop(64);
       expect(
         controller.debugInflightBytes,
         0,
@@ -548,7 +543,7 @@ void main() {
             notifyLoaded: () {},
           )
           .timeout(const Duration(seconds: 5));
-      await pumpMicrotasks(64);
+      await pumpEventLoop(64);
       expect(controller.debugInflightBytes, 0);
       expect(
         controller.debugAdmissionAdjustmentCount,
@@ -687,7 +682,7 @@ void main() {
       await until(() => controller.debugEncodePublishTailBytes > 0);
       controller.dispose();
       encodeGate.complete();
-      await pumpMicrotasks(64);
+      await pumpEventLoop(64);
       expect(controller.debugInflightBytes, 0);
       expect(controller.debugEncodePublishTailBytes, 0);
     });

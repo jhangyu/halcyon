@@ -20,6 +20,7 @@ import 'package:image/image.dart' as img;
 import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
+import '../../support/event_loop.dart';
 
 /// A 2x3 opaque source: R carries a per-pixel marker so a wrong permutation
 /// cannot pass by accident, and A is 0xFF everywhere so the premultiplied
@@ -65,14 +66,6 @@ class ManualGate {
     for (final completer in due) {
       completer.complete();
     }
-  }
-}
-
-/// Pumps real, zero-duration timers/microtasks -- what would let a pending
-/// future settle if nothing else were blocking it.
-Future<void> _pumpEventLoop([int rounds = 8]) async {
-  for (var i = 0; i < rounds; i++) {
-    await Future<void>.delayed(Duration.zero);
   }
 }
 
@@ -546,7 +539,7 @@ void main() {
         return value;
       });
 
-      await _pumpEventLoop();
+      await pumpEventLoop(8);
       expect(
         settled,
         isFalse,
@@ -613,7 +606,7 @@ void main() {
       // property below is untouched and still capable of failing: a producer
       // that skips the gate, or asks for two slots, fails it. That was proven
       // by mutation rather than asserted -- tmp/verify/t15a/m8.txt, m9.txt.
-      await _pumpEventLoop();
+      await pumpEventLoop(8);
       gate.openAll();
       final image = await pending;
       addTearDown(image.dispose);
@@ -636,7 +629,7 @@ void main() {
         return value;
       });
 
-      await _pumpEventLoop();
+      await pumpEventLoop(8);
       expect(settled, isFalse);
       expect(gate.requests, 1);
 

@@ -24,16 +24,15 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/event_loop.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'payload state' group (base file)
 // ---------------------------------------------------------------------------
 
-void _microtaskFrame(void Function() callback) => callback();
-
 /// A controller whose loader always succeeds with a real (tiny) PNG.
 ImagePreloadController _cheapController() => ImagePreloadController(
-  scheduleFrameCallback: _microtaskFrame,
+  scheduleFrameCallback: immediateFrameCallback,
   imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
       NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
   dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -65,12 +64,6 @@ void expectPrefixOfLadder(List<PayloadStage> observed, {String? reason}) {
             '(forward only, nothing skipped, nothing repeated out of order)',
   );
 }
-
-// ---------------------------------------------------------------------------
-// Helpers for the 'payload state disposal race' group
-// ---------------------------------------------------------------------------
-
-void _microtaskFrameDisposalRace(void Function() callback) => callback();
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'shared payload retention' group
@@ -194,7 +187,7 @@ void main() {
           // without the debounce. Shape copied from the dual-window tier-2
           // test so this pins the CONTROLLER's path, not a synthetic one.
           final controller = ImagePreloadController(
-            scheduleFrameCallback: _microtaskFrame,
+            scheduleFrameCallback: immediateFrameCallback,
             imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
                 const NativeImageNeedsRawDecode(exifOrientation: 1),
             dngDecoder: (path) async => DecodedRgba(
@@ -396,7 +389,7 @@ void main() {
     group('TC-990 failure', () {
       test('failed is terminal until reset()', () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageFailure('UNREADABLE', 'test'),
         );
@@ -523,7 +516,7 @@ void main() {
       'survives a concurrent navigation sweep',
       () async {
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrameDisposalRace,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -602,7 +595,7 @@ void main() {
         );
 
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrameDisposalRace,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
           dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -674,7 +667,7 @@ void main() {
     // only eviction mechanism -- `retainOnly`/`clear` are never called.
     ImagePreloadController buildController() {
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         retention: const RetentionPolicy(
           before: 3,
           after: 5,

@@ -13,6 +13,7 @@ import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 import '../../support/preload_fixtures.dart' show until;
 import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   group('encode stage', () {
@@ -150,16 +151,6 @@ void main() {
       );
     }
 
-    /// Drains the microtask queue and the zero-duration timer queue enough times
-    /// for the probe, the lane hand-off and the off-lane continuation to run.
-    /// Deterministic: every await in the path under test is either a microtask or
-    /// a zero-duration delay.
-    Future<void> pumpMicrotasks([int rounds = 24]) async {
-      for (var i = 0; i < rounds; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
-    }
-
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-828 -- the lane slot must be free while the encode is still running.
@@ -188,7 +179,7 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       // Item b's decode has started even though item a's encode has not finished.
       expect(
@@ -201,7 +192,7 @@ void main() {
       expect(controller.debugEncodeStageRunningCount, greaterThan(0));
 
       encodeGate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.payloadFor('a'), isA<EncodedPayload>());
       expect(controller.debugEncodeStageRunningCount, 0);
     });
@@ -267,7 +258,7 @@ void main() {
           notifyLoaded: () => flushed++,
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // Navigate far enough that 'a' leaves the retention window (-3..+5).
       unawaited(
         controller.preloadImages(
@@ -276,9 +267,9 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       encodeGate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isNull);
       expect(flushed, greaterThan(0), reason: 'no spinner may strand');
@@ -303,7 +294,7 @@ void main() {
         selectedItemId: 'a',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
     });
@@ -341,12 +332,12 @@ void main() {
           ),
         );
         // The encode is now parked: bytes are acquired and not yet released.
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         controller.dispose();
         encodeGate.complete();
         // The continuation resumes here and runs its `finally` release.
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
       },
     );
 
@@ -378,7 +369,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(
           controller.debugFullResBytesReleasedEarly,
@@ -449,7 +440,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 1);
         expect(copyCalls, 0);
@@ -502,7 +493,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 0);
         expect(copyCalls, 1);

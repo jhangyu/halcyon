@@ -17,6 +17,7 @@ import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:image/image.dart' as img;
 import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -32,12 +33,6 @@ void main() {
       rgba[i + 3] = 0xFF;
     }
     return rgba;
-  }
-
-  Future<void> pumpMicrotasks([int rounds = 24]) async {
-    for (var i = 0; i < rounds; i++) {
-      await Future<void>.delayed(Duration.zero);
-    }
   }
 
   group('native orientation pointer', () {
@@ -104,7 +99,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 1);
         expect(copyCalls, 0, reason: 'AC-8.1: byte encoder must not run');
@@ -227,7 +222,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(legacyCalls, 1);
         expect(copyCalls, 1);

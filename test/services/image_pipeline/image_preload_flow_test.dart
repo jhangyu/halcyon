@@ -14,6 +14,7 @@ import '../../support/preload_fixtures.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 // --- helpers for the 'image preload window' group ---
 // Precache-span guarantees (AC2, AC3) and the SERIAL LANE law (TC-098a..d).
@@ -45,8 +46,6 @@ import '../../support/loader_stubs.dart';
 // drains when its frame hook fires, and a plain test() never pumps a real
 // frame on its own. The pacer re-arms itself after each drained item, so
 // a synchronous hook fully drains the queue before submit() returns.
-void _microtaskFrame(void Function() callback) => callback();
-
 // `_finishOffLane`'s encode continuation is deliberately unawaited by the
 // controller (it has no caller). If a test ends -- and `addTearDown`
 // disposes the controller -- while that continuation is still in flight,
@@ -128,7 +127,7 @@ ImagePreloadController buildController({
   );
 }
 
-Future<void> pumpMicrotasks([int rounds = 40]) async {
+Future<void> pumpWallMillis([int rounds = 40]) async {
   for (var i = 0; i < rounds; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
@@ -241,7 +240,7 @@ void main() {
     );
 
     ImagePreloadController cheapController() => ImagePreloadController(
-      scheduleFrameCallback: _microtaskFrame,
+      scheduleFrameCallback: immediateFrameCallback,
       imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
           NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
       dngDecoder: (path) async => fail('a cheap rung must never RAW-decode'),
@@ -265,7 +264,7 @@ void main() {
         // Debounce shortened to 40ms via navigationDebounce; the property under
         // test (band shape after settle) is unaffected by its absolute length.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: const Duration(milliseconds: 40),
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
@@ -342,7 +341,7 @@ void main() {
         'window, not just +/-1 (criterion 2)', () async {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -394,7 +393,7 @@ void main() {
       var inFlight = 0;
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -432,7 +431,7 @@ void main() {
       var cheapInFlight = 0;
       var cheapMaxInFlight = 0;
       final cheap = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           cheapInFlight++;
           if (cheapInFlight > cheapMaxInFlight) {
@@ -480,7 +479,7 @@ void main() {
         '-3, +4, +5 (criterion 4)', () async {
       final starts = <String>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -526,7 +525,7 @@ void main() {
       final starts = <String>[];
       final gates = <Completer<void>>[];
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -651,7 +650,7 @@ void main() {
       // itself with RAW decodes outside +/-1.
       var loaderCalls = 0;
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: const Duration(milliseconds: 40),
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           loaderCalls++;
@@ -720,7 +719,7 @@ void main() {
           payloadByteBudget: 402653184,
         );
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async => fakeDecoded(),
@@ -795,7 +794,7 @@ void main() {
       var maxInFlight = 0;
       var call = 0;
       final wide = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -840,7 +839,7 @@ void main() {
         'starts are distances 0, +1, -1', () async {
       final starts = <String>[];
       final wide = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
@@ -940,7 +939,7 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpWallMillis();
 
       // The first encode is STILL PARKED (its tick is not recorded yet), and
       // decodes entered after it started: the stages overlap.
@@ -963,7 +962,7 @@ void main() {
       expect(peakDecodes, lessThanOrEqualTo(controller.decodeLaneWidth));
 
       firstEncodeGate.complete();
-      await pumpMicrotasks();
+      await pumpWallMillis();
       expect(controller.debugInflightBytes, 0);
     });
 
@@ -1098,7 +1097,7 @@ void main() {
         var maxConcurrent = 0;
         var started = 0;
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
@@ -1158,7 +1157,7 @@ void main() {
         'evict identically at -4', () async {
       Future<ImagePreloadController> make(bool expensive) async {
         return ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               expensive
               ? const NativeImageNeedsRawDecode(exifOrientation: 1)
@@ -1215,7 +1214,7 @@ void main() {
       var isFirst = true;
       var firstRequested = false;
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         imageLoader: (path, {required purpose, int? targetLongEdge}) {
           if (isFirst) {
             isFirst = false;

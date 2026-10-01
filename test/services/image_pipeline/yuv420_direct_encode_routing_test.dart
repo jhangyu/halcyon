@@ -36,6 +36,7 @@ import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
 import 'package:image/image.dart' as img;
 import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -44,12 +45,6 @@ void main() {
   const height = 8;
 
   tearDown(debugResetUpconvertSeam);
-
-  Future<void> pumpMicrotasks([int rounds = 40]) async {
-    for (var i = 0; i < rounds; i++) {
-      await Future<void>.delayed(Duration.zero);
-    }
-  }
 
   Uint8List jpegBytes() {
     final frame = img.Image(width: width, height: height);
@@ -182,7 +177,7 @@ void main() {
       selectedItemId: 'a',
       notifyLoaded: () {},
     );
-    await pumpMicrotasks();
+    await pumpEventLoop(40);
     planarReleasedAfterEncode = planarReleased;
 
     return (

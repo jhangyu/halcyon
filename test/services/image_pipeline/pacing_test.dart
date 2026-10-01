@@ -25,6 +25,7 @@ import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
 import 'package:halcyon_flutter/services/image_pipeline/publication_pacer.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/event_loop.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'publication pacer' group
@@ -55,14 +56,6 @@ bool _idleRefusingStrategy({
   required SchedulerBinding scheduler,
 }) => priority >= Priority.animation.value;
 
-/// Pumps the event loop (which is what services a `Priority.idle` task) and
-/// real zero-duration timers. NOT a wall-clock wait.
-Future<void> pumpEventLoop([int rounds = 8]) async {
-  for (var i = 0; i < rounds; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
-}
-
 /// Longer than any test here lives, so the safeguard cannot be the runner.
 const Duration kNeverFires = Duration(hours: 1);
 
@@ -70,10 +63,8 @@ const Duration kNeverFires = Duration(hours: 1);
 // Helpers for the 'intent coalescing' group
 // ---------------------------------------------------------------------------
 
-void _microtaskFrame(void Function() callback) => callback();
-
 ImagePreloadController _cheapController() => ImagePreloadController(
-  scheduleFrameCallback: _microtaskFrame,
+  scheduleFrameCallback: immediateFrameCallback,
   imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
       NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
   dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
@@ -118,12 +109,6 @@ ImagePreloadController buildController({FrameHook? scheduleFrameCallback}) {
         NativeImageBytes(Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10])),
     scheduleFrameCallback: scheduleFrameCallback,
   );
-}
-
-Future<void> pumpMicrotasks([int rounds = 24]) async {
-  for (var i = 0; i < rounds; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
 }
 
 void main() {
@@ -432,11 +417,11 @@ void main() {
       expect(runs, 0, reason: 'a slot must never be granted synchronously');
       expect(scheduler.debugPendingCount, 1);
 
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1);
       expect(scheduler.debugPendingCount, 0);
 
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1, reason: 'exactly once per schedule call');
     });
 
@@ -449,7 +434,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1, reason: 'an animating app must not stall a publish');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -465,7 +450,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -530,14 +515,14 @@ void main() {
 
       // Still well within the settle window: repeated idle attempts must keep
       // deferring, never running the callback.
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 0, reason: 'recent input means the app is not idle yet');
       expect(scheduler.debugIsIdle, false);
 
       // Advance the fake clock past the settle window with no further input.
       fakeNow = fakeNow.add(const Duration(milliseconds: 151));
       expect(scheduler.debugIsIdle, true);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1, reason: 'once quiet, the idle path must run it');
       expect(scheduler.debugIdleRuns, 1);
       expect(scheduler.debugSafeguardRuns, 0);
@@ -553,7 +538,7 @@ void main() {
       expect(scheduler.debugIsIdle, true);
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -575,7 +560,7 @@ void main() {
       scheduler.noteInputActivity();
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1, reason: 'the safeguard must still be unconditional');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -593,7 +578,7 @@ void main() {
 
       var hookRuns = 0;
       hook(() => hookRuns++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(hookRuns, 1);
 
       await gate();
@@ -685,7 +670,7 @@ void main() {
         // Every item is expensive, so every issued slot lands on the lane and
         // "was this window issued at all" is readable off the lane itself.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           decodeLaneWidth: 1,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -768,7 +753,7 @@ void main() {
         // immediately and `debugLanePendingPriorityFor` reports null for it --
         // the assertion would be reading the wrong side of the lane.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           decodeLaneWidth: 1,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1009,7 +994,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(
         controller.debugTierOneKeyIds,
@@ -1030,7 +1015,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // (q70 rewrite) A neighbour's bytes payload is an EncodedPayload, so its
       // paced unit of work is now the payload-driven TIER-2 publish (a tier-1
       // key is no longer registered for a neighbour that is served full-res
@@ -1039,11 +1024,11 @@ void main() {
       final afterSelection = controller.debugTierTwoKeyIds.length;
 
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 1);
 
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 2);
     });
 
@@ -1059,16 +1044,16 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // Navigate away so the far neighbours leave the window before their drain.
       await controller.preloadImages(
         items: manyCheapItems(),
         selectedItemId: 'z',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       for (final id in controller.debugTierOneKeyIds) {
         expect(
@@ -1103,7 +1088,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(
         controller.debugTierOneKeyIds,
