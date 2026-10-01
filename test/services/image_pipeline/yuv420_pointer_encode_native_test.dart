@@ -16,7 +16,7 @@
 // HOW TO RUN (same mechanism and reason as yuv420_format_loss_test.dart:
 // `flutter test` loads no native library):
 //
-//   DNG_NATIVE_BUILD_DIR=/Users/jhangyu/project/ceyx/plugin/macos/Libraries \
+//   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
 //     flutter test test/services/image_pipeline/yuv420_pointer_encode_native_test.dart
 //
 // A skipped run and a real run differ only in the skip line, so any acceptance
@@ -34,7 +34,7 @@ import 'package:image/image.dart' as img;
 
 final String? _skipReason =
     Platform.environment['DNG_NATIVE_BUILD_DIR'] == null
-        ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/macos/Libraries: these '
+        ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/<os>/Libraries: these '
             'cases decode a real RAW file through the native library'
         : null;
 
@@ -46,9 +46,9 @@ void main() {
   // format passing would not have distinguished the two claims.
   const samples = <String, String>{
     'nikon_z8_he.nef':
-        '/Users/jhangyu/project/ceyx/image_samples/raw_corpus/nikon_z8_he.nef',
+        '../ceyx/image_samples/raw_corpus/nikon_z8_he.nef',
     'fuji_xt5.raf':
-        '/Users/jhangyu/project/ceyx/image_samples/raw_corpus/fuji_xt5.raf',
+        '../ceyx/image_samples/raw_corpus/fuji_xt5.raf',
   };
 
   for (final entry in samples.entries) {

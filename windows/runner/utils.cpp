@@ -21,6 +21,41 @@ void CreateAndAttachConsole() {
   }
 }
 
+// A double-clicked GUI process starts without stdout/stderr handles. The
+// engine statically links its own CRT, which captures the std handles once,
+// when flutter_windows.dll initializes; with none, every dart:io stdout/stderr
+// write fails with "handle is invalid" (errno 6), which is fatal inside ceyx's
+// decode worker isolates (errorsAreFatal). The engine and plugin DLLs are
+// delay-loaded (windows/CMakeLists.txt) so this runs before that capture.
+// Never use FlutterDesktopResyncOutputStreams() here: it always reopens on
+// CONOUT$, which fails without a console and then fastfails in _dup2.
+// HALCYON_STDIO_LOG=<path> sends the output to that file instead of NUL.
+void EnsureStdOutputHandles() {
+  HANDLE target = INVALID_HANDLE_VALUE;
+  for (DWORD id : {STD_OUTPUT_HANDLE, STD_ERROR_HANDLE}) {
+    HANDLE current = ::GetStdHandle(id);
+    if (current != nullptr && current != INVALID_HANDLE_VALUE &&
+        ::GetFileType(current) != FILE_TYPE_UNKNOWN) {
+      continue;
+    }
+    if (target == INVALID_HANDLE_VALUE) {
+#pragma warning(suppress : 4996)
+      const wchar_t* log_path = _wgetenv(L"HALCYON_STDIO_LOG");
+      if (log_path != nullptr && *log_path != L'\0') {
+        target = ::CreateFileW(log_path, GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+      }
+      if (target == INVALID_HANDLE_VALUE) {
+        target = ::CreateFileW(L"NUL", GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               OPEN_EXISTING, 0, nullptr);
+      }
+    }
+    if (target != INVALID_HANDLE_VALUE) ::SetStdHandle(id, target);
+  }
+}
+
 std::vector<std::string> GetCommandLineArguments() {
   // Convert the UTF-16 command line arguments to UTF-8 for the Engine to use.
   int argc;

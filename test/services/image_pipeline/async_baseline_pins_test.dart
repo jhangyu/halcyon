@@ -68,9 +68,8 @@ void main() {
   });
 
   group('B2 — selected-item await surface', () {
-    final dngDir = sampleDngDir;
     final hasSamples = samplePhotosAvailable;
-    final noPreviewDng = File('${dngDir.path}/IMG_20251112_092839.dng');
+    final noPreviewDng = File('${sampleRootDir.path}/$kSampleNoPreviewDng');
 
     // PHASE 3 TIGHTENING (plan §3 Phase 3 acceptance bullet 1). Before
     // Phase 3 this group pinned an ASYMMETRY: an expensive selected item was

@@ -46,23 +46,9 @@ void main() {
       group(
         'extractFullSizeEmbeddedJpeg — real DNG samples with embedded preview',
         () {
-          // These 13 samples are known (from the Swift reference cross-check) to
-          // carry a qualifying embedded full-size JPEG preview.
-          const withPreview = <String>[
-            '2026-02-15-19-37-38.dng',
-            '2026-02-15-20-53-24.dng',
-            '2026-02-15-20-53-31.dng',
-            '2026-02-15-20-57-15.dng',
-            '2026-02-15-20-57-23-2.dng',
-            '2026-02-15-20-57-23.dng',
-            '2026-02-15-20-57-26.dng',
-            '2026-02-15-20-57-28.dng',
-            '2026-02-15-21-53-33.dng',
-            '2026-02-15-21-53-41.dng',
-            '2026-02-15-21-53-42.dng',
-            '2026-02-15-21-53-43.dng',
-            '2026-08-07-17-52-54.dng',
-          ];
+          // Every sampleDngDir DNG carries a qualifying embedded full-size JPEG
+          // preview (measured 2026-10-01 via extractFullSizeEmbeddedJpeg).
+          const withPreview = kSamplePreviewDngs;
 
           for (final name in withPreview) {
             test('$name: extracts a decodable SOI/EOI-bounded JPEG', () async {
@@ -97,9 +83,9 @@ void main() {
       );
 
       test(
-        'IMG_20251112_092839.dng (no qualifying embedded preview) returns null, not a crash',
+        '$kSampleNoPreviewDng (no qualifying embedded preview) returns null, not a crash',
         () async {
-          final path = '${sampleDir.path}/IMG_20251112_092839.dng';
+          final path = '${sampleRootDir.path}/$kSampleNoPreviewDng';
           expect(File(path).existsSync(), isTrue, reason: 'missing $path');
           final bytes =
               await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpegFromFile(path);
@@ -109,14 +95,14 @@ void main() {
       );
 
       test(
-        'orientation tag: sample with EXIF orientation 6 is read and injected',
+        'orientation tag: sample with EXIF orientation 8 is read and injected',
         () async {
-          final path = '${sampleDir.path}/2026-08-07-17-52-54.dng';
+          final path = '${sampleDir.path}/$kSampleRotatedPreviewDng';
           final data = await readSampleOnce(path);
           final orientation = await DngEmbeddedJpegExtractor.readDngOrientation(
             data,
           );
-          expect(orientation, 6);
+          expect(orientation, 8);
 
           final bytes = await DngEmbeddedJpegExtractor.extractFullSizeEmbeddedJpeg(
             data,
@@ -172,7 +158,7 @@ void main() {
         test(
           'a real DNG truncated mid-file (IFD offsets now point past EOF)',
           () async {
-            final path = '${sampleDir.path}/2026-02-15-19-37-38.dng';
+            final path = '${sampleDir.path}/$kSamplePreviewDng';
             final full = await readSampleOnce(path);
             final truncated = Uint8List.sublistView(full, 0, full.length ~/ 4);
             expect(
@@ -1436,29 +1422,15 @@ void main() {
   group('dng_embedded_jpeg_extractor_long_edge_selection_test.dart', () {
       final sampleDir = sampleDngDir;
 
-      // Kept in lockstep with the frozen oracle's `withPreview` list (read, not
-      // retyped from memory) — test/dng_embedded_jpeg_extractor_test.dart lines 39-53.
-      const withPreview = <String>[
-        '2026-02-15-19-37-38.dng',
-        '2026-02-15-20-53-24.dng',
-        '2026-02-15-20-53-31.dng',
-        '2026-02-15-20-57-15.dng',
-        '2026-02-15-20-57-23-2.dng',
-        '2026-02-15-20-57-23.dng',
-        '2026-02-15-20-57-26.dng',
-        '2026-02-15-20-57-28.dng',
-        '2026-02-15-21-53-33.dng',
-        '2026-02-15-21-53-41.dng',
-        '2026-02-15-21-53-42.dng',
-        '2026-02-15-21-53-43.dng',
-        '2026-08-07-17-52-54.dng',
-      ];
+      // Kept in lockstep with the first group's list (kSamplePreviewDngs).
+      const withPreview = kSamplePreviewDngs;
 
-      const noPreviewFile = 'IMG_20251112_092839.dng';
-      const noPreviewFileDiskBytes = 25192232;
+      const noPreviewFile = kSampleNoPreviewDng;
+      const noPreviewFileDiskBytes = kSampleNoPreviewDngBytes;
+      final noPreviewPath = '${sampleRootDir.path}/$noPreviewFile';
 
       test('AC2: smallest candidate >= longEdge 200 is the 256x171 preview', () async {
-        final path = '${sampleDir.path}/2026-02-15-19-37-38.dng';
+        final path = '${sampleDir.path}/$kSamplePreviewDng';
         expect(File(path).existsSync(), isTrue, reason: 'missing $path');
 
         final result = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
@@ -1469,7 +1441,7 @@ void main() {
         expect(result, isNotNull);
         expect(result!.width, 256);
         expect(result.height, 171);
-        expect(result.bytes.length, 9525);
+        expect(result.bytes.length, 12922);
         expect(result.orientation, 1);
       }, skip: samplePhotosSkipReason);
 
@@ -1517,11 +1489,13 @@ void main() {
 
           expect(
             dngFiles.length,
-            26,
+            25,
             reason:
-                'expected exactly 26 .dng files in ${sampleDir.path}; a sample '
+                'expected exactly 25 .dng files in ${sampleDir.path}; a sample '
                 'vanishing/appearing must fail loudly',
           );
+          // The no-preview DNG lives in the tree root, not in sampleDir.
+          dngFiles.add(File(noPreviewPath));
 
           for (final file in dngFiles) {
             var totalOnDiskRead = 0;
@@ -1558,7 +1532,7 @@ void main() {
                 reason:
                     '$noPreviewFile: with no candidate, total on-disk read must stay '
                     'under 300000 bytes (got $totalOnDiskRead), not scan the whole '
-                    '25MB file',
+                    '13MB file',
               );
             }
           }
@@ -1567,9 +1541,12 @@ void main() {
       );
 
       test(
-        'AC5: sole 6000x4000 candidate is selected, orientation 6, APP1 injected',
+        // Re-pinned 2026-10-01 to raw_corpus/L1010071.DNG: its only embedded
+        // candidate is 1024x682 (extractEmbeddedJpeg at longEdge 200 and 2800
+        // both return it), orientation 8 (measured).
+        'AC5: sole 1024x682 candidate is selected, orientation 8, APP1 injected',
         () async {
-          final path = '${sampleDir.path}/2026-08-07-17-52-54.dng';
+          final path = '${sampleRootDir.path}/raw_corpus/L1010071.DNG';
           expect(File(path).existsSync(), isTrue, reason: 'missing $path');
 
           final result = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
@@ -1578,9 +1555,9 @@ void main() {
           );
 
           expect(result, isNotNull);
-          expect(result!.width, 6000);
-          expect(result.height, 4000);
-          expect(result.orientation, 6);
+          expect(result!.width, 1024);
+          expect(result.height, 682);
+          expect(result.orientation, 8);
           expect(result.bytes.length, greaterThan(4));
           expect(
             result.bytes[2],
@@ -1598,7 +1575,7 @@ void main() {
 
       group('AC6: no-candidate/missing/non-DNG inputs return null, never throw', () {
         test('DNG with no qualifying candidate returns null', () async {
-          final path = '${sampleDir.path}/$noPreviewFile';
+          final path = noPreviewPath;
           expect(File(path).existsSync(), isTrue, reason: 'missing $path');
 
           final result = await DngEmbeddedJpegExtractor.extractEmbeddedJpeg(
@@ -1640,11 +1617,11 @@ void main() {
       test(
         'AC11a: readOrientation reads IFD0 tag 0x0112 via the bounded walk (discriminating case)',
         () async {
-          final path = '${sampleDir.path}/2026-08-07-17-52-54.dng';
+          final path = '${sampleDir.path}/$kSampleRotatedPreviewDng';
           expect(File(path).existsSync(), isTrue, reason: 'missing $path');
 
           final orientation = await DngEmbeddedJpegExtractor.readOrientation(path);
-          expect(orientation, 6);
+          expect(orientation, 8);
         },
         skip: samplePhotosSkipReason,
       );
@@ -1652,7 +1629,7 @@ void main() {
       test(
         'AC11b: readOrientation on a no-preview DNG stays under the disk-read budget',
         () async {
-          final path = '${sampleDir.path}/$noPreviewFile';
+          final path = noPreviewPath;
           expect(File(path).existsSync(), isTrue, reason: 'missing $path');
           expect(
             File(path).lengthSync(),
@@ -1671,7 +1648,7 @@ void main() {
             totalOnDiskRead,
             lessThan(300000),
             reason:
-                '$noPreviewFile: readOrientation must not scan the whole 25MB file '
+                '$noPreviewFile: readOrientation must not scan the whole 13MB file '
                 '(got $totalOnDiskRead)',
           );
         },
@@ -1797,7 +1774,7 @@ void main() {
       test(
         'AC12d: N1 fixture — large file with a patched non-default orientation tag',
         () async {
-          final sourcePath = '${sampleDir.path}/$noPreviewFile';
+          final sourcePath = noPreviewPath;
           expect(File(sourcePath).existsSync(), isTrue, reason: 'missing $sourcePath');
 
           final tempPath =
@@ -1827,7 +1804,7 @@ void main() {
             totalOnDiskRead,
             lessThan(300000),
             reason:
-                'N1 fixture: readOrientation must not scan the whole 25MB file '
+                'N1 fixture: readOrientation must not scan the whole 13MB file '
                 '(got $totalOnDiskRead)',
           );
         },
@@ -1975,7 +1952,7 @@ void main() {
       // Orientation 1 (per dng_embedded_jpeg_extractor_long_edge_selection_test.dart AC2), so the
       // returned bytes are exactly the `_MemorySource.read` slice with no
       // `_injectExifOrientation` rebuild in the way.
-      const sampleName = '2026-02-15-19-37-38.dng';
+      const sampleName = kSamplePreviewDng;
 
       test(
         'AC-B1: extractFullSizeEmbeddedJpeg result is unaffected by mutating '
@@ -2480,7 +2457,7 @@ Uint8List _buildSonyChain({
 /// Patches an on-disk copy of [sourcePath] (written to [destPath]) so IFD0's
 /// orientation tag 0x0112 reads [value].
 ///
-/// `IMG_20251112_092839.dng` already carries an explicit 0x0112 SHORT/count-1
+/// `bayer_conc_b.dng` already carries an explicit 0x0112 SHORT/count-1
 /// entry with value 1 (verified by direct inspection: it is not that the tag
 /// is absent, it is present and declares "no rotation"). This overwrites that
 /// existing entry's inline value only -- it does not touch the tag id, type,

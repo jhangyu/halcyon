@@ -1787,8 +1787,8 @@ void main() {
 
     // The M0/M3 sample inventory proves this pair is the intended content
     // witness: same extension, one preview-bearing and one no-preview.
-    final previewDng = sampleNamed('2026-02-15-19-37-38.dng');
-    final noPreviewDng = sampleNamed('IMG_20251112_092839.dng');
+    final previewDng = sampleNamed(kSamplePreviewDng);
+    final noPreviewDng = File('${sampleRootDir.path}/$kSampleNoPreviewDng');
 
     List<PhotoItem> realListWith(File target, int targetIndex) => List.generate(
       14,

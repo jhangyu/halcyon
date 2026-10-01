@@ -57,6 +57,16 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# The engine's static CRT captures stdout/stderr when flutter_windows.dll
+# initializes; delay-loading it (and every plugin DLL, which imports it) lets
+# EnsureStdOutputHandles() in runner/main.cpp run first. See runner/utils.cpp.
+target_link_libraries(${BINARY_NAME} PRIVATE delayimp)
+target_link_options(${BINARY_NAME} PRIVATE "/DELAYLOAD:flutter_windows.dll")
+foreach(plugin ${FLUTTER_PLUGIN_LIST})
+  target_link_options(${BINARY_NAME} PRIVATE
+    "/DELAYLOAD:$<TARGET_FILE_NAME:${plugin}_plugin>")
+endforeach(plugin)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

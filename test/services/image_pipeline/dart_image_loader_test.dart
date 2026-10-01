@@ -19,11 +19,7 @@ import '../../support/synthetic_dng.dart';
 void main() {
   group('dart_image_loader_test.dart', () {
       final sampleDir = sampleDngDir;
-      List<File> dngs() => sampleDir
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.dng'))
-          .toList();
+      List<File> dngs() => sampleDngFiles();
 
       // Several tests below independently loop over every real sample DNG and
       // call `extractFullSizeEmbeddedJpegFromFile` purely to classify each file
@@ -320,7 +316,7 @@ void main() {
       // a DNG into RAW decode on the preview path, and ONLY there.
       //
       // These use a synthetic container rather than a real sample on purpose.
-      // Measured over local_data/photo_samples/DNG (26 files,
+      // Measured over the former local DNG corpus (26 files,
       // scripts/tmp/m7-t2/newly-routed.txt): ZERO samples are newly routed by this
       // rule -- 13 already have no qualifying candidate, 13 have one that already
       // clears 2800. So no real file in the corpus can exercise this behaviour,
@@ -1177,7 +1173,6 @@ void main() {
 
   group('dart_image_loader_no_method_channel_test.dart', () {
       TestWidgetsFlutterBinding.ensureInitialized();
-      final sampleDir = sampleDngDir;
 
       late int channelCalls;
       setUp(() {
@@ -1191,8 +1186,7 @@ void main() {
       });
 
       Future<File?> sample({required bool withPreview}) async {
-        for (final f in sampleDir.listSync().whereType<File>()) {
-          if (!f.path.toLowerCase().endsWith('.dng')) continue;
+        for (final f in sampleDngFiles()) {
           final full = await DngEmbeddedJpegExtractor
               .extractFullSizeEmbeddedJpegFromFile(f.path);
           if ((full != null) == withPreview) return f;

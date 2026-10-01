@@ -14,11 +14,11 @@
 // HOW TO RUN (`flutter test` loads no native library without the override,
 // same mechanism as yuv420_pointer_encode_native_test.dart):
 //
-//   DNG_NATIVE_BUILD_DIR=/Users/jhangyu/project/ceyx/plugin/macos/Libraries \
+//   DNG_NATIVE_BUILD_DIR=../ceyx/plugin/<os>/Libraries \
 //     flutter test test/perf/q70_memory_stage_probe_test.dart
 //
 // SKIPS (loudly, with a reason) when DNG_NATIVE_BUILD_DIR is unset or the
-// external corpus below is not mounted. A skipped run and a real run differ
+// sample file below is absent. A skipped run and a real run differ
 // only in the skip line: cite a PASSING count, never a bare exit 0.
 import 'dart:async';
 import 'dart:ffi';
@@ -42,13 +42,17 @@ import 'package:halcyon_flutter/services/image_pipeline/dng_decode_service.dart'
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
-// Sony ILCE-7C, 6024x4024 decoded. One orientation-1 frame and two
-// orientation-8 frames, so both the plain and the oriented decoder run.
-const _corpusDir = '/Volumes/EVO_4T/2025-11-08';
+// raw_sample.arw measured 6024x4024 via DngDecoderService.probeOutputSize
+// (2026-10-01, Windows DLL); this test itself has NOT run against it (macOS-only).
+// One real ARW from the sibling ceyx sample tree, used for all three band items
+// (distinct item ids, same file). The pre-2026-10-01 corpus was three Sony
+// ILCE-7C frames on an external Mac volume (one orientation-1, two
+// orientation-8); that mix of orientations is NOT reproduced here.
+const _corpusDir = '../ceyx/image_samples';
 const _files = [
-  '2025-11-08-15-13-43.ARW',
-  '2025-11-08-15-24-59.ARW',
-  '2025-11-08-15-25-01.ARW',
+  'raw_sample.arw',
+  'raw_sample.arw',
+  'raw_sample.arw',
 ];
 
 // Fixed, not the host's: the atlas ran at 256 GiB, and the ledger/cache
@@ -58,11 +62,14 @@ const _laneWidth = 8;
 
 final String? _nativeDir = Platform.environment['DNG_NATIVE_BUILD_DIR'];
 
-final String? _skipReason = _nativeDir == null
-    ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/macos/Libraries: this probe '
+final String? _skipReason = !Platform.isMacOS
+    ? 'macOS-only: opens libdng_decoder_native.dylib and looks up the '
+        'Itanium-mangled symbol _Z28raw_fused_bayer_render_countv'
+    : _nativeDir == null
+    ? 'set DNG_NATIVE_BUILD_DIR to ceyx plugin/<os>/Libraries: this probe '
         'decodes real RAW files through the native library'
     : !_files.every((f) => File('$_corpusDir/$f').existsSync())
-        ? 'external RAW corpus absent: $_corpusDir/{${_files.join(',')}}'
+        ? 'sample RAW absent: $_corpusDir/${_files.first}'
         : null;
 
 typedef _U64x5N = Int32 Function(Pointer<Uint64>, Pointer<Uint64>,
@@ -164,8 +171,10 @@ void main() {
     controller.updateTargetSize(2880, 1800);
 
     final items = [
-      for (final f in _files)
-        PhotoItem(id: '$_corpusDir/$f', files: [File('$_corpusDir/$f')]),
+      for (var i = 0; i < _files.length; i++)
+        PhotoItem(
+            id: 'q70-$i-${_files[i]}',
+            files: [File('$_corpusDir/${_files[i]}')]),
     ];
 
     final n0 = _readNative(native);
