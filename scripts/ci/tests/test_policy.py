@@ -446,6 +446,35 @@ class TestNoTestExecutionInCI(unittest.TestCase):
         )
 
 
+class TestWorkflowPinnedLiteralsAgree(unittest.TestCase):
+    """Every `ref:` (the sibling jhangyu/ceyx checkout) and every
+    `flutter-version:` across ci.yml + release.yml carries ONE value each — the
+    dual-pin drift class (win-parity campaign). Guards agreement, not a specific
+    value, so a deliberate bump edits only the workflows. If a future step adds
+    an unrelated `ref:`, this fails closed: scope REF_RE to the ceyx checkout
+    step then — never loosen the equality."""
+
+    REF_RE = re.compile(r"^\s*ref:\s*(\S+)\s*$", re.M)
+    FLUTTER_RE = re.compile(r"^\s*flutter-version:\s*(\S+)\s*$", re.M)
+
+    def _values(self, pattern):
+        values = []
+        for name in ("ci.yml", "release.yml"):
+            values += pattern.findall((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+        return values
+
+    def _assert_one_value(self, pattern, label):
+        values = self._values(pattern)
+        self.assertGreaterEqual(len(values), 3, f"expected >=3 {label} lines, found {values!r}")
+        self.assertEqual(len(set(values)), 1, f"{label} values disagree across workflows: {values!r}")
+
+    def test_ceyx_checkout_refs_agree(self):
+        self._assert_one_value(self.REF_RE, "ref:")
+
+    def test_flutter_versions_agree(self):
+        self._assert_one_value(self.FLUTTER_RE, "flutter-version:")
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6
