@@ -88,8 +88,8 @@ CEYX_SYMBOLS = (
 _HOST_BY_SYS_PLATFORM = {"darwin": "macos", "linux": "linux", "win32": "windows"}
 
 # The runner executable's basename is a per-platform FACT and therefore lives in
-# targets.py (G-5), never here: only macOS is named after the product, Windows is
-# lowercase and Linux still carries the pre-rename project name. A hardcoded
+# targets.py (G-5), never here: only macOS is named after the product; Windows
+# and Linux are lowercase. A hardcoded
 # ("Halcyon", "Halcyon.exe") tuple used to live here and made H-ARCH unfalsifiable
 # on two of the three platforms it claims to be valid_on.
 
@@ -153,29 +153,23 @@ SUITE = {
         id="H-DECODER-DEPS",
         measures=(
             "every ceyx library the pin declares for this platform is in the "
-            "artefact TOGETHER (on Windows: the decoder plus its declared "
-            "companions — heif.dll, libde265.dll, and libomp140.x86_64.dll — "
-            "the Windows group grew to 4 at the v0.1.24 repin (2026-09-13, "
-            "WI-4/OQ-N2 ruled SHIP); on macOS: the decoder plus its declared "
-            "companions per ceyx.podspec vendored_libraries, currently four "
-            "(jpeg, heif, de265, omp) — liblcms2.2.dylib was removed at the "
-            "v0.1.24 repin (2026-09-13) following upstream's lcms2 removal, "
-            "which is the drop WI-5/OQ-N4 anticipated)"
+            "artefact TOGETHER: the decoder plus every companion library listed "
+            "in ceyx_release_pin.json assets.<platform>.libraries (the set is "
+            "whatever the current pin declares; no count is stated here because "
+            "it changes with repins)"
         ),
         valid_on=("windows", "macos"),
         why_valid=(
             "The expected list is read as data from ceyx_release_pin.json's "
-            "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so "
-            "adding a fourth DLL to the pin extended the gate automatically, "
-            "with no change to this assertion. It "
-            "measures the exact failure ceyx_release_pin.json:11-16 describes: "
-            "a Windows install missing a dynamic import fails at "
-            "DynamicLibrary.open with an error naming only the decoder. On "
-            "macOS the same shape applies to the macOS atomic group added "
-            "by the HALCYON-MIGRATION campaign (2026-09, tag v0.1.8) — six "
-            "dylibs then, five since the v0.1.24 repin: a "
-            "partial fetch/package would produce an app that fails at load "
-            "time naming only the decoder, never the missing companion."
+            "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so a "
+            "repin that adds or removes a companion library moves the gate "
+            "automatically, with no change to this assertion. It measures the "
+            "exact failure this gate exists for: a Windows install missing a "
+            "dynamic import fails at DynamicLibrary.open with an error naming "
+            "only the decoder. On macOS the same shape applies to the macOS "
+            "atomic group added by the HALCYON-MIGRATION campaign (2026-09, tag "
+            "v0.1.8): a partial fetch/package would produce an app that fails "
+            "at load time naming only the decoder, never the missing companion."
         ),
         red_state=(
             "delete any one pinned member from a staging copy of the archive: "
@@ -433,7 +427,7 @@ SUITE = {
             "run against the v1.0.15 zip (built before the delay-load): exit 1 "
             "naming flutter_windows.dll, desktop_drop_plugin.dll and "
             "file_selector_windows_plugin.dll as static imports (demonstrated: "
-            "scripts/tmp/debug2/fix/pe_gate.txt)"
+            "a scratch capture, not retained)"
         ),
         expected=(
             "flutter_windows.dll is in the delay imports and neither it nor "
