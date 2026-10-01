@@ -314,7 +314,7 @@ Future<Uint8List> _fakeEncoder(
 // kNormalizePassthroughMaxBytes (512 KiB): larger ones are re-encoded to q70 by
 // normalizeEncodedPayload, so the payload can never equal the extractor's bytes.
 // Every image_samples DNG that has a preview has one of at least 1198239 bytes
-// (scripts/tmp/audit/probe_out.txt, measured 2026-10-01), so there is no sample
+// (scratch audit probe, measured 2026-10-01, output not retained), so there is no sample
 // with the property these two tests were written against.
 const _kNoSmallPreviewSample =
     'no image_samples DNG has an embedded preview <= 512 KiB '
@@ -842,8 +842,8 @@ void main() {
           // and the literal is the loudest shape available.
           //
           // Re-pinned 2026-10-01 to the image_samples corpus. Measured with
-          // extractFullSizeEmbeddedJpeg / extractEmbeddedJpeg (scripts/tmp/audit/
-          // probe_out.txt): all 25 batch_run_samples DNGs carry a usable embedded
+          // extractFullSizeEmbeddedJpeg / extractEmbeddedJpeg (scratch audit probe, not
+          // retained): all 25 batch_run_samples DNGs carry a usable embedded
           // JPEG; the two Bayer-mosaic DNGs in the tree root carry none.
           const knownPreviewLess = kSampleNoPreviewDngs;
 

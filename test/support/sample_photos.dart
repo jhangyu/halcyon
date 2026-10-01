@@ -59,7 +59,7 @@ final Directory sampleRootDir = Directory(
 final Directory sampleJpgDir = sampleRootDir;
 
 // Fixtures below were MEASURED on 2026-10-01 against the real files (probe:
-// scripts/tmp/audit/probe_out.txt), not guessed.
+// a scratch audit probe, output not retained), not guessed.
 
 /// The DNG without any qualifying embedded JPEG (`extractFullSizeEmbeddedJpeg`
 /// and `extractEmbeddedJpeg` both null; readOrientation 1), in [sampleRootDir].

@@ -392,10 +392,10 @@ void main() {
       // bitstreams inline in vendor tags 0x002E (JpgFromRaw) and 0x0127
       // (JpgFromRaw2). Accepting version 85 without teaching the walker those tags
       // would have been a no-op; that is measured, not assumed
-      // (`scripts/tmp/rw2_ifd_probe.py`, output under `tmp/verify/`).
+      // (scratch IFD probe, not retained).
       //
       // The real sample lives outside the repo and is untracked, so the real-file
-      // check stays in `scripts/tmp/rw2_walker_check.dart`. Everything below runs
+      // check lived in a scratch walker script (not retained). Everything below runs
       // on synthetic containers so this suite passes on a machine that has never
       // seen a Panasonic file.
       // -------------------------------------------------------------------

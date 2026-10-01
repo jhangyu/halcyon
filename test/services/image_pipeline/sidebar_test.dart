@@ -904,7 +904,7 @@ void main() {
         // filter+deflate (5.7KB) and pathologically bad for JPEG's DCT (14.6KB),
         // so the synthetic case genuinely inverts. The size win being claimed is
         // for photographic content and is evidenced on real DNG samples in
-        // scripts/tmp/m7-t5/size-comparison.md, not here.
+        // a scratch size-comparison note (not retained), not here.
 
         // Decode-back must actually succeed. JPEG cannot carry alpha, so this
         // asserts the alpha-dropping encode still produces something the

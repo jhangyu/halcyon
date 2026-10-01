@@ -324,7 +324,7 @@ void main() {
   // an existing one only in case. exFAT (the user's photo volume) and APFS
   // are both case-insensitive, and File.rename silently REPLACES the
   // destination -- that is unrecoverable photo loss, not a failed item.
-  // Evidence: scripts/tmp/rename_probe_fs.dart, run on an external volume.
+  // Evidence: a scratch filesystem probe (not retained), run on an external volume.
   // ---------------------------------------------------------------------
   test('TC-704 planRenames treats a case-only difference from an existing '
       'file as a collision', () {
