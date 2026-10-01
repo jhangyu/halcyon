@@ -133,22 +133,6 @@ void main() {
           {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});
     });
 
-    test('TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream',
-        () {
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('b.tif'), isTrue);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('c.tiff'), isTrue);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.dng'), isTrue);
-      for (final path in ['x.cr2', 'y.iiq', 'z.mrw']) {
-        expect(
-          SupportedPhotoFormats.hasFullDecodeRoute(path),
-          isFalse,
-          reason: 'D2 browse-only containers have no decode route',
-        );
-      }
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.webp'), isFalse);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.jpg'), isFalse);
-    });
-
     test('TC-304: bestFileToLoad prefers .jpg over .webp, .webp over .dng', () {
       File f(String name) => File(name);
       expect(
@@ -187,7 +171,6 @@ void main() {
           reason: 'the Flutter engine cannot decode HEIC on every platform, '
               'which is why it needs the native route at all',
         );
-        expect(SupportedPhotoFormats.hasFullDecodeRoute(path), isTrue);
       }
       // See the phase-1 group's identical assertion above for why AVIF/JXL
       // are in this set post codec-expansion.

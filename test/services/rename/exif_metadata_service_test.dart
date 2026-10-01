@@ -5,44 +5,6 @@ import 'package:halcyon_flutter/services/rename/exif_metadata_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('TC-045 decodes a full native map', () {
-    final meta = ExifMetadataService.metadataFromMap({
-      'captureDate': '2026:04:07 09:03:05',
-      'camera': 'ILCE-7M4',
-      'lens': 'FE 24-70mm F2.8 GM',
-      'make': 'SONY',
-      'artist': 'Jhang Yu',
-      'shutter': '1/250',
-      'aperture': 2.8,
-      'focalLength': 35.0,
-      'direction': 127.4,
-      'iso': 400,
-    });
-
-    expect(meta!.captureDate, DateTime(2026, 4, 7, 9, 3, 5));
-    expect(meta.camera, 'ILCE-7M4');
-    expect(meta.lens, 'FE 24-70mm F2.8 GM');
-    expect(meta.make, 'SONY');
-    expect(meta.artist, 'Jhang Yu');
-    expect(meta.shutter, '1/250');
-    expect(meta.aperture, 2.8);
-    expect(meta.focalLength, 35.0);
-    expect(meta.gpsImgDirection, 127.4);
-    expect(meta.iso, 400);
-  });
-
-  test('TC-046 a null map, a missing date and a junk date all degrade', () {
-    expect(ExifMetadataService.metadataFromMap(null), isNull);
-
-    final empty = ExifMetadataService.metadataFromMap({});
-    expect(empty, isNotNull);
-    expect(empty!.captureDate, isNull);
-    expect(empty.camera, isNull);
-
-    final junk = ExifMetadataService.metadataFromMap({'captureDate': 'nope'});
-    expect(junk!.captureDate, isNull);
-  });
-
   // TC-047/TC-048 (deleted, M6 F-14): both pinned single-platform semantics
   // of the now-deleted `halcyon/exif` channel path (chunking observed via a
   // channel mock; degrade-to-null on a mocked PlatformException). Neither

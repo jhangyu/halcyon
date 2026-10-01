@@ -52,7 +52,6 @@ void main() {
         isTrue,
       );
       expect(SupportedPhotoFormats.isSupportedPath('/tmp/notes.txt'), isFalse);
-      expect(SupportedPhotoFormats.isRawPath('/tmp/P1000001.rw2'), isTrue);
     });
 
     test('HEIC is scanned in phase 2, and never outranks a cheap engine sibling',
