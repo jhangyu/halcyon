@@ -38,6 +38,13 @@ shipped artefact, and it is NOT the same string on every platform: only macOS
 is named after the product ("Halcyon"); Windows is lowercase ("halcyon.exe")
 and Linux is lowercase too ("halcyon") — the remaining difference is
 capitalisation and the ".exe" suffix, not a stale project name.
+``decoder_artifact`` / ``expected_arch`` are the shipped decoder library's
+basename and architecture that H-DECODER-PRESENT / H-ARCH / H-DECODER-ARCH judge
+this leg against (None where the target ships no decoder). ``ffi_manifest_key``
+names this leg's entry in scripts/dng_ffi_artifacts.json, read only for the
+symbol-table tool (nm/dumpbin + args) the -NM assertions share with the manual
+checker; the json no longer names CI targets (forward reference, not a reverse
+ci_target lookup that could silently match nothing).
 ``archive_name`` above names the *zip/tarball* and is deliberately
 product-branded on all targets — the two must not be conflated.
 """
@@ -88,6 +95,9 @@ TARGETS: dict = {
             "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "macos-arm64",
+        "decoder_artifact": "libdng_decoder_native.dylib",
+        "expected_arch": "arm64",
+        "ffi_manifest_key": "macos",
     },
     "macos-x64": {
         # Intel macOS, CROSS-COMPILED on the same Apple-silicon runner image the
@@ -157,6 +167,9 @@ TARGETS: dict = {
             "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "macos-x86_64",
+        "decoder_artifact": "libdng_decoder_native.dylib",
+        "expected_arch": "x86_64",
+        "ffi_manifest_key": "macos-x86_64",
     },
     "windows": {
         "build_target": "windows",
@@ -186,6 +199,9 @@ TARGETS: dict = {
             "H-ENGINE-DELAYLOAD",
         ],
         "pin_platform": "windows",
+        "decoder_artifact": "dng_decoder_native.dll",
+        "expected_arch": "x86_64",
+        "ffi_manifest_key": "windows",
     },
     "linux": {
         "build_target": "linux",
@@ -216,6 +232,9 @@ TARGETS: dict = {
             "H-CEYX-SYMBOLS-NM",
         ],
         "pin_platform": "linux",
+        "decoder_artifact": "libdng_decoder_native.so",
+        "expected_arch": "x86_64",
+        "ffi_manifest_key": "linux",
     },
     "android-apk": {
         "build_target": "android-apk",
@@ -234,6 +253,9 @@ TARGETS: dict = {
         # so no R-7 record applies. See Plan §6 / PL-5.
         "assertions": [],
         "pin_platform": None,
+        "decoder_artifact": "libdng_decoder_native.so",
+        "expected_arch": "aarch64",
+        "ffi_manifest_key": "android",
     },
     "web": {
         "build_target": "web",
@@ -252,6 +274,9 @@ TARGETS: dict = {
         "archive_format": "zip",
         "assertions": [],
         "pin_platform": None,
+        "decoder_artifact": None,
+        "expected_arch": None,
+        "ffi_manifest_key": None,
     },
 }
 
@@ -269,6 +294,9 @@ REQUIRED_KEYS = (
     "archive_format",
     "assertions",
     "pin_platform",
+    "decoder_artifact",
+    "expected_arch",
+    "ffi_manifest_key",
 )
 
 

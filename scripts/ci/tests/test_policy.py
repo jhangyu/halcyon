@@ -475,6 +475,48 @@ class TestWorkflowPinnedLiteralsAgree(unittest.TestCase):
         self._assert_one_value(self.FLUTTER_RE, "flutter-version:")
 
 
+class TestFfiManifestSplit(unittest.TestCase):
+    """Per-CI-target decoder facts (decoder_artifact, expected_arch) live in
+    targets.py (G-5); dng_ffi_artifacts.json keeps only what the manual checker
+    reads, and targets.py names its entry FORWARD via ffi_manifest_key, so no
+    reverse ci_target lookup can silently miss a leg."""
+
+    MANIFEST = REPO_ROOT / "scripts" / "dng_ffi_artifacts.json"
+
+    def _targets(self):
+        import sys  # noqa: PLC0415
+
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import ci.targets as targets  # noqa: PLC0415
+
+        return targets.TARGETS
+
+    def test_every_asserting_target_names_a_resolvable_manifest_entry(self):
+        import json  # noqa: PLC0415
+
+        platforms = json.loads(self.MANIFEST.read_text(encoding="utf-8"))["platforms"]
+        for name, spec in self._targets().items():
+            with self.subTest(target=name):
+                key = spec["ffi_manifest_key"]
+                if key is not None:
+                    self.assertIn(key, platforms)
+                if spec["assertions"]:
+                    self.assertIsNotNone(key)
+                    self.assertTrue(spec["decoder_artifact"])
+                    self.assertTrue(spec["expected_arch"])
+
+    def test_manifest_no_longer_carries_ci_facts(self):
+        import json  # noqa: PLC0415
+
+        platforms = json.loads(self.MANIFEST.read_text(encoding="utf-8"))["platforms"]
+        for key, entry in platforms.items():
+            with self.subTest(entry=key):
+                for field in ("ci_target", "decoder_artifact", "expected_arch"):
+                    self.assertNotIn(field, entry)
+
+
 class TestPinFileUntouched(unittest.TestCase):
     """G-6: scripts/ceyx_release_pin.json's SHA-256 equals the last REVIEWED
     value frozen in this test. Round 6 regenerated the pin against ceyx v0.1.6

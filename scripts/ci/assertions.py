@@ -87,6 +87,8 @@ _HOST_BY_SYS_PLATFORM = {"darwin": "macos", "linux": "linux", "win32": "windows"
 # How many observed executable-bit members a failure message may list.
 _MAX_OBSERVED_LISTED = 10
 
+_NO_DECODER = "scripts/ci/targets.py declares no decoder_artifact for this target"
+
 
 @dataclass(frozen=True)
 class Assertion:
@@ -119,7 +121,7 @@ SUITE = {
             "an x86_64 executable for the macos target): it fails naming both "
             "the expected and the observed arch"
         ),
-        expected="observed arch == the target's expected_arch in dng_ffi_artifacts.json",
+        expected="observed arch == the target's expected_arch in scripts/ci/targets.py",
     ),
     "H-DECODER-PRESENT": Assertion(
         id="H-DECODER-PRESENT",
@@ -277,7 +279,7 @@ SUITE = {
             "fetch the macos-arm64 pin entry for the macos-x64 leg): the "
             "assertion fails naming both the expected and the observed arch"
         ),
-        expected="observed decoder arch == the target's expected_arch in dng_ffi_artifacts.json",
+        expected="observed decoder arch == the target's expected_arch in scripts/ci/targets.py",
     ),
     "H-CEYX-SYMBOLS-NM": Assertion(
         id="H-CEYX-SYMBOLS-NM",
@@ -413,18 +415,6 @@ def _load_json(path):
         return json.load(handle)
 
 
-def ffi_entry_for(repo_root, target):
-    """The dng_ffi_artifacts.json platform entry whose ci_target is `target`.
-
-    Returns None when no entry claims this target (web, android-apk).
-    """
-    manifest = _load_json(Path(repo_root) / "scripts" / "dng_ffi_artifacts.json")
-    for entry in manifest["platforms"].values():
-        if entry.get("ci_target") == target:
-            return entry
-    return None
-
-
 def platform_of(repo_root, target):
     """The artefact platform name (macos/windows/linux/android) for a CI target.
 
@@ -433,8 +423,8 @@ def platform_of(repo_root, target):
 
     Why this is NOT derived from dng_ffi_artifacts.json's key any more: two CI
     legs can ship the SAME platform for different architectures (macos /
-    macos-x64), and each needs its own manifest entry for expected_arch and
-    decoder_artifact. Deriving the platform name from the manifest KEY would
+    macos-x64), and each carries its own expected_arch and decoder_artifact
+    in targets.py. Deriving the platform name from the manifest KEY would
     have given the x64 leg a platform of its own ("macos-x86_64"), which is in
     no assertion's ``valid_on`` and, worse, would never equal ``host_platform()``
     — so run_suite()'s "a skip on the artefact's OWN platform is a FAILURE" rule
@@ -463,10 +453,9 @@ def pinned_libraries(repo_root, pin_platform):
 
 
 def _assert_arch(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    expected = entry["expected_arch"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    expected = ctx["expected_arch"]
     # Per-platform fact, looked up as data (G-5). Exact, case-sensitive basename
     # match: the artefact is inspected with Python on every host, so the match
     # must not inherit the host filesystem's case-folding behaviour.
@@ -499,10 +488,9 @@ def _assert_arch(ctx):
 
 
 def _assert_decoder_present(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    basename = ctx["decoder_artifact"]
     hits = ctx["source"].find([basename])
     if not hits:
         return "fail", (
@@ -665,10 +653,9 @@ def _decoder_disk_path(ctx):
     dlopen treats a relative path as a search name rather than a file path, so
     the probe is always handed an absolute path.
     """
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return None, "no dng_ffi_artifacts.json entry declares this ci_target"
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return None, _NO_DECODER
+    basename = ctx["decoder_artifact"]
     root = ctx["source"].materialise(ctx["workdir"])
     matches = sorted(Path(root).rglob(basename))
     if not matches:
@@ -724,11 +711,10 @@ def _assert_decoder_arch(ctx):
     H-ARCH does: a struct.unpack of a format-defined constant cannot be
     inverted by a missing tool, a foreign host, or a shell pipeline (G-3).
     """
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    expected = entry["expected_arch"]
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    expected = ctx["expected_arch"]
+    basename = ctx["decoder_artifact"]
     hits = ctx["source"].find([basename])
     if not hits:
         return "fail", (
@@ -749,17 +735,16 @@ def _assert_decoder_arch(ctx):
 
 def _assert_ceyx_symbols_nm(ctx):
     """All of CEYX_SYMBOLS in the shipped decoder's symbol table."""
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    tool = entry.get("tool")
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    tool = ctx["symbol_tool"]
     if not tool or shutil.which(tool) is None:
         return "skip", f"symbol-table tool {tool!r} is not on PATH"
     path, error = _decoder_disk_path(ctx)
     if path is None:
         return "fail", error
     check = _check_symbol()
-    tool_args = entry.get("tool_args", [])
+    tool_args = ctx["symbol_tool_args"]
     missing = []
     unreadable = []
     for symbol in CEYX_SYMBOLS:
@@ -871,7 +856,12 @@ def run_suite(repo_root, target, archive=None):
         return 1
     print(f"ASSERT-SOURCE: {source.describe()}")
 
-    ffi_entry = ffi_entry_for(repo_root, target)
+    manifest_key = spec["ffi_manifest_key"]
+    manifest_entry = (
+        _load_json(repo_root / "scripts" / "dng_ffi_artifacts.json")["platforms"][manifest_key]
+        if manifest_key
+        else {}
+    )
     artefact_platform = platform_of(repo_root, target)
 
     failed = 0
@@ -882,7 +872,10 @@ def run_suite(repo_root, target, archive=None):
             "target": target,
             "spec": spec,
             "source": source,
-            "ffi_entry": ffi_entry,
+            "decoder_artifact": spec["decoder_artifact"],
+            "expected_arch": spec["expected_arch"],
+            "symbol_tool": manifest_entry.get("tool"),
+            "symbol_tool_args": manifest_entry.get("tool_args", []),
             "pin_libraries": pinned_libraries(repo_root, spec["pin_platform"]),
             "workdir": workdir,
             "host": host_platform(),
