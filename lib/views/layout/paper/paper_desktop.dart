@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import '../common/exif_caption.dart';
 import '../common/photo_thumbnail.dart';
 import '../common/visible_range_reporter.dart';
 import 'paper_palette.dart';
+import '../common/resizable_column.dart';
 import '../main_surface.dart';
 
 /// Drag range for the `paper` gutter (R9): 40 floor, 90 default/rest, 200
@@ -60,8 +60,6 @@ const ValueKey<String> kPaperOverCountKey = ValueKey<String>(
 const List<Shadow> _overShadows = <Shadow>[
   Shadow(color: Color(0x80000000), blurRadius: 4, offset: Offset(0, 1)),
 ];
-
-const Duration kPaperWidthBadgeDelay = Duration(milliseconds: 400);
 
 /// Vertical gap between filmstrip rows, in both the in-gutter strip and the
 /// floating overlay strip (mockup `.stripbody` / `.floatstrip`).
@@ -167,31 +165,16 @@ class PaperDesktopSurface extends StatefulWidget {
   State<PaperDesktopSurface> createState() => _PaperDesktopSurfaceState();
 }
 
-class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
-  double _rawWidth = kPaperColumnRestWidth;
-  double get _width => _rawWidth.roundToDouble();
-
-  bool _dragActive = false;
-  Timer? _dragStallTimer;
+class _PaperDesktopSurfaceState extends State<PaperDesktopSurface>
+    with ResizableColumnDrag<PaperDesktopSurface> {
+  @override
+  double get columnMinWidth => kPaperColumnMinWidth;
 
   @override
-  void dispose() {
-    _dragStallTimer?.cancel();
-    super.dispose();
-  }
+  double get columnMaxWidth => kPaperColumnMaxWidth;
 
-  void _onWidthDelta(double dx) {
-    _dragStallTimer?.cancel();
-    setState(() {
-      _rawWidth = (_rawWidth + dx)
-          .clamp(kPaperColumnMinWidth, kPaperColumnMaxWidth)
-          .toDouble();
-      _dragActive = true;
-    });
-    _dragStallTimer = Timer(kPaperWidthBadgeDelay, () {
-      if (mounted) setState(() => _dragActive = false);
-    });
-  }
+  @override
+  double get initialColumnWidth => kPaperColumnRestWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -204,7 +187,7 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
     // it and never pushes it") for the Flutter port. Every `viewportLeft + N`
     // offset below — the viewport, the EXIF caption, the status toast —
     // re-bases on the live drag width with no edit of its own.
-    final double viewportLeft = _width;
+    final double viewportLeft = columnWidth;
 
     return Stack(
       children: [
@@ -260,7 +243,7 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
           top: 16,
           left: viewportLeft + 16,
           child: IgnorePointer(
-            child: !_dragActive
+            child: !dragActive
                 ? const SizedBox.shrink()
                 : Container(
                     key: kPaperWidthBadgeKey,
@@ -276,7 +259,7 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
                       ],
                     ),
                     child: Text(
-                      '${_width.round()} px',
+                      '${columnWidth.round()} px',
                       style: TextStyle(
                         fontSize: 14,
                         color: colors.primary,
@@ -294,18 +277,18 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
           left: 0,
           top: 0,
           bottom: 0,
-          width: _width,
+          width: columnWidth,
           child: _PaperColumn(
             surface: surface,
-            width: _width,
-            narrow: _width < 60,
-            onWidthDelta: _onWidthDelta,
+            width: columnWidth,
+            narrow: columnWidth < 60,
+            onWidthDelta: onWidthDelta,
           ),
         ),
         // Outer half of the resize handle's hit region, so a pointer just
         // past the grip still grabs the drag instead of panning the photo.
         Positioned(
-          left: _width,
+          left: columnWidth,
           top: 0,
           bottom: 0,
           width: 6,
@@ -313,7 +296,7 @@ class _PaperDesktopSurfaceState extends State<PaperDesktopSurface> {
             cursor: SystemMouseCursors.resizeColumn,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onPanUpdate: (details) => _onWidthDelta(details.delta.dx),
+              onPanUpdate: (details) => onWidthDelta(details.delta.dx),
             ),
           ),
         ),

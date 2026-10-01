@@ -427,9 +427,3 @@ class _DarkroomColumnState extends State<DarkroomColumn>
     );
   }
 }
-
-/// Clamp helper shared by the desktop surface's drag handler.
-double clampDarkroomColumnWidth(double raw) => math.max(
-  kDarkroomColumnMinWidth,
-  math.min(kDarkroomColumnMaxWidth, raw),
-);
