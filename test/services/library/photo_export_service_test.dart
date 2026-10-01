@@ -433,7 +433,7 @@ void main() {
   // M6 P3 review (task #6), P-14 ruling: exported JPEGs must carry the
   // source file's EXIF metadata again, with Orientation forced to 1. This
   // promotes the reviewer's throwaway probe
-  // (scripts/tmp/m6-r1-verify/export_exif_probe_test.dart) into a permanent
+  // (a scratch EXIF probe test, not retained) into a permanent
   // regression test. The fixture is self-validating: it reads the source
   // DNG's own EXIF via pkg:exif first, so the assertions are pinned against
   // whatever that DNG actually carries, not a hard-coded guess.
