@@ -8,9 +8,9 @@
 // it for both the runner and the Flutter library.
 void CreateAndAttachConsole();
 
-// Reopens stdout/stderr on NUL when the process has none (a double-clicked
-// launch), for both the runner and the Flutter library.
-void RedirectMissingOutputToNul();
+// Points a missing stdout/stderr at NUL (a double-clicked launch). Must run
+// before the first call into flutter_windows.dll.
+void EnsureStdOutputHandles();
 
 // Takes a null-terminated wchar_t* encoded in UTF-16 and returns a std::string
 // encoded in UTF-8. Returns an empty std::string on failure.
