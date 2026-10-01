@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """build_apps.py - the single build entry point for Halcyon (native + Flutter).
 
-Replaces `scripts/build.sh` (macOS/Android/web/Windows/Linux Flutter builds) and
-`scripts/windows/build_windows.py` (Windows native DNG decoder + Flutter build).
 One script, one behaviour, no per-platform drift: every target goes through the
 same phases in the same order.
 
@@ -12,9 +10,7 @@ same phases in the same order.
     Phase 2   flutter pub get + flutter build <target>
     Phase 3   artifact verification (+ the Windows manual-verification protocol)
 
-Layouts understood (both auto-detected, override with --root):
-    <repo>/scripts/build_apps.py           with ../ceyx as sibling
-    <zip root>/build_apps.py               with Halcyon/ + ceyx/
+Layout: <repo>/scripts/build_apps.py with ../ceyx as the sibling checkout.
 
 Python 3 stdlib only. Run `python3 scripts/build_apps.py --help` for usage.
 """
@@ -613,41 +609,24 @@ def which(name):
 # Layout resolution
 # --------------------------------------------------------------------------
 class Layout:
-    def __init__(self, halcyon, decoder, packaged):
+    def __init__(self, halcyon, decoder):
         self.halcyon = halcyon
         self.decoder = decoder
-        self.packaged = packaged
 
     @property
     def native(self):
         return self.decoder / "native"
 
 
-def resolve_layout(root_arg):
-    """Find Halcyon/ and ceyx/ in either supported layout."""
-    if root_arg:
-        root = Path(root_arg).resolve()
-        candidates = [(root / "Halcyon", root / "ceyx", True),
-                      (root, root.parent / "ceyx", False)]
-    else:
-        here = Path(__file__).resolve().parent
-        candidates = [
-            # in-repo: scripts/build_apps.py, decoder is a sibling of the repo
-            (here.parent, here.parent.parent / "ceyx", False),
-            # packaged zip root: build_apps.py next to Halcyon/
-            (here / "Halcyon", here / "ceyx", True),
-        ]
-
-    for halcyon, decoder, packaged in candidates:
-        if (halcyon / "pubspec.yaml").exists():
-            return Layout(halcyon.resolve(), decoder, packaged)
-
+def resolve_layout():
+    """Find the Halcyon checkout (this script's repo) and its ../ceyx sibling."""
+    here = Path(__file__).resolve().parent
+    halcyon = here.parent
+    if (halcyon / "pubspec.yaml").exists():
+        return Layout(halcyon.resolve(), here.parent.parent / "ceyx")
     fail(
         "could not locate the Halcyon checkout (no pubspec.yaml found).",
-        hints=[
-            "Run this script from inside the repo as scripts/build_apps.py,",
-            "or pass --root <folder holding Halcyon/ and ceyx/>.",
-        ],
+        hints=["Run this script from inside the repo as scripts/build_apps.py."],
     )
 
 
@@ -2555,10 +2534,6 @@ def build_native(target, layout, args):
                 continue
             shutil.copy2(sibling, dest_dir / sibling.name)
             ok(f"placed: {dest_dir / sibling.name}")
-    if layout.packaged:
-        step("This extracted tree is not a git checkout, so the runbook S4 git commit step")
-        step("cannot run here. Copy the library back into the ceyx repo and")
-        step("commit it there.")
     return placed
 
 
@@ -3263,11 +3238,6 @@ def make_parser():
                    help="Print the pinned Halide sha256 table and exit.")
     p.add_argument("--ios-codesign", action="store_true",
                    help="Let `flutter build ios` codesign (default: --no-codesign).")
-    p.add_argument("--root", default=None,
-                   help="Folder holding Halcyon/ and ceyx/ (default: auto-detect).")
-    p.add_argument("--decoder", default=None,
-                   help="Path to the ceyx checkout (same flag name as "
-                        "package_windows.sh). Default: a sibling of the Halcyon checkout.")
     return p
 
 
@@ -3310,9 +3280,7 @@ def main():
     print("=" * 62)
 
     refresh_env_from_registry()
-    layout = resolve_layout(args.root)
-    if args.decoder:
-        layout.decoder = Path(args.decoder).resolve()
+    layout = resolve_layout()
     mode = resolve_mode(args)
 
     step(f"halcyon: {layout.halcyon}")
