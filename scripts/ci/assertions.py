@@ -42,15 +42,12 @@ import hashlib
 import json
 import os
 import shutil
-import struct
 import sys
-import tarfile
 import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import report, targets
+from . import binfmt, report, sources, targets
 from .run import run
 
 SYMBOL = "ceyx_decode_into_buffer_oriented"
@@ -460,218 +457,6 @@ def pinned_libraries(repo_root, pin_platform):
 
 
 # --------------------------------------------------------------------------
-# Architecture, read structurally from the file's own header
-# --------------------------------------------------------------------------
-
-_MACHO_CPU = {0x0100000C: "arm64", 0x01000007: "x86_64", 0x00000007: "i386"}
-_ELF_MACHINE = {0x3E: "x86_64", 0xB7: "aarch64", 0x28: "arm", 0x03: "i386"}
-_PE_MACHINE = {0x8664: "x86_64", 0xAA64: "arm64", 0x14C: "i386"}
-
-
-def machine_arch(data):
-    """Return the architecture name encoded in a Mach-O/ELF/PE header.
-
-    Raises ValueError when the bytes are not a recognised executable format.
-    """
-    if len(data) < 64:
-        raise ValueError("file too short to carry an executable header")
-    magic = data[:4]
-    if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"):  # Mach-O 64/32 LE
-        cputype = struct.unpack_from("<I", data, 4)[0]
-        return _MACHO_CPU.get(cputype, f"macho-cputype-0x{cputype:x}")
-    if magic == b"\xca\xfe\xba\xbe":  # universal binary
-        count = struct.unpack_from(">I", data, 4)[0]
-        slices = []
-        for index in range(count):
-            cputype = struct.unpack_from(">I", data, 8 + index * 20)[0]
-            slices.append(_MACHO_CPU.get(cputype, f"0x{cputype:x}"))
-        return "+".join(slices)
-    if magic == b"\x7fELF":
-        endian = "<" if data[5] == 1 else ">"
-        machine = struct.unpack_from(endian + "H", data, 18)[0]
-        return _ELF_MACHINE.get(machine, f"elf-machine-0x{machine:x}")
-    if magic[:2] == b"MZ":
-        pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
-        if data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
-            raise ValueError("MZ header without a PE signature")
-        machine = struct.unpack_from("<H", data, pe_offset + 4)[0]
-        return _PE_MACHINE.get(machine, f"pe-machine-0x{machine:x}")
-    raise ValueError(f"unrecognised executable format (magic {magic!r})")
-
-
-# --------------------------------------------------------------------------
-# Artefact sources: the packaged archive if there is one, else the build tree
-# --------------------------------------------------------------------------
-
-
-class _Source:
-    """Common surface: member names, member bytes, and a real on-disk path."""
-
-    def __init__(self, kind, location):
-        self.kind = kind
-        self.location = location
-
-    def describe(self):
-        return f"{self.kind} {self.location}"
-
-    def members(self):
-        raise NotImplementedError
-
-    def read(self, name):
-        raise NotImplementedError
-
-    def materialise(self, workdir):
-        """Return a directory on disk holding the artefact's contents."""
-        raise NotImplementedError
-
-    def find(self, basenames):
-        """Member names whose basename is in `basenames` (files only)."""
-        wanted = set(basenames)
-        return [n for n in self.members() if n.rsplit("/", 1)[-1] in wanted]
-
-    def executable_members(self):
-        """Member names carrying an executable permission bit.
-
-        Only used to make an H-ARCH failure diagnosable: "expected X, found
-        [...]" tells a reader whether the runner was renamed or simply absent,
-        instead of leaving them to unpack the artefact by hand.
-        """
-        raise NotImplementedError
-
-
-class _TreeSource(_Source):
-    def __init__(self, root, base):
-        super().__init__("build-tree", os.fspath(root))
-        self._root = Path(root)
-        self._base = Path(base)
-
-    def members(self):
-        names = []
-        for path in sorted(self._root.rglob("*")):
-            if path.is_file() and not path.is_symlink():
-                names.append(path.relative_to(self._base).as_posix())
-        return names
-
-    def _path(self, name):
-        return self._base / name
-
-    def read(self, name):
-        return self._path(name).read_bytes()
-
-    def materialise(self, workdir):
-        return self._base
-
-    def executable_members(self):
-        return [n for n in self.members() if os.access(self._path(n), os.X_OK)]
-
-
-class _ZipSource(_Source):
-    def __init__(self, archive):
-        super().__init__("archive", os.fspath(archive))
-        self._archive = Path(archive)
-
-    def members(self):
-        with zipfile.ZipFile(self._archive) as zf:
-            return [i.filename for i in zf.infolist() if not i.is_dir()]
-
-    def read(self, name):
-        with zipfile.ZipFile(self._archive) as zf:
-            return zf.read(name)
-
-    def materialise(self, workdir):
-        with zipfile.ZipFile(self._archive) as zf:
-            zf.extractall(workdir)
-        return Path(workdir)
-
-    def executable_members(self):
-        with zipfile.ZipFile(self._archive) as zf:
-            return [
-                i.filename
-                for i in zf.infolist()
-                if not i.is_dir() and (i.external_attr >> 16) & 0o111
-            ]
-
-
-class _TarSource(_Source):
-    def __init__(self, archive):
-        super().__init__("archive", os.fspath(archive))
-        self._archive = Path(archive)
-
-    def members(self):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            return [m.name for m in tf.getmembers() if m.isfile()]
-
-    def read(self, name):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            extracted = tf.extractfile(name)
-            if extracted is None:
-                raise KeyError(name)
-            return extracted.read()
-
-    def materialise(self, workdir):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            tf.extractall(workdir)
-        return Path(workdir)
-
-    def executable_members(self):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            return [m.name for m in tf.getmembers() if m.isfile() and m.mode & 0o111]
-
-
-def _archive_candidates(repo_root, spec):
-    pattern = spec["archive_name"].format(version="*")
-    return sorted(
-        (p for p in Path(repo_root).glob(pattern) if p.is_file()),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-
-def resolve_source(repo_root, target, archive=None):
-    """Pick the artefact to measure: an explicit archive, else the newest
-    matching archive in the repo root, else the build tree.
-
-    Returns (source, None) or (None, error_message).
-    """
-    repo_root = Path(repo_root)
-    spec = targets.spec(target)
-
-    chosen = Path(archive) if archive else None
-    if chosen is None:
-        candidates = _archive_candidates(repo_root, spec)
-        chosen = candidates[0] if candidates else None
-
-    if chosen is not None:
-        if not chosen.is_file():
-            return None, f"ERROR: archive not found at {chosen}"
-        if spec["archive_format"] == "gztar":
-            return _TarSource(chosen), None
-        return _ZipSource(chosen), None
-
-    raw = spec["artifact_path"]
-    if spec["artifact_kind"] == "glob_dir":
-        matches = sorted(repo_root.glob(raw))
-        if not matches:
-            return None, (
-                f"ERROR: no artifact matched {raw} and no archive matched "
-                f"{spec['archive_name'].format(version='*')}"
-            )
-        root = matches[0]
-    else:
-        root = repo_root / raw
-        if not root.is_dir():
-            return None, (
-                f"ERROR: no artifact at {root} and no archive matched "
-                f"{spec['archive_name'].format(version='*')}"
-            )
-    # Member names mirror what package() writes into the archive: an app bundle
-    # keeps its own directory as the prefix (ditto --keepParent), a plain dir is
-    # archived from inside, and a linux bundle is archived as "bundle/".
-    base = root.parent if spec["artifact_kind"] in ("app_bundle", "glob_dir") else root
-    return _TreeSource(root, base), None
-
-
-# --------------------------------------------------------------------------
 # Assertion implementations. Each returns (status, message) with status in
 # {"pass", "fail", "skip"}.
 # --------------------------------------------------------------------------
@@ -703,7 +488,7 @@ def _assert_arch(ctx):
     observed = []
     for name in hits:
         try:
-            arch = machine_arch(ctx["source"].read(name))
+            arch = binfmt.machine_arch(ctx["source"].read(name))
         except ValueError as exc:
             return "fail", f"{name}: {exc}"
         observed.append((name, arch))
@@ -957,7 +742,7 @@ def _assert_decoder_arch(ctx):
             "architecture cannot be read"
         )
     try:
-        arch = machine_arch(ctx["source"].read(hits[0]))
+        arch = binfmt.machine_arch(ctx["source"].read(hits[0]))
     except ValueError as exc:
         return "fail", f"{hits[0]}: {exc}"
     if arch != expected:
@@ -1005,50 +790,6 @@ def _assert_ceyx_symbols_nm(ctx):
 _ENGINE_DLL = "flutter_windows.dll"
 
 
-def pe_imports(data):
-    """Return (static, delayed) imported DLL names of a PE image, lowercased.
-
-    Read from data directories 1 (import) and 13 (delay import); raises
-    ValueError when the bytes are not a PE image.
-    """
-    if data[:2] != b"MZ":
-        raise ValueError("not a PE image (no MZ header)")
-    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
-    if data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
-        raise ValueError("MZ header without a PE signature")
-    sections_count = struct.unpack_from("<H", data, pe_offset + 6)[0]
-    optional_size = struct.unpack_from("<H", data, pe_offset + 20)[0]
-    optional = pe_offset + 24
-    magic = struct.unpack_from("<H", data, optional)[0]
-    directories = optional + (112 if magic == 0x20B else 96)
-    sections = [
-        struct.unpack_from("<IIII", data, optional + optional_size + i * 40 + 8)
-        for i in range(sections_count)
-    ]
-
-    def offset(rva):
-        for virtual_size, virtual_address, raw_size, raw_offset in sections:
-            if virtual_address <= rva < virtual_address + max(virtual_size, raw_size):
-                return rva - virtual_address + raw_offset
-        raise ValueError(f"RVA 0x{rva:x} lies in no section")
-
-    def names(index, stride, name_field):
-        rva = struct.unpack_from("<I", data, directories + index * 8)[0]
-        found = []
-        if not rva:
-            return found
-        cursor = offset(rva)
-        while True:
-            name_rva = struct.unpack_from("<I", data, cursor + name_field)[0]
-            if not name_rva:
-                return found
-            start = offset(name_rva)
-            found.append(data[start : data.index(b"\x00", start)].decode("ascii").lower())
-            cursor += stride
-
-    return names(1, 20, 12), names(13, 32, 4)
-
-
 def _assert_engine_delayload(ctx):
     executable = ctx["spec"]["app_executable"]
     source = ctx["source"]
@@ -1058,12 +799,12 @@ def _assert_engine_delayload(ctx):
     exe = hits[0]
     folder = exe.rsplit("/", 1)[0] + "/" if "/" in exe else ""
     try:
-        static, delayed = pe_imports(source.read(exe))
+        static, delayed = binfmt.pe_imports(source.read(exe))
         engine_importers = {_ENGINE_DLL}
         for name in source.members():
             base = name.rsplit("/", 1)[-1]
             if name == folder + base and base.lower().endswith(".dll"):
-                if _ENGINE_DLL in pe_imports(source.read(name))[0]:
+                if _ENGINE_DLL in binfmt.pe_imports(source.read(name))[0]:
                     engine_importers.add(base.lower())
     except ValueError as exc:
         return "fail", f"PE import table unreadable: {exc}"
@@ -1129,7 +870,7 @@ def run_suite(repo_root, target, archive=None):
         print(f"ASSERT-SUMMARY: {target} assertions=0 failed=0 skipped=0")
         return 0
 
-    source, error = resolve_source(repo_root, target, archive=archive)
+    source, error = sources.resolve_source(repo_root, target, archive=archive)
     if source is None:
         print(error)
         print(f"ASSERT-SUMMARY: {target} assertions={len(ids)} failed={len(ids)} skipped=0")

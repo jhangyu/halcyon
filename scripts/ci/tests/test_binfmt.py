@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from ci import assertions as binfmt  # noqa: E402
+from ci import binfmt  # noqa: E402
 
 
 def _pad(header, size=64):
