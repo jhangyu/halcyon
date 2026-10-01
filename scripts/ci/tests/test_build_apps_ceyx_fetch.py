@@ -462,5 +462,42 @@ class TestWi15PlacedField(unittest.TestCase):
                 build_apps.CEYX_PIN_PATH = orig_path
 
 
+class TestCeyxFetchSpecsMatchPin(unittest.TestCase):
+    """build_apps.CEYX_FETCH_SPECS and scripts/ceyx_release_pin.json describe the
+    same assets: same keys, archive names, placed flag/reason, member and
+    artifact sets (the 2026-09-05 Android 3-file and 2026-09-13 webp/jxl drift
+    class, caught at selftest instead of fetch time). `dest` and
+    `atomic_group` are code-only facts the pin does not carry - not compared.
+    Read-only on the pin (G-6)."""
+
+    def _pin_and_specs(self):
+        import json  # noqa: PLC0415
+
+        pin = json.loads(PIN_FILE.read_text(encoding="utf-8"))
+        return pin["assets"], _build_apps_module().CEYX_FETCH_SPECS
+
+    def test_asset_keys_equal(self):
+        assets, specs = self._pin_and_specs()
+        self.assertEqual(sorted(assets), sorted(specs))
+
+    def test_shared_fields_equal_per_asset(self):
+        assets, specs = self._pin_and_specs()
+        for key, spec in specs.items():
+            entry = assets.get(key)
+            if entry is None:
+                continue  # reported by test_asset_keys_equal
+            with self.subTest(asset=key):
+                self.assertEqual(entry["archive"], spec["archive"])
+                placed = entry.get("placed")  # load_ceyx_pin: absent/null = placed
+                self.assertEqual(True if placed is None else placed, spec["place"])
+                self.assertEqual(entry.get("not_placed_reason"), spec.get("not_placed_reason"))
+                for field in ("member", "artifact"):
+                    self.assertEqual(
+                        sorted(lib[field] for lib in entry["libraries"]),
+                        sorted(m[field] for m in spec["members"]),
+                        field,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
