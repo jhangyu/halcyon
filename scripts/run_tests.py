@@ -90,43 +90,52 @@ _PIPE = "test/services/image_pipeline/"
 
 SHARDS = [
     {
+        # measured 2026-10-02: 6.1s, load 19.16
         "name": "unit",
         "paths": ["test/*_test.dart", "test/models", "test/perf", "test/providers"],
     },
     {
+        # measured 2026-10-02: 13.0s, load 10.46
         "name": "pipeline-decode",
         "paths": [_PIPE + g for g in (
             "dart_image_loader_*", "decode_*", "decoded_*", "deferred_*", "dng_*")],
     },
     {
+        # measured 2026-10-02: 9.0s, load 8.87
         "name": "pipeline-preload",
         "paths": [_PIPE + g for g in ("image_preload_*", "sidebar_*", "pacing_*")],
     },
     {
+        # measured 2026-10-02: 4.2s, load 9.47
         "name": "pipeline-payload",
         "paths": [_PIPE + g for g in (
             "payload_*", "encode_*", "exif_*", "frame_*", "yuv420_*", "q70_*",
             "publish_*", "pool_*", "stage_*")],
     },
     {
+        # measured 2026-10-02: 12.4s, load 11.89
         "name": "pipeline-retention",
         "paths": [_PIPE + g for g in (
             "photo_source_*", "tier_two_*", "retention_*", "resolution_*")],
     },
     {
+        # measured 2026-10-02: 14.7s, load 22.68
         # Catch-all: every image_pipeline test no glob above claimed.
         "name": "pipeline-misc",
         "paths": ["test/services/image_pipeline"],
     },
     {
+        # measured 2026-10-02: 10.0s, load 27.72
         "name": "services",
         "paths": ["test/services/library", "test/services/platform", "test/services/rename"],
     },
     {
+        # measured 2026-10-02: 4.7s, load 21.82
         "name": "views",
         "paths": ["test/views/*_test.dart"],
     },
     {
+        # measured 2026-10-02: 12.7s, load 20.16
         # Catch-all for the layout directory (the old gallery/rest split
         # existed for a 40 s cap that never applied to this command).
         "name": "views-layout",
