@@ -13,32 +13,16 @@ import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_layout.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_mobile.dart';
+import '../../support/view_fixtures.dart';
 
 const ValueKey<String> _kViewportKey = ValueKey<String>(
   'paper.mobile.test.viewport',
 );
 
-MainSurface _surfaceWith({PhotoIdentity? identity}) => MainSurface(
-      viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
-      statusOverlay: const SizedBox.shrink(),
-      strip: PhotoStripModel(
-        items: const [],
-        selectedId: null,
-        recycleMode: false,
-        onSelect: (_) {},
-        payloadFor: (_) => null,
-        onVisibleRange: (_, __) {},
-      ),
-      identity: identity,
-      actions: PhotoActions(
-        recycleMode: false,
-        onStar: () {},
-        onTrash: () {},
-        onToggleRecycleMode: () {},
-        onOpenFolder: () {},
-        menu: const SizedBox.shrink(),
-      ),
-    );
+MainSurface _surfaceWith({PhotoIdentity? identity}) => testSurface(
+  viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
+  identity: identity,
+);
 
 /// Pumps the real `PaperLayout.buildMobileSurface` seam at the mockup's own
 /// 390x844 phone viewport (`c1-mobile-light.html:189` `.viewport{width:390px;
