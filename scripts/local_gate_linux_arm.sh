@@ -54,6 +54,13 @@ prov="python3 scripts/ci.py provision --target $TARGET"
 step "$(echo "$prov" | tr -c "a-zA-Z0-9\n" _)" $prov || fail "$prov"
 [ -s $GITHUB_PATH ] && export PATH="$(tac $GITHUB_PATH | paste -sd: -):$PATH"
 echo "PATH_AFTER_PROVISION=$PATH" >>$LOG
+# Instrument-validity probes (system libheif/libde265 would blind the dlopen assertions).
+probe_system() { ldconfig -p >/out/ldconfig-p.txt 2>&1
+  echo "SYSTEM_LIBHEIF=$(grep -c libheif /out/ldconfig-p.txt) SYSTEM_LIBDE265=$(grep -c libde265 /out/ldconfig-p.txt) (tag=$1)" >>$LOG; }
+probe_ldd() { local d; d=$(ls -d build/linux/*/release/bundle/lib/libdng_decoder_native.so 2>/dev/null | head -1)
+  if [ -z "$d" ]; then echo "LDD_$1: decoder not found in bundle" >>$LOG; return; fi
+  ldd "$d" >/out/ldd-decoder-$1.txt 2>&1; local RC=$?; echo "RC=$RC step=ldd-$1 ($d)" >>$LOG
+  grep -E "libheif|libde265" /out/ldd-decoder-$1.txt >>$LOG; }
 while read -r line; do
   cmd=${line//\$\{\{ matrix.target \}\}/$TARGET}
   case "$cmd" in
@@ -61,10 +68,30 @@ while read -r line; do
     *"ci.py build "*|*"ci.py assert-capabilities "*)
       if ! grep -q "\"$PIN_KEY\"" scripts/ceyx_release_pin.json; then
         echo "BLOCKED_AT_FETCH: pin has no \"$PIN_KEY\" entry; ceyx arm64 release missing. Resume: repin, commit, rerun gate." >>$LOG
-        echo "GATE_RESULT=BLOCKED_ON_CEYX_RELEASE" >>$LOG; exit 3; fi;;
+        echo "GATE_RESULT=BLOCKED_ON_CEYX_RELEASE" >>$LOG; exit 3; fi
+      case "$cmd" in *"ci.py build "*) probe_system before-build;; esac;;
   esac
   step "$(echo "$cmd" | tr -c "a-zA-Z0-9\n" _)" $cmd || fail "$cmd"
 done </out/derived-steps.txt
+restore_hidden() { [ -s /out/hidden-libs.txt ] || return 0
+  while read -r f; do [ -e "$f.gatehide" ] && mv "$f.gatehide" "$f"; done </out/hidden-libs.txt
+  ldconfig; echo "RESTORED_SYSTEM_LIBS=$(wc -l </out/hidden-libs.txt)" >>$LOG; }
+trap restore_hidden EXIT
+ldd_ok() { ! grep -q "not found" /out/ldd-decoder-$1.txt; }
+probe_ldd system-visible
+ldd_ok system-visible || fail "ldd-system-visible: not found in decoder deps"
+# Variant B: if the container has system libheif/libde265, hide them (reversible rename, no apt removal so GTK deps stay)
+# and re-run assert-capabilities + ldd, so a green probe proves the BUNDLE satisfies the load.
+if [ "$(grep -c "libheif\|libde265" /out/ldconfig-p.txt)" -gt 0 ]; then
+  echo "BLIND_SPOT_POSSIBLE: system libheif/libde265 present; running variant B (system copies hidden)" >>$LOG
+  grep -E "libheif|libde265" /out/ldconfig-p.txt | sed "s/.*=> //" | sort -u >/out/hidden-libs.txt
+  while read -r f; do mv "$f" "$f.gatehide" 2>>$LOG; done </out/hidden-libs.txt
+  ldconfig; probe_system after-hide
+  acmd=$(grep assert-capabilities /out/derived-steps.txt | head -1); acmd=${acmd//\$\{\{ matrix.target \}\}/$TARGET}
+  step assert-capabilities-hidden $acmd || fail "assert-capabilities-hidden"
+  probe_ldd system-hidden
+  ldd_ok system-hidden || fail "assert-capabilities-hidden (ldd: libheif/libde265 not found with system copies hidden)"
+fi
 echo "GATE_RESULT=PASS" >>$LOG'
 RC=$?
 echo "CONTAINER_RC=$RC" | tee -a "$OUT/gate.log"
