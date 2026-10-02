@@ -279,7 +279,10 @@ class DesktopArchSelectorTestCase(unittest.TestCase):
         m.host_arch = lambda: "arm64"
         with self.assertRaises(SystemExit):  # x64 default on an arm host: loud, not silent
             m.fetch_target_for("linux", argparse.Namespace())
-        with self.assertRaises(SystemExit):  # arm64 spec not provisioned until round 2
+        self.assertEqual(m.fetch_target_for("linux", argparse.Namespace(desktop_arch="arm64")), "linux-arm64")
+        self.assertEqual(m.fetch_target_for("windows", argparse.Namespace(desktop_arch="arm64")), "windows-arm64")
+        del m.CEYX_FETCH_SPECS["linux-arm64"]
+        with self.assertRaises(SystemExit):  # arm64 selected but no spec: loud, not silent
             m.fetch_target_for("linux", argparse.Namespace(desktop_arch="arm64"))
 
 

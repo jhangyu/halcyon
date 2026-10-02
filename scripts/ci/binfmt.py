@@ -101,3 +101,38 @@ def parse_dwarfdump_uuid(stdout):
             if len(parts) >= 2:
                 return parts[1]
     return None
+
+
+def elf_needed(data):
+    """DT_NEEDED sonames of a 64-bit little-endian ELF shared object, in order.
+
+    Read from the SHT_DYNAMIC section and its linked string table (stripped
+    libraries keep section headers). Raises ValueError for anything that is not
+    ELF64 little-endian (x86_64 and aarch64 are both exactly that).
+    """
+    if data[:4] != b"\x7fELF":
+        raise ValueError("not an ELF image (no ELF magic)")
+    if data[4] != 2 or data[5] != 1:
+        raise ValueError("only 64-bit little-endian ELF is supported")
+    shoff = struct.unpack_from("<Q", data, 0x28)[0]
+    shentsize, shnum = struct.unpack_from("<HH", data, 0x3A)
+    sections = []
+    for index in range(shnum):
+        base = shoff + index * shentsize
+        sh_type = struct.unpack_from("<I", data, base + 4)[0]
+        sh_offset, sh_size = struct.unpack_from("<QQ", data, base + 0x18)
+        sh_link = struct.unpack_from("<I", data, base + 0x28)[0]
+        sections.append((sh_type, sh_offset, sh_size, sh_link))
+    needed = []
+    for sh_type, offset, size, link in sections:
+        if sh_type != 6:  # SHT_DYNAMIC
+            continue
+        str_offset = sections[link][1]
+        for entry in range(offset, offset + size, 16):
+            tag, value = struct.unpack_from("<qQ", data, entry)
+            if tag == 0:  # DT_NULL
+                break
+            if tag == 1:  # DT_NEEDED
+                end = data.index(b"\x00", str_offset + value)
+                needed.append(data[str_offset + value : end].decode("ascii"))
+    return needed

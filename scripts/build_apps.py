@@ -291,9 +291,14 @@ CEYX_FETCH_SPECS = {
         "archive": "dng_decoder_native-linux-x86_64.tar.gz",
         "dest": Path("plugin") / "linux" / "Libraries",
         "place": True,
+        # Three members + atomic group (v0.1.30 archive listing, R2-Q): the
+        # decoder NEEDs libheif.so.1 which NEEDs libde265.so.0; the extract
+        # guard also refuses any unnamed .so. Mirrors linux-arm64 below.
+        "atomic_group": True,
         "members": [
-            {"member": "libdng_decoder_native.so",
-             "artifact": "libdng_decoder_native.so"},
+            {"member": "libdng_decoder_native.so", "artifact": "libdng_decoder_native.so"},
+            {"member": "libheif.so.1",             "artifact": "libheif.so.1"},
+            {"member": "libde265.so.0",            "artifact": "libde265.so.0"},
         ],
     },
     "windows": {
@@ -321,6 +326,38 @@ CEYX_FETCH_SPECS = {
             # complete fix. Part of the atomic group for the same reason as
             # heif.dll/libde265.dll above.
             {"member": "libomp140.x86_64.dll",   "artifact": "libomp140.x86_64.dll"},
+        ],
+    },
+    # arm64 siblings (ceyx v0.1.30 first publishes them; armci campaign
+    # 2026-10). Selected by `--desktop-arch arm64` on a native arm64 host
+    # (fetch_target_for). Same dest/place/atomic_group shape as the x64 entries,
+    # members read from the published archives' own listings. Linux: the
+    # archive carries libheif.so.1 and libde265.so.0 next to the decoder, and
+    # the unpinned-member guard in extract_ceyx_archive refuses any .so a spec
+    # does not name, so all three are listed. Windows: dng_decoder_native.lib
+    # also ships but is an import library (not .dll/.so/.dylib, so the guard
+    # ignores it) and the x64 spec pins none, so it is not placed here either.
+    "linux-arm64": {
+        "archive": "dng_decoder_native-linux-arm64.tar.gz",
+        "dest": Path("plugin") / "linux" / "Libraries",
+        "place": True,
+        "atomic_group": True,
+        "members": [
+            {"member": "libdng_decoder_native.so", "artifact": "libdng_decoder_native.so"},
+            {"member": "libheif.so.1",             "artifact": "libheif.so.1"},
+            {"member": "libde265.so.0",            "artifact": "libde265.so.0"},
+        ],
+    },
+    "windows-arm64": {
+        "archive": "dng_decoder_native-windows-arm64.tar.gz",
+        "dest": Path("plugin") / "windows" / "Libraries",
+        "place": True,
+        "atomic_group": True,
+        "members": [
+            {"member": "dng_decoder_native.dll", "artifact": "dng_decoder_native.dll"},
+            {"member": "heif.dll",               "artifact": "heif.dll"},
+            {"member": "libde265.dll",           "artifact": "libde265.dll"},
+            {"member": "libomp140.aarch64.dll",  "artifact": "libomp140.aarch64.dll"},
         ],
     },
     "macos-arm64": {

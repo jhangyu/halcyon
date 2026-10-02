@@ -151,7 +151,7 @@ SUITE = {
             "whatever the current pin declares; no count is stated here because "
             "it changes with repins)"
         ),
-        valid_on=("windows", "macos"),
+        valid_on=("windows", "macos", "linux"),
         why_valid=(
             "The expected list is read as data from ceyx_release_pin.json's "
             "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so a "
@@ -169,7 +169,10 @@ SUITE = {
             "the assertion fails naming that member (e.g. heif.dll, or "
             "libomp140.x86_64.dll, which the pin's Windows group now carries)"
         ),
-        expected="all pinned library artifact names present in the artefact",
+        expected=(
+            "all pinned library artifact names present in the artefact; on ELF "
+            "also every DT_NEEDED of a placed library is bundled or a distro soname"
+        ),
     ),
     "H-DECODER-HASH": Assertion(
         id="H-DECODER-HASH",
@@ -500,6 +503,16 @@ def _assert_decoder_present(ctx):
     return "pass", f"{basename} at {hits[0]}"
 
 
+# sonames an ELF decoder stack may leave to the distro (glibc, the C++/OpenMP
+# runtimes, zlib, libjpeg-turbo): readelf -d of the v0.1.30 linux archives
+# (docs/logs/2026-10-02/hal-r2q-linux-deps.md) lists exactly these besides the
+# bundled libheif.so.1 / libde265.so.0. Anything else must ship in the artefact.
+_ELF_DISTRO_NEEDED = (
+    "libc.so", "libm.so", "libdl.so", "libpthread.so", "librt.so", "ld-linux",
+    "libstdc++.so", "libgcc_s.so", "libgomp.so", "libz.so", "libjpeg.so",
+)
+
+
 def _assert_decoder_deps(ctx):
     libraries = ctx["pin_libraries"]
     if not libraries:
@@ -516,6 +529,28 @@ def _assert_decoder_deps(ctx):
             + ", ".join(sorted(missing))
             + f" (present: {', '.join(sorted(found)) or 'none'})"
         )
+    # ELF only (Mach-O/PE members never carry the ELF magic, so the windows and
+    # macOS behaviour is unchanged): every DT_NEEDED of a placed library must be
+    # a distro-provided soname or ship in the artefact. A dependency the pin
+    # does not list (a new ceyx companion) is then caught instead of surfacing
+    # as a dlopen failure naming only the decoder.
+    source = ctx["source"]
+    bundled = {m.rsplit("/", 1)[-1] for m in source.members()}
+    unresolved = []
+    for library in libraries:
+        for hit in source.find([library["artifact"]]):
+            data = source.read(hit)
+            if data[:4] != b"\x7fELF":
+                continue
+            try:
+                needed = binfmt.elf_needed(data)
+            except ValueError as exc:
+                return "fail", f"{hit}: ELF dynamic section unreadable: {exc}"
+            for soname in needed:
+                if soname not in bundled and not soname.startswith(_ELF_DISTRO_NEEDED):
+                    unresolved.append(f"{library['artifact']} needs {soname}")
+    if unresolved:
+        return "fail", "NEEDED libraries neither bundled nor distro-provided: " + "; ".join(sorted(set(unresolved)))
     return "pass", f"all pinned libraries present: {', '.join(found)}"
 
 

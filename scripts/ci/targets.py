@@ -233,6 +233,10 @@ TARGETS: dict = {
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
+            # ELF branch of H-DECODER-DEPS: the decoder NEEDs libheif.so.1, which
+            # NEEDs libde265.so.0 (readelf -d, hal-r2q-linux-deps.md); a bundle
+            # missing either fails dlopen naming only the decoder.
+            "H-DECODER-DEPS",
             "H-DECODER-HASH",
             "H-CEYX-SYMBOLS",
             "H-CEYX-SYMBOLS-NM",
@@ -362,6 +366,10 @@ TARGETS: dict = {
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
+            # ELF branch of H-DECODER-DEPS: the decoder NEEDs libheif.so.1, which
+            # NEEDs libde265.so.0 (readelf -d, hal-r2q-linux-deps.md); a bundle
+            # missing either fails dlopen naming only the decoder.
+            "H-DECODER-DEPS",
             "H-DECODER-HASH",
             "H-SIZED-SYMBOL",
             "H-SIZED-SYMBOL-NM",

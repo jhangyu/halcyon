@@ -94,10 +94,11 @@ class CeyxFetchGateTests(unittest.TestCase):
             decoder_dir = Path(td)
             dest_dir = decoder_dir / spec["dest"]
             dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            path = dest_dir / member["artifact"]
-            path.write_bytes(b"the real pinned bytes")
             pinned_digest = hashlib.sha256(b"the real pinned bytes").hexdigest()
+            # linux is a multi-member atomic group: every member must be on
+            # disk and pinned for "present and matching" to hold.
+            for m in spec["members"]:
+                (dest_dir / m["artifact"]).write_bytes(b"the real pinned bytes")
 
             def fake_load_ceyx_pin():
                 return (
@@ -105,9 +106,10 @@ class CeyxFetchGateTests(unittest.TestCase):
                     {
                         ft: {
                             "libraries": [
-                                {"member": member["member"],
-                                 "artifact": member["artifact"],
-                                 "sha256": pinned_digest},
+                                {"member": m["member"],
+                                 "artifact": m["artifact"],
+                                 "sha256": pinned_digest}
+                                for m in spec["members"]
                             ],
                         },
                     },
@@ -171,7 +173,8 @@ class CeyxFetchGateTests(unittest.TestCase):
             dest_dir = decoder_dir / spec["dest"]
             dest_dir.mkdir(parents=True)
             member = spec["members"][0]
-            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
+            for m in spec["members"]:
+                (dest_dir / m["artifact"]).write_bytes(b"whatever bytes are on disk")
 
             def fake_load_ceyx_pin_no_libraries():
                 return (
@@ -206,7 +209,8 @@ class CeyxFetchGateTests(unittest.TestCase):
             dest_dir = decoder_dir / spec["dest"]
             dest_dir.mkdir(parents=True)
             member = spec["members"][0]
-            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
+            for m in spec["members"]:
+                (dest_dir / m["artifact"]).write_bytes(b"whatever bytes are on disk")
 
             def fake_load_ceyx_pin_no_digest_for_member():
                 return (

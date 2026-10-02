@@ -37,7 +37,7 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # document. The per-repin history lives in git log.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
-    "fd25f591f7caa2cb71ba1633d85e059d35bda3d3a9103ec82c0d04a41d39082f"
+    "5f1e0ea43fb6fea7c4bfae2b60f9b36cdfcad98b76b3dd60be69c3719061cca3"
 )
 
 
