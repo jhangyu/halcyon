@@ -153,15 +153,15 @@
     "stack requirements and the application's declared minimum are not to be",
     "conflated."
   ],
-  "tag": "v0.1.30",
+  "tag": "v0.1.31",
   "lock": {
     "asset": "artifacts.lock",
-    "sha256": "b2f53cb08a2d7c635ab8a3b23fcfb2ce68b7dde587197801d6d81e8f8272dd4a"
+    "sha256": "e0f6d5c1bb8768d50b4c97cad6101782063b2ff4c620e87c57dbbd8d38f71c08"
   },
   "assets": {
     "android": {
       "archive": "dng_decoder_native-android-arm64-v8a.tar.gz",
-      "sha256": "21dbeceb7fc0081b55c23f286668787014b91524215fe37a128fce1c7dd77d50",
+      "sha256": "9fa4ba8434fda75e99766f4b3bbcd740929bda47344f44fa537bf6d34812a586",
       "placed": false,
       "not_placed_reason": "destination plugin/android/src/main/jniLibs is a committed upstream tree build_apps.py must not overwrite",
       "libraries": [
@@ -184,7 +184,7 @@
     },
     "heif-dist-windows": {
       "archive": "heif-dist-windows-x86_64.tar.gz",
-      "sha256": "c9a013f359c06e6fd6734c31b627e779d9e0a429ae6f556214db42ff05789562",
+      "sha256": "7c9a785b361846ec00ab005726662c1eb7cd3c651e3866293a07145ebb7eb105",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build, not a halcyon build; heif's runtime DLLs already travel inside the windows decoder archive above",
       "libraries": [
@@ -202,7 +202,7 @@
     },
     "libjxl-dist-linux": {
       "archive": "libjxl-dist-linux-x86_64.tar.gz",
-      "sha256": "2c84a2a87781bc39f552e00d80e956b1e76a8275b288a189a520b80050338b6b",
+      "sha256": "9e6953b3faff4822e54529248c3f5f57000e44ecc3ed14b30cc7be8f458412ab",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libjxl is a STATIC-ONLY dist (.a) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
@@ -245,83 +245,83 @@
     },
     "libjxl-dist-windows": {
       "archive": "libjxl-dist-windows-x86_64.tar.gz",
-      "sha256": "6c4e2059f31fa7a9f19152345d155488d5e202cc065fd5a83c64a280c24f1290",
+      "sha256": "120306258d8a4bd5d460f989cef82866c3743674084df5a87f76556535a72be7",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libjxl is a STATIC-ONLY dist (.lib) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
         {
           "member": "lib/jxl.lib",
           "artifact": "jxl.lib",
-          "sha256": "b03d4b4551008228dd7103e5d1de47ed4e01e8fccb389b95407a219da9c34eaa"
+          "sha256": "a522e6c863fb588d225bdf8161721239ba1dea28f404ad64df91f438bb3515d9"
         },
         {
           "member": "lib/brotlicommon.lib",
           "artifact": "brotlicommon.lib",
-          "sha256": "df426b9156d97e50f106cb1dfd9504fd445914683770d0304164b6ad331f28cd"
+          "sha256": "f81d106bb5d0c95e582c01da2a4b77e457a03192dd1678d68daadb8f61b10e22"
         },
         {
           "member": "lib/brotlidec.lib",
           "artifact": "brotlidec.lib",
-          "sha256": "676013a7ed51645bdf2b491aaa699cefa457c3bf41014ceff8a096a59dc287fe"
+          "sha256": "82610e8a20b1c2543126587b7950236a18e7f81840b7a802d636c5873ae975a5"
         },
         {
           "member": "lib/brotlienc.lib",
           "artifact": "brotlienc.lib",
-          "sha256": "7b50dd967a277bc8406743fb78ac402985a36012d37b53222f6c4d71319152e3"
+          "sha256": "11ac6ed512b915c184af017c23185b978bddffeee774e4f14438081fee6f3b7e"
         },
         {
           "member": "lib/hwy.lib",
           "artifact": "hwy.lib",
-          "sha256": "0c84790dd25af648c20d1982ecfc69c8bd83a7138ea1a1fc8001fafefd717ddf"
+          "sha256": "2b105ea31bd60b85055a4acedaa900b36b329e2dd50568fcac0045d5f1ddb557"
         },
         {
           "member": "lib/jxl_cms.lib",
           "artifact": "jxl_cms.lib",
-          "sha256": "3c44800c61c63b3772bf9e9858eea470efad4d6040bb196a6b6980cb8e09fbbe"
+          "sha256": "c9cd528f2fe84412d1c44c6866b9cf447fd83ff9572184766b226cb2bec9fe12"
         },
         {
           "member": "lib/jxl_threads.lib",
           "artifact": "jxl_threads.lib",
-          "sha256": "63286d030e8dac09c9e902bf8f1e651f17b6ae842f5fe671fa5e2ef726d5acd2"
+          "sha256": "597efcf7e1a335885387246c2bb2bca5354df552811cc5478488ddcfc88c3633"
         }
       ]
     },
     "libwebp-dist-windows": {
       "archive": "libwebp-dist-windows-x86_64.tar.gz",
-      "sha256": "6f9591920a71e67542806767a75a0aa4c635a5c481c7b7a7563ae98ed86e2be1",
+      "sha256": "4211d250ae2c1aec09cc86a3f050965a4f43df537a9666b718a6e630d0389b57",
       "placed": false,
       "not_placed_reason": "consumed by ceyx's own native build; libwebp is a STATIC-ONLY dist (.lib) linked at ceyx build time, nothing for halcyon to place",
       "libraries": [
         {
           "member": "lib/libwebp.lib",
           "artifact": "libwebp.lib",
-          "sha256": "1a1f6ddd024d71acb0d32d1de3226a4d1d00a531e2562ef7ec60a21e7a93ace9"
+          "sha256": "5fe8d1136dda34b9e8ade031afbeb4b0d4e4e91d987694959daa9210f3f46cdd"
         },
         {
           "member": "lib/libsharpyuv.lib",
           "artifact": "libsharpyuv.lib",
-          "sha256": "7e517d4df6dfe56821e656e337b7fde7a395b60cfabdbf50c007896fbff2ae8c"
+          "sha256": "6c1c56d71af28ef7235ac0b13bebf1f237f541c24f21d78e2efb9feac1856588"
         },
         {
           "member": "lib/libwebpdecoder.lib",
           "artifact": "libwebpdecoder.lib",
-          "sha256": "17af209733a6523e6905bb7794dd809837739070c79c8183feb5ff982d729151"
+          "sha256": "19d220437b661263e23f8b5219f1369797b547489164cf830fa17997f2947507"
         },
         {
           "member": "lib/libwebpdemux.lib",
           "artifact": "libwebpdemux.lib",
-          "sha256": "8c67ccb4974b1d18790cc9f33674dc7119ba7c8744186b0ccf663ca6273b657a"
+          "sha256": "894a32497dca343d90877ad77ecd6d5da87c8ef3d9b5944319837d4e2ced5e2e"
         },
         {
           "member": "lib/libwebpmux.lib",
           "artifact": "libwebpmux.lib",
-          "sha256": "e8eaab1823a035a6941cfd8bed503d366d9280e4672ff3edf5323a23659cc895"
+          "sha256": "95e5369034e1c2f0e4252331d4038b326f31422b2c0ab133f8fb05aac7736559"
         }
       ]
     },
     "linux": {
       "archive": "dng_decoder_native-linux-x86_64.tar.gz",
-      "sha256": "9e2668e344da997641f89b09ba2da0ecdc197c0ae9f3c036dac64ce61a1d257c",
+      "sha256": "af9f38e30d75ca0bf0f5bfefeb00ed3567b7268de8b5096a960e050bc66a9de3",
       "placed": true,
       "libraries": [
         {
@@ -332,7 +332,7 @@
         {
           "member": "libheif.so.1",
           "artifact": "libheif.so.1",
-          "sha256": "f1453e4d01a3e346577e48cd2b8ffb3cd915f54be6440ac17d7768978edb33ff"
+          "sha256": "0ab89ada976b5420af1ef5b87d2915302b17be4f3f7c3c14750b9ab321b3a298"
         },
         {
           "member": "libde265.so.0",
@@ -343,7 +343,7 @@
     },
     "linux-arm64": {
       "archive": "dng_decoder_native-linux-arm64.tar.gz",
-      "sha256": "436fb625a4fd55536fe69f8aeb5f2e71cfccf1c9f360c2b22f74500c5dbfd4ee",
+      "sha256": "5f1107bb8fff32a5a44fec06151b54ed0aec5351ed2d8b4eabad1cde29428878",
       "placed": true,
       "libraries": [
         {
@@ -354,7 +354,7 @@
         {
           "member": "libheif.so.1",
           "artifact": "libheif.so.1",
-          "sha256": "e4a7f5fbbdf4bf16d552b8b4dc3c52097fec34aa3d794cf6ca1143b26416b76c"
+          "sha256": "77779bc516669ec8e2389a923fb7dea76e3b2c7b9d970357d9a8684eeaeb272a"
         },
         {
           "member": "libde265.so.0",
@@ -365,14 +365,14 @@
     },
     "macos-arm64": {
       "archive": "dng_decoder_native-macos-arm64.tar.gz",
-      "sha256": "76b758d79878586f00c14a47324e2c14dcb4ebc0db86847e8a9146ef3253a20e",
+      "sha256": "8fc81f8d28a6899791e6881d91c6f153a8388281d9b96f8db25125d35bcd6cb8",
       "placed": true,
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "81939cb6b6d8a84239c190387510cef87b787b10cb4d4f60f7f7c17d425903ce",
-          "uuid": "BA5E0EF0-B533-3831-96F7-EAAF7EE54053"
+          "sha256": "862c0722ce181720c27ce51dd1efb77bf1a8d741e9e5cfe2b67aaf221c8ea336",
+          "uuid": "D834FA0E-B6E7-3AF0-AD03-C1EAE81251AB"
         },
         {
           "member": "libjpeg.8.dylib",
@@ -402,14 +402,14 @@
     },
     "macos-x86_64": {
       "archive": "dng_decoder_native-macos-x86_64.tar.gz",
-      "sha256": "95156c73a91f784fc8ad99a6a167279ee36447dfe6db32d99e84559f699963ba",
+      "sha256": "4713e706d4eec705091c25f7f0fe5ecb0656878ceef12f2eaf40dd4d35272050",
       "placed": true,
       "libraries": [
         {
           "member": "libdng_decoder_native.dylib",
           "artifact": "libdng_decoder_native.dylib",
-          "sha256": "3b6e493db7694e4a9306fca1a57a45a9e9491494d602321d4dfeb8ff10e4cc67",
-          "uuid": "54D612D5-0022-3B53-9AB3-6C6E0D0BB7C7"
+          "sha256": "fb8c5ff3671a58baef5136c022dda8b53ae9a13e522760316e13076eae6954d2",
+          "uuid": "6021ADF9-BAEF-3BFA-982A-6D1741B4D396"
         },
         {
           "member": "libjpeg.8.dylib",
@@ -439,13 +439,13 @@
     },
     "windows": {
       "archive": "dng_decoder_native-windows-x86_64.tar.gz",
-      "sha256": "cd5193e70b8a6812ddd2c2016bf666a5744343ca56a31c583cdc5248bf931e9b",
+      "sha256": "bbd4e5496059edabbf1851736cba202c7389301320ad09eda5a8c13ca5075c41",
       "placed": true,
       "libraries": [
         {
           "member": "dng_decoder_native.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "ea5e3f9ca64f3c4144fc3d7a45d2ac1c2f901801e3193e5000a12be061c3e838"
+          "sha256": "550f99fd1e726d49be85046bb0fd1d06c2aa45c728887aeebbb7690e101fb9f5"
         },
         {
           "member": "heif.dll",
@@ -466,13 +466,13 @@
     },
     "windows-arm64": {
       "archive": "dng_decoder_native-windows-arm64.tar.gz",
-      "sha256": "647d8d3e3224b5f3d630176f30abf8f7fec50146057aa76acca55f8f4393b9d8",
+      "sha256": "8b5e173bf5408ca4103334d4e26e23ef2f76372974035c6d2227224e007c3563",
       "placed": true,
       "libraries": [
         {
           "member": "dng_decoder_native.dll",
           "artifact": "dng_decoder_native.dll",
-          "sha256": "b4333916cac99b9c144178959a3609866de7f60a4822dc4208b4d5de49f9bd59"
+          "sha256": "c709af5071e98de68672e98466cede123d0c71858fe2d8665a79b83cc2af0cb8"
         },
         {
           "member": "heif.dll",
