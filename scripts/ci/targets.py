@@ -297,21 +297,20 @@ TARGETS: dict = {
         "app_executable": "halcyon.exe",
         "archive_name": "Halcyon-windows-arm64-{version}.zip",
         "archive_format": "zip",
-        # Same list as "windows". H-SIZED-SYMBOL-NM stays absent: the PE
-        # structural reason (no default export visibility, PL-9) is
-        # architecture-independent. H-SIZED-SYMBOL / H-CEYX-SYMBOLS (dart-run +
-        # DynamicLibrary.open) are KEPT, unlike macos-x64: the runner is native
-        # arm64 and the DLLs are arm64, so loading is a valid instrument. TRUE
-        # precondition = the Dart process is arm64; if flutter-action installs an
-        # x64-emulated SDK on this runner the probe cannot load arm64 DLLs and
-        # fails naming a loader error — to be judged on the first CI run, not
-        # pre-omitted (contract 3a allows iteration on this leg only).
+        # Same list as "windows" (H-SIZED-SYMBOL/-NM no longer exist in
+        # assertions.SUITE; H-CEYX-SYMBOLS replaced them). H-CEYX-SYMBOLS
+        # (dart-run + DynamicLibrary.open) is KEPT, unlike macos-x64: the runner
+        # is native arm64 and the DLLs are arm64, so loading is a valid
+        # instrument. TRUE precondition = the Dart process is arm64 (see
+        # provision); if it is not, the probe fails naming a loader error — to be
+        # judged on CI, not pre-omitted (contract 3a allows iteration here).
+        # H-CEYX-SYMBOLS-NM stays absent: the PE structural reason (no default
+        # export visibility, PL-9) is architecture-independent.
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL",
             "H-CEYX-SYMBOLS",
             # Same as "windows": reads the PE import/delay-import directories
             # structurally (assertions.py _assert_engine_delayload, valid_on
@@ -359,10 +358,11 @@ TARGETS: dict = {
         "app_executable": "halcyon",
         "archive_name": "Halcyon-linux-arm64-{version}.tar.gz",
         "archive_format": "gztar",
-        # Same list as "linux", all seven KEPT: the runner is native arm64 and
-        # the .so is aarch64, so the dart-run probe can load it (true
-        # precondition, unlike macos-x64) and nm -D reads ELF natively.
-        # H-ARCH expects aarch64 via the manifest entry (expected_arch).
+        # Same list as "linux" (H-SIZED-SYMBOL/-NM are gone from
+        # assertions.SUITE): the runner is native arm64 and the .so is aarch64,
+        # so the dart-run probe H-CEYX-SYMBOLS can load it (true precondition,
+        # unlike macos-x64) and nm -D reads ELF natively (H-CEYX-SYMBOLS-NM).
+        # H-ARCH expects aarch64 via expected_arch.
         "assertions": [
             "H-ARCH",
             "H-DECODER-PRESENT",
@@ -371,8 +371,6 @@ TARGETS: dict = {
             # missing either fails dlopen naming only the decoder.
             "H-DECODER-DEPS",
             "H-DECODER-HASH",
-            "H-SIZED-SYMBOL",
-            "H-SIZED-SYMBOL-NM",
             "H-CEYX-SYMBOLS",
             "H-CEYX-SYMBOLS-NM",
         ],

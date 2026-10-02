@@ -567,5 +567,22 @@ class TestFlutterGitTagMatchesWorkflows(unittest.TestCase):
             self.assertEqual(versions, {tag}, f"{name} flutter-version {versions} != targets.py tag {tag!r}")
 
 
+class TestAssertionIdsResolve(unittest.TestCase):
+    """Every id in every targets.py assertion list must be a key of
+    assertions.SUITE; a stale id otherwise only surfaces as a KeyError at
+    assert-capabilities time on a real runner (the 0eeb1b5 merge regression)."""
+
+    def test_every_listed_assertion_exists(self):
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from ci import assertions, targets  # noqa: PLC0415
+
+        for name, spec in targets.TARGETS.items():
+            with self.subTest(target=name):
+                self.assertEqual(
+                    [a for a in spec["assertions"] if a not in assertions.SUITE], [])
+
+
 if __name__ == "__main__":
     unittest.main()
