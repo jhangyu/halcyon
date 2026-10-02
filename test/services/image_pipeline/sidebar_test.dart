@@ -6,12 +6,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
+import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/raw_pixels_image.dart';
 import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.dart';
@@ -21,31 +21,9 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/preload_fixtures.dart';
-
-/// Task 7 (plan `docs/logs/2026-08-30/shared-payload-cache-plan.md`):
-/// "scrolling fills the payload cache" (D5 decision 4). A visible row with no
-/// payload asks the SHARED lane to make one, at the sidebar's own low
-/// priority -- so the second, unthrottled decoder the old sidebar owned (F5's
-/// `laneWidth + 1` overshoot) is gone.
-///
-/// Helpers are copied rather than imported from the Task 6 file: test files do
-/// not export to one another.
-Future<NativeImageResult> _rawLoaderLane(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-// Alpha must be opaque (0xFF): decoded_rgba_image_provider.dart's
-// debug-only identity short-circuit asserts sampled alpha is opaque.
-// Same repair as commits 253b89f / d43c2a1.
-DecodedRgba _tinyLane() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
-}
+import '../../support/loader_stubs.dart';
+import '../../support/rgba_fixtures.dart';
+import '../../support/temp_dirs.dart';
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
 /// a real debounce/async-drain still gets its full budget if it needs it, but
@@ -83,12 +61,6 @@ class CountingDecoder {
   }
 }
 
-Future<NativeImageResult> _rawLoaderShared(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
 Future<void> _settleShared([int ms = 400]) =>
     Future<void>.delayed(Duration(milliseconds: ms));
 
@@ -111,40 +83,12 @@ Future<NativeImageResult> _alwaysFailLoaderPixel(
   return const NativeImageFailure('NO_THUMBNAIL', 'no thumbnail for test');
 }
 
-DecodedRgba _rawFixturePixel({int width = 400, int height = 300}) {
-  final bytes = Uint8List(width * height * 4);
-  for (var i = 3; i < bytes.length; i += 4) {
-    bytes[i] = 255; // opaque
-  }
-  return DecodedRgba(rgba: bytes, width: width, height: height);
-}
-
 Future<Directory> _tempDirWithPixel(List<String> names) async {
-  final dir = await Directory.systemTemp.createTemp('halcyon_sidebar_pixels_');
+  final dir = await makeTempDir('halcyon_sidebar_pixels_');
   for (final name in names) {
     await File(p.join(dir.path, name)).writeAsBytes([1, 2, 3]);
   }
   return dir;
-}
-
-/// TC-374's temp-dir teardown (errno-32 on Windows): each test already gets
-/// its OWN uniquely-suffixed dir from `createTemp`, so this is not a shared
-/// path -- but a transient handle (AV scanner, a still-draining async decode
-/// holding the file open a beat longer under load) can still make a single
-/// `delete(recursive: true)` fail. Retry a few times with a short backoff and
-/// only then give up, so cleanup never fails the test itself.
-Future<void> _deleteDirTolerant(Directory dir) async {
-  for (var attempt = 0; attempt < 5; attempt++) {
-    try {
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-      return;
-    } on FileSystemException {
-      if (attempt == 4) return; // best-effort cleanup, not a test assertion
-      await Future<void>.delayed(Duration(milliseconds: 50 * (attempt + 1)));
-    }
-  }
 }
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
@@ -160,26 +104,6 @@ Future<void> _pollUntilPixel(
   while (!cond() && DateTime.now().isBefore(deadline)) {
     await Future<void>.delayed(step);
   }
-}
-
-/// Contract `docs/logs/2026-09-06/sidebar-fix-and-async-plan-contract.md` D1:
-/// AC1 (visible-before-margin) and AC2 (priority-freeze fix).
-///
-/// Both tests gate the decoder so lane entries stay PENDING after the sweep's
-/// 100ms debounce fires, letting [ImagePreloadController.debugLanePendingPriorityFor]
-/// observe the priority DecodeLane actually queued each key at.
-Future<NativeImageResult> _rawLoaderPriority(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-DecodedRgba _tinyPriority() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
 }
 
 Future<Uint8List> _encodedOfDerivation(int width, int height) async {
@@ -203,17 +127,17 @@ Future<({int width, int height})> _dimsOfDerivation(Uint8List encoded) async {
 }
 
 void main() {
-  group('sidebar_lane_production_test.dart', () {
+  group('sidebar lane production', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-434
     test('a far visible row gets a tile via lane-produced payload', () async {
       var calls = 0;
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           calls++;
-          return _tinyLane();
+          return opaqueRgba(8, 8);
         },
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
@@ -263,11 +187,11 @@ void main() {
         maxLive = live > maxLive ? live : maxLive;
         await gate.future;
         live--;
-        return _tinyLane();
+        return opaqueRgba(8, 8);
       }
 
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: slowDecoder,
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 2,
@@ -299,10 +223,10 @@ void main() {
     test('a row inside the navigation window is not demoted by the sweep', () async {
       final gate = Completer<void>();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: (path) async {
           await gate.future;
-          return _tinyLane();
+          return opaqueRgba(8, 8);
         },
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
@@ -369,11 +293,11 @@ void main() {
       Future<DecodedRgba> slowDecoder(String path) async {
         decoded.add(path);
         await gate.future;
-        return _tinyLane();
+        return opaqueRgba(8, 8);
       }
 
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderLane,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: slowDecoder,
         payloadEncoder: throwingPayloadEncoder,
         decodeLaneWidth: 1,
@@ -386,7 +310,12 @@ void main() {
         endIdx: 158,
         notifyLoaded: () {},
       );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await until(
+        () =>
+            decoded.isNotEmpty &&
+            controller.debugSidebarEnqueuedIds.length > 20,
+        reason: 'the first range decoding and queued behind the gated body',
+      );
       // Lane width 1 and the one running body is gated, so the whole first
       // range (130..178 with the margin) is sitting PENDING behind it.
       final duringFirstRange = List<String>.of(decoded);
@@ -403,6 +332,8 @@ void main() {
       // MOVED before the queue is allowed to drain. Releasing the gate first
       // would let every pending body run while the old viewport was still the
       // live one, which tests nothing about the turn-time re-check.
+      // Fixed wait kept on purpose (D5 two-class rule): absence-shaped, and
+      // `_thumbWantedIds` has no test-visible getter.
       await Future<void>.delayed(const Duration(milliseconds: 250));
       gate.complete();
       await _pollUntilLane(
@@ -434,14 +365,14 @@ void main() {
     });
   });
 
-  group('sidebar_shared_payload_test.dart', () {
+  group('sidebar shared payload', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-430
     test('a cached payload yields a tile with no further decoder call', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -452,6 +383,16 @@ void main() {
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.payloadFor('p0') != null &&
+            [
+              for (var i = 0; i <= 5; i++)
+                decoder.callsFor('p$i') >= (i <= 1 ? 2 : 1),
+            ].every((reached) => reached),
+        reason: 'p0..p5 preview decodes (+ in-band fallback) to land',
+      );
+      // Absence margin (D5): the exact counts below must also not overshoot.
       await _settleShared();
       expect(controller.payloadFor('p0'), isNotNull);
       // The navigation window is -3..+5, so p0..p5 are decoded exactly once each
@@ -478,12 +419,20 @@ void main() {
         endIdx: 3,
         notifyLoaded: () {},
       );
+      await until(
+        () => [
+          for (var i = 0; i <= 5; i++)
+            controller.thumbnailPayloadFor('p$i') != null,
+        ].every((landed) => landed),
+        reason: 'tiles p0..p5 to land',
+      );
+      // Absence margin (D5): no tile may buy a further decode.
       await _settleShared();
 
       // Every row whose payload was already resident got a tile, and NONE of
       // them bought a second decode. (Rows outside the navigation window DO get
       // decoded by the sweep -- that is Task 7's "scrolling fills the payload
-      // cache" and is asserted in sidebar_lane_production_test.dart.)
+      // cache" and is asserted in the 'sidebar lane production' group.)
       for (var i = 0; i <= 5; i++) {
         expect(controller.thumbnailPayloadFor('p$i'), isNotNull, reason: 'tile p$i');
         expect(
@@ -499,7 +448,7 @@ void main() {
     test('one decode serves both the preview and the sidebar tile', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -513,12 +462,22 @@ void main() {
         endIdx: 0,
         notifyLoaded: () {},
       );
+      // Fixed wait kept on purpose (D5): ordering, not assertion-gating -- the
+      // row must still be a WAITER when the preview lands, so waiting for the
+      // tile itself would change the scenario.
       await Future<void>.delayed(const Duration(milliseconds: 150));
       await controller.preloadImages(
         items: items,
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.payloadFor('p0') != null &&
+            controller.thumbnailPayloadFor('p0') != null,
+        reason: 'payload and tile for p0 to land',
+      );
+      // Absence margin (D5): decoder.calls must stay exactly 1.
       await _settleShared();
 
       expect(controller.payloadFor('p0'), isNotNull);
@@ -535,7 +494,7 @@ void main() {
     test('a viewport move before derivation lands writes nothing stale', () async {
       final decoder = CountingDecoder();
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -553,6 +512,8 @@ void main() {
         endIdx: 154,
         notifyLoaded: () {},
       );
+      // Fixed wait kept on purpose (D5): every assertion below is
+      // absence-shaped (p0 stays null, cache stays bounded).
       await _settleShared(600);
 
       expect(controller.thumbnailPayloadFor('p0'), isNull);
@@ -566,7 +527,7 @@ void main() {
     // TC-433
     test('a permanent-miss item becomes a sidebar permanent miss', () async {
       final controller = ImagePreloadController(
-        imageLoader: _rawLoaderShared,
+        imageLoader: needsRawDecodeLoader,
         dngDecoder: null, // no decoder => permanent miss
         payloadEncoder: throwingPayloadEncoder,
       );
@@ -583,6 +544,13 @@ void main() {
         endIdx: 4,
         notifyLoaded: () {},
       );
+      await until(
+        () =>
+            controller.hasFailed('p0') &&
+            controller.debugThumbPermanentMisses.contains('p0'),
+        reason: 'p0 to become a preview and sidebar permanent miss',
+      );
+      // Absence margin (D5): the tile must stay null.
       await _settleShared();
 
       expect(controller.hasFailed('p0'), isTrue);
@@ -592,7 +560,7 @@ void main() {
     });
   });
 
-  group('sidebar_pixel_thumbnail_test.dart', () {
+  group('sidebar pixel thumbnail', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     setUp(() {
@@ -603,20 +571,19 @@ void main() {
     // E-C1): both asserted that the SIDEBAR ran its own sized RAW decode and
     // stored the resulting PixelPayload. That producer is deleted -- the sidebar
     // derives every tile from the shared q70 payload now. Their replacements are
-    // TC-430/TC-431 in sidebar_shared_payload_test.dart (a tile appears, and one
-    // decode serves both tiers) and TC-434 in sidebar_lane_production_test.dart
+    // TC-430/TC-431 in the 'sidebar shared payload' group (a tile appears, and one
+    // decode serves both tiers) and TC-434 in the 'sidebar lane production' group
     // (a far row's payload is produced on the shared lane).
 
     test('TC-374 INV-MEM: the sidebar cache stays viewport-bound', () async {
       final names = [for (var i = 0; i < 200; i++) 'f${i.toString().padLeft(3, "0")}.dng'];
       final dir = await _tempDirWithPixel(names);
-      addTearDown(() => _deleteDirTolerant(dir));
 
       final controller = ImagePreloadController(
         imageLoader: _alwaysFailLoaderPixel,
         // Tiles now come from the shared payload, so the payload producer is
         // what this bound has to survive.
-        dngDecoder: (path) async => _rawFixturePixel(),
+        dngDecoder: (path) async => opaqueRgba(400, 300),
         payloadEncoder: throwingPayloadEncoder,
       );
       final state = AppState(preloadController: controller);
@@ -649,31 +616,34 @@ void main() {
     test('TC-378 a stale generation writes nothing into the sidebar cache',
         () async {
       final dir = await _tempDirWithPixel(['c.dng']);
-      addTearDown(() => _deleteDirTolerant(dir));
 
       final gate = Completer<void>();
+      final entered = Completer<void>();
       final controller = ImagePreloadController(
         imageLoader: _alwaysFailLoaderPixel,
         dngDecoder: (path) async {
+          if (!entered.isCompleted) entered.complete();
           await gate.future; // still in flight when the generation is bumped
-          return _rawFixturePixel();
+          return opaqueRgba(400, 300);
         },
         payloadEncoder: throwingPayloadEncoder,
       );
       final state = AppState(preloadController: controller);
       await state.loadFolder(dir);
       await state.preloadThumbnails(0, 0);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await entered.future; // the decode is in flight before the bump
 
       controller.reset(); // bumps _thumbBatchGeneration
       gate.complete();
+      // Fixed wait kept on purpose (D5): absence-shaped (the stale landing
+      // must write nothing; the cache is empty before AND after).
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       expect(controller.debugThumbnailCacheLength, 0);
     });
   });
 
-  group('sidebar_priority_ordering_test.dart', () {
+  group('sidebar priority ordering', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-963 (AC1): every visible row's lane priority must strictly outrank
@@ -687,10 +657,10 @@ void main() {
       () async {
         final gate = Completer<void>();
         final controller = ImagePreloadController(
-          imageLoader: _rawLoaderPriority,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
-            return _tinyPriority();
+            return opaqueRgba(8, 8);
           },
           payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,
@@ -764,6 +734,7 @@ void main() {
         );
 
         gate.complete();
+        // pre-dispose drain, not assertion-gating (D5).
         await Future<void>.delayed(const Duration(milliseconds: 200));
         controller.dispose();
       },
@@ -779,10 +750,10 @@ void main() {
       () async {
         final gate = Completer<void>();
         final controller = ImagePreloadController(
-          imageLoader: _rawLoaderPriority,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: (path) async {
             await gate.future;
-            return _tinyPriority();
+            return opaqueRgba(8, 8);
           },
           payloadEncoder: throwingPayloadEncoder,
           decodeLaneWidth: 1,
@@ -848,13 +819,14 @@ void main() {
         );
 
         gate.complete();
+        // pre-dispose drain, not assertion-gating (D5).
         await Future<void>.delayed(const Duration(milliseconds: 200));
         controller.dispose();
       },
     );
   });
 
-  group('sidebar_thumbnail_codec_test.dart', () {
+  group('sidebar thumbnail codec', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     Future<Uint8List> bigPng() async {
@@ -904,7 +876,7 @@ void main() {
         // filter+deflate (5.7KB) and pathologically bad for JPEG's DCT (14.6KB),
         // so the synthetic case genuinely inverts. The size win being claimed is
         // for photographic content and is evidenced on real DNG samples in
-        // scripts/tmp/m7-t5/size-comparison.md, not here.
+        // a scratch size-comparison note (not retained), not here.
 
         // Decode-back must actually succeed. JPEG cannot carry alpha, so this
         // asserts the alpha-dropping encode still produces something the
@@ -1019,7 +991,7 @@ void main() {
     });
   });
 
-  group('thumbnail_derivation_test.dart', () {
+  group('thumbnail derivation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-424
@@ -1055,7 +1027,7 @@ void main() {
     });
   });
 
-  group('jpeg_encoder_pool_test.dart', () {
+  group('jpeg encoder pool', () {
     // Plan Task 6 (WP5): the sidebar used to spawn one `Isolate.run` per tile
     // encode (170 spawns/20.8s, allocation lens site #5). This group pins the
     // spawn-count bound (AC6.1), byte-identical output vs the pre-change

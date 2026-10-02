@@ -22,6 +22,7 @@ import '../services/image_pipeline/idle_publish_scheduler.dart';
 import '../services/rename/exif_metadata_service.dart';
 import '../services/image_pipeline/image_preload_controller.dart';
 import '../services/image_pipeline/image_source_types.dart';
+import '../services/image_pipeline/memory_ledger_snapshot.dart';
 import '../services/image_pipeline/payload_state.dart';
 import '../services/image_pipeline/photo_payload.dart';
 import '../services/image_pipeline/retention_policy.dart';
@@ -30,77 +31,14 @@ import '../services/library/photo_library_scanner.dart';
 import '../services/library/photo_status_store.dart';
 import '../services/image_pipeline/raw_pixels_image.dart';
 import '../models/rename_rule.dart';
+import '../models/status_message.dart';
 import '../models/shortcut_bindings.dart';
-// LAYERING NOTE: this is the one view-layer import in AppState. `LayoutThemeId`
-// is a plain enum with no widget dependencies, and it is declared beside the
-// `LayoutTheme` contract it selects (deleting a theme = deleting its directory
-// and its enum case, the deletion contract in layout_theme.dart). Persisting
-// the id here is what the frozen appearance spec section 8 asks for; moving
-// the enum into models/ purely to satisfy import direction would split that
-// deletion contract across two directories for no behavioural gain.
+// LayoutThemeId: see the LAYERING NOTE in app_settings.dart.
 import '../views/layout/layout_theme.dart' show LayoutThemeId;
-import 'settings_snapshot.dart';
+import 'app_settings.dart';
 import '../services/library/photo_export_service.dart';
 import '../services/platform/working_set_trim.dart';
 import '../services/rename/rename_coordinator.dart';
-
-/// Appearance defaults (frozen spec section 8). Named constants rather than
-/// literals because three places must agree: the hydration fallback, the
-/// malformed-value fallback, and [AppState.resetAllSettings].
-const ThemeMode kDefaultThemeMode = ThemeMode.system;
-const LayoutThemeId kDefaultLayoutThemeId = LayoutThemeId.gallery;
-
-/// Outcome of a batch delete, returned to the view layer so feedback lives
-/// in the widgets rather than the provider. Failures are never swallowed.
-class BatchDeleteResult {
-  const BatchDeleteResult({
-    required this.recycled,
-    required this.movedCount,
-    required this.failures,
-    this.trashDirPath,
-    this.mixedDestination = false,
-  });
-
-  final bool recycled;
-  final int movedCount;
-  final List<String> failures;
-  final String? trashDirPath;
-
-  /// True when the batch began deleting through the system trash and only
-  /// finished in `.trash/` because the bridge went away mid-batch. Callers
-  /// must not report "moved to system trash" when this is true.
-  final bool mixedDestination;
-}
-
-/// A transient line shown at the bottom of the window (see `StatusLine`).
-///
-/// `*…*` in [text] marks the amber emphasis span. [revealPath], when set,
-/// adds a "顯示" button that opens that path in Finder.
-class StatusMessage {
-  const StatusMessage(
-    this.text, {
-    this.revealPath,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final String text;
-  final String? revealPath;
-
-  /// Optional trailing button (e.g. "還原" after a rename batch).
-  final String? actionLabel;
-  final VoidCallback? onAction;
-}
-
-/// A single [showStatus] emission, tagged with a monotonically increasing
-/// [seq] so back-to-back `==`-equal [StatusMessage]s still produce distinct
-/// [StatusEvent]s and are not coalesced by [ValueNotifier].
-@immutable
-class StatusEvent {
-  const StatusEvent(this.seq, this.message);
-  final int seq;
-  final StatusMessage message;
-}
 
 /// The idle window after which a selection's EXIF read starts. Mirrors the
 /// tier-2 navigation debounce (`tierTwoNavigationDebounce`) so holding an
@@ -148,7 +86,63 @@ class AppState extends ChangeNotifier {
     // 2026-09-11). Optional with a null default so no test needs a RAM fake;
     // `main.dart` passes the one reading it already took.
     int? physicalMemoryBytes,
-  }) : _decodeLaneWidth = kDefaultDecodeLaneWidth,
+    // Test-only seam: lets tests shrink the 250ms selection-EXIF quiet period
+    // instead of waiting it out in real time. Production callers must not pass
+    // this. Precedent: ImagePreloadController.navigationDebounce.
+    Duration exifDebounce = kSelectionExifDebounce,
+  }) : this._(
+          scanner: scanner,
+          statusStore: statusStore,
+          fileActions: fileActions,
+          preloadController: preloadController,
+          imageLoader: imageLoader,
+          dngDecoder: dngDecoder,
+          orientingDngDecoder: orientingDngDecoder,
+          exportService: exportService,
+          exifReader: exifReader,
+          retention: retention,
+          physicalMemoryBytes: physicalMemoryBytes,
+          exifDebounce: exifDebounce,
+          hydrate: true,
+        );
+
+  /// Test-only constructor: skips prefs hydration and native capability
+  /// resolution entirely, seeding [_runtimeExportCapabilities] directly.
+  /// [resolveExportCapabilities] talks to the real (or injected)
+  /// [CeyxEncodeService], which `flutter test` cannot resolve outside a
+  /// built app bundle -- this seam lets UI-filtering tests exercise
+  /// [selectableExportFiletypes] without going anywhere near that call.
+  ///
+  /// A factory (not a redirecting generative ctor) because it has a body:
+  /// it builds exactly what the production ctor builds with every
+  /// collaborator defaulted, then seeds the capability set.
+  @visibleForTesting
+  factory AppState.forTesting({
+    required Set<ExportFiletype> runtimeCapabilities,
+  }) {
+    final state = AppState._(hydrate: false);
+    state._runtimeExportCapabilities = runtimeCapabilities;
+    return state;
+  }
+
+  /// The ONE construction path. [hydrate] is the only difference between
+  /// production and [AppState.forTesting]: whether prefs hydration (and the
+  /// capability probe it fires) runs.
+  AppState._({
+    PhotoLibraryScanner? scanner,
+    PhotoStatusStore? statusStore,
+    PhotoFileActions? fileActions,
+    ImagePreloadController? preloadController,
+    NativeImageLoad? imageLoader,
+    DngFullDecoder? dngDecoder,
+    DngOrientingFullDecoder? orientingDngDecoder,
+    PhotoExportService? exportService,
+    ExifBatchReader? exifReader,
+    RetentionPolicy retention = const RetentionPolicy.floor(),
+    int? physicalMemoryBytes,
+    Duration exifDebounce = kSelectionExifDebounce,
+    required bool hydrate,
+  }) : _exifDebounce = exifDebounce,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -203,45 +197,9 @@ class AppState extends ChangeNotifier {
     // Derived once, from the policy main.dart already probed for. No second
     // RAM probe, and an injected controller cannot drift from it.
     _autoRetentionTier = tierForPolicy(retention);
-    _initPrefs();
+    if (hydrate) _initPrefs();
   }
 
-  /// Test-only constructor: skips prefs hydration and native capability
-  /// resolution entirely, seeding [_runtimeExportCapabilities] directly.
-  /// [resolveExportCapabilities] talks to the real (or injected)
-  /// [CeyxEncodeService], which `flutter test` cannot resolve outside a
-  /// built app bundle -- this seam lets UI-filtering tests exercise
-  /// [selectableExportFiletypes] without going anywhere near that call.
-  @visibleForTesting
-  AppState.forTesting({required Set<ExportFiletype> runtimeCapabilities})
-    : _decodeLaneWidth = kDefaultDecodeLaneWidth,
-      _scanner = PhotoLibraryScanner(),
-      _exifReader = ExifMetadataService.readBatch,
-      _statusStore = PhotoStatusStore(),
-      _fileActions = PhotoFileActions(),
-      _exportService = PhotoExportService(),
-      _publishScheduler = IdlePublishScheduler() {
-    _preloadController = ImagePreloadController(
-      imageLoader: dartImageLoad,
-      dngDecoder: null,
-      retention: const RetentionPolicy.floor(),
-      decodeLaneWidth: kDefaultDecodeLaneWidth,
-      scheduleFrameCallback: _publishScheduler.schedule,
-      compositeGate: _publishScheduler.awaitSlot,
-    );
-    _autoRetentionTier = tierForPolicy(const RetentionPolicy.floor());
-    _renameCoordinator = RenameCoordinator(
-      statusStore: _statusStore,
-      itemsOf: () => _items,
-      dirOf: () => _currentDir,
-      selectedIdOf: () => _selectedItemID,
-      readMetadata: readMetadataFor,
-      showStatus: showStatus,
-      reloadFolder: loadFolder,
-      notify: notifyListeners,
-    );
-    _runtimeExportCapabilities = runtimeCapabilities;
-  }
 
   final PhotoLibraryScanner _scanner;
   final PhotoStatusStore _statusStore;
@@ -352,8 +310,6 @@ class AppState extends ChangeNotifier {
   void dropBeyondBandTierTwoPixels() =>
       _preloadController.dropBeyondBandTierTwoPixels();
 
-  bool get isRenaming => _renameCoordinator.isRenaming;
-
   void cancelRename() => _renameCoordinator.cancelRename();
 
   Directory? _currentDir;
@@ -377,22 +333,20 @@ class AppState extends ChangeNotifier {
   final Map<String, ExifMetadata?> _exifCache = <String, ExifMetadata?>{};
   int _exifGeneration = 0;
   Timer? _exifDebounceTimer;
+  final Duration _exifDebounce;
 
-  // Settings
-  bool _autoAdvance = false;
-  bool _overwriteExisting = true;
-  int _decodeLaneWidth;
-  int _exportJpegQuality = kDefaultExportJpegQuality;
-  int _exportLongEdge = kDefaultExportLongEdge;
-  ExportFiletype _exportFiletype = kDefaultExportFiletype;
+  // Settings: one immutable value. Every write goes through [_apply] except
+  // hydration ([_initPrefs]), [resetAllSettings] and
+  // [resolveExportCapabilities] -- see each for why.
+  AppSettings _settings = AppSettings.defaults();
 
   /// The user's actual intent for [exportFiletype] -- the persisted pref
   /// name at hydration time, or the name last passed to [setExportFiletype].
   /// Runtime capability is not known yet when [_initPrefs] first computes
-  /// [_exportFiletype] (see [resolveExportCapabilities]'s doc), so that
+  /// the effective [exportFiletype] (see [resolveExportCapabilities]'s doc), so that
   /// first computation can downgrade to the default; without recording the
   /// ORIGINAL name separately, [resolveExportCapabilities] would renormalise
-  /// from the already-downgraded `_exportFiletype.name` once capability
+  /// from the already-downgraded effective `exportFiletype.name` once capability
   /// resolves, and could never recover the user's real preference.
   String? _exportFiletypeIntentName;
 
@@ -408,13 +362,8 @@ class AppState extends ChangeNotifier {
   /// this flag lets it bail out instead of calling `notifyListeners()` on a
   /// disposed `ChangeNotifier`, which throws.
   bool _disposed = false;
-  /// Appearance, persisted (frozen spec section 8). Defaults: system / gallery.
-  ThemeMode _themeMode = kDefaultThemeMode;
-  LayoutThemeId _layoutThemeId = kDefaultLayoutThemeId;
 
-  RetentionTier? _retentionTierOverride;
   late final RetentionTier _autoRetentionTier;
-  ShortcutBindings _shortcuts = ShortcutBindings.defaults();
   SharedPreferences? _prefs;
 
   // Per-folder, deliberately NOT persisted: every loadFolder re-detects, so
@@ -426,9 +375,8 @@ class AppState extends ChangeNotifier {
   // fresh process re-discovers it on its first delete.
   bool _bridgeUnavailableLatched = false;
 
-  // The status line's current message. [_statusSeq] bumps on every show so the
-  // view can restart its timer even when the same text repeats.
-  StatusMessage? _status;
+  // Bumps on every show so the view can restart its timer even when the
+  // same text repeats (carried on [StatusEvent.seq]).
   int _statusSeq = 0;
 
   /// Fires once per [showStatus] call (see [StatusEvent]); [StatusLine]
@@ -437,126 +385,30 @@ class AppState extends ChangeNotifier {
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
-    _autoAdvance = _prefs?.getBool('autoAdvance') ?? false;
-    _overwriteExisting = _prefs?.getBool('overwriteExisting') ?? true;
-    // Clamp on READ, not only on write: a value persisted on a 28-core desktop
-    // must not be applied verbatim after the folder moves to an 8-core laptop.
-    // getInt() throws a TypeError if the stored value was written under a
-    // different type (e.g. a corrupted or hand-edited prefs store) -- guard
-    // that so a bad stored value falls back to the default width instead of
-    // crashing app startup.
-    final storedLaneWidth = _readIntPref('decodeLaneWidth');
-    _decodeLaneWidth = (storedLaneWidth ?? kDefaultDecodeLaneWidth).clamp(
-      1,
-      kMaxDecodeLaneWidth,
+    final r = SettingsCodec.read(
+      _prefs,
+      selectableFiletypes: selectableExportFiletypes,
     );
-    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
-
-    // Each read below stands alone: a corrupt export quality must not take
-    // down the retention tier, and one bad shortcut entry costs one binding.
-    _exportJpegQuality = _normaliseExportQuality(_readIntPref('exportJpegQuality'));
-    _exportService.jpegQuality = _exportJpegQuality;
-
-    _exportLongEdge = _normaliseExportLongEdge(_readIntPref('exportLongEdge'));
-    _exportService.longEdge = _exportLongEdge;
-
-    _exportFiletypeIntentName = _readStringPref('exportFiletype');
-    _exportFiletype = _normaliseExportFiletype(_exportFiletypeIntentName);
-    _exportService.filetype = _exportFiletype;
+    _settings = r.settings;
+    _exportFiletypeIntentName = r.exportFiletypeIntentName;
+    // Unconditional collaborator pushes, in the pre-refactor order.
+    _preloadController.setDecodeLaneWidth(_settings.decodeLaneWidth);
+    _exportService.jpegQuality = _settings.exportJpegQuality;
+    _exportService.longEdge = _settings.exportLongEdge;
+    _exportService.filetype = _settings.exportFiletype;
     // Fire-and-forget: resolving runtime capability requires a native call
-    // that must not block prefs hydration/first paint. It normalises
-    // `_exportFiletype` again and notifies once it completes (see doc on
+    // that must not block prefs hydration/first paint. It re-normalises the
+    // effective filetype and notifies once it completes (see
     // [resolveExportCapabilities]).
     unawaited(resolveExportCapabilities());
-
-    _themeMode = _themeModeFromName(_readStringPref('themeMode'));
-    _layoutThemeId = _layoutThemeIdFromName(_readStringPref('layoutThemeId'));
-
-    final tierId = _readStringPref('retentionTier');
-    _retentionTierOverride = tierId == null ? null : retentionTierFromId(tierId);
     _preloadController.setRetention(retentionPolicyForTier(retentionTier));
 
-    var bindings = ShortcutBindings.defaults();
-    for (final action in ShortcutAction.values) {
-      final keyId = _readIntPref(action.prefsKey);
-      if (keyId != null) {
-        // An unknown keyId yields a synthetic key that matches nothing; that
-        // is strictly better than dropping the other six bindings.
-        bindings = bindings.withBinding(action, LogicalKeyboardKey(keyId));
-      }
-    }
-    _shortcuts = bindings;
-
-    // Guards the same race documented on resolveExportCapabilities (:514):
-    // this method awaits SharedPreferences.getInstance() before reaching
-    // here, and a short-lived AppState (e.g. a test) may already be disposed
-    // by the time that resolves -- notifyListeners() on a disposed
-    // ChangeNotifier throws.
+    // Guards the race documented on [resolveExportCapabilities]: this method
+    // awaits SharedPreferences.getInstance() before reaching here, and a
+    // short-lived AppState (e.g. a test) may already be disposed by the time
+    // that resolves -- notifyListeners() on a disposed ChangeNotifier throws.
     if (_disposed) return;
     notifyListeners();
-  }
-
-  /// getInt/getString throw a TypeError when the stored value was written
-  /// under a different type (a corrupted or hand-edited prefs store); one
-  /// guarded-read idiom instead of six copies of the try/catch.
-  int? _readIntPref(String key) {
-    try {
-      return _prefs?.getInt(key);
-    } catch (_) {
-      return null; // wrong stored type; fall back to the default
-    }
-  }
-
-  String? _readStringPref(String key) {
-    try {
-      return _prefs?.getString(key);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Unknown / malformed stored values fall back to the default rather than
-  /// throwing, matching every other read in [_initPrefs].
-  static ThemeMode _themeModeFromName(String? raw) {
-    for (final mode in ThemeMode.values) {
-      if (mode.name == raw) return mode;
-    }
-    return kDefaultThemeMode;
-  }
-
-  static LayoutThemeId _layoutThemeIdFromName(String? raw) {
-    for (final id in LayoutThemeId.values) {
-      if (id.name == raw) return id;
-    }
-    return kDefaultLayoutThemeId;
-  }
-
-  int _normaliseExportQuality(int? raw) =>
-      raw == null ? kDefaultExportJpegQuality : ((raw / 5).round() * 5).clamp(50, 100);
-
-  /// Unlike quality, the size stops are not evenly spaced (and 0 is a
-  /// sentinel, not a size), so this is a set-membership check rather than a
-  /// round-to-nearest -- an unrecognised stored value falls back to the
-  /// default instead of snapping to a neighbour.
-  int _normaliseExportLongEdge(int? raw) =>
-      raw != null && kExportLongEdgeStops.contains(raw)
-          ? raw
-          : kDefaultExportLongEdge;
-
-  /// Falls back to the default for a garbage/unknown name AND for a
-  /// recognised-but-runtime-unavailable one (see [ExportFiletype]'s doc): a
-  /// value this build cannot encode must never be applied, whether it
-  /// arrived from a corrupt pref or from an older/different build of this
-  /// app whose capability set differs from this one's.
-  ExportFiletype _normaliseExportFiletype(String? raw) {
-    for (final type in ExportFiletype.values) {
-      if (type.name == raw) {
-        return selectableExportFiletypes.contains(type)
-            ? type
-            : kDefaultExportFiletype;
-      }
-    }
-    return kDefaultExportFiletype;
   }
 
   // Zoom/animation state deliberately does NOT live here: it is pure view
@@ -578,20 +430,20 @@ class AppState extends ChangeNotifier {
       _items.where((item) => item.status == PhotoStatus.trashed).length;
   String? get selectedItemID => _selectedItemID;
   Directory? get currentDir => _currentDir;
-  bool get autoAdvance => _autoAdvance;
+  bool get autoAdvance => _settings.autoAdvance;
 
   /// Drives `MaterialApp.themeMode` (main.dart). `system` resolves through the
   /// platform brightness, so this is the stored intent, not the rendering.
-  ThemeMode get themeMode => _themeMode;
+  ThemeMode get themeMode => _settings.themeMode;
 
   /// Selects which [LayoutTheme] the whole app arranges itself with, via
   /// `layoutThemeFor`. Replaced the `kActiveLayoutThemeId` constant.
-  LayoutThemeId get layoutThemeId => _layoutThemeId;
-  bool get overwriteExisting => _overwriteExisting;
+  LayoutThemeId get layoutThemeId => _settings.layoutThemeId;
+  bool get overwriteExisting => _settings.overwriteExisting;
 
   bool get recycleMode => _recycleMode;
 
-  int get decodeLaneWidth => _decodeLaneWidth;
+  int get decodeLaneWidth => _settings.decodeLaneWidth;
 
   /// The largest width the user may set. Fixed on every platform (AD-044).
   int get maxDecodeLaneWidth => kMaxDecodeLaneWidth;
@@ -609,21 +461,20 @@ class AppState extends ChangeNotifier {
   List<int>? get decodeWidthRecommendations =>
       halcyonDecodeWidthRecommendations();
 
-  int get exportJpegQuality => _exportJpegQuality;
+  int get exportJpegQuality => _settings.exportJpegQuality;
 
-  int get exportLongEdge => _exportLongEdge;
+  int get exportLongEdge => _settings.exportLongEdge;
 
-  ExportFiletype get exportFiletype => _exportFiletype;
+  ExportFiletype get exportFiletype => _settings.exportFiletype;
 
-  /// Build intent INTERSECTED with runtime capability (ruling Q4). The
-  /// settings panel's segmented control and [_normaliseExportFiletype] both
-  /// read this, not [ExportFiletype.buildIntent] alone.
+  /// The export filetypes the native library reported as available at runtime
+  /// (ruling Q4), in enum order; just the default when none were. The
+  /// settings panel's segmented control and [SettingsCodec.normaliseFiletype] both
+  /// read this.
   List<ExportFiletype> get selectableExportFiletypes {
     final caps = _runtimeExportCapabilities;
     if (caps.isEmpty) return const [kDefaultExportFiletype];
-    return ExportFiletype.values
-        .where((f) => f.buildIntent && caps.contains(f))
-        .toList();
+    return ExportFiletype.values.where(caps.contains).toList();
   }
 
   /// Probes the native library once. Safe to call before the dylib exists:
@@ -634,7 +485,6 @@ class AppState extends ChangeNotifier {
     final svc = service ?? CeyxEncodeService();
     final found = <ExportFiletype>{};
     for (final ft in ExportFiletype.values) {
-      if (!ft.buildIntent) continue;
       if (await svc.supports(ft.format)) found.add(ft);
     }
     // The probe above is fired-and-forgotten from `_initPrefs`/the app-startup
@@ -644,28 +494,30 @@ class AppState extends ChangeNotifier {
     // throws, so this must bail out instead of touching state or listeners.
     if (_disposed) return;
     _runtimeExportCapabilities = found.isEmpty ? const {} : found;
-    // Re-normalise from the ORIGINAL intent name, not `_exportFiletype.name`:
-    // `_initPrefs` may already have downgraded `_exportFiletype` to the
-    // default before capability was known, and renormalising from that
-    // already-downgraded name would permanently discard the user's real
-    // preference the moment it turns out to be runtime-available.
-    _exportFiletype =
-        _normaliseExportFiletype(_exportFiletypeIntentName ?? _exportFiletype.name);
-    _exportService.filetype = _exportFiletype;
+    // THE one settings write that bypasses [_apply], deliberately: a
+    // capability-driven re-normalisation is never persisted (the stored
+    // intent must survive a run on a build that cannot encode it).
+    // Re-normalise from the ORIGINAL intent name, not the effective name:
+    // hydration may already have downgraded the effective value before
+    // capability was known, and renormalising from that would permanently
+    // discard the user's real preference.
+    final effective = SettingsCodec.normaliseFiletype(
+      _exportFiletypeIntentName ?? _settings.exportFiletype.name,
+      selectableExportFiletypes,
+    );
+    _settings = _settings.copyWith(exportFiletype: effective);
+    _exportService.filetype = effective;
     notifyListeners();
   }
 
   /// The tier this machine derives from its own RAM, i.e. what "Auto" means.
   RetentionTier get autoRetentionTier => _autoRetentionTier;
-  RetentionTier get retentionTier => _retentionTierOverride ?? _autoRetentionTier;
-  bool get isRetentionTierOverridden => _retentionTierOverride != null;
-  ShortcutBindings get shortcutBindings => _shortcuts;
-
-  StatusMessage? get status => _status;
-  int get statusSeq => _statusSeq;
+  RetentionTier get retentionTier =>
+      _settings.retentionTierOverride ?? _autoRetentionTier;
+  bool get isRetentionTierOverridden => _settings.retentionTierOverride != null;
+  ShortcutBindings get shortcutBindings => _settings.shortcuts;
 
   void showStatus(StatusMessage message) {
-    _status = message;
     _statusSeq++;
     statusEvents.value = StatusEvent(_statusSeq, message);
   }
@@ -935,7 +787,7 @@ class AppState extends ChangeNotifier {
         item.status = PhotoStatus.unmarked; // Toggle off if already set
       } else {
         item.status = status;
-        if (_autoAdvance) {
+        if (_settings.autoAdvance) {
           nextPhoto();
         }
       }
@@ -966,38 +818,46 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void setAutoAdvance(bool value) {
-    _autoAdvance = value;
-    _prefs?.setBool('autoAdvance', value);
+  /// THE single settings write path: persist the changed fields, push the
+  /// changed fields to the collaborators that hold their own copies, notify
+  /// once (always -- every setter notified unconditionally before this).
+  void _apply(AppSettings next) {
+    final old = _settings;
+    _settings = next;
+    SettingsCodec.persistDiff(_prefs, old, next);
+    if (old.decodeLaneWidth != next.decodeLaneWidth) {
+      _preloadController.setDecodeLaneWidth(next.decodeLaneWidth);
+    }
+    if (old.retentionTierOverride != next.retentionTierOverride) {
+      _preloadController.setRetention(retentionPolicyForTier(
+          next.retentionTierOverride ?? _autoRetentionTier));
+    }
+    if (old.exportJpegQuality != next.exportJpegQuality) {
+      _exportService.jpegQuality = next.exportJpegQuality;
+    }
+    if (old.exportLongEdge != next.exportLongEdge) {
+      _exportService.longEdge = next.exportLongEdge;
+    }
+    if (old.exportFiletype != next.exportFiletype) {
+      _exportService.filetype = next.exportFiletype;
+    }
     notifyListeners();
   }
 
-  void setOverwriteExisting(bool value) {
-    _overwriteExisting = value;
-    _prefs?.setBool('overwriteExisting', value);
-    notifyListeners();
-  }
+  void setAutoAdvance(bool value) =>
+      _apply(_settings.copyWith(autoAdvance: value));
 
-  void setDecodeLaneWidth(int value) {
-    _decodeLaneWidth = value.clamp(1, kMaxDecodeLaneWidth);
-    _prefs?.setInt('decodeLaneWidth', _decodeLaneWidth);
-    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
-    notifyListeners();
-  }
+  void setOverwriteExisting(bool value) =>
+      _apply(_settings.copyWith(overwriteExisting: value));
 
-  void setExportJpegQuality(int quality) {
-    _exportJpegQuality = _normaliseExportQuality(quality);
-    _prefs?.setInt('exportJpegQuality', _exportJpegQuality);
-    _exportService.jpegQuality = _exportJpegQuality;
-    notifyListeners();
-  }
+  void setDecodeLaneWidth(int value) => _apply(_settings.copyWith(
+      decodeLaneWidth: SettingsCodec.clampLaneWidth(value)));
 
-  void setExportLongEdge(int longEdge) {
-    _exportLongEdge = _normaliseExportLongEdge(longEdge);
-    _prefs?.setInt('exportLongEdge', _exportLongEdge);
-    _exportService.longEdge = _exportLongEdge;
-    notifyListeners();
-  }
+  void setExportJpegQuality(int quality) => _apply(_settings.copyWith(
+      exportJpegQuality: SettingsCodec.normaliseQuality(quality)));
+
+  void setExportLongEdge(int longEdge) => _apply(_settings.copyWith(
+      exportLongEdge: SettingsCodec.normaliseLongEdge(longEdge)));
 
   void setExportFiletype(ExportFiletype filetype) {
     // Record the user's real intent BEFORE gating: a later
@@ -1005,54 +865,44 @@ class AppState extends ChangeNotifier {
     // explicit pick a capability probe hasn't caught up with yet is not
     // lost the way a persisted-but-unresolved pref would be.
     _exportFiletypeIntentName = filetype.name;
-    _exportFiletype = selectableExportFiletypes.contains(filetype)
+    final effective = selectableExportFiletypes.contains(filetype)
         ? filetype
         : kDefaultExportFiletype;
-    _prefs?.setString('exportFiletype', _exportFiletype.name);
-    _exportService.filetype = _exportFiletype;
-    notifyListeners();
+    // An explicit pick always persists its effective name, even when the
+    // effective value is unchanged: the stored name may be a pending intent
+    // (e.g. 'heif' on a build that cannot encode it) that this pick must
+    // overwrite. [_apply] persists only changed fields, so write it here.
+    // Pinned by TC-452 / TC-476 (app_state_settings_test.dart).
+    if (effective == _settings.exportFiletype) {
+      _prefs?.setString(SettingsCodec.kExportFiletype, effective.name);
+    }
+    _apply(_settings.copyWith(exportFiletype: effective));
   }
 
-  void setThemeMode(ThemeMode mode) {
-    _themeMode = mode;
-    _prefs?.setString('themeMode', mode.name);
-    notifyListeners();
-  }
+  void setThemeMode(ThemeMode mode) =>
+      _apply(_settings.copyWith(themeMode: mode));
 
-  void setLayoutThemeId(LayoutThemeId id) {
-    _layoutThemeId = id;
-    _prefs?.setString('layoutThemeId', id.name);
-    notifyListeners();
-  }
+  void setLayoutThemeId(LayoutThemeId id) =>
+      _apply(_settings.copyWith(layoutThemeId: id));
 
-  void setRetentionTier(RetentionTier tier) {
-    _retentionTierOverride = tier;
-    _prefs?.setString('retentionTier', tier.id);
-    _preloadController.setRetention(retentionPolicyForTier(tier));
-    notifyListeners();
-  }
+  void setRetentionTier(RetentionTier tier) =>
+      _apply(_settings.copyWith(retentionTierOverride: tier));
 
-  void resetRetentionTierToAuto() {
-    _retentionTierOverride = null;
-    _prefs?.remove('retentionTier');
-    _preloadController.setRetention(retentionPolicyForTier(_autoRetentionTier));
-    notifyListeners();
-  }
+  void resetRetentionTierToAuto() =>
+      _apply(_settings.copyWith(retentionTierOverride: null));
 
-  void setShortcutBinding(ShortcutAction action, LogicalKeyboardKey key) {
-    // Conflicts are ACCEPTED here by design: the panel warns and dispatch has
-    // a deterministic winner (ShortcutBindings.actionFor). Blocking would make
-    // the mockup's warning state unreachable.
-    _shortcuts = _shortcuts.withBinding(action, key);
-    _prefs?.setInt(action.prefsKey, key.keyId);
-    notifyListeners();
-  }
+  // Conflicts are ACCEPTED here by design: the panel warns and dispatch has
+  // a deterministic winner (ShortcutBindings.actionFor). Blocking would make
+  // the mockup's warning state unreachable.
+  void setShortcutBinding(ShortcutAction action, LogicalKeyboardKey key) =>
+      _apply(_settings.copyWith(
+          shortcuts: _settings.shortcuts.withBinding(action, key)));
 
-  void resetShortcutBinding(ShortcutAction action) {
-    _shortcuts = _shortcuts.withDefault(action);
-    _prefs?.remove(action.prefsKey);
-    notifyListeners();
-  }
+  void resetShortcutBinding(ShortcutAction action) => _apply(
+      _settings.copyWith(shortcuts: _settings.shortcuts.withDefault(action)));
+
+  void resetAllShortcutBindings() =>
+      _apply(_settings.copyWith(shortcuts: ShortcutBindings.defaults()));
 
   /// Restores every persisted preference to its default and wipes the store.
   ///
@@ -1071,26 +921,17 @@ class AppState extends ChangeNotifier {
   /// Star and trash marks are NOT touched: they live in each photo folder's
   /// own `.halcyon_status.json`, which this method never opens.
   Future<void> resetAllSettings() async {
-    _themeMode = kDefaultThemeMode;
-    _layoutThemeId = kDefaultLayoutThemeId;
-    _autoAdvance = false;
-    _overwriteExisting = true;
-    _decodeLaneWidth = kDefaultDecodeLaneWidth;
-    _exportJpegQuality = kDefaultExportJpegQuality;
-    _exportLongEdge = kDefaultExportLongEdge;
-    _exportFiletype = kDefaultExportFiletype;
+    _settings = AppSettings.defaults();
     _exportFiletypeIntentName = null;
-    _retentionTierOverride = null;
-    _shortcuts = ShortcutBindings.defaults();
 
     // The collaborators hold their own copies; resetting the field without
     // pushing it through is how a "reset" leaves the pipeline on the old
-    // value while the panel claims otherwise.
-    _preloadController.setDecodeLaneWidth(_decodeLaneWidth);
+    // value while the panel claims otherwise. Unconditional, as before.
+    _preloadController.setDecodeLaneWidth(_settings.decodeLaneWidth);
     _preloadController.setRetention(retentionPolicyForTier(retentionTier));
-    _exportService.jpegQuality = _exportJpegQuality;
-    _exportService.longEdge = _exportLongEdge;
-    _exportService.filetype = _exportFiletype;
+    _exportService.jpegQuality = _settings.exportJpegQuality;
+    _exportService.longEdge = _settings.exportLongEdge;
+    _exportService.filetype = _settings.exportFiletype;
 
     notifyListeners();
     // Awaited last: the in-memory reset and the notify must not wait on disk,
@@ -1099,72 +940,20 @@ class AppState extends ChangeNotifier {
     await _prefs?.clear();
   }
 
-  void resetAllShortcutBindings() {
-    _shortcuts = ShortcutBindings.defaults();
-    for (final action in ShortcutAction.values) {
-      _prefs?.remove(action.prefsKey);
-    }
-    notifyListeners();
-  }
+  /// The settings dialog's revert snapshot. [AppSettings] is immutable, so
+  /// the live value IS the snapshot -- no copy.
+  AppSettings settingsSnapshot() => _settings;
 
-  SettingsSnapshot settingsSnapshot() => SettingsSnapshot(
-        themeMode: _themeMode,
-        layoutThemeId: _layoutThemeId,
-        autoAdvance: _autoAdvance,
-        overwriteExisting: _overwriteExisting,
-        decodeLaneWidth: _decodeLaneWidth,
-        exportJpegQuality: _exportJpegQuality,
-        exportLongEdge: _exportLongEdge,
-        exportFiletype: _exportFiletype,
-        retentionTierOverride: _retentionTierOverride,
-        shortcuts: _shortcuts,
-      );
-
-  /// Puts every panel-changeable field back, prefs included.
-  ///
-  /// Each field goes back through its ordinary setter, so no path can revert
-  /// in-memory state while leaving the persisted value changed.
-  void restoreSettings(SettingsSnapshot snapshot) {
-    if (snapshot.themeMode != _themeMode) setThemeMode(snapshot.themeMode);
-    if (snapshot.layoutThemeId != _layoutThemeId) {
-      setLayoutThemeId(snapshot.layoutThemeId);
+  /// Puts every panel-changeable field back, prefs included, through the one
+  /// write path, so no path can revert in-memory state while leaving the
+  /// persisted value changed. Notifies once (sanctioned change, AR-3).
+  void restoreSettings(AppSettings snapshot) {
+    // Same intent rule as before the refactor: the revert re-records the
+    // intent only when the effective filetype actually changes back.
+    if (snapshot.exportFiletype != _settings.exportFiletype) {
+      _exportFiletypeIntentName = snapshot.exportFiletype.name;
     }
-    if (snapshot.autoAdvance != _autoAdvance) setAutoAdvance(snapshot.autoAdvance);
-    if (snapshot.overwriteExisting != _overwriteExisting) {
-      setOverwriteExisting(snapshot.overwriteExisting);
-    }
-    if (snapshot.decodeLaneWidth != _decodeLaneWidth) {
-      setDecodeLaneWidth(snapshot.decodeLaneWidth);
-    }
-    if (snapshot.exportJpegQuality != _exportJpegQuality) {
-      setExportJpegQuality(snapshot.exportJpegQuality);
-    }
-    if (snapshot.exportLongEdge != _exportLongEdge) {
-      setExportLongEdge(snapshot.exportLongEdge);
-    }
-    if (snapshot.exportFiletype != _exportFiletype) {
-      setExportFiletype(snapshot.exportFiletype);
-    }
-    if (snapshot.retentionTierOverride != _retentionTierOverride) {
-      final tier = snapshot.retentionTierOverride;
-      if (tier == null) {
-        resetRetentionTierToAuto();
-      } else {
-        setRetentionTier(tier);
-      }
-    }
-    if (snapshot.shortcuts != _shortcuts) {
-      for (final action in ShortcutAction.values) {
-        final key = snapshot.shortcuts.keyFor(action);
-        if (_shortcuts.keyFor(action) == key) continue;
-        if (key == action.defaultKey) {
-          resetShortcutBinding(action);
-        } else {
-          setShortcutBinding(action, key);
-        }
-      }
-    }
-    notifyListeners();
+    _apply(snapshot);
   }
 
   // Preload sliding window: before/after counts come from the active
@@ -1228,7 +1017,7 @@ class AppState extends ChangeNotifier {
         _items,
         destDir,
         move: move,
-        overwriteExisting: _overwriteExisting,
+        overwriteExisting: _settings.overwriteExisting,
       );
       if (outcome.failures.isNotEmpty) {
         // Previously debugPrint only, so a read-only destination or a
@@ -1272,63 +1061,18 @@ class AppState extends ChangeNotifier {
 
   Future<BatchDeleteResult> deleteTrashed() async {
     final dir = _currentDir;
-    final intendedRecycle = _recycleMode;
-    // The branch actually taken below depends on both the intent flag AND
-    // `dir != null`; feedback (recycled field) must reflect that actual
-    // branch, not just the intent flag, or it can claim recycling happened
-    // when the fallback direct-delete branch ran instead.
-    final tookRecycleBranch = intendedRecycle && dir != null;
-
-    var movedCount = 0;
-    final failures = <String>[];
-    String? trashDirPath;
-    var recycledResult = tookRecycleBranch;
-    var mixed = false;
-
-    try {
-      if (tookRecycleBranch) {
-        trashDirPath = p.join(dir.path, '.trash');
-        final outcome = await _fileActions.recycleTrashed(_items, dir);
-        movedCount = outcome.movedCount;
-        failures.addAll(outcome.failures);
-      } else {
-        final outcome = await _fileActions.deleteTrashed(_items);
-        failures.addAll(outcome.failures);
-        if (outcome.bridgeUnavailable) {
-          _bridgeUnavailableLatched = true;
-          if (dir != null) {
-            // Finish the batch where it CAN land. Files already in the
-            // system trash stay there; both destinations are recoverable,
-            // but the result must not claim a single destination (S2.4).
-            trashDirPath = p.join(dir.path, '.trash');
-            final fallback = await _fileActions.recycleTrashed(_items, dir);
-            movedCount = fallback.movedCount;
-            failures.addAll(fallback.failures);
-            recycledResult = true;
-            mixed = outcome.processedCount > 0;
-          } else {
-            // No folder in view: nowhere to recycle to. Report as before.
-            failures.add('Trash service is unavailable');
-          }
-        }
-      }
-    } catch (e) {
-      // Previously this only debugPrint()ed, so a card where the system trash
-      // is unavailable looked like a broken app. Report it instead.
-      failures.add('$e');
-    }
-
+    final out = await _fileActions.deleteBatch(
+      _items,
+      dir,
+      recycleMode: _recycleMode,
+    );
+    // Process-lifetime UI policy (read by loadFolder's recycle heuristic):
+    // the service reports the fact, the provider owns the latch.
+    if (out.bridgeUnavailable) _bridgeUnavailableLatched = true;
     if (dir != null) {
       await _reloadPreservingSelection(dir);
     }
-
-    return BatchDeleteResult(
-      recycled: recycledResult,
-      movedCount: movedCount,
-      failures: failures,
-      trashDirPath: trashDirPath,
-      mixedDestination: mixed,
-    );
+    return out.result;
   }
 
   Future<String?> loadSavedRenameRule() =>
@@ -1391,7 +1135,7 @@ class AppState extends ChangeNotifier {
     _exifGeneration++;
     final generation = _exifGeneration;
     _exifDebounceTimer?.cancel();
-    _exifDebounceTimer = Timer(kSelectionExifDebounce, () {
+    _exifDebounceTimer = Timer(_exifDebounce, () {
       _readSelectionExif(id, generation);
     });
   }
@@ -1433,8 +1177,8 @@ class AppState extends ChangeNotifier {
       all = const [null];
     }
     if (generation != _exifGeneration) return;
-    // Guards the same race documented on `_initPrefs` (:399) and
-    // `resolveExportCapabilities` (:549): this method awaits the EXIF reader,
+    // Guards the same race documented on `_initPrefs` and
+    // `resolveExportCapabilities`: this method awaits the EXIF reader,
     // and a short-lived AppState (a test, or a view torn down mid-read) may
     // already be disposed by the time that resolves -- `notifyListeners()` on
     // a disposed ChangeNotifier throws. `dispose()` cancels the debounce

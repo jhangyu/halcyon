@@ -32,10 +32,7 @@ import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart'
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 import '../../support/preload_fixtures.dart';
-
-/// Drains the publish pacer synchronously: without a frame hook a paced
-/// publication waits for a real frame that a headless test never produces.
-void _microtaskFrame(void Function() callback) => callback();
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -101,7 +98,7 @@ void main() {
     ({ImagePreloadController controller, Map<String, int> loads}) build() {
       final loads = <String, int>{};
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async {
           if (purpose == ImageRequestPurpose.preview) {
@@ -414,7 +411,7 @@ void main() {
     /// final band-minus-ready state use zero.
     ImagePreloadController build({Duration navigationDebounce = Duration.zero}) {
       final controller = ImagePreloadController(
-        scheduleFrameCallback: _microtaskFrame,
+        scheduleFrameCallback: immediateFrameCallback,
         navigationDebounce: navigationDebounce,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -745,7 +742,7 @@ void main() {
         // already re-registered from the RETAINED payload but the catch-up
         // decode has not landed yet.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           navigationDebounce: const Duration(milliseconds: 300),
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),

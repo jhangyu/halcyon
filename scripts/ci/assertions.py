@@ -12,13 +12,13 @@ them, 2026-08-30):
     the five, and ``run_suite()`` calls it first, so an under-specified
     assertion can never run.
   * The instrument must test the capability, not a proxy for it. The
-    sized-symbol assertion is a functional FFI probe (``DynamicLibrary.open`` +
-    ``lookup``) because that is the question the loader answers at runtime on
-    every platform. The ``nm``/``dumpbin`` symbol-table instrument is kept only
-    as the secondary record ``H-SIZED-SYMBOL-NM``, and is NOT ``valid_on``
-    windows: PE exports nothing by default, so on Windows the symbol table
-    measures a build-system setting rather than reachability (OQ-1 ruling c,
-    PL-9).
+    entry-point assertion ``H-CEYX-SYMBOLS`` is a functional FFI probe
+    (``DynamicLibrary.open`` + ``lookup``) because that is the question the
+    loader answers at runtime on every platform. The ``nm``/``dumpbin``
+    symbol-table instrument is kept only as the secondary record
+    ``H-CEYX-SYMBOLS-NM``, and is NOT ``valid_on`` windows: PE exports nothing
+    by default, so on Windows the symbol table measures a build-system setting
+    rather than reachability (OQ-1 ruling c, PL-9).
   * A silently skipped gate produces a green report indistinguishable from a
     full run (2026-08-25). So: a skip for an artefact on its OWN platform is a
     FAILURE, every legitimate skip prints exactly one ``SKIP:`` line, and the
@@ -42,37 +42,28 @@ import hashlib
 import json
 import os
 import shutil
-import struct
 import sys
-import tarfile
 import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import report, targets
+from . import binfmt, report, sources, targets
 from .run import run
 
 SYMBOL = "ceyx_decode_into_buffer_oriented"
 
 # 2026-09-08 (ceyx v0.1.19 re-pin): SYMBOL used to be
-# "dng_decode_and_process_sized". Upstream DELETED that entry point in ceyx
-# 53d61d1 (decode-pool retirement), so the single-symbol record was measuring a
-# name that no longer exists and every capability leg went red. It now points at
+# "dng_decode_and_process_sized"; upstream DELETED that entry point in ceyx
+# 53d61d1 (decode-pool retirement). It now names
 # ceyx_decode_into_buffer_oriented — upstream's own replacement positive control
 # (ceyx 364b962): always compiled, always CEYX_FFI_EXPORT'd, hence valid on PE
-# too. The assertion IDS are deliberately unchanged (H-SIZED-SYMBOL / -NM):
-# they are stable identifiers referenced by scripts/ci/targets.py and by the
-# archived red-state artefacts, and renaming them would invalidate that record
-# without measuring anything new.
+# too. It is CEYX_SYMBOLS[0] and ffi_probe.dart's default symbol.
 #
-# The full entry-point set the Dart side looks up in the shipped decoder. SYMBOL
-# above is the single-symbol record (H-SIZED-SYMBOL / -NM); this tuple is what
-# H-CEYX-SYMBOLS-NM checks, and it includes SYMBOL so that assertion is a strict
-# superset rather than a parallel truth. Verified present in the v0.1.19 shipped
-# dylib on 2026-09-08 (`nm -gU` dumped to a file, then matched — see
-# docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt: all three listed, and neither
-# dng_decode_and_process nor …_sized survives).
+# The full entry-point set the Dart side looks up in the shipped decoder; this
+# tuple is what H-CEYX-SYMBOLS and H-CEYX-SYMBOLS-NM check. Verified present in
+# the v0.1.19 shipped dylib on 2026-09-08 (`nm -gU` dumped to a file, then
+# matched — see docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt: all three
+# listed, and neither dng_decode_and_process nor …_sized survives).
 # NOTE the leading-underscore convention: Mach-O prefixes C symbols with "_", so
 # nm prints "_ceyx_probe_output_size". check_symbol() does a substring match, so
 # the undecorated spelling below matches on both Mach-O and ELF.
@@ -88,13 +79,15 @@ CEYX_SYMBOLS = (
 _HOST_BY_SYS_PLATFORM = {"darwin": "macos", "linux": "linux", "win32": "windows"}
 
 # The runner executable's basename is a per-platform FACT and therefore lives in
-# targets.py (G-5), never here: only macOS is named after the product, Windows is
-# lowercase and Linux still carries the pre-rename project name. A hardcoded
+# targets.py (G-5), never here: only macOS is named after the product; Windows
+# and Linux are lowercase. A hardcoded
 # ("Halcyon", "Halcyon.exe") tuple used to live here and made H-ARCH unfalsifiable
 # on two of the three platforms it claims to be valid_on.
 
 # How many observed executable-bit members a failure message may list.
 _MAX_OBSERVED_LISTED = 10
+
+_NO_DECODER = "scripts/ci/targets.py declares no decoder_artifact for this target"
 
 
 @dataclass(frozen=True)
@@ -128,7 +121,7 @@ SUITE = {
             "an x86_64 executable for the macos target): it fails naming both "
             "the expected and the observed arch"
         ),
-        expected="observed arch == the target's expected_arch in dng_ffi_artifacts.json",
+        expected="observed arch == the target's expected_arch in scripts/ci/targets.py",
     ),
     "H-DECODER-PRESENT": Assertion(
         id="H-DECODER-PRESENT",
@@ -153,29 +146,23 @@ SUITE = {
         id="H-DECODER-DEPS",
         measures=(
             "every ceyx library the pin declares for this platform is in the "
-            "artefact TOGETHER (on Windows: the decoder plus its declared "
-            "companions — heif.dll, libde265.dll, and libomp140.x86_64.dll — "
-            "the Windows group grew to 4 at the v0.1.24 repin (2026-09-13, "
-            "WI-4/OQ-N2 ruled SHIP); on macOS: the decoder plus its declared "
-            "companions per ceyx.podspec vendored_libraries, currently four "
-            "(jpeg, heif, de265, omp) — liblcms2.2.dylib was removed at the "
-            "v0.1.24 repin (2026-09-13) following upstream's lcms2 removal, "
-            "which is the drop WI-5/OQ-N4 anticipated)"
+            "artefact TOGETHER: the decoder plus every companion library listed "
+            "in ceyx_release_pin.json assets.<platform>.libraries (the set is "
+            "whatever the current pin declares; no count is stated here because "
+            "it changes with repins)"
         ),
         valid_on=("windows", "macos"),
         why_valid=(
             "The expected list is read as data from ceyx_release_pin.json's "
-            "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so "
-            "adding a fourth DLL to the pin extended the gate automatically, "
-            "with no change to this assertion. It "
-            "measures the exact failure ceyx_release_pin.json:11-16 describes: "
-            "a Windows install missing a dynamic import fails at "
-            "DynamicLibrary.open with an error naming only the decoder. On "
-            "macOS the same shape applies to the macOS atomic group added "
-            "by the HALCYON-MIGRATION campaign (2026-09, tag v0.1.8) — six "
-            "dylibs then, five since the v0.1.24 repin: a "
-            "partial fetch/package would produce an app that fails at load "
-            "time naming only the decoder, never the missing companion."
+            "assets.<platform>.libraries — never hardcoded (R-1a/R-1c) — so a "
+            "repin that adds or removes a companion library moves the gate "
+            "automatically, with no change to this assertion. It measures the "
+            "exact failure this gate exists for: a Windows install missing a "
+            "dynamic import fails at DynamicLibrary.open with an error naming "
+            "only the decoder. On macOS the same shape applies to the macOS "
+            "atomic group added by the HALCYON-MIGRATION campaign (2026-09, tag "
+            "v0.1.8): a partial fetch/package would produce an app that fails "
+            "at load time naming only the decoder, never the missing companion."
         ),
         red_state=(
             "delete any one pinned member from a staging copy of the archive: "
@@ -264,58 +251,6 @@ SUITE = {
             "file's LC_UUID == the pin's uuid field"
         ),
     ),
-    "H-SIZED-SYMBOL": Assertion(
-        id="H-SIZED-SYMBOL",
-        measures=(
-            f"{SYMBOL} is REACHABLE at runtime in the shipped decoder — the "
-            "loader resolves it, not merely a symbol table listing it"
-        ),
-        valid_on=("macos", "linux", "windows"),
-        why_valid=(
-            "scripts/ci/probe/ffi_probe.dart performs DynamicLibrary.open + "
-            "lookup, i.e. it asks the platform loader the same question the app "
-            "asks. This is capability, not proxy, and it is format-agnostic — "
-            "which is exactly why it, and not nm/dumpbin, is valid on Windows "
-            "(OQ-1 ruling c). It can only run where the library is loadable, so "
-            "it applies on the artefact's own platform; on a foreign host it "
-            "reports a SKIP with that reason rather than a false pass."
-        ),
-        red_state=(
-            "point the probe at a nonexistent path or a library built without "
-            "the symbol: PROBE-FAIL on stderr and exit 1 (demonstrated: "
-            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt; re-demonstrated "
-            "for the v0.1.19 symbol rename in "
-            "docs/logs/2026-09-08/red-probe-bogus-symbol.txt, green control in "
-            "docs/logs/2026-09-08/green-probe-oriented.txt)"
-        ),
-        expected="probe exits 0 printing PROBE-OK",
-    ),
-    "H-SIZED-SYMBOL-NM": Assertion(
-        id="H-SIZED-SYMBOL-NM",
-        measures=(
-            f"{SYMBOL} appears in the decoder's dynamic symbol table "
-            "(secondary cross-check of H-SIZED-SYMBOL)"
-        ),
-        valid_on=("macos", "linux"),
-        why_valid=(
-            "On Mach-O and ELF, default symbol visibility is permissive: a "
-            "symbol listed by nm really is resolvable by dlsym, so the table "
-            "agrees with the runtime. WINDOWS IS DELIBERATELY EXCLUDED from "
-            "valid_on: PE exports nothing unless the build declares it, so "
-            "dumpbin /exports measures a build-system setting, not runtime "
-            "reachability — ceyx spent two rounds forcing a healthy artefact to "
-            "satisfy that instrument (2026-08-30). Windows may only be "
-            "re-included after its red state is demonstrated on a real Windows "
-            "runner (PL-9). nm's output is captured to a str and matched in "
-            "Python, never piped to grep (G-3: `nm | grep -q` returns 141 under "
-            "pipefail when the symbol IS found)."
-        ),
-        red_state=(
-            "run against a library built without the symbol, or strip it: nm's "
-            "captured output does not contain the symbol and the assertion fails"
-        ),
-        expected=f"'{SYMBOL}' occurs in the captured nm output",
-    ),
     "H-DECODER-ARCH": Assertion(
         id="H-DECODER-ARCH",
         measures=(
@@ -344,7 +279,7 @@ SUITE = {
             "fetch the macos-arm64 pin entry for the macos-x64 leg): the "
             "assertion fails naming both the expected and the observed arch"
         ),
-        expected="observed decoder arch == the target's expected_arch in dng_ffi_artifacts.json",
+        expected="observed decoder arch == the target's expected_arch in scripts/ci/targets.py",
     ),
     "H-CEYX-SYMBOLS-NM": Assertion(
         id="H-CEYX-SYMBOLS-NM",
@@ -355,17 +290,20 @@ SUITE = {
         ),
         valid_on=("macos", "linux"),
         why_valid=(
-            "Same instrument and same validity argument as H-SIZED-SYMBOL-NM "
-            "(Mach-O/ELF default visibility means a listed symbol really is "
-            "dlsym-resolvable), applied to the whole set instead of one member "
-            "of it. It exists because a guarded FFI lookup nulls out the ENTIRE "
-            "binding when ANY one symbol is missing, so a decoder carrying only "
-            "the historical symbol ships a silently absent feature — the "
-            "2026-09-06 incident. Windows is excluded for the identical reason "
-            "H-SIZED-SYMBOL-NM excludes it (PE exports nothing by default, so "
-            "the symbol table measures a build setting, not reachability). The "
-            "tool's output is captured to a str and matched in Python, never "
-            "piped to grep (G-3)."
+            "Mach-O/ELF default symbol visibility is permissive: a symbol "
+            "listed by nm really is dlsym-resolvable, so the table agrees with "
+            "the runtime. It exists because a guarded FFI lookup nulls out the "
+            "ENTIRE binding when ANY one symbol is missing, so a decoder "
+            "carrying only the historical symbol ships a silently absent "
+            "feature — the 2026-09-06 incident. WINDOWS IS DELIBERATELY "
+            "EXCLUDED from valid_on: PE exports nothing unless the build "
+            "declares it, so dumpbin /exports measures a build-system setting, "
+            "not runtime reachability — ceyx spent two rounds forcing a "
+            "healthy artefact to satisfy that instrument (2026-08-30). Windows "
+            "may only be re-included after its red state is demonstrated on a "
+            "real Windows runner (PL-9). The tool's output is captured to a str "
+            "and matched in Python, never piped to grep (G-3: `nm | grep -q` "
+            "returns 141 under pipefail when the symbol IS found)."
         ),
         red_state=(
             "run against a decoder built without ceyx_decode_into_buffer_oriented "
@@ -384,25 +322,31 @@ SUITE = {
         ),
         valid_on=("macos", "linux", "windows"),
         why_valid=(
-            "Same instrument and same validity argument as H-SIZED-SYMBOL: "
             "scripts/ci/probe/ffi_probe.dart performs DynamicLibrary.open + "
             "lookup, which asks the platform loader the same question the app "
             "asks, so it is capability, not proxy, and it is format-agnostic — "
             "which is exactly why it, and not nm/dumpbin, is valid on Windows "
-            "(OQ-1 ruling c — the 2026-08/09 ci-rewrite campaign's OQ-1, "
-            "already cited at assertions.py:266 and ffi_probe.dart:1; NOT this "
-            "campaign's OQ-C1). It exists because a guarded FFI lookup nulls "
-            "out the ENTIRE binding when ANY one symbol is missing, so a "
-            "decoder carrying only the historical symbol ships a silently "
-            "absent feature — the 2026-09-06 incident. Checking the whole SET "
-            "functionally, not just the symbol table, is what closes that gap "
-            "on Windows too, where the symbol table is not a valid instrument."
+            "(OQ-1 ruling c — the 2026-08/09 ci-rewrite campaign's OQ-1, also "
+            "cited in ffi_probe.dart's header; NOT this campaign's OQ-C1). It "
+            "can only run where the library is loadable, so it applies on the "
+            "artefact's own platform; on a foreign host it reports a SKIP with "
+            "that reason rather than a false pass. It exists because a guarded "
+            "FFI lookup nulls out the ENTIRE binding when ANY one symbol is "
+            "missing, so a decoder carrying only the historical symbol ships a "
+            "silently absent feature — the 2026-09-06 incident. Checking the "
+            "whole SET functionally, not just the symbol table, is what closes "
+            "that gap on Windows too, where the symbol table is not a valid "
+            "instrument."
         ),
         red_state=(
             "append a bogus symbol to the probe invocation against the real "
             "shipped decoder: exit 1 with PROBE-FAIL naming that symbol "
             "(demonstrated: docs/logs/2026-09-12/red-ceyx-symbols.txt, green "
-            "control docs/logs/2026-09-12/green-ceyx-symbols.txt)"
+            "control docs/logs/2026-09-12/green-ceyx-symbols.txt; the same "
+            "probe's earlier single-symbol red states: "
+            "docs/logs/2026-08-31/red-state-H-SIZED-SYMBOL.txt and "
+            "docs/logs/2026-09-08/red-probe-bogus-symbol.txt, green control "
+            "docs/logs/2026-09-08/green-probe-oriented.txt)"
         ),
         expected="probe exits 0 printing one PROBE-OK line per symbol in "
         + ", ".join(CEYX_SYMBOLS),
@@ -433,7 +377,7 @@ SUITE = {
             "run against the v1.0.15 zip (built before the delay-load): exit 1 "
             "naming flutter_windows.dll, desktop_drop_plugin.dll and "
             "file_selector_windows_plugin.dll as static imports (demonstrated: "
-            "scripts/tmp/debug2/fix/pe_gate.txt)"
+            "a scratch capture, not retained)"
         ),
         expected=(
             "flutter_windows.dll is in the delay imports and neither it nor "
@@ -471,18 +415,6 @@ def _load_json(path):
         return json.load(handle)
 
 
-def ffi_entry_for(repo_root, target):
-    """The dng_ffi_artifacts.json platform entry whose ci_target is `target`.
-
-    Returns None when no entry claims this target (web, android-apk).
-    """
-    manifest = _load_json(Path(repo_root) / "scripts" / "dng_ffi_artifacts.json")
-    for entry in manifest["platforms"].values():
-        if entry.get("ci_target") == target:
-            return entry
-    return None
-
-
 def platform_of(repo_root, target):
     """The artefact platform name (macos/windows/linux/android) for a CI target.
 
@@ -491,8 +423,8 @@ def platform_of(repo_root, target):
 
     Why this is NOT derived from dng_ffi_artifacts.json's key any more: two CI
     legs can ship the SAME platform for different architectures (macos /
-    macos-x64), and each needs its own manifest entry for expected_arch and
-    decoder_artifact. Deriving the platform name from the manifest KEY would
+    macos-x64), and each carries its own expected_arch and decoder_artifact
+    in targets.py. Deriving the platform name from the manifest KEY would
     have given the x64 leg a platform of its own ("macos-x86_64"), which is in
     no assertion's ``valid_on`` and, worse, would never equal ``host_platform()``
     — so run_suite()'s "a skip on the artefact's OWN platform is a FAILURE" rule
@@ -515,228 +447,15 @@ def pinned_libraries(repo_root, pin_platform):
 
 
 # --------------------------------------------------------------------------
-# Architecture, read structurally from the file's own header
-# --------------------------------------------------------------------------
-
-_MACHO_CPU = {0x0100000C: "arm64", 0x01000007: "x86_64", 0x00000007: "i386"}
-_ELF_MACHINE = {0x3E: "x86_64", 0xB7: "aarch64", 0x28: "arm", 0x03: "i386"}
-_PE_MACHINE = {0x8664: "x86_64", 0xAA64: "arm64", 0x14C: "i386"}
-
-
-def machine_arch(data):
-    """Return the architecture name encoded in a Mach-O/ELF/PE header.
-
-    Raises ValueError when the bytes are not a recognised executable format.
-    """
-    if len(data) < 64:
-        raise ValueError("file too short to carry an executable header")
-    magic = data[:4]
-    if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"):  # Mach-O 64/32 LE
-        cputype = struct.unpack_from("<I", data, 4)[0]
-        return _MACHO_CPU.get(cputype, f"macho-cputype-0x{cputype:x}")
-    if magic == b"\xca\xfe\xba\xbe":  # universal binary
-        count = struct.unpack_from(">I", data, 4)[0]
-        slices = []
-        for index in range(count):
-            cputype = struct.unpack_from(">I", data, 8 + index * 20)[0]
-            slices.append(_MACHO_CPU.get(cputype, f"0x{cputype:x}"))
-        return "+".join(slices)
-    if magic == b"\x7fELF":
-        endian = "<" if data[5] == 1 else ">"
-        machine = struct.unpack_from(endian + "H", data, 18)[0]
-        return _ELF_MACHINE.get(machine, f"elf-machine-0x{machine:x}")
-    if magic[:2] == b"MZ":
-        pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
-        if data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
-            raise ValueError("MZ header without a PE signature")
-        machine = struct.unpack_from("<H", data, pe_offset + 4)[0]
-        return _PE_MACHINE.get(machine, f"pe-machine-0x{machine:x}")
-    raise ValueError(f"unrecognised executable format (magic {magic!r})")
-
-
-# --------------------------------------------------------------------------
-# Artefact sources: the packaged archive if there is one, else the build tree
-# --------------------------------------------------------------------------
-
-
-class _Source:
-    """Common surface: member names, member bytes, and a real on-disk path."""
-
-    def __init__(self, kind, location):
-        self.kind = kind
-        self.location = location
-
-    def describe(self):
-        return f"{self.kind} {self.location}"
-
-    def members(self):
-        raise NotImplementedError
-
-    def read(self, name):
-        raise NotImplementedError
-
-    def materialise(self, workdir):
-        """Return a directory on disk holding the artefact's contents."""
-        raise NotImplementedError
-
-    def find(self, basenames):
-        """Member names whose basename is in `basenames` (files only)."""
-        wanted = set(basenames)
-        return [n for n in self.members() if n.rsplit("/", 1)[-1] in wanted]
-
-    def executable_members(self):
-        """Member names carrying an executable permission bit.
-
-        Only used to make an H-ARCH failure diagnosable: "expected X, found
-        [...]" tells a reader whether the runner was renamed or simply absent,
-        instead of leaving them to unpack the artefact by hand.
-        """
-        raise NotImplementedError
-
-
-class _TreeSource(_Source):
-    def __init__(self, root, base):
-        super().__init__("build-tree", os.fspath(root))
-        self._root = Path(root)
-        self._base = Path(base)
-
-    def members(self):
-        names = []
-        for path in sorted(self._root.rglob("*")):
-            if path.is_file() and not path.is_symlink():
-                names.append(path.relative_to(self._base).as_posix())
-        return names
-
-    def _path(self, name):
-        return self._base / name
-
-    def read(self, name):
-        return self._path(name).read_bytes()
-
-    def materialise(self, workdir):
-        return self._base
-
-    def executable_members(self):
-        return [n for n in self.members() if os.access(self._path(n), os.X_OK)]
-
-
-class _ZipSource(_Source):
-    def __init__(self, archive):
-        super().__init__("archive", os.fspath(archive))
-        self._archive = Path(archive)
-
-    def members(self):
-        with zipfile.ZipFile(self._archive) as zf:
-            return [i.filename for i in zf.infolist() if not i.is_dir()]
-
-    def read(self, name):
-        with zipfile.ZipFile(self._archive) as zf:
-            return zf.read(name)
-
-    def materialise(self, workdir):
-        with zipfile.ZipFile(self._archive) as zf:
-            zf.extractall(workdir)
-        return Path(workdir)
-
-    def executable_members(self):
-        with zipfile.ZipFile(self._archive) as zf:
-            return [
-                i.filename
-                for i in zf.infolist()
-                if not i.is_dir() and (i.external_attr >> 16) & 0o111
-            ]
-
-
-class _TarSource(_Source):
-    def __init__(self, archive):
-        super().__init__("archive", os.fspath(archive))
-        self._archive = Path(archive)
-
-    def members(self):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            return [m.name for m in tf.getmembers() if m.isfile()]
-
-    def read(self, name):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            extracted = tf.extractfile(name)
-            if extracted is None:
-                raise KeyError(name)
-            return extracted.read()
-
-    def materialise(self, workdir):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            tf.extractall(workdir)
-        return Path(workdir)
-
-    def executable_members(self):
-        with tarfile.open(self._archive, "r:gz") as tf:
-            return [m.name for m in tf.getmembers() if m.isfile() and m.mode & 0o111]
-
-
-def _archive_candidates(repo_root, spec):
-    pattern = spec["archive_name"].format(version="*")
-    return sorted(
-        (p for p in Path(repo_root).glob(pattern) if p.is_file()),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-
-def resolve_source(repo_root, target, archive=None):
-    """Pick the artefact to measure: an explicit archive, else the newest
-    matching archive in the repo root, else the build tree.
-
-    Returns (source, None) or (None, error_message).
-    """
-    repo_root = Path(repo_root)
-    spec = targets.spec(target)
-
-    chosen = Path(archive) if archive else None
-    if chosen is None:
-        candidates = _archive_candidates(repo_root, spec)
-        chosen = candidates[0] if candidates else None
-
-    if chosen is not None:
-        if not chosen.is_file():
-            return None, f"ERROR: archive not found at {chosen}"
-        if spec["archive_format"] == "gztar":
-            return _TarSource(chosen), None
-        return _ZipSource(chosen), None
-
-    raw = spec["artifact_path"]
-    if spec["artifact_kind"] == "glob_dir":
-        matches = sorted(repo_root.glob(raw))
-        if not matches:
-            return None, (
-                f"ERROR: no artifact matched {raw} and no archive matched "
-                f"{spec['archive_name'].format(version='*')}"
-            )
-        root = matches[0]
-    else:
-        root = repo_root / raw
-        if not root.is_dir():
-            return None, (
-                f"ERROR: no artifact at {root} and no archive matched "
-                f"{spec['archive_name'].format(version='*')}"
-            )
-    # Member names mirror what package() writes into the archive: an app bundle
-    # keeps its own directory as the prefix (ditto --keepParent), a plain dir is
-    # archived from inside, and a linux bundle is archived as "bundle/".
-    base = root.parent if spec["artifact_kind"] in ("app_bundle", "glob_dir") else root
-    return _TreeSource(root, base), None
-
-
-# --------------------------------------------------------------------------
 # Assertion implementations. Each returns (status, message) with status in
 # {"pass", "fail", "skip"}.
 # --------------------------------------------------------------------------
 
 
 def _assert_arch(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    expected = entry["expected_arch"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    expected = ctx["expected_arch"]
     # Per-platform fact, looked up as data (G-5). Exact, case-sensitive basename
     # match: the artefact is inspected with Python on every host, so the match
     # must not inherit the host filesystem's case-folding behaviour.
@@ -758,7 +477,7 @@ def _assert_arch(ctx):
     observed = []
     for name in hits:
         try:
-            arch = machine_arch(ctx["source"].read(name))
+            arch = binfmt.machine_arch(ctx["source"].read(name))
         except ValueError as exc:
             return "fail", f"{name}: {exc}"
         observed.append((name, arch))
@@ -769,10 +488,9 @@ def _assert_arch(ctx):
 
 
 def _assert_decoder_present(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    basename = ctx["decoder_artifact"]
     hits = ctx["source"].find([basename])
     if not hits:
         return "fail", (
@@ -804,21 +522,15 @@ def _assert_decoder_deps(ctx):
 def _macho_uuid_of_file(path):
     """The Mach-O LC_UUID of an on-disk file, or None if unreadable/absent.
 
-    Mirrors build_apps.py's macho_uuid_of (same `dwarfdump --uuid` instrument)
-    so the pin-writer and this reader can never drift into two different
-    ways of deriving the same identifier."""
+    Shares binfmt.parse_dwarfdump_uuid with build_apps.py's macho_uuid_of, and
+    both treat a nonzero dwarfdump exit as "no UUID", so the pin writer and this
+    reader cannot drift into two derivations of the same identifier."""
     if shutil.which("dwarfdump") is None:
         return None
     result = run(["dwarfdump", "--uuid", os.fspath(path)])
     if result.returncode != 0:
         return None
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("UUID:"):
-            parts = line.split()
-            if len(parts) >= 2:
-                return parts[1]
-    return None
+    return binfmt.parse_dwarfdump_uuid(result.stdout)
 
 
 def _assert_decoder_hash(ctx):
@@ -941,10 +653,9 @@ def _decoder_disk_path(ctx):
     dlopen treats a relative path as a search name rather than a file path, so
     the probe is always handed an absolute path.
     """
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return None, "no dng_ffi_artifacts.json entry declares this ci_target"
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return None, _NO_DECODER
+    basename = ctx["decoder_artifact"]
     root = ctx["source"].materialise(ctx["workdir"])
     matches = sorted(Path(root).rglob(basename))
     if not matches:
@@ -953,10 +664,10 @@ def _decoder_disk_path(ctx):
 
 
 def _run_probe(ctx, symbols):
-    """Shared body of H-SIZED-SYMBOL and H-CEYX-SYMBOLS.
+    """Shared body of H-CEYX-SYMBOLS (callable with any symbol list).
 
-    ``symbols`` is appended to the probe argv; an empty list preserves
-    ffi_probe.dart's own default (the single historical SYMBOL).
+    ``symbols`` is appended to the probe argv; an empty list falls back to
+    ffi_probe.dart's own default (SYMBOL).
     """
     if ctx["host"] != ctx["artefact_platform"]:
         return "skip", (
@@ -988,35 +699,8 @@ def _run_probe(ctx, symbols):
     return "pass", tail if tail != "(no output)" else f"{ok_count} PROBE-OK line(s)"
 
 
-def _assert_sized_symbol(ctx):
-    return _run_probe(ctx, [])
-
-
 def _assert_ceyx_symbols(ctx):
     return _run_probe(ctx, list(CEYX_SYMBOLS))
-
-
-def _assert_sized_symbol_nm(ctx):
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    tool = entry.get("tool")
-    if not tool or shutil.which(tool) is None:
-        return "skip", f"symbol-table tool {tool!r} is not on PATH"
-    path, error = _decoder_disk_path(ctx)
-    if path is None:
-        return "fail", error
-    # The instrument is check_dng_ffi_artifacts.check_symbol itself, imported
-    # rather than re-implemented, so this gate and the manual cross-platform
-    # checker can never drift into two different instruments. It captures the
-    # tool's output to a str and matches in Python — never `nm | grep -q`,
-    # which returns 141 under pipefail when the symbol IS found (G-3).
-    status = _check_symbol()(path, tool, entry.get("tool_args", []), SYMBOL)
-    if status == "skipped":
-        return "skip", f"{tool} resolved but could not inspect {path.name}"
-    if status != "present":
-        return "fail", f"{SYMBOL} absent from {tool} output for {path.name}"
-    return "pass", f"{SYMBOL} listed by {tool} for {path.name}"
 
 
 def _assert_decoder_arch(ctx):
@@ -1027,11 +711,10 @@ def _assert_decoder_arch(ctx):
     H-ARCH does: a struct.unpack of a format-defined constant cannot be
     inverted by a missing tool, a foreign host, or a shell pipeline (G-3).
     """
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    expected = entry["expected_arch"]
-    basename = entry["decoder_artifact"]
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    expected = ctx["expected_arch"]
+    basename = ctx["decoder_artifact"]
     hits = ctx["source"].find([basename])
     if not hits:
         return "fail", (
@@ -1039,7 +722,7 @@ def _assert_decoder_arch(ctx):
             "architecture cannot be read"
         )
     try:
-        arch = machine_arch(ctx["source"].read(hits[0]))
+        arch = binfmt.machine_arch(ctx["source"].read(hits[0]))
     except ValueError as exc:
         return "fail", f"{hits[0]}: {exc}"
     if arch != expected:
@@ -1052,17 +735,16 @@ def _assert_decoder_arch(ctx):
 
 def _assert_ceyx_symbols_nm(ctx):
     """All of CEYX_SYMBOLS in the shipped decoder's symbol table."""
-    entry = ctx["ffi_entry"]
-    if entry is None:
-        return "skip", "no dng_ffi_artifacts.json entry declares this ci_target"
-    tool = entry.get("tool")
+    if ctx["decoder_artifact"] is None:
+        return "skip", _NO_DECODER
+    tool = ctx["symbol_tool"]
     if not tool or shutil.which(tool) is None:
         return "skip", f"symbol-table tool {tool!r} is not on PATH"
     path, error = _decoder_disk_path(ctx)
     if path is None:
         return "fail", error
     check = _check_symbol()
-    tool_args = entry.get("tool_args", [])
+    tool_args = ctx["symbol_tool_args"]
     missing = []
     unreadable = []
     for symbol in CEYX_SYMBOLS:
@@ -1087,50 +769,6 @@ def _assert_ceyx_symbols_nm(ctx):
 _ENGINE_DLL = "flutter_windows.dll"
 
 
-def pe_imports(data):
-    """Return (static, delayed) imported DLL names of a PE image, lowercased.
-
-    Read from data directories 1 (import) and 13 (delay import); raises
-    ValueError when the bytes are not a PE image.
-    """
-    if data[:2] != b"MZ":
-        raise ValueError("not a PE image (no MZ header)")
-    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
-    if data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
-        raise ValueError("MZ header without a PE signature")
-    sections_count = struct.unpack_from("<H", data, pe_offset + 6)[0]
-    optional_size = struct.unpack_from("<H", data, pe_offset + 20)[0]
-    optional = pe_offset + 24
-    magic = struct.unpack_from("<H", data, optional)[0]
-    directories = optional + (112 if magic == 0x20B else 96)
-    sections = [
-        struct.unpack_from("<IIII", data, optional + optional_size + i * 40 + 8)
-        for i in range(sections_count)
-    ]
-
-    def offset(rva):
-        for virtual_size, virtual_address, raw_size, raw_offset in sections:
-            if virtual_address <= rva < virtual_address + max(virtual_size, raw_size):
-                return rva - virtual_address + raw_offset
-        raise ValueError(f"RVA 0x{rva:x} lies in no section")
-
-    def names(index, stride, name_field):
-        rva = struct.unpack_from("<I", data, directories + index * 8)[0]
-        found = []
-        if not rva:
-            return found
-        cursor = offset(rva)
-        while True:
-            name_rva = struct.unpack_from("<I", data, cursor + name_field)[0]
-            if not name_rva:
-                return found
-            start = offset(name_rva)
-            found.append(data[start : data.index(b"\x00", start)].decode("ascii").lower())
-            cursor += stride
-
-    return names(1, 20, 12), names(13, 32, 4)
-
-
 def _assert_engine_delayload(ctx):
     executable = ctx["spec"]["app_executable"]
     source = ctx["source"]
@@ -1140,12 +778,12 @@ def _assert_engine_delayload(ctx):
     exe = hits[0]
     folder = exe.rsplit("/", 1)[0] + "/" if "/" in exe else ""
     try:
-        static, delayed = pe_imports(source.read(exe))
+        static, delayed = binfmt.pe_imports(source.read(exe))
         engine_importers = {_ENGINE_DLL}
         for name in source.members():
             base = name.rsplit("/", 1)[-1]
             if name == folder + base and base.lower().endswith(".dll"):
-                if _ENGINE_DLL in pe_imports(source.read(name))[0]:
+                if _ENGINE_DLL in binfmt.pe_imports(source.read(name))[0]:
                     engine_importers.add(base.lower())
     except ValueError as exc:
         return "fail", f"PE import table unreadable: {exc}"
@@ -1183,8 +821,6 @@ _IMPLEMENTATIONS = {
     "H-DECODER-PRESENT": _assert_decoder_present,
     "H-DECODER-DEPS": _assert_decoder_deps,
     "H-DECODER-HASH": _assert_decoder_hash,
-    "H-SIZED-SYMBOL": _assert_sized_symbol,
-    "H-SIZED-SYMBOL-NM": _assert_sized_symbol_nm,
     "H-DECODER-ARCH": _assert_decoder_arch,
     "H-CEYX-SYMBOLS-NM": _assert_ceyx_symbols_nm,
     "H-CEYX-SYMBOLS": _assert_ceyx_symbols,
@@ -1213,14 +849,19 @@ def run_suite(repo_root, target, archive=None):
         print(f"ASSERT-SUMMARY: {target} assertions=0 failed=0 skipped=0")
         return 0
 
-    source, error = resolve_source(repo_root, target, archive=archive)
+    source, error = sources.resolve_source(repo_root, target, archive=archive)
     if source is None:
         print(error)
         print(f"ASSERT-SUMMARY: {target} assertions={len(ids)} failed={len(ids)} skipped=0")
         return 1
     print(f"ASSERT-SOURCE: {source.describe()}")
 
-    ffi_entry = ffi_entry_for(repo_root, target)
+    manifest_key = spec["ffi_manifest_key"]
+    manifest_entry = (
+        _load_json(repo_root / "scripts" / "dng_ffi_artifacts.json")["platforms"][manifest_key]
+        if manifest_key
+        else {}
+    )
     artefact_platform = platform_of(repo_root, target)
 
     failed = 0
@@ -1231,7 +872,10 @@ def run_suite(repo_root, target, archive=None):
             "target": target,
             "spec": spec,
             "source": source,
-            "ffi_entry": ffi_entry,
+            "decoder_artifact": spec["decoder_artifact"],
+            "expected_arch": spec["expected_arch"],
+            "symbol_tool": manifest_entry.get("tool"),
+            "symbol_tool_args": manifest_entry.get("tool_args", []),
             "pin_libraries": pinned_libraries(repo_root, spec["pin_platform"]),
             "workdir": workdir,
             "host": host_platform(),

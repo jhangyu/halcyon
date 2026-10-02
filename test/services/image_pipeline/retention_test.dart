@@ -1,12 +1,13 @@
 // Merged (round 4 M2 consolidation) from:
-//   retention_policy_test.dart
-//   retention_tier_test.dart
-//   cache_budget_test.dart
-//   inflight_bytes_budget_test.dart
-// Each source file's tests are wrapped in a group() named after its basename
+//   'retention policy' group
+//   'retention tier' group
+//   'cache budget' group
+//   'inflight bytes budget' group
+// Each source file's tests are wrapped in a group() named after its stem
 // to keep setUp/tearDown scoping and test names intact. No top-level helper
 // name collisions were found across these four files; no test behavior was
 // changed.
+// (Group names are the former file stems with underscores as spaces.)
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -25,7 +26,7 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import '../../support/preload_fixtures.dart';
 
 // ---------------------------------------------------------------------------
-// Helpers from retention_tier_test.dart
+// Helpers for the 'retention tier' group
 // ---------------------------------------------------------------------------
 
 const int _gib = 1024 * 1024 * 1024;
@@ -43,7 +44,7 @@ Future<NativeImageResult> _bytesLoader(
 }) async => NativeImageBytes(Uint8List.fromList(<int>[1, 2, 3, 4]));
 
 void main() {
-  group('retention_policy_test.dart', () {
+  group('retention policy', () {
     const gib = 1024 * 1024 * 1024;
     const floor = RetentionPolicy.floor();
     const mid = RetentionPolicy(
@@ -120,7 +121,7 @@ void main() {
     );
   });
 
-  group('retention_tier_test.dart', () {
+  group('retention tier', () {
     test('TC-441 each tier maps to its shipped rung, and RAM selection agrees', () {
       expect(
         retentionPolicyForTier(RetentionTier.conservative),
@@ -210,7 +211,7 @@ void main() {
     });
   });
 
-  group('cache_budget_test.dart', () {
+  group('cache budget', () {
     const gib = 1 << 30;
 
     // TC-1182 (S3.1, 2026-09-11; re-derived under spec v2 the same day):
@@ -296,7 +297,7 @@ void main() {
     });
   });
 
-  group('inflight_bytes_budget_test.dart', () {
+  group('inflight bytes budget', () {
     // TC-839
     test('acquire blocks past maxBytes and admits on release', () async {
       final budget = InflightBytesBudget(maxBytes: 100);

@@ -10,12 +10,9 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # scripts/tmp/ holds closed-round scratch output, including
-  # scripts/tmp/r2_backup/, a partial snapshot copy whose imports no longer
-  # resolve. Analysing it made `flutter analyze` exit 1 with 51 errors that
-  # say nothing about the shipped app, which turns the gate into noise nobody
-  # reads. Live build tooling under scripts/ (outside scripts/tmp/) is
-  # analysed normally.
+  # scripts/tmp/ is gitignored scratch; anything there may have unresolvable
+  # imports, so it is excluded from analysis. Live tooling under scripts/
+  # (outside scripts/tmp/) is analysed normally.
   exclude:
     - scripts/tmp/**
 

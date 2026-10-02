@@ -35,8 +35,9 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 
-# Plan §3/WP-E "print_plan() prints, per phase, `PLAN <phase>: <argv list repr>`".
-PLAN_LINE_RE = re.compile(r"^PLAN (\w[\w-]*): (\[.*\])\s*$")
+# Plan §3/WP-E "print_plan() prints, per phase, `PLAN <phase>: <argv list repr>`";
+# a provision line whose targets.py item carries a cwd appends ` cwd='<dir>'`.
+PLAN_LINE_RE = re.compile(r"^PLAN (\w[\w-]*): (\[.*\])(?: cwd=('[^']*'))?\s*$")
 
 TARGET_NAMES = ["macos", "macos-x64", "windows", "windows-arm", "linux", "linux-arm", "android-apk", "web"]
 
@@ -64,6 +65,17 @@ def _parse_plan_lines(output):
         m = PLAN_LINE_RE.match(line)
         if m:
             parsed[m.group(1)] = ast.literal_eval(m.group(2))
+    return parsed
+
+
+def _parse_provision_lines(output):
+    """[(argv, cwd_or_None), ...] for every ``PLAN provision:`` line, in order."""
+    parsed = []
+    for line in output.splitlines():
+        m = PLAN_LINE_RE.match(line)
+        if m and m.group(1) == "provision":
+            cwd = ast.literal_eval(m.group(3)) if m.group(3) else None
+            parsed.append((ast.literal_eval(m.group(2)), cwd))
     return parsed
 
 
@@ -169,7 +181,7 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
         self.assertIn(
             "--fetch-native",
             plans["build"],
-            "windows build argv must contain --fetch-native (release.yml:96-101)",
+            "windows build argv must contain --fetch-native (targets.py windows build_flags)",
         )
 
     def test_macos_has_fetch_native(self):
@@ -177,7 +189,7 @@ class WindowsBuildFlagTestCase(GoldenArgvTestCase):
         self.assertIn(
             "--fetch-native",
             plans["build"],
-            "macos migrated to the ceyx release pin (targets.py:30-42, pin key "
+            "macos migrated to the ceyx release pin (targets.py macos entry, pin key "
             "macos-arm64): its CI leg fetches the prebuilt decoder stack just "
             "like windows/linux, it no longer carries committed dylibs",
         )
@@ -303,9 +315,62 @@ class NativeDartTestCase(unittest.TestCase):
         self.assertEqual(self._run("windows_arm64"), 1)
 
 
+class ProvisionPlanCwdTestCase(unittest.TestCase):
+    """targets.py carries each provision command's cwd as data; --print-plan
+    must show it, so the macOS `pod install` working directory is asserted
+    from any host instead of living in a phases.py branch on the command."""
+
+    def _provision(self, target):
+        rc, output = _capture_print_plan(target)
+        self.assertEqual(rc, 0)
+        parsed = _parse_provision_lines(output)
+        raw = [line for line in output.splitlines() if line.startswith("PLAN provision:")]
+        self.assertEqual(len(parsed), len(raw), f"unparsed provision line(s) in:\n{output}")
+        return parsed
+
+    def test_pod_install_plan_line_carries_the_macos_cwd(self):
+        for target in ("macos", "macos-x64"):
+            with self.subTest(target=target):
+                self.assertEqual(
+                    self._provision(target),
+                    [(["flutter", "pub", "get"], None), (["pod", "install"], "macos")],
+                )
+
+    def test_other_provision_lines_run_from_the_repo_root(self):
+        import ci.targets as targets  # noqa: PLC0415
+
+        for target in ("windows", "linux", "android-apk", "web"):
+            with self.subTest(target=target):
+                parsed = self._provision(target)
+                self.assertEqual(len(parsed), len(targets.spec(target)["provision"]))
+                self.assertEqual([cwd for _, cwd in parsed], [None] * len(parsed))
+
+    def test_provision_runs_each_command_in_its_declared_cwd(self):
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        from unittest import mock  # noqa: PLC0415
+
+        import ci.phases as phases  # noqa: PLC0415
+
+        calls = []
+
+        def fake_run(argv, cwd=None, **_kwargs):
+            calls.append((argv, cwd))
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(phases.run, "run", side_effect=fake_run):
+            root = Path(td)
+            self.assertEqual(phases.provision(root, "macos"), 0)
+        self.assertEqual(
+            calls,
+            [(["flutter", "pub", "get"], root), (["pod", "install"], root / "macos")],
+        )
+
+
 class ChildInterpreterTestCase(unittest.TestCase):
-    """`ci.py:51-60` refuses an MSYS-style interpreter for the PARENT process.
-    Rendering the literal ``"python3"`` let ``run.py:60``'s ``shutil.which``
+    """`ci.py check_python_interpreter()` refuses an MSYS-style interpreter for the PARENT process.
+    Rendering the literal ``"python3"`` let ``run.py _resolve_argv()``'s ``shutil.which``
     pick a DIFFERENT interpreter for the child, so the refusal was bypassed for
     every build. The child must be the interpreter that was already vetted."""
 
@@ -346,8 +411,10 @@ class WindowsPathLintTestCase(unittest.TestCase):
 
         spec = targets.spec("windows")
         fields = list(spec["build_flags"])
-        for argv in spec["provision"]:
-            fields.extend(argv)
+        for item in spec["provision"]:
+            fields.extend(item["argv"])
+            if item["cwd"]:
+                fields.append(item["cwd"])
         fields.append(spec["artifact_path"])
         fields.append(spec["archive_name"])
         return fields

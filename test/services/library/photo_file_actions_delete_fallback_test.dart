@@ -10,8 +10,7 @@ void main() {
   group('PhotoFileActions.deleteTrashed bridge-absent reroute', () {
     test('aborts the whole batch on the first bridge-absent exception',
         () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_bridge_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_bridge_');
 
       final files = <File>[];
       for (var i = 1; i <= 3; i++) {
@@ -41,8 +40,7 @@ void main() {
     });
 
     test('continues the batch on a plain per-file TrashException', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_perfile_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_perfile_');
 
       final files = <File>[];
       for (var i = 1; i <= 3; i++) {

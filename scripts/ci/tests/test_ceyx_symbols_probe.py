@@ -94,12 +94,9 @@ class HCeyxSymbolsRecordTest(unittest.TestCase):
         source = (CI_PKG_DIR / "assertions.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('dart, "run"'), 1)
 
-    def test_sized_symbol_and_ceyx_symbols_share_run_probe(self):
-        # Both wrappers must call the same shared helper, not separate copies.
-        sized_src = assertions._assert_sized_symbol.__code__.co_names
-        ceyx_src = assertions._assert_ceyx_symbols.__code__.co_names
-        self.assertIn("_run_probe", sized_src)
-        self.assertIn("_run_probe", ceyx_src)
+    def test_ceyx_symbols_uses_shared_run_probe(self):
+        # The probe wrapper must call the shared helper, not a private copy.
+        self.assertIn("_run_probe", assertions._assert_ceyx_symbols.__code__.co_names)
 
 
 class TargetsAssertionListsTest(unittest.TestCase):
@@ -121,10 +118,10 @@ class TargetsAssertionListsTest(unittest.TestCase):
                     "H-CEYX-SYMBOLS-NM" in targets.TARGETS[target]["assertions"], want
                 )
 
-    def test_h_sized_symbol_nm_record_untouched_by_this_work(self):
-        # Clause 13: valid_on must remain exactly (macos, linux) -- no
-        # windows string anywhere in that record.
-        record = assertions.SUITE["H-SIZED-SYMBOL-NM"]
+    def test_h_ceyx_symbols_nm_record_excludes_windows(self):
+        # Clause 13, carried over from the removed single-symbol NM record:
+        # valid_on must remain exactly (macos, linux) -- no windows.
+        record = assertions.SUITE["H-CEYX-SYMBOLS-NM"]
         self.assertEqual(record.valid_on, ("macos", "linux"))
         self.assertNotIn("windows", record.valid_on)
 

@@ -19,23 +19,13 @@
 // EVERY intermediate frame of a real multi-event drag and requires it to stay
 // put throughout - which can only be satisfied by correcting the offset in
 // the SAME layout pass that changes the geometry, never after it.
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
-
-PixelPayload _payload() => PixelPayload(
-  width: 4,
-  height: 4,
-  rgba: Uint8List(4 * 4 * 4),
-);
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 const ValueKey<String> _columnKey = ValueKey<String>(
   'gallery-column-under-test',
@@ -80,35 +70,12 @@ class _WidthHarnessState extends State<_WidthHarness> {
   }
 }
 
-MainSurface _surface(List<PhotoItem> items, String selectedId) => MainSurface(
-  viewport: const ColoredBox(
-    key: ValueKey<String>('gallery-test-viewport'),
-    color: Colors.red,
-  ),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: selectedId,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => _payload(),
-    onVisibleRange: (_, __) {},
-  ),
-  identity: const PhotoIdentity(
-    displayName: 'IMG_0001.jpg',
-    indexInFolder: 16,
-    folderCount: 30,
-    status: PhotoStatus.unmarked,
-    exif: null,
-  ),
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
+MainSurface _surface(List<PhotoItem> items, String selectedId) => testSurface(
+  viewport: const ColoredBox(key: ValueKey<String>('gallery-test-viewport'), color: Colors.red),
+  items: items,
+  selectedId: selectedId,
+  payloadFor: (_) => tinyPixelPayload(),
+  identity: const PhotoIdentity(displayName: 'IMG_0001.jpg', indexInFolder: 16, folderCount: 30, status: PhotoStatus.unmarked, exif: null),
 );
 
 void main() {
@@ -119,7 +86,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final items = [for (var i = 0; i < 30; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 30; i++) itemFor('p$i')];
       const selectedId = 'p15';
 
       // Start inside the dragged range (>90) so the marks Column<->Wrap

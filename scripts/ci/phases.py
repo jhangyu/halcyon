@@ -52,12 +52,10 @@ def provision(repo_root: Path, target: str) -> int:
     headers = []
     bodies = []
     rc = 0
-    for argv in commands:
-        # targets.py's frozen schema (Plan §2) carries no explicit cwd field.
-        # `pod install` is only ever invoked from <repo_root>/macos (ci.yml:121-123);
-        # every other provisioning command runs from repo_root. This branches on
-        # the *command itself*, not on `target`/`platform` (G-5's forbidden forms).
-        cwd = (repo_root / "macos") if argv[:1] == ["pod"] else repo_root
+    for item in commands:
+        argv = item["argv"]
+        # cwd is targets.py data (repo-root-relative), never inferred from argv.
+        cwd = repo_root / item["cwd"] if item["cwd"] else repo_root
         result = run.run(list(argv), cwd=cwd)
         headers.append(" ".join(argv))
         bodies.append(result.stdout + result.stderr)
@@ -169,8 +167,9 @@ def print_plan(repo_root: Path, target: str) -> int:
     anything (Spec §4.8) — the whole point is rendering Windows argv from a
     macOS laptop."""
     spec = targets.spec(target)
-    for argv in spec["provision"]:
-        print(f"PLAN provision: {list(argv)!r}")
+    for item in spec["provision"]:
+        suffix = f" cwd={item['cwd']!r}" if item["cwd"] else ""
+        print(f"PLAN provision: {list(item['argv'])!r}{suffix}")
     print(f"PLAN build: {_build_argv(repo_root, target)!r}")
     archive_name = spec["archive_name"].format(version="{version}")
     package_desc = {
@@ -186,9 +185,8 @@ def print_plan(repo_root: Path, target: str) -> int:
 def selftest(repo_root: Path) -> int:
     """Runs scripts/ci/tests/ in-process and returns 0/1.
 
-    These 21 cases existed for months with nothing executing them, and four of
-    them were red the whole time (2026-09-03 ROI audit). A test suite no job
-    runs is a suite that reports whatever it last happened to believe.
+    A suite no job runs reports whatever it last happened to believe
+    (2026-09-03 ROI audit) — hence selftest is a CI step.
 
     In-process, not a subprocess: the discovery is the same one a developer runs
     (`-s scripts/ci/tests -t scripts`), and there is no second interpreter whose

@@ -18,16 +18,7 @@ import 'package:halcyon_flutter/views/settings_dialog.dart';
 import 'package:halcyon_flutter/views/settings_dialog/appearance_tab.dart';
 import 'package:halcyon_flutter/views/settings_dialog/settings_primitives.dart';
 import 'package:halcyon_flutter/views/theme_tokens.dart';
-
-/// Bounded stand-in for `pumpAndSettle()`: enough frames to clear a dialog
-/// open/close transition or a scroll-into-view animation, without polling
-/// for full animation rest.
-Future<void> _settle(WidgetTester tester) async {
-  await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
+import '../support/event_loop.dart';
 
 /// Hydration must run OUTSIDE the fake-async zone. `AppState._initPrefs` is a
 /// real async chain over the SharedPreferences platform channel; awaiting it
@@ -101,7 +92,7 @@ Future<void> _pumpViaRoute(WidgetTester tester, AppState state) async {
   );
   await tester.pump();
   await tester.tap(find.text('open'));
-  await _settle(tester);
+  await settleFrames(tester);
 }
 
 Future<void> _openAppearance(WidgetTester tester) async {
@@ -123,7 +114,7 @@ Future<void> _revealReset(WidgetTester tester) async {
 /// grows the tab further, so each of its buttons needs the same treatment.
 Future<void> _tapRevealed(WidgetTester tester, Key key) async {
   await tester.ensureVisible(find.byKey(key));
-  await _settle(tester);
+  await settleFrames(tester);
   await tester.tap(find.byKey(key));
   await tester.pump();
 }
@@ -312,7 +303,7 @@ void main() {
     expect(state.layoutThemeId, LayoutThemeId.darkroom);
 
     await tester.tap(find.text('Cancel'));
-    await _settle(tester);
+    await settleFrames(tester);
     // The revert is deferred to a post-frame callback by design.
     await tester.pump();
     expect(state.themeMode, ThemeMode.system);
@@ -321,14 +312,14 @@ void main() {
 
     // Same change again, dismissed with Done.
     await tester.tap(find.text('open'));
-    await _settle(tester);
+    await settleFrames(tester);
     await _openAppearance(tester);
     await tester.tap(find.byKey(const Key('appearance.mode.dark')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('appearance.layout.darkroom')));
     await tester.pump();
     await tester.tap(find.text('Done'));
-    await _settle(tester);
+    await settleFrames(tester);
     await tester.pump();
     expect(state.themeMode, ThemeMode.dark);
     expect(state.layoutThemeId, LayoutThemeId.darkroom);
@@ -389,7 +380,7 @@ void main() {
     }
 
     await _tapRevealed(tester, const Key('appearance.resetConfirmButton'));
-    await _settle(tester);
+    await settleFrames(tester);
     // The dispose-time revert, if it were going to run, runs here.
     await tester.pump();
     await tester.pump();

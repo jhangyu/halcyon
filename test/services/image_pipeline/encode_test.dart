@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -8,15 +7,16 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/encode_stage.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/jpeg_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 import '../../support/preload_fixtures.dart' show until;
+import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
-  group('encode_stage_test.dart', () {
+  group('encode stage', () {
     test('runningCount never exceeds width', () async {
       final stage = EncodeStage(width: 2);
       final gates = List.generate(10, (_) => Completer<void>());
@@ -93,7 +93,7 @@ void main() {
     });
   });
 
-  group('image_preload_encode_stage_test.dart', () {
+  group('image preload encode stage', () {
     // Plan Task 10 (S4): the JPEG re-encode runs OFF the DecodeLane.
     //
     // TC-828 / TC-829 / TC-830 (docs/logs/2026-09-03/plan-decode-optimizations.md).
@@ -125,24 +125,12 @@ void main() {
       return DecodedRgba(rgba: rgba, width: 4, height: 4);
     }
 
-    List<PhotoItem> rawItems(List<String> ids) => [
-      for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-    ];
-
     List<PhotoItem> twoRawItems() => rawItems(['a', 'b']);
 
     /// 26 RAW items, 'a'..'z'. Navigating from 'a' to 'z' takes 'a' out of the
     /// retention window (-3..+5) entirely.
     List<PhotoItem> manyRawItems() =>
         rawItems([for (var c = 0; c < 26; c++) String.fromCharCode(0x61 + c)]);
-
-    /// Every RAW item needs a real decode: the loader answers NeedsRawDecode, so
-    /// the item is deferred to the serial lane exactly as a preview-less DNG is.
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
 
     ImagePreloadController buildController({
       required Future<DecodedRgba> Function(String path) decoder,
@@ -161,16 +149,6 @@ void main() {
         payloadEncoder: encoder,
         decodeLaneWidth: decodeLaneWidth,
       );
-    }
-
-    /// Drains the microtask queue and the zero-duration timer queue enough times
-    /// for the probe, the lane hand-off and the off-lane continuation to run.
-    /// Deterministic: every await in the path under test is either a microtask or
-    /// a zero-duration delay.
-    Future<void> pumpMicrotasks([int rounds = 24]) async {
-      for (var i = 0; i < rounds; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
     }
 
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -201,7 +179,7 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       // Item b's decode has started even though item a's encode has not finished.
       expect(
@@ -214,7 +192,7 @@ void main() {
       expect(controller.debugEncodeStageRunningCount, greaterThan(0));
 
       encodeGate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.payloadFor('a'), isA<EncodedPayload>());
       expect(controller.debugEncodeStageRunningCount, 0);
     });
@@ -280,7 +258,7 @@ void main() {
           notifyLoaded: () => flushed++,
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // Navigate far enough that 'a' leaves the retention window (-3..+5).
       unawaited(
         controller.preloadImages(
@@ -289,9 +267,9 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       encodeGate.complete();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isNull);
       expect(flushed, greaterThan(0), reason: 'no spinner may strand');
@@ -316,7 +294,7 @@ void main() {
         selectedItemId: 'a',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
     });
@@ -354,12 +332,12 @@ void main() {
           ),
         );
         // The encode is now parked: bytes are acquired and not yet released.
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         controller.dispose();
         encodeGate.complete();
         // The continuation resumes here and runs its `finally` release.
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
       },
     );
 
@@ -375,14 +353,8 @@ void main() {
         // Orientation 3 (180deg, no mirror) is non-identity, so
         // decodedRgbaToOrientedFullRes renders a `ui.Image` and hands back a
         // non-null `image` -- the rotated path this test targets.
-        Future<NativeImageResult> rotatedLoader(
-          String path, {
-          required ImageRequestPurpose purpose,
-          int? targetLongEdge,
-        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
-
         final controller = ImagePreloadController(
-          imageLoader: rotatedLoader,
+          imageLoader: needsRawDecodeLoaderOrientation3,
           dngDecoder: (path) async => decodedFixture(),
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async =>
@@ -397,7 +369,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(
           controller.debugFullResBytesReleasedEarly,
@@ -468,7 +440,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 1);
         expect(copyCalls, 0);
@@ -486,14 +458,8 @@ void main() {
       () async {
         var pointerCalls = 0;
         var copyCalls = 0;
-        Future<NativeImageResult> rotatedLoader(
-          String path, {
-          required ImageRequestPurpose purpose,
-          int? targetLongEdge,
-        }) async => const NativeImageNeedsRawDecode(exifOrientation: 3);
-
         final controller = ImagePreloadController(
-          imageLoader: rotatedLoader,
+          imageLoader: needsRawDecodeLoaderOrientation3,
           dngDecoder: (path) async => DecodedRgba(
             rgba: decodedFixture().rgba,
             width: 4,
@@ -527,7 +493,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 0);
         expect(copyCalls, 1);
@@ -536,7 +502,7 @@ void main() {
     );
   });
 
-  group('jpeg_encoder_test.dart', () {
+  group('jpeg encoder', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     // TC-360
@@ -562,7 +528,7 @@ void main() {
     });
   });
 
-  group('payload_reencoder_test.dart', () {
+  group('payload reencoder', () {
     PixelPayload pixelsRe(int w, int h) =>
         PixelPayload(rgba: Uint8List(w * h * 4), width: w, height: h);
 

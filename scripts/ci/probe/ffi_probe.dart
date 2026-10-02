@@ -1,4 +1,4 @@
-// Functional FFI probe for H-SIZED-SYMBOL / H-CEYX-SYMBOLS (OQ-1 ruling c).
+// Functional FFI probe for H-CEYX-SYMBOLS (OQ-1 ruling c).
 // Format-agnostic: it tests the CAPABILITY (symbol reachable at runtime), not
 // a symbol-table proxy.
 //

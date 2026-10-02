@@ -1,14 +1,15 @@
 // Merged (round 4 M2 consolidation) from:
-//   tier_two_scheduler_test.dart
-//   tier_two_piggyback_handle_test.dart
-//   tier_two_publish_dedupe_test.dart
-//   tier_two_publish_pacing_test.dart
-//   tier_two_publish_race_test.dart
-//   tier_two_registry_test.dart
+//   'tier two scheduler' group
+//   former 'tier two piggyback handle' tests (no surviving group)
+//   'tier two publish dedupe' group
+//   'tier two publish pacing' group
+//   'tier two publish race' group
+//   'tier two registry' group
 // Each original file's tests are wrapped in a group() named after its
-// basename to keep setUp/tearDown scoping and test names intact. Top-level
+// stem to keep setUp/tearDown scoping and test names intact. Top-level
 // helper name collisions across files were resolved with a private
 // `_<shortname>` suffix (Rule 2); no test behavior was changed.
+// (Group names are the former file stems with underscores as spaces.)
 
 import 'dart:async';
 import 'dart:io';
@@ -28,9 +29,10 @@ import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/fakes.dart';
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_scheduler_test.dart
+// Helpers for the 'tier two scheduler' group
 // ---------------------------------------------------------------------------
 
 /// Drives the scheduler with everything it needs stubbed out, so the tests
@@ -153,7 +155,7 @@ class _BandEntryHarness {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from the former tier_two_piggyback_handle_test.dart
+// Helpers from the former 'tier two piggyback handle' tests
 // (its cases now exercise `publishFromPayload`)
 // ---------------------------------------------------------------------------
 
@@ -188,23 +190,16 @@ class _NeverCompletingProvider extends ImageProvider<Object> {
 
   @override
   ImageStreamCompleter loadImage(Object key, ImageDecoderCallback decode) =>
-      _NeverCompletingImageStreamCompleterDedupe();
+      NeverCompletingImageStreamCompleter();
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_publish_dedupe_test.dart
+// Helpers for the 'tier two publish dedupe' group
 // ---------------------------------------------------------------------------
-
-/// An ImageStreamCompleter that never emits an image and never errors --
-/// deterministically simulates "registration landed, decode still pending"
-/// without racing a real (near-instant) engine decode. Same trick as
-/// tier_two_registry_test.dart's TC-232, duplicated here rather than shared
-/// so this file's ownership stays self-contained.
-class _NeverCompletingImageStreamCompleterDedupe extends ImageStreamCompleter {}
 
 /// Records every submission; publishes exempt ones immediately and defers
 /// everything else until [drain] -- same shape as the fake pacer in
-/// tier_two_publish_pacing_test.dart (TC-907/908), duplicated here rather
+/// the 'tier two publish pacing' group (TC-907/908), duplicated here rather
 /// than shared so this file's ownership stays self-contained.
 class _FakePacerDedupe {
   final List<({String id, bool exempt})> submissions = [];
@@ -251,7 +246,7 @@ class _FakePacerDedupe {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_publish_pacing_test.dart
+// Helpers for the 'tier two publish pacing' group
 // ---------------------------------------------------------------------------
 
 /// Records every [TierTwoScheduler] publish submission and defers everything
@@ -321,24 +316,15 @@ Future<void> _pumpUntilPacing(bool Function() condition, {int maxIters = 200}) a
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_publish_race_test.dart
+// Helpers for the 'tier two publish race' group
 // ---------------------------------------------------------------------------
 
 PixelPayload _pixelPayloadRace() =>
     PixelPayload(rgba: Uint8List(1 * 1 * 4), width: 1, height: 1);
 
 // ---------------------------------------------------------------------------
-// Helpers from tier_two_registry_test.dart
+// Helpers for the 'tier two registry' group
 // ---------------------------------------------------------------------------
-
-/// An ImageStreamCompleter that never emits an image and never errors --
-/// used to deterministically simulate a decode that is PENDING forever,
-/// without racing a real (near-instant) engine decode. When pre-inserted into
-/// ImageCache under the exact key a real decode would use,
-/// ImageCache.putIfAbsent returns this existing entry instead of starting a
-/// new decode, so any code path that resolves that provider joins this
-/// completer and never observes completion.
-class _NeverCompletingImageStreamCompleterRegistry extends ImageStreamCompleter {}
 
 /// Publishes [payload] as an encoded tier-2 entry and waits for the decode
 /// listener to fire. Returns the provider, which for MemoryImage IS the
@@ -360,7 +346,7 @@ Future<ImageProvider> _publishAndAwaitRegistry(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('tier_two_scheduler_test.dart', () {
+  group('tier two scheduler', () {
     test(
       'TC-239 the debounce is a cancel-and-reschedule: only the FINAL '
       'navigation position ever gets a tier-2 sweep',
@@ -689,7 +675,7 @@ void main() {
     );
   });
 
-  group('tier_two_publish_from_payload_test.dart', () {
+  group('tier two publish from payload', () {
     // The q70 decouple replaced the deleted piggyback publish with
     // `publishFromPayload`: the SINGLE tier-2 publish route (spec R2). These
     // cases are the former handle tests rewritten against it -- same three
@@ -761,7 +747,7 @@ void main() {
     });
   });
 
-  group('tier_two_publish_dedupe_test.dart', () {
+  group('tier two publish dedupe', () {
     // TC-916 / TC-917 / TC-918 / TC-923 / TC-924.
     //
     // Contract deliverable W2 (docs/logs/2026-09-04/remediation-round-contract.md
@@ -878,12 +864,12 @@ void main() {
 
         final firstProvider = fullSizeProviderFor(payload.bytes);
         // Deterministically simulate "decode started, not yet finished" (same
-        // trick as tier_two_registry_test.dart TC-232): pre-insert a
+        // trick as the 'tier two registry' group's TC-232): pre-insert a
         // never-completing entry under the SAME key the registry's resolve
         // will land on, so the listener never fires but the registration
         // (obtainKey().then(...)) still completes synchronously.
         final ic = PaintingBinding.instance.imageCache;
-        ic.putIfAbsent(firstProvider, () => _NeverCompletingImageStreamCompleterDedupe());
+        ic.putIfAbsent(firstProvider, () => NeverCompletingImageStreamCompleter());
         addTearDown(() => ic.evict(firstProvider));
 
         var firstNotified = false;
@@ -1035,7 +1021,7 @@ void main() {
     );
   });
 
-  group('tier_two_publish_pacing_test.dart', () {
+  group('tier two publish pacing', () {
     // TC-907 / TC-908.
     //
     // Contract deliverable 2 (docs/logs/2026-09-04/pacer-followup-contract.md):
@@ -1185,7 +1171,7 @@ void main() {
     );
   });
 
-  group('tier_two_publish_race_test.dart', () {
+  group('tier two publish race', () {
     // TC-381a / TC-381b (provisional numbers -- re-verify against the SOP register
     // at merge). Defect B from docs/logs/2026-08-30/lane-race-arch-verdict.md §1.B:
     // every caller checks `hasFullResEntryFor` BEFORE its decode await, and the
@@ -1348,7 +1334,7 @@ void main() {
     );
   });
 
-  group('tier_two_registry_test.dart', () {
+  group('tier two registry', () {
     // Tests below use plain test(), never testWidgets(): the publish paths await
     // real engine futures (decodeImageFromPixels, MemoryImage decode), which
     // hang forever inside testWidgets' FakeAsync zone
@@ -1373,7 +1359,7 @@ void main() {
       // pre-insert a never-completing entry under the SAME key the registry's
       // resolve will land on. MemoryImage is its own key, so `provider` IS it.
       final ic = PaintingBinding.instance.imageCache;
-      ic.putIfAbsent(provider, () => _NeverCompletingImageStreamCompleterRegistry());
+      ic.putIfAbsent(provider, () => NeverCompletingImageStreamCompleter());
       addTearDown(() => ic.evict(provider));
 
       var notified = false;
@@ -1507,7 +1493,7 @@ void main() {
         image: await tinyImage(),
       );
       final ic = PaintingBinding.instance.imageCache;
-      ic.putIfAbsent(pendingKey, () => _NeverCompletingImageStreamCompleterRegistry());
+      ic.putIfAbsent(pendingKey, () => NeverCompletingImageStreamCompleter());
       addTearDown(() => ic.evict(pendingKey));
 
       var notified = false;

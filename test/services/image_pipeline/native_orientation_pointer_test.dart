@@ -10,13 +10,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:image/image.dart' as img;
+import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -34,26 +35,7 @@ void main() {
     return rgba;
   }
 
-  List<PhotoItem> rawItems(List<String> ids) => [
-        for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-      ];
-
-  /// Every RAW item needs a real decode, declaring orientation 6 (the AC-8.1
-  /// fixture's rotation): the loader answers NeedsRawDecode so the item is
-  /// deferred to the serial lane exactly as a preview-less DNG is.
-  Future<NativeImageResult> needsRawDecodeLoaderOrientation6(
-    String path, {
-    required ImageRequestPurpose purpose,
-    int? targetLongEdge,
-  }) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
-  Future<void> pumpMicrotasks([int rounds = 24]) async {
-    for (var i = 0; i < rounds; i++) {
-      await Future<void>.delayed(Duration.zero);
-    }
-  }
-
-  group('native_orientation_pointer_test.dart', () {
+  group('native orientation pointer', () {
     // AC-8.1 / AC-8.4: a fake orienting decoder reporting it already applied
     // the declared orientation (residual == identity) and handing back a
     // native-backed buffer must take the pointer encoder, never the byte
@@ -117,7 +99,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(pointerCalls, 1);
         expect(copyCalls, 0, reason: 'AC-8.1: byte encoder must not run');
@@ -240,7 +222,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks();
+        await pumpEventLoop(24);
 
         expect(legacyCalls, 1);
         expect(copyCalls, 1);

@@ -433,7 +433,7 @@ void main() {
   // M6 P3 review (task #6), P-14 ruling: exported JPEGs must carry the
   // source file's EXIF metadata again, with Orientation forced to 1. This
   // promotes the reviewer's throwaway probe
-  // (scripts/tmp/m6-r1-verify/export_exif_probe_test.dart) into a permanent
+  // (a scratch EXIF probe test, not retained) into a permanent
   // regression test. The fixture is self-validating: it reads the source
   // DNG's own EXIF via pkg:exif first, so the assertions are pinned against
   // whatever that DNG actually carries, not a hard-coded guess.
@@ -660,8 +660,7 @@ void main() {
 
   test('TC-323: exporting a TIFF produces a JPEG with long edge <= 2048 and '
       'Orientation == 1', () async {
-    final tmp = Directory.systemTemp.createTempSync('halcyon_tiff_export');
-    addTempDirTeardown(tmp);
+    final tmp = makeTempDirSync('halcyon_tiff_export');
     // A real TIFF file must exist at this path: exportBytesFor calls
     // dartImageLoad, whose bitmap branch reads the IFD0 extent and
     // orientation from the file before returning NeedsRawDecode, and
@@ -703,8 +702,7 @@ void main() {
 
   group('round 2: settable export longEdge (docs/logs/2026-08-30 spec)', () {
     Future<String> tiffFixture(String name) async {
-      final tmp = Directory.systemTemp.createTempSync('halcyon_size_export');
-      addTempDirTeardown(tmp);
+      final tmp = makeTempDirSync('halcyon_size_export');
       final path = '${tmp.path}${Platform.pathSeparator}$name.tif';
       File(path)
           .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
@@ -837,8 +835,7 @@ void main() {
       'TC-479 filetype: webpLossy produces a real WebP (decodable, correct '
       'dimensions), resized to the chosen long edge',
       () async {
-        final tmp = Directory.systemTemp.createTempSync('halcyon_webp_export');
-        addTempDirTeardown(tmp);
+        final tmp = makeTempDirSync('halcyon_webp_export');
         final path = '${tmp.path}${Platform.pathSeparator}scan.tif';
         File(path)
             .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
@@ -877,8 +874,7 @@ void main() {
     test(
       'TC-480: WebP export CARRIES an EXIF block (was: carries NO EXIF)',
       () async {
-        final tmp = Directory.systemTemp.createTempSync('halcyon_webp_exif');
-        addTempDirTeardown(tmp);
+        final tmp = makeTempDirSync('halcyon_webp_exif');
         final path = '${tmp.path}${Platform.pathSeparator}scan.tif';
         File(path)
             .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));
@@ -973,8 +969,7 @@ void main() {
     }
 
     Future<String> tiffFixture(String name) async {
-      final tmp = Directory.systemTemp.createTempSync('halcyon_codec_export');
-      addTempDirTeardown(tmp);
+      final tmp = makeTempDirSync('halcyon_codec_export');
       final path = '${tmp.path}${Platform.pathSeparator}$name.tif';
       File(path)
           .writeAsBytesSync(img.encodeTiff(img.Image(width: 60, height: 40)));

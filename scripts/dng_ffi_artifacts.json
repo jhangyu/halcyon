@@ -10,9 +10,6 @@
         "-gU"
       ],
       "comment": "Vendored arm64 dylib; ruling P-12 confirmed this symbol is exported.",
-      "ci_target": "macos",
-      "decoder_artifact": "libdng_decoder_native.dylib",
-      "expected_arch": "arm64",
       "r7": {
         "measures": "the shipped macOS decoder dylib exists and exposes the sized-decode entry point",
         "valid_on": [
@@ -31,16 +28,13 @@
       "tool_args": [
         "-gU"
       ],
-      "comment": "Intel/x86_64 macOS. SAME on-disk path as the 'macos' entry on purpose: build_apps.py places whichever architecture --macos-arch selected at that one path (fetch_target_for(), build_apps.py:1440-1467), so only ONE of the two can be on disk at a time and the manual checker reads whichever the last build fetched. The CI assertions do NOT read this path -- they read the member inside the built/packaged artefact -- so the shared path is not a source of ambiguity there. expected_arch is what distinguishes this entry: it is the value H-ARCH and H-DECODER-ARCH judge the macos-x64 leg against.",
-      "ci_target": "macos-x64",
-      "decoder_artifact": "libdng_decoder_native.dylib",
-      "expected_arch": "x86_64",
+      "comment": "Intel/x86_64 macOS. SAME on-disk path as the 'macos' entry on purpose: build_apps.py places whichever architecture --macos-arch selected at that one path (fetch_target_for() in build_apps.py), so only ONE of the two can be on disk at a time and the manual checker reads whichever the last build fetched. The CI assertions do NOT read this path -- they read the member inside the built/packaged artefact -- so the shared path is not a source of ambiguity there. The CI legs' expected_arch values live in scripts/ci/targets.py.",
       "r7": {
         "measures": "the shipped Intel macOS app and its decoder dylib are both x86_64, and the dylib exposes every ceyx entry point",
         "valid_on": [
           "macos"
         ],
-        "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-SIZED-SYMBOL is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
+        "why_valid": "Architecture is read structurally from the Mach-O header in pure Python, which is host-independent, and nm parses a foreign-architecture Mach-O file on any host -- both instruments therefore stay valid on the Apple-silicon runner that cross-compiles this leg. The functional FFI probe does NOT: an arm64 process cannot dlopen an x86_64 dylib, so H-CEYX-SYMBOLS is omitted from this target's assertion list in scripts/ci/targets.py, visibly and in data. A green macos-x64 leg consequently claims correct bytes, NOT demonstrated runtime loadability on Intel hardware.",
         "red_state": "fetch the macos-arm64 pin entry for this leg (or build without --macos-arch x86_64): H-DECODER-ARCH / H-ARCH fail naming expected x86_64 vs observed arm64",
         "expected": "present=True, arch=x86_64 for both the app executable and the decoder, and all of ceyx_decode_into_buffer_oriented / ceyx_probe_output_size / ceyx_decode_into_buffer listed by nm"
       },
@@ -54,9 +48,6 @@
         "/exports"
       ],
       "comment": "Trust-on-first-use: built on a real Windows host (commit d36e1bd) but no S4 colour-gate run recorded. dumpbin is unavailable on non-Windows hosts, so this platform legitimately reports symbol=skipped when checked from macOS/Linux.",
-      "ci_target": "windows",
-      "decoder_artifact": "dng_decoder_native.dll",
-      "expected_arch": "x86_64",
       "r7": {
         "measures": "the shipped Windows decoder DLL exists alongside its two dynamic imports",
         "valid_on": [
@@ -76,9 +67,6 @@
         "-D"
       ],
       "comment": "arm64-v8a shared object.",
-      "ci_target": "android-apk",
-      "decoder_artifact": "libdng_decoder_native.so",
-      "expected_arch": "aarch64",
       "r7": {
         "measures": "the arm64-v8a decoder shared object exists and exports the sized-decode entry point",
         "valid_on": [
@@ -98,9 +86,6 @@
         "-D"
       ],
       "comment": "Fetched from the pinned ceyx release (assets.linux.libraries pins libdng_decoder_native.so); the Linux release leg ships it. Closed 2026-09-12.",
-      "ci_target": "linux",
-      "decoder_artifact": "libdng_decoder_native.so",
-      "expected_arch": "x86_64",
       "r7": {
         "measures": "the shipped Linux decoder shared object exists and exposes the sized-decode entry point",
         "valid_on": [
@@ -119,10 +104,7 @@
       "tool_args": [
         "-D"
       ],
-      "comment": "arm64 sibling of 'linux' (armci campaign 2026-09-30). Same on-disk path as 'linux': build_apps.py places whichever --desktop-arch selected. CI assertions read the member inside the built artefact; expected_arch is what H-ARCH/H-DECODER-ARCH judge this leg against.",
-      "ci_target": "linux-arm",
-      "decoder_artifact": "libdng_decoder_native.so",
-      "expected_arch": "aarch64",
+      "comment": "arm64 sibling of 'linux' (armci campaign 2026-09-30). Same on-disk path as 'linux': build_apps.py places whichever --desktop-arch selected. CI facts (expected_arch, decoder_artifact) live in scripts/ci/targets.py.",
       "r7": {
         "measures": "the shipped arm64 Linux decoder shared object exists and exposes the sized-decode entry point",
         "valid_on": [
@@ -141,10 +123,7 @@
       "tool_args": [
         "/exports"
       ],
-      "comment": "arm64 sibling of 'windows' (armci campaign 2026-09-30). Same on-disk path as 'windows': build_apps.py places whichever --desktop-arch selected. CI assertions read the member inside the built artefact; expected_arch is what H-ARCH/H-DECODER-ARCH judge this leg against.",
-      "ci_target": "windows-arm",
-      "decoder_artifact": "dng_decoder_native.dll",
-      "expected_arch": "arm64",
+      "comment": "arm64 sibling of 'windows' (armci campaign 2026-09-30). Same on-disk path as 'windows': build_apps.py places whichever --desktop-arch selected. CI facts (expected_arch, decoder_artifact) live in scripts/ci/targets.py.",
       "r7": {
         "measures": "the shipped arm64 Windows decoder DLL exists alongside its two dynamic imports",
         "valid_on": [

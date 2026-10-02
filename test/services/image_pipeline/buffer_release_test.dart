@@ -11,13 +11,14 @@ import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 /// WP6b (gc-remediation plan, Steps 7.7-7.11): the native buffer a pooled
 /// decode hands over is returned to `CeyxNativeBufferPool` at end-of-
@@ -29,7 +30,7 @@ import '../../support/preload_fixtures.dart';
 /// `decoded.rgba` itself, but only as the transient `fullRes` record whose
 /// last use is the release site.
 void main() {
-  group('buffer_release_test.dart', () {
+  group('buffer release', () {
     /// A 4x4 OPAQUE RGBA frame, orientation 1 -- so the full-res path takes
     /// the identity short-circuit (the aliasing branch under test) and no
     /// `ui.Image` handle is created.
@@ -54,12 +55,6 @@ void main() {
         PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
     ];
 
-    Future<NativeImageResult> needsRawDecodeLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
     ImagePreloadController buildController({
       required Future<DecodedRgba> Function(String path) decoder,
       required Future<Uint8List> Function(
@@ -76,12 +71,6 @@ void main() {
         payloadEncoder: encoder,
         decodeLaneWidth: 1,
       );
-    }
-
-    Future<void> pumpMicrotasks([int rounds = 24]) async {
-      for (var i = 0; i < rounds; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
     }
 
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -129,7 +118,7 @@ void main() {
       );
       // Extra pumping AFTER the wait, so a spurious SECOND release would still
       // be caught by the exactly-once assertions below.
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<EncodedPayload>());
       // AC7.6: exactly once per decode, not "at least once".
@@ -192,7 +181,7 @@ void main() {
       );
       // Extra pumping AFTER the wait, so a spurious SECOND release would still
       // be caught by the exactly-once assertion below.
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
       expect(released['/tmp/a.dng'], 1);
@@ -211,15 +200,6 @@ void main() {
       );
     });
 
-    /// A 4x4 opaque frame declared with EXIF orientation 6, so the full-res
-    /// path ROTATES: `decodedRgbaToOrientedFullRes` returns a fresh readback
-    /// plus a non-null `ui.Image` (decoded_rgba_image_provider.dart:308-316).
-    Future<NativeImageResult> rotatedLoader(
-      String path, {
-      required ImageRequestPurpose purpose,
-      int? targetLongEdge,
-    }) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
     // TC-1271 -- rotated encode-failure path: the retained PixelPayload is a
     // GPU readback, so the native buffer has no reader and goes back.
     test('a rotated PixelPayload fallback DOES release the native buffer',
@@ -227,7 +207,7 @@ void main() {
       final released = <String, int>{};
       final firstRelease = Completer<void>();
       final controller = ImagePreloadController(
-        imageLoader: rotatedLoader,
+        imageLoader: needsRawDecodeLoaderOrientation6,
         dngDecoder: (path) async => decodedFixture(
           releaseNative: () {
             released[path] = (released[path] ?? 0) + 1;
@@ -254,7 +234,7 @@ void main() {
           'the rotated fallback never returned the native buffer within 5s',
         ),
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
       expect(released['/tmp/a.dng'], 1);
@@ -426,13 +406,13 @@ void main() {
           selectedItemId: 'w1-0',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks(80);
+        await pumpEventLoop(80);
         await controller.preloadImages(
           items: wave('w2-'),
           selectedItemId: 'w2-0',
           notifyLoaded: () {},
         );
-        await pumpMicrotasks(80);
+        await pumpEventLoop(80);
 
         // FIXTURE GUARD, not an AC. A zero-wait count is trivially true for a
         // pool nothing ever asked for a buffer, which is exactly how this test

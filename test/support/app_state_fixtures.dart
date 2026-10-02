@@ -10,10 +10,12 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 /// app_state_working_set_trim_test.dart and app_state_test.dart. Nothing here
 /// changes behaviour: it builds an [AppState] with a stub image loader that
 /// always returns the same 3-byte payload.
-AppState testState() {
-  return AppState(
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async {
-      return NativeImageBytes(Uint8List.fromList([1, 2, 3]));
-    },
-  );
-}
+AppState testState() => AppState(imageLoader: bytesStubLoader);
+
+/// The `[1, 2, 3]` stub as a bindable top-level, for sites that also pass
+/// `scanner:`/`exifReader:`/`trashFile:` and so cannot use [testState].
+Future<NativeImageResult> bytesStubLoader(
+  String path, {
+  required ImageRequestPurpose purpose,
+  int? targetLongEdge,
+}) async => NativeImageBytes(Uint8List.fromList([1, 2, 3]));

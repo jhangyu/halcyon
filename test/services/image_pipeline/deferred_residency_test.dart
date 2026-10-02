@@ -8,51 +8,32 @@
 // ImageCache key AND the tier-2 registry's readiness anchor, so the swap must
 // retire both BEFORE it lands (spec §4, ordered retire-then-put).
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decode_lane.dart';
 import 'package:halcyon_flutter/services/image_pipeline/deferred_full_size_encoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/frame_bytes.dart';
 import 'package:halcyon_flutter/services/image_pipeline/inflight_bytes_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 
 import '../../support/preload_fixtures.dart';
-
-Future<NativeImageResult> _needsRawDecodeLoader(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-DecodedRgba _frame(int width, int height) {
-  final rgba = Uint8List(width * height * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: width, height: height);
-}
+import '../../support/loader_stubs.dart';
+import '../../support/rgba_fixtures.dart';
 
 /// The deferred full-size encode is OPT-IN at the controller (null supplier =>
 /// abandon before decoding), so every controller in THIS file -- the file that
 /// exists to exercise that path -- must bind the supplier EXPLICITLY. These
 /// two named decoders exist so the `dngDecoder` and the `deferredEncodeDecoder`
 /// arguments can be the SAME object, which is what production does.
-Future<DecodedRgba> _decode60x40(String path) async => _frame(60, 40);
+Future<DecodedRgba> _decode60x40(String path) async => opaqueRgba(60, 40);
 
-Future<DecodedRgba> _decode6000x4000(String path) async => _frame(6000, 4000);
-
-List<PhotoItem> _rawItems(List<String> ids) => [
-  for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-];
+Future<DecodedRgba> _decode6000x4000(String path) async => opaqueRgba(6000, 4000);
 
 PixelPayload _pixels(int width, int height) => PixelPayload(
   rgba: Uint8List(width * height * 4),
@@ -79,7 +60,7 @@ void main() {
     imageCache.clearLiveImages();
   });
 
-  group('deferred_residency_test.dart', () {
+  group('deferred residency', () {
     test(
       'TC-1232 (AC-5 liveness) a slot whose INLINE encode failed acquires a '
       'full-size JPEG payload through the deferred path, carrying the '
@@ -87,7 +68,7 @@ void main() {
       () async {
         var encodeCalls = 0;
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode60x40,
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
@@ -102,7 +83,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a']),
+            items: rawItems(['a']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -129,7 +110,7 @@ void main() {
         final encodedSizes = <String>[];
         var encodeCalls = 0;
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode6000x4000,
           deferredEncodeDecoder: () => _decode6000x4000,
           payloadEncoder:
@@ -146,7 +127,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a']),
+            items: rawItems(['a']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -179,7 +160,7 @@ void main() {
         // job's timing and nothing about its logic or its guards.
         final releaseDeferredEncode = Completer<void>();
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode60x40,
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
@@ -195,7 +176,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a', 'b']),
+            items: rawItems(['a', 'b']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -250,7 +231,7 @@ void main() {
           );
 
           deferred.schedule(
-            _rawItems(['a']).single,
+            rawItems(['a']).single,
             previous: payload,
             distance: 0,
           );
@@ -266,7 +247,7 @@ void main() {
           // `_fullResFailures` memo already follows -- it dies with the
           // payload, and so does this one).
           deferred.schedule(
-            _rawItems(['a']).single,
+            rawItems(['a']).single,
             previous: payload,
             distance: 0,
           );
@@ -288,12 +269,12 @@ void main() {
         );
         await check(
           'encoder throws',
-          decoder: (path) async => _frame(4, 4),
+          decoder: (path) async => opaqueRgba(4, 4),
           encoder: throwingPayloadEncoder,
         );
         await check(
           'empty JPEG',
-          decoder: (path) async => _frame(4, 4),
+          decoder: (path) async => opaqueRgba(4, 4),
           encoder:
               (rgba, {required width, required height, required quality}) async =>
                   Uint8List(0),
@@ -308,7 +289,7 @@ void main() {
       () async {
         var encodeCalls = 0;
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode60x40,
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
@@ -323,7 +304,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a', 'b', 'c']),
+            items: rawItems(['a', 'b', 'c']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -350,7 +331,7 @@ void main() {
       'it encoded at',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode60x40,
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
@@ -362,7 +343,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a']),
+            items: rawItems(['a']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -386,7 +367,7 @@ void main() {
       'leaves the retention window',
       () async {
         final controller = ImagePreloadController(
-          imageLoader: _needsRawDecodeLoader,
+          imageLoader: needsRawDecodeLoader,
           dngDecoder: _decode60x40,
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder: throwingPayloadEncoder,
@@ -396,7 +377,7 @@ void main() {
 
         unawaited(
           controller.preloadImages(
-            items: _rawItems(['a']),
+            items: rawItems(['a']),
             selectedItemId: 'a',
             notifyLoaded: () {},
           ),
@@ -435,11 +416,11 @@ void main() {
           var encodeCalls = 0;
           Future<DecodedRgba> decoder(String path) async {
             decodeCalls++;
-            return _frame(60, 40);
+            return opaqueRgba(60, 40);
           }
 
           final controller = ImagePreloadController(
-            imageLoader: _needsRawDecodeLoader,
+            imageLoader: needsRawDecodeLoader,
             dngDecoder: decoder,
             payloadEncoder:
                 (rgba, {required width, required height, required quality}) async {
@@ -459,7 +440,7 @@ void main() {
           controller.updateTargetSize(32, 32);
           unawaited(
             controller.preloadImages(
-              items: _rawItems(['a']),
+              items: rawItems(['a']),
               selectedItemId: 'a',
               notifyLoaded: () {},
             ),
@@ -518,7 +499,7 @@ void main() {
           lane: lane,
           dngDecoder: () => (path) async {
             await decodeGate.future;
-            return _frame(4, 4);
+            return opaqueRgba(4, 4);
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>
@@ -533,7 +514,7 @@ void main() {
         // The charge is taken at ENQUEUE, so this counter is already correct
         // before the body has run at all.
         deferred.schedule(
-          _rawItems(['a']).single,
+          rawItems(['a']).single,
           previous: payload,
           distance: 0,
         );
@@ -593,7 +574,7 @@ void main() {
           lane: lane,
           dngDecoder: () => (path) async {
             deferredDecodeStarted = true;
-            return _frame(4, 4);
+            return opaqueRgba(4, 4);
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>
@@ -605,7 +586,7 @@ void main() {
           awaitIdleSlot: () async {},
         );
         deferred.schedule(
-          _rawItems(['a']).single,
+          rawItems(['a']).single,
           previous: payload,
           distance: 0,
         );

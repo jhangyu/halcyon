@@ -27,7 +27,7 @@ const double kChipHeight = kChipWidth / kChipAspect; // 49.33 at rest
 /// chip is drawn.
 ///
 /// USER CLARIFICATION 2026-09-02: sidebar thumbnails are ALREADY produced at a
-/// 200px long edge (`ImageRequestPurpose.sidebarThumbnail`), and 200 is also
+/// 200px long edge (`kSidebarThumbnailLongEdge`), and 200 is also
 /// the gutter's maximum width — so a chip can never be drawn larger than the
 /// bitmap it already has. This is therefore a pure layout change: the existing
 /// decode is kept and the widget scales it DOWN at narrower widths. No
@@ -107,7 +107,6 @@ class _GalleryColumnState extends State<GalleryColumn>
     with VisibleRangeReporter<GalleryColumn> {
   final AnchoredScrollController _scrollController =
       AnchoredScrollController();
-  String? _lastSelectedId;
 
   @override
   ScrollController? get rangeScrollController => _scrollController;
@@ -157,14 +156,6 @@ class _GalleryColumnState extends State<GalleryColumn>
   /// below still reads as "rows of columns" rather than silently assuming 1.
   int get _columns => 1;
   bool get _dragged => widget.width > 90;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _ensureSelectedVisible();
-    });
-  }
 
   @override
   void dispose() {
@@ -240,32 +231,9 @@ class _GalleryColumnState extends State<GalleryColumn>
     );
   }
 
-  /// 200ms `easeInOut` autoscroll keeping the selected chip's row visible,
-  /// ported from sidebar_view.dart:110-137. Row positions are computed from
-  /// the uniform [_rowExtent].
-  void _ensureSelectedVisible() {
-    // Round-4 follow-up: extracted to `ensureSelectedRowVisible` in
-    // `common/visible_range_reporter.dart` so `darkroom_column.dart` and
-    // `paper_desktop.dart` share this exact behaviour instead of leaving
-    // keyboard-navigation follow-scroll unimplemented (AC1,
-    // pacer-followup-contract.md). Logic unchanged, only lifted.
-    ensureSelectedRowVisible(
-      controller: _scrollController,
-      strip: widget.surface.strip,
-      columns: _columns,
-      rowExtent: _rowExtent,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final strip = widget.surface.strip;
-    if (strip.selectedId != _lastSelectedId) {
-      _lastSelectedId = strip.selectedId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _ensureSelectedVisible();
-      });
-    }
+    followSelection();
 
     return Stack(
       children: [
@@ -389,7 +357,7 @@ class _GalleryColumnState extends State<GalleryColumn>
               child: ListView.builder(
                 controller: _scrollController,
                 // Makes _rowExtent a fact rather than an approximation: both
-                // the visible-range math above and _ensureSelectedVisible
+                // the visible-range math above and followSelection
                 // compute row positions from it.
                 itemExtent: _rowExtent,
                 itemCount: rowCount,

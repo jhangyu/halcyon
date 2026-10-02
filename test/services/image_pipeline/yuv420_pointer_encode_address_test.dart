@@ -21,18 +21,17 @@
 // zero-copy path fails here, by design.
 
 import 'dart:ffi' as ffi;
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ceyx/ceyx.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provider.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/payload_reencoder.dart';
 import 'package:image/image.dart' as img;
+import '../../support/loader_stubs.dart';
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,22 +45,6 @@ void main() {
   const fakeSourceAddress = 0xDEAD0000;
 
   tearDown(debugResetUpconvertSeam);
-
-  List<PhotoItem> rawItems(List<String> ids) => [
-        for (final id in ids) PhotoItem(id: id, files: [File('/tmp/$id.dng')]),
-      ];
-
-  Future<NativeImageResult> needsRawDecodeLoader(
-    String path, {
-    required ImageRequestPurpose purpose,
-    int? targetLongEdge,
-  }) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-  Future<void> pumpMicrotasks([int rounds = 24]) async {
-    for (var i = 0; i < rounds; i++) {
-      await Future<void>.delayed(Duration.zero);
-    }
-  }
 
   /// Drives a full decode->encode through `ImagePreloadController` with the
   /// decoder emitting PLANAR YUV420, and the upconvert seam faked so no dylib
@@ -182,7 +165,7 @@ void main() {
       selectedItemId: 'a',
       notifyLoaded: () {},
     );
-    await pumpMicrotasks();
+    await pumpEventLoop(24);
 
     return (
       pointerCalls: pointerCalls,

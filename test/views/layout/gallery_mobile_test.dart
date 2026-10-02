@@ -17,6 +17,7 @@ import 'package:halcyon_flutter/views/layout/common/exif_caption.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_layout.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_mobile.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 const ValueKey<String> _kViewportKey = ValueKey<String>(
   'gallery.mobile.test.viewport',
@@ -27,26 +28,12 @@ MainSurface _surfaceWith({
   List<PhotoItem> items = const [],
   String? selectedId,
   void Function(String id)? onSelect,
-}) => MainSurface(
+}) => testSurface(
   viewport: const ColoredBox(key: _kViewportKey, color: Colors.blue),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: selectedId,
-    recycleMode: false,
-    onSelect: onSelect ?? (_) {},
-    payloadFor: (_) => null,
-    onVisibleRange: (_, __) {},
-  ),
+  items: items,
+  selectedId: selectedId,
   identity: identity,
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
+  onSelect: onSelect,
 );
 
 /// Pumps the real `GalleryLayout.buildMobileSurface` seam at the mockup's own

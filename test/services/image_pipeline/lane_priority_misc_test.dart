@@ -27,95 +27,11 @@ import 'package:halcyon_flutter/services/image_pipeline/sidebar_thumbnail_codec.
 import '../../support/preload_fixtures.dart';
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
+import '../../support/loader_stubs.dart';
+import '../../support/fakes.dart';
+import '../../support/rgba_fixtures.dart';
 
-/// Counts `open()` calls on files created inside an [IOOverrides] zone.
-///
-/// Same instrument TC-090 uses in `photo_source_single_probe_test.dart`: only
-/// `open()` is implemented, so a probe that reaches the filesystem another way
-/// fails loudly instead of quietly under-counting.
-class _CountingFile implements File {
-  _CountingFile(this._inner, this._onOpen);
-
-  final File _inner;
-  final void Function() _onOpen;
-
-  @override
-  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
-    _onOpen();
-    return _inner.open(mode: mode);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-Future<int> _countingOpens(Future<void> Function() body) async {
-  var opens = 0;
-  await IOOverrides.runZoned(
-    body,
-    createFile: (path) =>
-        _CountingFile(Zone.root.run(() => File(path)), () => opens++),
-  );
-  return opens;
-}
-
-Future<NativeImageResult> _rawLoaderPriority(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-DecodedRgba _tinyPriority() {
-  final rgba = Uint8List(8 * 8 * 4);
-  for (var i = 3; i < rgba.length; i += 4) {
-    rgba[i] = 0xFF;
-  }
-  return DecodedRgba(rgba: rgba, width: 8, height: 8);
-}
-
-/// P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
-/// pipeline-architecture-v2.md §5-P0): proves every new emit site this task
-/// owns actually reaches the log file when enabled, and is structurally
-/// inert (no PerfLog writes at all) when the flag is off.
-///
-/// Two DIFFERENT event names are exercised deliberately (lead's ownership-
-/// extension ruling): `decode.ffi` (photo_source.dart -- FFI decode wall
-/// time) and `materialize` (the architecture doc's own 4 sites -- GPU
-/// texture/engine-buffer hand-off cost). `lane.width` (main.dart) is not
-/// exercised here -- it fires off an AppState listener in `main()`, which is
-/// not a unit-testable seam from this file's ownership; its emission is
-/// covered by direct code inspection + `flutter analyze` (see task report).
-///
-/// Plain test(), never testWidgets(), wherever a real `ui.decodeImageFromPixels`
-/// engine future is awaited -- it hangs forever inside testWidgets' FakeAsync
-/// zone (see raw_pixels_image_test.dart's header note).
-Future<NativeImageResult> _needsRawDecode(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 1);
-
-// Orientation 6 (not identity): forces decodedRgbaToPixelPayload /
-// decodedRgbaToOrientedFullRes past their identity short-circuit and into
-// the real `ui.decodeImageFromPixels` GPU pass this task instruments --
-// matching photo_source_fullres_handle_test.dart's TC-827b convention.
-Future<NativeImageResult> _needsRawDecodeRotated(
-  String path, {
-  required ImageRequestPurpose purpose,
-  int? targetLongEdge,
-}) async => const NativeImageNeedsRawDecode(exifOrientation: 6);
-
-DecodedRgba _decodedFixture() {
-  // 8x6 opaque RGBA, matching the convention in
-  // photo_source_fullres_handle_test.dart.
-  final bytes = Uint8List(8 * 6 * 4);
-  for (var p = 0; p < 8 * 6; p++) {
-    bytes[p * 4 + 3] = 255;
-  }
-  return DecodedRgba(rgba: bytes, width: 8, height: 6);
-}
-
-Future<DecodedRgba> _decoder(String path) async => _decodedFixture();
+Future<DecodedRgba> _decoder(String path) async => opaqueRgba(8, 6);
 
 Future<Uint8List> _okEncoder(
   Uint8List rgba, {
@@ -136,7 +52,7 @@ PixelPayload _pixels(int w, int h) =>
 
 Future<Uint8List> _bigPng() async {
   // Synthesize a >512KB encoded PNG, same recipe as
-  // sidebar_thumbnail_codec_test.dart's bigPng() -- no sample-file
+  // the 'sidebar thumbnail codec' group's bigPng() (sidebar_test.dart) -- no sample-file
   // dependency, forces sidebarCacheBytes' decode/re-encode branch.
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
@@ -152,7 +68,7 @@ Future<Uint8List> _bigPng() async {
 }
 
 void main() {
-  group('bitmap_container_probe_test.dart', () {
+  group('bitmap container probe', () {
     late Directory tmp;
 
     setUpAll(() {
@@ -258,7 +174,7 @@ void main() {
     });
   });
 
-  group('preview_floor_longedge_test.dart', () {
+  group('preview floor longedge', () {
     // F4 / AC6: ONE threshold answers "is the embedded preview big enough?".
     //
     // The routing verdict (`PhotoSource.probeSource`) compares the largest
@@ -283,8 +199,7 @@ void main() {
     late String dngPath;
 
     setUp(() async {
-      dir = await Directory.systemTemp.createTemp('m4_preview_floor');
-      addTempDirTeardown(dir);
+      dir = await makeTempDir('m4_preview_floor');
       // ONE candidate at 2000px: bigger than a small window, smaller than the
       // old hardcoded 2800 floor. DefaultCropSize tracks the largest candidate,
       // so this candidate also clears the extractor's 0.90*cropMax full-size
@@ -371,7 +286,7 @@ void main() {
     });
   });
 
-  group('shared_display_quality_test.dart', () {
+  group('shared display quality', () {
     test('TC-438 the shared display quality constant is q70', () {
       expect(kDisplayJpegQuality, 70);
     });
@@ -393,7 +308,7 @@ void main() {
     });
   });
 
-  group('cost_memo_longedge_test.dart', () {
+  group('cost memo longedge', () {
     // F5 / AC7: the cost memo must not stay frozen against the BOOTSTRAP viewport.
     //
     // `_longEdge` answers `kDefaultPreviewLongEdge` (2800) until the viewport's
@@ -419,8 +334,7 @@ void main() {
     late String dngPath;
 
     setUp(() async {
-      dir = await Directory.systemTemp.createTemp('m4_cost_memo');
-      addTempDirTeardown(dir);
+      dir = await makeTempDir('m4_cost_memo');
       // 3000px STRADDLES the bootstrap default (2800) and the real viewport
       // (4000) used below: cheap under the placeholder, expensive under the
       // truth. That gap is the whole defect.
@@ -564,7 +478,7 @@ void main() {
         () async {
       final scheduler = PrefetchScheduler();
 
-      final opensAtFirstLongEdge = await _countingOpens(() async {
+      final opensAtFirstLongEdge = await countingOpens(() async {
         for (var i = 0; i < 5; i++) {
           await scheduler.classify('straddler', dngPath, longEdge: 2800);
         }
@@ -577,7 +491,7 @@ void main() {
             'regression',
       );
 
-      final opensAfterResize = await _countingOpens(() async {
+      final opensAfterResize = await countingOpens(() async {
         for (var i = 0; i < 5; i++) {
           await scheduler.classify('straddler', dngPath, longEdge: 4000);
         }
@@ -591,7 +505,7 @@ void main() {
     });
   });
 
-  group('lane_priority_test.dart', () {
+  group('lane priority', () {
     // Phase 4 — the unified lane priority function
     // (async-pipeline-refactor-plan.md §3 Phase 4, with contract override S4).
     //
@@ -919,12 +833,12 @@ void main() {
         () async {
           final gate = Completer<void>();
           final controller = ImagePreloadController(
-            imageLoader: _rawLoaderPriority,
+            imageLoader: needsRawDecodeLoader,
             dngDecoder: (path) async {
               // Gated so every enqueued key stays PENDING and its priority is
               // observable; the lane is width 1 so one key occupies the slot.
               await gate.future;
-              return _tinyPriority();
+              return opaqueRgba(8, 8);
             },
             payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
@@ -1029,7 +943,7 @@ void main() {
     // ROUND B REVIEW BLOCKER (fix cycle 1). The Phase 4 rebase moved three
     // producers onto the band table and missed a FOURTH: TierTwoScheduler's
     // catch-up sweep also enqueues the `(payload, id)` key, and it was still
-    // handing the lane a bare `laneRankFor(distance)` (0..N).
+    // handing the lane a bare `laneRankForDistance(distance)` (0..N).
     //
     // That is not a cosmetic inconsistency. DecodeLane RE-RANKS a pending key on
     // re-enqueue, so the sweep pulled the slots it touches (the tier-2 window,
@@ -1042,7 +956,7 @@ void main() {
         () async {
           final gate = Completer<void>();
           final controller = ImagePreloadController(
-            imageLoader: _rawLoaderPriority,
+            imageLoader: needsRawDecodeLoader,
             dngDecoder: (path) async {
               // Gated forever, so nothing the lane admits ever finishes and
               // the merged pending order stays observable. NOTE what this
@@ -1052,7 +966,7 @@ void main() {
               // the width-1 lane admits is by definition not pending. See the
               // lane pre-occupation below.
               await gate.future;
-              return _tinyPriority();
+              return opaqueRgba(8, 8);
             },
             payloadEncoder: throwingPayloadEncoder,
             decodeLaneWidth: 1,
@@ -1166,7 +1080,7 @@ void main() {
     });
   });
 
-  group('p0_perf_instrumentation_test.dart', () {
+  group('p0 perf instrumentation', () {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     late Directory tmpDir;
@@ -1196,7 +1110,7 @@ void main() {
       () async {
         PerfLog.init(logPath);
         const source = PhotoSource(
-          loader: _needsRawDecodeRotated, // orientation 6: forces the GPU pass too
+          loader: needsRawDecodeLoaderOrientation6, // orientation 6: forces the GPU pass too
           dngDecoder: _decoder,
           payloadEncoder: _okEncoder,
         );
@@ -1333,7 +1247,7 @@ void main() {
       () async {
         PerfLog.enabled = false; // explicit: default state, but be defensive.
         const source = PhotoSource(
-          loader: _needsRawDecode,
+          loader: needsRawDecodeLoader,
           dngDecoder: _decoder,
           payloadEncoder: _okEncoder,
         );
@@ -1389,9 +1303,8 @@ void main() {
       'around the ui.decodeImageFromPixels GPU hand-off',
       () async {
         PerfLog.init(logPath);
-        final decoded = _decodedFixture();
-        // Orientation 6 (not identity): forces the GPU pass this test targets;
-        // see _needsRawDecodeRotated's comment above.
+        final decoded = opaqueRgba(8, 6);
+        // Orientation 6 (not identity): forces the GPU pass this test targets.
         await decodedRgbaToPixelPayload(decoded, exifOrientation: 6, longEdge: 8);
         await PerfLog.flush();
 

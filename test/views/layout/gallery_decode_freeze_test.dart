@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/views/layout/common/photo_viewport.dart';
+import 'package:halcyon_flutter/views/layout/common/resizable_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
@@ -65,8 +66,7 @@ void main() {
 
     late _RecordingAppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_freeze_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_freeze_');
       await File('${dir.path}/IMG_0001.jpg')
           .writeAsBytes(Uint8List.fromList(_transparentPng));
       state = _RecordingAppState();
@@ -149,7 +149,7 @@ void main() {
 
       await gesture.up();
       // Past the stall delay: the freeze lifts and the real target lands once.
-      await tester.pump(kGalleryWidthBadgeDelay + const Duration(milliseconds: 50));
+      await tester.pump(kColumnDragStallDelay + const Duration(milliseconds: 50));
       await tester.pump();
 
       expect(state.reported.last, isNot(settled));

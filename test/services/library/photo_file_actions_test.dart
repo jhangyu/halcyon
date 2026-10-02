@@ -5,18 +5,20 @@ import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/library/photo_file_actions.dart';
 import 'package:path/path.dart' as p;
+import '../../support/fixture_files.dart';
+
+const _stubBytes = <int>[1, 2, 3];
 
 void main() {
   group('PhotoFileActions.deleteTrashed', () {
     test(
       'moves trashed files and sidecars through the trash service',
       () async {
-        final dir = await Directory.systemTemp.createTemp('halcyon_trash_');
-        addTempDirTeardown(dir);
+        final dir = await makeTempDir('halcyon_trash_');
 
-        final photo = await _touch(dir, 'IMG_0001.jpg');
-        final sidecar = await _touch(dir, '._IMG_0001.jpg');
-        final untouched = await _touch(dir, 'IMG_0002.jpg');
+        final photo = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+        final sidecar = await writeFixtureBytes(dir, '._IMG_0001.jpg', _stubBytes);
+        final untouched = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
         final trashedPaths = <String>[];
 
         final actions = PhotoFileActions(
@@ -47,10 +49,9 @@ void main() {
     );
 
     test('keeps the source file when trash service fails', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_trash_fail_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_trash_fail_');
 
-      final photo = await _touch(dir, 'IMG_0001.jpg');
+      final photo = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
       final actions = PhotoFileActions(
         trashFile: (file) async {
           throw const FileSystemException('trash failed');
@@ -71,11 +72,10 @@ void main() {
     });
 
     test('TC-207 deleteTrashed continues past a failing trash call', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_dt_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_dt_');
 
-      final bad = await _touch(dir, 'IMG_0001.jpg');
-      final good = await _touch(dir, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final actions = PhotoFileActions(
         trashFile: (file) async {
@@ -103,15 +103,11 @@ void main() {
     test(
       'copy mode copies starred items to the destination, leaves the source untouched, skips unstarred items',
       () async {
-        final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
-        addTempDirTeardown(src);
-        final dest = await Directory.systemTemp.createTemp(
-          'halcyon_star_dest_',
-        );
-        addTempDirTeardown(dest);
+        final src = await makeTempDir('halcyon_star_src_');
+        final dest = await makeTempDir('halcyon_star_dest_');
 
-        final starred = await _touch(src, 'IMG_0001.jpg');
-        final unstarred = await _touch(src, 'IMG_0002.jpg');
+        final starred = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final unstarred = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -143,15 +139,11 @@ void main() {
     test(
       'move mode moves starred items to the destination, removes the source, leaves unstarred untouched',
       () async {
-        final src = await Directory.systemTemp.createTemp('halcyon_star_src_');
-        addTempDirTeardown(src);
-        final dest = await Directory.systemTemp.createTemp(
-          'halcyon_star_dest_',
-        );
-        addTempDirTeardown(dest);
+        final src = await makeTempDir('halcyon_star_src_');
+        final dest = await makeTempDir('halcyon_star_dest_');
 
-        final starred = await _touch(src, 'IMG_0001.jpg');
-        final unstarred = await _touch(src, 'IMG_0002.jpg');
+        final starred = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final unstarred = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -177,13 +169,11 @@ void main() {
     );
 
     test('move mode processes every sibling file in a RAW+JPG group', () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_star_sib_');
-      addTempDirTeardown(src);
-      final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
-      addTempDirTeardown(dest);
+      final src = await makeTempDir('halcyon_star_sib_');
+      final dest = await makeTempDir('halcyon_star_dest_');
 
-      final jpg = await _touch(src, 'IMG_0001.jpg');
-      final dng = await _touch(src, 'IMG_0001.dng');
+      final jpg = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      final dng = await writeFixtureBytes(src, 'IMG_0001.dng', _stubBytes);
 
       await PhotoFileActions().processStarred([
         PhotoItem(id: 'IMG_0001', files: [jpg, dng], status: PhotoStatus.starred),
@@ -198,14 +188,8 @@ void main() {
     test(
       'overwriteExisting=false skips a starred file whose destination already exists, source is left alone',
       () async {
-        final src = await Directory.systemTemp.createTemp(
-          'halcyon_star_skip_',
-        );
-        addTempDirTeardown(src);
-        final dest = await Directory.systemTemp.createTemp(
-          'halcyon_star_dest_',
-        );
-        addTempDirTeardown(dest);
+        final src = await makeTempDir('halcyon_star_skip_');
+        final dest = await makeTempDir('halcyon_star_dest_');
 
         await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
         final source = File(p.join(src.path, 'IMG_0001.jpg'));
@@ -232,10 +216,8 @@ void main() {
     );
 
     test('overwriteExisting=true replaces an existing destination file', () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_star_over_');
-      addTempDirTeardown(src);
-      final dest = await Directory.systemTemp.createTemp('halcyon_star_dest_');
-      addTempDirTeardown(dest);
+      final src = await makeTempDir('halcyon_star_over_');
+      final dest = await makeTempDir('halcyon_star_dest_');
 
       await File(p.join(dest.path, 'IMG_0001.jpg')).writeAsString('OLD');
       final source = File(p.join(src.path, 'IMG_0001.jpg'));
@@ -259,18 +241,12 @@ void main() {
     test(
       'copy mode discards a preexisting destination AppleDouble sidecar and keeps the source sidecar',
       () async {
-        final src = await Directory.systemTemp.createTemp(
-          'halcyon_star_sc_copy_',
-        );
-        addTempDirTeardown(src);
-        final dest = await Directory.systemTemp.createTemp(
-          'halcyon_star_dest_',
-        );
-        addTempDirTeardown(dest);
+        final src = await makeTempDir('halcyon_star_sc_copy_');
+        final dest = await makeTempDir('halcyon_star_dest_');
 
-        final photo = await _touch(src, 'IMG_0001.jpg');
-        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
-        await _touch(dest, '._IMG_0001.jpg');
+        final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final srcSidecar = await writeFixtureBytes(src, '._IMG_0001.jpg', _stubBytes);
+        await writeFixtureBytes(dest, '._IMG_0001.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -297,17 +273,11 @@ void main() {
     test(
       'move mode discards the source AppleDouble sidecar instead of moving it',
       () async {
-        final src = await Directory.systemTemp.createTemp(
-          'halcyon_star_sc_move_',
-        );
-        addTempDirTeardown(src);
-        final dest = await Directory.systemTemp.createTemp(
-          'halcyon_star_dest_',
-        );
-        addTempDirTeardown(dest);
+        final src = await makeTempDir('halcyon_star_sc_move_');
+        final dest = await makeTempDir('halcyon_star_dest_');
 
-        final photo = await _touch(src, 'IMG_0001.jpg');
-        final srcSidecar = await _touch(src, '._IMG_0001.jpg');
+        final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+        final srcSidecar = await writeFixtureBytes(src, '._IMG_0001.jpg', _stubBytes);
 
         await PhotoFileActions().processStarred([
           PhotoItem(
@@ -331,10 +301,9 @@ void main() {
     );
 
     test('does nothing when the destination folder does not exist', () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_star_nodest_');
-      addTempDirTeardown(src);
+      final src = await makeTempDir('halcyon_star_nodest_');
       final missingDest = Directory(p.join(src.path, 'does_not_exist'));
-      final photo = await _touch(src, 'IMG_0001.jpg');
+      final photo = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
 
       await PhotoFileActions().processStarred([
         PhotoItem(id: 'IMG_0001', files: [photo], status: PhotoStatus.starred),
@@ -344,13 +313,11 @@ void main() {
     });
 
     test('TC-206 processStarred continues past a failing file', () async {
-      final src = await Directory.systemTemp.createTemp('halcyon_ps_src_');
-      final dest = await Directory.systemTemp.createTemp('halcyon_ps_dest_');
-      addTempDirTeardown(src);
-      addTempDirTeardown(dest);
+      final src = await makeTempDir('halcyon_ps_src_');
+      final dest = await makeTempDir('halcyon_ps_dest_');
 
-      final bad = await _touch(src, 'IMG_0001.jpg');
-      final good = await _touch(src, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(src, 'IMG_0002.jpg', _stubBytes);
       // Make the first destination path unwritable by putting a DIRECTORY there.
       await Directory(p.join(dest.path, 'IMG_0001.jpg')).create();
 
@@ -374,13 +341,12 @@ void main() {
 
   group('PhotoFileActions.recycleTrashed', () {
     test('moves every sibling file and sidecar into .trash', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_recycle_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_recycle_');
 
-      final jpg = await _touch(dir, 'IMG_0001.jpg');
-      final dng = await _touch(dir, 'IMG_0001.dng');
-      final sidecar = await _touch(dir, '._IMG_0001.jpg');
-      final untouched = await _touch(dir, 'IMG_0002.jpg');
+      final jpg = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final dng = await writeFixtureBytes(dir, 'IMG_0001.dng', _stubBytes);
+      final sidecar = await writeFixtureBytes(dir, '._IMG_0001.jpg', _stubBytes);
+      final untouched = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final outcome = await PhotoFileActions().recycleTrashed([
         PhotoItem(
@@ -411,8 +377,7 @@ void main() {
     });
 
     test('suffixes collisions instead of overwriting', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_recycle_dup_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_recycle_dup_');
 
       final trashDir = Directory(p.join(dir.path, '.trash'));
       await trashDir.create(recursive: true);
@@ -435,11 +400,10 @@ void main() {
     });
 
     test('records per-file failures and keeps processing the rest', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_recycle_err_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_recycle_err_');
 
-      final bad = await _touch(dir, 'IMG_0001.jpg');
-      final good = await _touch(dir, 'IMG_0002.jpg');
+      final bad = await writeFixtureBytes(dir, 'IMG_0001.jpg', _stubBytes);
+      final good = await writeFixtureBytes(dir, 'IMG_0002.jpg', _stubBytes);
 
       final actions = PhotoFileActions(
         moveFile: (file, newPath) async {
@@ -464,6 +428,32 @@ void main() {
     });
   });
 
+  test(
+    'TC-1420 processStarred(move: true) moves through the injected moveFile seam',
+    () async {
+      final src = await Directory.systemTemp.createTemp('halcyon_seam_src_');
+      addTempDirTeardown(src);
+      final dest = await Directory.systemTemp.createTemp('halcyon_seam_dest_');
+      addTempDirTeardown(dest);
+      final file = await writeFixtureBytes(src, 'IMG_0001.jpg', _stubBytes);
+      final calls = <String>[];
+
+      final outcome = await PhotoFileActions(
+        moveFile: (f, newPath) async => calls.add('${f.path}->$newPath'),
+      ).processStarred(
+        [PhotoItem(id: 'IMG_0001', files: [file], status: PhotoStatus.starred)],
+        dest,
+        move: true,
+        overwriteExisting: false,
+      );
+
+      expect(calls, ['${file.path}->${p.join(dest.path, 'IMG_0001.jpg')}']);
+      expect(outcome.processedCount, 1);
+      expect(outcome.failures, isEmpty);
+      expect(await file.exists(), isTrue, reason: 'fake mover did not rename');
+    },
+  );
+
   test('TC-212 sidecarPathFor prefixes the basename only', () {
     expect(
       sidecarPathFor(p.join('/card/DCIM', 'IMG_0001.JPG')),
@@ -472,6 +462,3 @@ void main() {
   });
 }
 
-Future<File> _touch(Directory dir, String name) {
-  return File(p.join(dir.path, name)).writeAsBytes(<int>[1, 2, 3]);
-}

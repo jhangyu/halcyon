@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'inflight_bytes_budget.dart';
-import 'lane_priority.dart';
 
 // PHASE 4 (2026-09-06): the priority BASES no longer live here.
 //
@@ -11,14 +10,6 @@ import 'lane_priority.dart';
 // and sidebar work (user ruling, contract override S4). This lane is now a
 // pure min-priority queue: it orders by the number it is handed and has no
 // opinion about where that number came from.
-//
-// The two historical names are re-exported rather than deleted because the
-// sidebar ordering tests (TC-963/TC-964) assert RELATIVE order through those
-// symbols, and rebasing must not require rewriting the tests that prove the
-// rebasing preserved order. Their VALUES changed with the new band table;
-// nothing in `lib/` computes a priority from them any more.
-export 'lane_priority.dart'
-    show kFullResPriorityBase, kSidebarPayloadPriorityBase;
 
 /// What a lane task is FOR. Part of the lane key, so payload production and a
 /// full-resolution upgrade for the same item are two distinct entries.
@@ -417,16 +408,3 @@ class _LaneTask {
   Future<void> Function() body;
   int estimatedBytes;
 }
-
-/// The lane rank for an item [signedDistance] slots away from the selection.
-///
-/// Produces exactly the user-ruled start order 0, +1, -1, +2, -2, +3, -3, +4,
-/// +5 (2026-08-26 ruling): forward before backward at equal absolute distance,
-/// because browsing is overwhelmingly forwards -- the same asymmetry the
-/// retention window (-3..+5) already encodes.
-/// PHASE 4: the implementation moved to `lane_priority.dart`
-/// ([laneRankForDistance]) so that every input to a lane priority is decided
-/// in one file. This alias stays for the call sites that only need the rank
-/// itself (the tier-1 ImageCache submit rank, the perf log), which are not
-/// lane priorities at all.
-int laneRankFor(int signedDistance) => laneRankForDistance(signedDistance);

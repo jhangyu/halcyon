@@ -33,14 +33,14 @@ class RunResult:
     stderr: str = ""
 
 
-# cmd.exe metacharacters, copied from build_apps.py:665 (CMD_METACHARACTERS).
+# cmd.exe metacharacters, copied from build_apps.py CMD_METACHARACTERS.
 CMD_METACHARACTERS = set("&|<>^%\"")
 
 
 def _resolve_argv(argv):
     """Windows CreateProcess() cannot exec a .BAT/.CMD directly (flutter ships
     as flutter.bat), so a bare ``["flutter", ...]`` argv fails with OSError on a
-    Windows runner — the 2026-08-31 round-1 CI regression. ``build_apps.py:668``
+    Windows runner — the 2026-08-31 round-1 CI regression. ``build_apps.py run_checked()``
     already solved this by resolving with ``shutil.which`` and routing batch
     files through a command interpreter; that call site uses ``shell=True``,
     which G-1 forbids anywhere under ``scripts/ci/`` (and the WP-E policy test

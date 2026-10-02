@@ -11,7 +11,7 @@ Exit codes: 0 ok, 2 parse failure.
 Two facts about the artifacts that this script exists to encapsulate:
 
 1. The `stall|ms=` probe shipped in two shapes. The original
-   (perf_log.dart:175-188) never reset its expectation, so `ms=` is CUMULATIVE
+   (lib/perf/perf_log.dart, since fixed) never reset its expectation, so `ms=` is CUMULATIVE
    drift and only consecutive-line DELTAS mean anything; reading it raw yields a
    blocked total larger than the session. The fixed probe reports the gap just
    observed. The two are told apart by monotonicity and the mode is printed.

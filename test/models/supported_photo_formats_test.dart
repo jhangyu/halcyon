@@ -58,8 +58,7 @@ void main() {
 
   group('AC1 — folder scan surfaces a file of every derived-list extension', () {
     test('over a fake directory listing, every decodable+browse-only ext is picked up', () async {
-      final tmpDir = await Directory.systemTemp.createTemp('halcyon_fmt_test_');
-      addTempDirTeardown(tmpDir);
+      final tmpDir = await makeTempDir('halcyon_fmt_test_');
 
       final allExts = SupportedPhotoFormats.rawExtensions
           .followedBy(const ['.jpg', '.jpeg', '.png']);
@@ -127,26 +126,10 @@ void main() {
       expect(SupportedPhotoFormats.isBitmapDecodePath('c.tiff'), isTrue);
       // Codec expansion (2026-08-30, Task 13): AVIF (via the existing libheif
       // arm) and JXL (a new arm) joined the bitmap-decode set --
-      // `full_decoder_dispatch_test.dart`'s "codec expansion: AVIF and JXL
+      // the 'full decoder dispatch' group's (decoded_rgba_test.dart) "codec expansion: AVIF and JXL
       // routing" group pins the routing itself.
       expect(SupportedPhotoFormats.bitmapDecodeExtensions,
           {'.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl'});
-    });
-
-    test('TC-302: hasFullDecodeRoute covers RAW and TIFF but not D2/bitstream',
-        () {
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('b.tif'), isTrue);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('c.tiff'), isTrue);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.dng'), isTrue);
-      for (final path in ['x.cr2', 'y.iiq', 'z.mrw']) {
-        expect(
-          SupportedPhotoFormats.hasFullDecodeRoute(path),
-          isFalse,
-          reason: 'D2 browse-only containers have no decode route',
-        );
-      }
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.webp'), isFalse);
-      expect(SupportedPhotoFormats.hasFullDecodeRoute('a.jpg'), isFalse);
     });
 
     test('TC-304: bestFileToLoad prefers .jpg over .webp, .webp over .dng', () {
@@ -187,7 +170,6 @@ void main() {
           reason: 'the Flutter engine cannot decode HEIC on every platform, '
               'which is why it needs the native route at all',
         );
-        expect(SupportedPhotoFormats.hasFullDecodeRoute(path), isTrue);
       }
       // See the phase-1 group's identical assertion above for why AVIF/JXL
       // are in this set post codec-expansion.

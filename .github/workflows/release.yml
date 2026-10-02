@@ -12,7 +12,7 @@
 # scripts/build_apps.py is the SINGLE build entry point; jobs invoke it (via
 # scripts/ci.py, see scripts/ci/) per target and never call `flutter build`
 # directly. Artifact output paths are taken verbatim from
-# build_apps.py:flutter_artifact() (scripts/build_apps.py:1376):
+# scripts/build_apps.py flutter_artifact():
 #   macos   -> build/macos/Build/Products/Release/Halcyon.app
 #   windows -> build/windows/x64/runner/Release/
 #   linux   -> build/linux/<arch>/release/bundle/

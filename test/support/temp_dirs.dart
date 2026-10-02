@@ -66,3 +66,20 @@ Future<void> deleteTempDir(FileSystemEntity dir) async {
     }
   }
 }
+
+/// `Directory.systemTemp.createTemp(prefix)` plus [addTempDirTeardown]: a
+/// scratch dir that is removed (best-effort, never throwing) after the current
+/// test — or, when called from `setUpAll`, after the group's last test.
+Future<Directory> makeTempDir(String prefix) async {
+  final dir = await Directory.systemTemp.createTemp(prefix);
+  addTempDirTeardown(dir);
+  return dir;
+}
+
+/// Synchronous twin of [makeTempDir] for sites that create their dir with
+/// `createTempSync` (statement order in their bodies stays unchanged).
+Directory makeTempDirSync(String prefix) {
+  final dir = Directory.systemTemp.createTempSync(prefix);
+  addTempDirTeardown(dir);
+  return dir;
+}

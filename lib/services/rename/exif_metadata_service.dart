@@ -15,7 +15,7 @@ typedef ExifBatchReader = Future<List<ExifMetadata?>> Function(
   void Function(int done, int total)? onProgress,
 });
 
-/// Paths per channel call. Large enough that 10,000 photos cost 20 calls, small
+/// Paths per chunk. Large enough that 10,000 photos cost 20 chunks, small
 /// enough that progress updates stay smooth.
 const int kExifChunkSize = 500;
 
@@ -45,26 +45,8 @@ class ExifMetadataService {
     return Future.wait(chunk.map(readWithPackage));
   }
 
-  /// Decodes one native map. Public because this shape — not the channel — is
-  /// what the tests can pin down.
-  static ExifMetadata? metadataFromMap(Map<Object?, Object?>? map) {
-    if (map == null) return null;
-    return ExifMetadata(
-      captureDate: _parseDate(map['captureDate']),
-      camera: _string(map['camera']),
-      lens: _string(map['lens']),
-      make: _string(map['make']),
-      artist: _string(map['artist']),
-      shutter: _string(map['shutter']),
-      aperture: _double(map['aperture']),
-      focalLength: _double(map['focalLength']),
-      gpsImgDirection: _double(map['direction']),
-      iso: map['iso'] is int ? map['iso'] as int : null,
-    );
-  }
-
-  /// Non-macOS fallback. Runs off the UI isolate because parsing a RAW header
-  /// reads and scans megabytes.
+  /// The only EXIF read path, on every platform (M6 F-14). Runs off the UI
+  /// isolate because parsing a RAW header reads and scans megabytes.
   static Future<ExifMetadata?> readWithPackage(String path) async {
     try {
       return await Isolate.run(() => _parseWithPackage(path));
@@ -117,16 +99,8 @@ class ExifMetadataService {
     );
   }
 
-  static String? _string(Object? value) =>
-      value is String && value.trim().isNotEmpty ? value.trim() : null;
-
   static String? _blankToNull(String? value) =>
       value == null || value.isEmpty ? null : value;
-
-  static double? _double(Object? value) {
-    if (value is num) return value.toDouble();
-    return null;
-  }
 
   /// The package prints rationals as `28/10`; a plain number passes through.
   static double? _ratio(String? value) {

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """build_apps.py - the single build entry point for Halcyon (native + Flutter).
 
-Replaces `scripts/build.sh` (macOS/Android/web/Windows/Linux Flutter builds) and
-`scripts/windows/build_windows.py` (Windows native DNG decoder + Flutter build).
 One script, one behaviour, no per-platform drift: every target goes through the
 same phases in the same order.
 
@@ -12,9 +10,7 @@ same phases in the same order.
     Phase 2   flutter pub get + flutter build <target>
     Phase 3   artifact verification (+ the Windows manual-verification protocol)
 
-Layouts understood (both auto-detected, override with --root):
-    <repo>/scripts/build_apps.py           with ../ceyx as sibling
-    <zip root>/build_apps.py               with Halcyon/ + ceyx/
+Layout: <repo>/scripts/build_apps.py with ../ceyx as the sibling checkout.
 
 Python 3 stdlib only. Run `python3 scripts/build_apps.py --help` for usage.
 """
@@ -85,7 +81,7 @@ HALIDE_PLATFORMS = {
 #      observer is the only thing that turns TOFU into a pin.
 #   2. If it matches, record WHO verified it and WHEN next to the value here.
 #   3. If it differs, stop - that is the attack this table exists to catch.
-# Re-print with: python3 scripts/build_apps.py --print-halide-pins
+# Re-read the server's view with the curl command at the top of this comment.
 HALIDE_SHA256 = {
     "arm-64-osx": "040a6fbde5ba264870df4975138417ce2ff2c8e9de550302c8b17f36c36e5afa",
     "x86-64-osx": "d7d26c91adcfe62528e20e248ba673aa635de519669b19c47e5a367f856a8ab0",
@@ -144,7 +140,7 @@ FLUTTER_BUILD_ARGS = {
 
 TARGET_HELP = [
     ("macos", "macOS app. Default target. Requires a macOS host."),
-    ("ios", "iOS app (--no-codesign unless --ios-codesign). macOS host."),
+    ("ios", "iOS app (always --no-codesign; not a release target). macOS host."),
     ("android", "Android APK. Alias of android-apk."),
     ("android-apk", "Android APK."),
     ("android-aab", "Android App Bundle."),
@@ -494,7 +490,7 @@ CEYX_FETCH_SPECS = {
     # libwebp-dist-android intentionally absent - user ruling A', 2026-09-13):
     # this is not an oversight. build_apps.py has no Android *fetch* path for
     # native libraries at all (see the "Android is out of scope" note at
-    # build_apps.py:211) - a Halcyon Android build links against the
+    # the ceyx release-fetch section header) - a Halcyon Android build links against the
     # committed plugin/android/src/main/jniLibs tree, never anything
     # downloaded via this dict, so there is no integrity surface for those
     # three archives to join. They are also structurally unlike their
@@ -613,41 +609,24 @@ def which(name):
 # Layout resolution
 # --------------------------------------------------------------------------
 class Layout:
-    def __init__(self, halcyon, decoder, packaged):
+    def __init__(self, halcyon, decoder):
         self.halcyon = halcyon
         self.decoder = decoder
-        self.packaged = packaged
 
     @property
     def native(self):
         return self.decoder / "native"
 
 
-def resolve_layout(root_arg):
-    """Find Halcyon/ and ceyx/ in either supported layout."""
-    if root_arg:
-        root = Path(root_arg).resolve()
-        candidates = [(root / "Halcyon", root / "ceyx", True),
-                      (root, root.parent / "ceyx", False)]
-    else:
-        here = Path(__file__).resolve().parent
-        candidates = [
-            # in-repo: scripts/build_apps.py, decoder is a sibling of the repo
-            (here.parent, here.parent.parent / "ceyx", False),
-            # packaged zip root: build_apps.py next to Halcyon/
-            (here / "Halcyon", here / "ceyx", True),
-        ]
-
-    for halcyon, decoder, packaged in candidates:
-        if (halcyon / "pubspec.yaml").exists():
-            return Layout(halcyon.resolve(), decoder, packaged)
-
+def resolve_layout():
+    """Find the Halcyon checkout (this script's repo) and its ../ceyx sibling."""
+    here = Path(__file__).resolve().parent
+    halcyon = here.parent
+    if (halcyon / "pubspec.yaml").exists():
+        return Layout(halcyon.resolve(), here.parent.parent / "ceyx")
     fail(
         "could not locate the Halcyon checkout (no pubspec.yaml found).",
-        hints=[
-            "Run this script from inside the repo as scripts/build_apps.py,",
-            "or pass --root <folder holding Halcyon/ and ceyx/>.",
-        ],
+        hints=["Run this script from inside the repo as scripts/build_apps.py."],
     )
 
 
@@ -1265,20 +1244,19 @@ def macho_uuid_of(path):
     if shutil.which("dwarfdump") is None:
         return None
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             ["dwarfdump", "--uuid", str(path)],
             capture_output=True, text=True, check=False,
-        ).stdout
+        )
     except OSError:
         return None
-    # Expected line shape: "UUID: 328BA3A4-A7F1-3FF9-BB8F-374BC06BFFCA (arm64) <path>"
-    for line in out.splitlines():
-        line = line.strip()
-        if line.startswith("UUID:"):
-            parts = line.split()
-            if len(parts) >= 2:
-                return parts[1]
-    return None
+    # A nonzero exit disowns whatever UUID-shaped text it printed: never let the
+    # pin writer record an identifier dwarfdump itself failed to produce.
+    if proc.returncode != 0:
+        return None
+    from ci.binfmt import parse_dwarfdump_uuid  # lazy: --help must not need the ci package
+
+    return parse_dwarfdump_uuid(proc.stdout)
 
 
 def _skip_doc(name):
@@ -1756,7 +1734,7 @@ def ceyx_check_pin(layout):
     mismatch (the caller decides the exit code). Reuses _ceyx_stale_members()
     so the preflight and the fetch gate (ceyx_fetch_is_due) can never drift
     into two different notions of "stale" - the same "one instrument, two
-    readers" discipline assertions.py:921-926 applies to check_symbol.
+    readers" discipline assertions.py _check_symbol() applies to check_symbol.
     PIN-ABSENT is printed but is NOT treated as a mismatch: Linux legitimately
     ships only a .gitkeep locally until fetched, and "assertion skipped must
     be visible" is satisfied by printing the line, not by failing the run
@@ -2374,9 +2352,9 @@ FFI_EXPORT_SYMBOLS = {
 # No "linux" key, deliberately: Linux is FETCH-ONLY (no NATIVE_SPECS entry, so
 # native_target_for() never returns "linux"). Its provenance is gated at the pin's
 # per-asset sha256, its exports upstream by ceyx linux_build.yml AC-L3/L5 and
-# downstream by H-SIZED-SYMBOL / H-SIZED-SYMBOL-NM on the linux CI leg. Adding a
-# key here would declare a gate for a code path that never runs — the shape
-# build_apps.py:334-338 already regrets for the Windows/Linux HEIF rows.
+# downstream by H-CEYX-SYMBOLS / H-CEYX-SYMBOLS-NM on the linux CI leg. Adding a
+# key here would declare a gate for a code path that never runs — the shape the
+# CEYX_FETCH_SPECS Windows/Linux HEIF-row comment already regrets.
 
 
 def _android_export_listing_commands(built):
@@ -2575,10 +2553,6 @@ def build_native(target, layout, args):
                 continue
             shutil.copy2(sibling, dest_dir / sibling.name)
             ok(f"placed: {dest_dir / sibling.name}")
-    if layout.packaged:
-        step("This extracted tree is not a git checkout, so the runbook S4 git commit step")
-        step("cannot run here. Copy the library back into the ceyx repo and")
-        step("commit it there.")
     return placed
 
 
@@ -2642,9 +2616,10 @@ def flutter_artifact(target, mode, halcyon):
     if target == "web":
         return b / "web", "web output folder"
     if target == "windows":
-        # Flutter names the arch segment after the (native) build arch.
-        win_arch = "arm64" if host_arch() == "arm64" else "x64"
-        return b / "windows" / win_arch / "runner" / macos_config_name(mode), "Windows runner folder"
+        # build/windows/<arch>/runner/<mode> - Flutter names the arch segment
+        # after the native build arch (x64 or arm64), so glob it like linux.
+        dirs = sorted((b / "windows").glob(f"*/runner/{macos_config_name(mode)}"))
+        return (dirs[0] if dirs else b / "windows" / "x64" / "runner" / macos_config_name(mode)), "Windows runner folder"
     if target == "linux":
         # build/linux/<arch>/<mode>/bundle - the arch segment is host-dependent.
         bundles = sorted((b / "linux").glob(f"*/{mode}/bundle"))
@@ -2974,10 +2949,9 @@ def build_flutter(target, layout, mode, args, placed_native):
         "build", *FLUTTER_BUILD_ARGS[target], f"--{mode}",
         f"--dart-define=HALCYON_BUILD_COMMIT={build_commit}",
     ]
-    if target == "ios" and not args.ios_codesign:
-        # ponytail: unattended builds have no signing identity configured here.
-        # Upgrade path: drop --no-codesign and pass --ios-codesign once an
-        # export/signing configuration exists in ios/.
+    if target == "ios":
+        # iOS is not a release target; builds are always --no-codesign (flag
+        # removed 2026-10-02, re-add with a signing config in ios/ if iOS returns).
         build_args.append("--no-codesign")
     if target == "macos" and args.macos_arch != "universal":
         # flutter has no --arch flag for macOS; FLUTTER_XCODE_<SETTING> is the
@@ -3198,7 +3172,7 @@ def make_parser():
         "  0  success",
         "  1  a check, a build step or a verification failed",
         "  2  the build worked but the runbook S4 colour gate was skipped via",
-        "     --no-colour-gate (or --strict was given and warnings were raised)",
+        "     --no-colour-gate",
         "",
         "Build outputs land under ./build/. The platform folders (macos/, android/,",
         "windows/, ...) are source/config, not build output.",
@@ -3269,8 +3243,6 @@ def make_parser():
     p.add_argument("--clean", action="store_true",
                    help="Delete this target's build output before building (needed after a CMake "
                         "target rename - a cached target name cannot be updated in place).")
-    p.add_argument("--strict", action="store_true",
-                   help="Exit 2 if any warning was raised.")
     p.add_argument("--desktop-arch", choices=["arm64", "x86_64"], default=None,
                    help="linux/windows build architecture (default x86_64). Must equal the "
                         "host's (no cross-compile); selects the pinned ceyx asset.")
@@ -3284,34 +3256,7 @@ def make_parser():
                         "supported: the release publishes no fat archive, so there is no asset to "
                         "fetch and the build is refused rather than silently linking an x86_64 "
                         "slice with no native RAW decoder.")
-    p.add_argument("--print-halide-pins", action="store_true",
-                   help="Print the pinned Halide sha256 table and exit.")
-    p.add_argument("--ios-codesign", action="store_true",
-                   help="Let `flutter build ios` codesign (default: --no-codesign).")
-    p.add_argument("--root", default=None,
-                   help="Folder holding Halcyon/ and ceyx/ (default: auto-detect).")
-    p.add_argument("--decoder", default=None,
-                   help="Path to the ceyx checkout (same flag name as "
-                        "package_windows.sh). Default: a sibling of the Halcyon checkout.")
     return p
-
-
-def print_halide_pins():
-    print(f"Halide v{HALIDE_VERSION} @ {HALIDE_COMMIT}")
-    for (os_name, arch), (plat, ext) in sorted(HALIDE_PLATFORMS.items()):
-        pin = HALIDE_SHA256.get(plat)
-        print(f"  {os_name:<8} {arch:<8} Halide-{HALIDE_VERSION}-{plat}-{HALIDE_COMMIT}.{ext}")
-        print(f"           sha256 {pin if pin else 'MISSING - integrity unverified on this host'}")
-    print()
-    print("STATUS: trust-on-first-use, NOT an independently verified pin.")
-    print("  Read from the GitHub release API on 2026-08-22 - the same authority that serves")
-    print("  the bytes. Catches a future asset substitution; cannot catch one that predates")
-    print("  that date. Upstream publishes no .sha256/.asc/.sig asset to cross-check.")
-    print("  To turn these into a real pin: have someone else, on a different machine and")
-    print("  network, run `shasum -a 256 <asset>` and confirm the value, then record who")
-    print("  verified it and when beside the constant in this script.")
-    print("Re-read the server's view with:")
-    print("  curl -s https://api.github.com/repos/halide/Halide/releases/tags/v21.0.0")
 
 
 def main():
@@ -3326,18 +3271,12 @@ def main():
     if args.cfa_sample_dng:
         args.cfa_sample_dng = os.path.abspath(args.cfa_sample_dng)
 
-    if args.print_halide_pins:
-        print_halide_pins()
-        return
-
     print("=" * 62)
     print(" Halcyon build_apps.py - native + Flutter, one entry point")
     print("=" * 62)
 
     refresh_env_from_registry()
-    layout = resolve_layout(args.root)
-    if args.decoder:
-        layout.decoder = Path(args.decoder).resolve()
+    layout = resolve_layout()
     mode = resolve_mode(args)
 
     step(f"halcyon: {layout.halcyon}")
@@ -3408,9 +3347,6 @@ def main():
 
     if COLOUR_GATE_SKIPPED:
         print(" EXIT 2: a native library was placed WITHOUT the runbook S4 colour gate.")
-        sys.exit(2)
-    if args.strict and WARNING_COUNT:
-        print(f" EXIT 2: --strict and {WARNING_COUNT} warning(s).")
         sys.exit(2)
 
 

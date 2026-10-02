@@ -4,6 +4,7 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
 /// Regression gate for the two gallery-gutter defects reported 2026-09-02:
 ///
@@ -29,7 +30,7 @@ import 'package:halcyon_flutter/views/layout/main_surface.dart';
 ///       following slot and Flutter updated each surviving element with its
 ///       neighbour's widget — destroying the gutter's element, its
 ///       `GestureDetector` and the live recognizer mid-gesture.
-///   (b) `_onWidthDelta` rounded the ACCUMULATOR (`(w + dx).roundToDouble()`),
+///   (b) `onWidthDelta` rounded the ACCUMULATOR (`(w + dx).roundToDouble()`),
 ///       quantising each individual delta rather than the total. 150 deltas of
 ///       0.4px (a 60px drag) moved the gutter 0px; 100 deltas of 0.6px moved
 ///       it 100px.
@@ -47,35 +48,14 @@ const _markIcons = <String, IconData>{
 };
 
 MainSurface _surface({VoidCallback? onOpenFolder}) {
-  return MainSurface(
-    viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-    statusOverlay: const SizedBox.shrink(),
-    strip: PhotoStripModel(
-      items: const [],
-      selectedId: null,
-      recycleMode: false,
-      onSelect: (_) {},
-      payloadFor: (_) => null,
-      onVisibleRange: (_, __) {},
-    ),
-    identity: const PhotoIdentity(
-      displayName: 'DSC_0001.NEF',
-      indexInFolder: 3,
-      folderCount: 120,
-      status: PhotoStatus.unmarked,
-      exif: null,
-    ),
-    actions: PhotoActions(
-      recycleMode: false,
-      onStar: () {},
-      onTrash: () {},
-      onToggleRecycleMode: () {},
-      onOpenFolder: onOpenFolder ?? () {},
-      // A real 40x40 icon button, not SizedBox.shrink(): the menu is the
-      // widest and last mark, so a zero-sized stand-in would hide the very
-      // overflow this gate exists to catch.
-      menu: const Icon(Icons.more_horiz, size: 20),
-    ),
+  return testSurface(
+    viewport: kRedViewport,
+    identity: const PhotoIdentity(displayName: 'DSC_0001.NEF', indexInFolder: 3, folderCount: 120, status: PhotoStatus.unmarked, exif: null),
+    onOpenFolder: onOpenFolder,
+    // A real 40x40 icon button, not SizedBox.shrink(): the menu is the
+    // widest and last mark, so a zero-sized stand-in would hide the very
+    // overflow this gate exists to catch.
+    menu: const Icon(Icons.more_horiz, size: 20),
   );
 }
 

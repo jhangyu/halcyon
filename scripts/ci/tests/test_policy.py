@@ -30,204 +30,11 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 # this test rather than silently landing, so an upstream release can never
 # alter what Halcyon consumes without someone updating this line too.
 #
-# Updated 2026-08-31 (round 6, ceyx tar.gz-only consumption): the pin moved to
-# the archive-based shape (archive + sha256 + per-extracted-library digests,
-# plus the release's artifacts.lock digest) against v0.1.6, then was regenerated
-# against v0.1.7 -- the first tar.gz-ONLY ceyx release, which also added the
-# libjxl Linux/Windows dists. The value before that froze round 5's 载体中立
-# state, in which no pin change was in scope.
-#
-# 2026-09-03 (ROI refactor T1): refreshed to the tag v0.1.10 pin, which added
-# the macos-arm64 / macos-x86_64 entries when the macOS CI leg migrated off its
-# committed dylibs. The digest was recomputed from the file, never transcribed.
-#
-# 2026-09-05 (parallel-decode campaign release cut): refreshed to the tag
-# v0.1.14 pin (via `python3 scripts/build_apps.py --ceyx-release latest`,
-# reviewed and committed alongside this test update in the same commit as the
-# loud unpinned-member guard and the Android CEYX_FETCH_SPECS fix -- see that
-# commit's message for full provenance). Every archive/library sha256 in the
-# pin changed (genuine re-derivation across all platforms); recomputed from
-# the file with `shasum -a 256`, never transcribed by hand.
-#
-# 2026-09-06 (parallel-decode campaign, ceyx v0.1.15 release): refreshed to the
-# tag v0.1.15 pin (via `python3 scripts/build_apps.py --ceyx-release v0.1.15`,
-# an explicit tag rather than 'latest'). Every archive digest changed: a tag
-# push implicitly rebuilds the three Windows third-party dists too, so the
-# heif/libjxl/libwebp dist archives moved as well as the five decoder entries
-# -- a wider diff than the release-prep notes predicted, and a real
-# re-derivation rather than a relabel. Both macOS decoder UUIDs changed
-# (arm64 EBFE23E9 -> C1B5E36C, x86_64 76615796 -> 25CAA76D). Recomputed with
-# the SAME CRLF-normalizing method test_pin_file_untouched itself uses (see
-# that test's body), never transcribed by hand.
-#
-# 2026-09-06 (gc-remediation-r5 WP9, ceyx v0.1.16 release; PR #4): refreshed to
-# the tag v0.1.16 pin -- tag plus all 9 archive digests re-derived, written by
-# `python3 scripts/build_apps.py --ceyx-release latest` and checked by
-# `--ceyx-release verify` (9/9 entries re-downloaded and re-extracted). The
-# artifacts.lock digest moved too (3e8dd8e6 -> 91c66ad0), and the decoder
-# member changed in all five decoder entries. This guard fired exactly as
-# designed on PR #4 -- it is the ledger entry that moves, never the test.
-# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
-# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
-# transcribed by hand.
-# 2026-09-07 (native-rotation campaign, ceyx v0.1.17 release): refreshed to
-# the tag v0.1.17 pin -- written by `python3 scripts/build_apps.py
-# --ceyx-release latest` and checked by `--ceyx-release verify` (green
-# control RC=0, then a deliberate one-byte digest edit seen to refuse the
-# fetch, then restored byte-identical from a cp backup). Tag plus the
-# artifacts.lock digest (91c66ad0 -> 4f75eab4) and NINE archive digests
-# moved: all five decoder entries (the release adds
-# ceyx_decode_into_buffer_oriented to every decoder asset, verified
-# per-asset by symbol dump-to-file) plus heif-dist-windows,
-# libjxl-dist-linux/windows and libwebp-dist-windows — a tag push
-# implicitly rebuilds the third-party dists too, same phenomenon the
-# v0.1.15 entry recorded. This guard fired exactly
-# as designed on the campaign branch -- it is the ledger entry that moves,
-# never the test. Recomputed with the SAME CRLF-normalizing method
-# test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
-# sha256), never transcribed by hand.
-# 2026-09-08 (ceyx v0.1.19 re-pin, commit 43adb67): refreshed to the tag
-# v0.1.19 pin. The tag, the artifacts.lock digest (4f75eab4 -> 88dc0cf5) and
-# the archive digests moved together; the macos-arm64 archive now hashes to
-# bdb7190b, re-downloaded from the release URL and checked against this file
-# before the ledger was touched. This release RETIRES the decode-pool entry
-# points, so `dng_decode_and_process_sized` is gone from every decoder asset
-# (`nm -gU` dumped to a file, then matched:
-# docs/logs/2026-09-08/nm-v0.1.19-macos-arm64.txt) and the capability
-# assertions were re-pointed at ceyx_decode_into_buffer_oriented in the same
-# commit as this ledger entry. This guard fired exactly as designed on the
-# re-pin commit -- it is the ledger entry that moves, never the test.
-# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
-# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
-# transcribed by hand.
-# 2026-09-08 (ceyx v0.1.20 re-pin): refreshed to the tag v0.1.20 pin, written
-# by `python3 scripts/build_apps.py --ceyx-release latest`. The tag and the
-# artifacts.lock digest (88dc0cf5 -> f98b6080) moved, and all nine archive
-# digests moved (a tag push repackages every archive even when a given
-# platform's extracted library bytes are unchanged -- see the v0.1.15/v0.1.17
-# entries above for the same phenomenon). Per-library digests: the decoder
-# itself changed for linux, macos-arm64, macos-x86_64 and windows; the
-# android decoder .so/.heif.so/.de265.so triple is byte-identical to v0.1.19
-# (repackaging only); libjxl-dist-windows and libwebp-dist-windows's static
-# libs also changed. This guard fired exactly as designed on the re-pin --
-# it is the ledger entry that moves, never the test. Recomputed with the
-# SAME CRLF-normalizing method test_pin_file_untouched itself uses
-# (read_bytes, replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
-# 2026-09-12 (ceyx v0.1.21 re-pin, release cut from ceyx 6b27ed0): refreshed to
-# the tag v0.1.21 pin, written by `python3 scripts/build_apps.py
-# --ceyx-release latest`. The tag, the artifacts.lock digest (f98b6080 ->
-# ba258941) and all nine archive digests moved; every one of those ten values
-# was cross-checked against an INDEPENDENTLY produced sha256 listing of the
-# published release assets (ceyx tmp/release-verify/v0.1.21-sha256.txt) before
-# this ledger was touched -- 10/10 MATCH, 0 mismatches. Per-library digests:
-# the decoder itself changed for android, linux, macos-arm64, macos-x86_64 and
-# windows (the two macOS entries' LC_UUIDs moved with them, as a rebuilt Mach-O
-# must); libjxl-dist-windows's jxl.lib and libwebp-dist-windows's libwebp.lib
-# also changed. Byte-identical to v0.1.20 and therefore unchanged here: the
-# android libheif.so/libde265.so pair, the heif-dist-windows heif.dll/
-# libde265.dll pair (and the windows decoder archive's copies of them),
-# libjxl-dist-linux's libjxl.a, and all five macOS auxiliary dylibs
-# (lcms2/jpeg/heif/de265/omp). This guard fired exactly as designed on the
-# re-pin -- it is the ledger entry that moves, never the test. Recomputed with
-# the SAME CRLF-normalizing method test_pin_file_untouched itself uses
-# (read_bytes, replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
-# 2026-09-12 (ceyx v0.1.22 re-pin, release cut from ceyx 29e87bb -- decode
-# pool idle-shrink): refreshed to the tag v0.1.22 pin, written by `python3
-# scripts/build_apps.py --ceyx-release latest`. The tag, the artifacts.lock
-# digest (ba258941 -> 3167460e) and all nine archive digests moved; every one
-# of those ten values was cross-checked against an INDEPENDENTLY produced
-# sha256 listing of the published release assets (ceyx
-# tmp/release-verify/v0.1.22-sha256.txt) before this ledger was touched --
-# 10/10 MATCH, 0 mismatches. Per-library digests: the decoder itself changed
-# for android, linux, macos-arm64, macos-x86_64 and windows (the two macOS
-# entries' LC_UUIDs moved with them, as a rebuilt Mach-O must);
-# libjxl-dist-windows's jxl.lib and libwebp-dist-windows's libwebp.lib also
-# changed. Byte-identical to v0.1.21 and therefore unchanged here: the android
-# libheif.so/libde265.so pair, the heif-dist-windows heif.dll/libde265.dll
-# pair (and the windows decoder archive's copies of them), libjxl-dist-linux's
-# libjxl.a, and all five macOS auxiliary dylibs (lcms2/jpeg/heif/de265/omp).
-# This guard fired exactly as designed on the re-pin -- it is the ledger entry
-# that moves, never the test. Recomputed with the SAME CRLF-normalizing method
-# test_pin_file_untouched itself uses (read_bytes, replace b"\r\n" -> b"\n",
-# sha256), never transcribed by hand.
-#
-# Re-pinned v0.1.22 -> v0.1.23 (P4b): decoder archive digest changed for
-# android, linux, macos-arm64, macos-x86_64 and windows (the two macOS
-# entries' LC_UUIDs moved with them); libjxl-dist-windows's jxl.lib and
-# libwebp-dist-windows's libwebp.lib also changed. Byte-identical between
-# v0.1.22 and v0.1.23 and therefore unchanged here: the android
-# libheif.so/libde265.so pair, the heif-dist-windows heif.dll/libde265.dll
-# pair (and the windows decoder archive's copies of them), libjxl-dist-linux's
-# libjxl.a, and all five macOS auxiliary dylibs (lcms2/jpeg/heif/de265/omp).
-# The windows decoder archive digest (dng_decoder_native.dll) DID change --
-# the on-disk fetched Libraries copy no longer matches this pin and must be
-# re-fetched (see step 5 of this task). Recomputed with the SAME
-# CRLF-normalizing method test_pin_file_untouched itself uses (read_bytes,
-# replace b"\r\n" -> b"\n", sha256), never transcribed by hand.
-#
-# 2026-09-12 (WI-15 step 15.5, S-H3): every asset entry gained "placed"
-# (bool) and, when false, "not_placed_reason" (one line), and the
-# `_comment` paragraph that used to restate this per-asset prose was
-# shortened to point at those fields instead. Recomputed with the same
-# CRLF-normalizing recipe, never transcribed by hand.
-#
-# 2026-09-12 (main/parity-integration merge): the `_comment` conflict was
-# resolved by keeping both prose paragraphs (platform placement rule +
-# placed/not_placed_reason field description). Recomputed with the same
-# CRLF-normalizing recipe, never transcribed by hand.
-#
-# 2026-09-13 (ceyx v0.1.24 re-pin): tag v0.1.23 -> v0.1.24; artifacts.lock
-# sha256 e0d1205a8495c41e1464f129a723b94fed186ce4d74e8176cebc39ceee6eebfb ->
-# e9adcfe1571c8c1278af42d8e4b30fcc0bf8bf0f59d40cdb2a759e27d5283afd. All nine
-# archive digests moved (android, heif-dist-windows, libjxl-dist-linux,
-# libjxl-dist-windows, libwebp-dist-windows, linux, macos-arm64,
-# macos-x86_64, windows) -- derived by diffing this file against the
-# previously committed pin, never transcribed by hand. Per-library digests:
-# the decoder itself changed for android, linux, macos-arm64, macos-x86_64
-# and windows. Byte-identical to v0.1.23 and therefore unchanged here: the
-# android libheif.so/libde265.so pair, the heif-dist-windows
-# heif.dll/libde265.dll pair (and the windows decoder archive's copies of
-# them), and the macOS libjpeg.8.dylib/libheif.1.dylib/libde265.0.dylib/
-# libomp.dylib quartet on both macos-arm64 and macos-x86_64.
-#
-# Structural changes this repin made to the PIN's declared library lists
-# (these are pin-declaration completions, not archive-content drift):
-# liblcms2.2.dylib was REMOVED from both macOS entries, following upstream's
-# announced lcms2 removal; libomp140.x86_64.dll was ADDED to the Windows
-# group (now 4 members); libjxl-dist-linux, libjxl-dist-windows and
-# libwebp-dist-windows were each completed from a single placeholder member
-# (libjxl.a / jxl.lib / libwebp.lib respectively) to their full declared
-# member sets -- these three were pre-existing gaps in the pin, not new
-# drift introduced by v0.1.24.
-#
-# The Android dist archives were considered and deliberately NOT pinned at
-# this repin (user ruling A'): the pin's 9 entries are the complete intended
-# set, not an omission.
-#
-# v0.1.24 -> v0.1.25 (2026-09-19): digest-only repin, tool-derived via
-# `python3 scripts/build_apps.py --ceyx-release latest`, never hand-typed.
-# sha256 26947736207f7f9c9ad615a3d64e433b81f7f062f79d019dae5b2e67a3b61fbb ->
-# 02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5. Every
-# archive's own sha256 and every declared library's sha256 moved (all 9
-# fetch-targets); tag, artifacts.lock digest and per-library UUIDs moved with
-# them. No structural change: no assets/libraries added or removed, no
-# `placed`/`not_placed_reason` changes, MEMBER_SET_EQUAL=True for every
-# fetch-target (tool-printed, not asserted here).
-#
-# Recomputed with the SAME CRLF-normalizing method test_pin_file_untouched
-# itself uses (read_bytes, replace b"\r\n" -> b"\n", sha256), never
-# transcribed by hand.
-# v0.1.25 -> v0.1.26 (2026-09-20, mem8 T5): digest-only repin, tool-derived via
-# `python3 scripts/build_apps.py --ceyx-release latest`, never hand-typed.
-# sha256 02fd8c82b67f5be6d524e0006c2ecf1e21eb6eb7177f7a726e1c5c0bad7de0b5 ->
-# f4b10fd39c46660cdda80f560353b111b9befaf1effa8d14581c924fee5f4547. The diff is
-# 27 sha256 + 2 uuid + 1 tag and nothing else (classified mechanically, artifact
-# docs/logs/2026-09-20/t5-pin-diff.txt): no assets/libraries added or removed,
-# no `placed`/`not_placed_reason` changes, all 9 fetch-targets still present,
-# MEMBER_SET_EQUAL=True for every fetch-target (tool-printed, not asserted
-# here). Recomputed with the CRLF-normalizing method described above; the plain
-# and normalized digests are identical because the file contains no CRLF, and
-# both were computed rather than one being assumed from the other.
+# To refresh after a reviewed repin: recompute the pin file's sha256 both raw
+# and with CRLF->LF normalisation (read_bytes, replace b"\r\n" -> b"\n",
+# sha256 -- the method test_pin_file_untouched itself uses). Compute both;
+# they must match before transcribing. Never copy a digest from another
+# document. The per-repin history lives in git log.
 PIN_FILE = REPO_ROOT / "scripts" / "ceyx_release_pin.json"
 PIN_FILE_SHA256_REVIEWED = (
     "fd25f591f7caa2cb71ba1633d85e059d35bda3d3a9103ec82c0d04a41d39082f"
@@ -639,475 +446,75 @@ class TestNoTestExecutionInCI(unittest.TestCase):
         )
 
 
-class CeyxFetchGateTests(unittest.TestCase):
-    """P4a (win-parity-plan.md): ceyx_fetch_is_due must re-fetch when a
-    PRESENT destination artifact's sha256 mismatches the pin, not just when
-    the artifact is absent. Frozen precedence order:
-      1. args.fetch_native -> True
-      2. args.native == "always" -> False
-      3. auto -> True if any member artifact is ABSENT
-      4. auto -> True if any PRESENT member artifact's sha256 != pinned digest
-    """
+class TestWorkflowPinnedLiteralsAgree(unittest.TestCase):
+    """Every `ref:` (the sibling jhangyu/ceyx checkout) and every
+    `flutter-version:` across ci.yml + release.yml carries ONE value each — the
+    dual-pin drift class (win-parity campaign). Guards agreement, not a specific
+    value, so a deliberate bump edits only the workflows. If a future step adds
+    an unrelated `ref:`, this fails closed: scope REF_RE to the ceyx checkout
+    step then — never loosen the equality."""
 
-    def _build_apps_module(self):
+    REF_RE = re.compile(r"^\s*ref:\s*(\S+)\s*$", re.M)
+    FLUTTER_RE = re.compile(r"^\s*flutter-version:\s*(\S+)\s*$", re.M)
+
+    def _values(self, pattern):
+        values = []
+        for name in ("ci.yml", "release.yml"):
+            values += pattern.findall((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+        return values
+
+    def _assert_one_value(self, pattern, label):
+        values = self._values(pattern)
+        self.assertGreaterEqual(len(values), 3, f"expected >=3 {label} lines, found {values!r}")
+        self.assertEqual(len(set(values)), 1, f"{label} values disagree across workflows: {values!r}")
+
+    def test_ceyx_checkout_refs_agree(self):
+        self._assert_one_value(self.REF_RE, "ref:")
+
+    def test_flutter_versions_agree(self):
+        self._assert_one_value(self.FLUTTER_RE, "flutter-version:")
+
+
+class TestFfiManifestSplit(unittest.TestCase):
+    """Per-CI-target decoder facts (decoder_artifact, expected_arch) live in
+    targets.py (G-5); dng_ffi_artifacts.json keeps only what the manual checker
+    reads, and targets.py names its entry FORWARD via ffi_manifest_key, so no
+    reverse ci_target lookup can silently miss a leg."""
+
+    MANIFEST = REPO_ROOT / "scripts" / "dng_ffi_artifacts.json"
+
+    def _targets(self):
         import sys  # noqa: PLC0415
 
-        scripts_dir = REPO_ROOT / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
-        import build_apps  # noqa: PLC0415
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import ci.targets as targets  # noqa: PLC0415
 
-        return build_apps
+        return targets.TARGETS
 
-    def _make_layout(self, decoder_dir):
-        import types  # noqa: PLC0415
-
-        return types.SimpleNamespace(decoder=decoder_dir)
-
-    def _make_args(self, fetch_native=False, native="auto"):
-        import types  # noqa: PLC0415
-
-        return types.SimpleNamespace(fetch_native=fetch_native, native=native)
-
-    def test_present_but_wrong_sha_triggers_refetch(self):
-        import hashlib  # noqa: PLC0415
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            path = dest_dir / member["artifact"]
-            path.write_bytes(b"not the pinned bytes")
-            wrong_digest = hashlib.sha256(b"not the pinned bytes").hexdigest()
-            pinned_digest = hashlib.sha256(b"the real pinned bytes").hexdigest()
-            self.assertNotEqual(wrong_digest, pinned_digest)
-
-            def fake_load_ceyx_pin():
-                return (
-                    "v0.0.0-test",
-                    {
-                        ft: {
-                            "libraries": [
-                                {"member": member["member"],
-                                 "artifact": member["artifact"],
-                                 "sha256": pinned_digest},
-                            ],
-                        },
-                    },
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig = build_apps.load_ceyx_pin
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin
-            try:
-                due = build_apps.ceyx_fetch_is_due(
-                    ft, self._make_layout(decoder_dir), self._make_args())
-            finally:
-                build_apps.load_ceyx_pin = orig
-            self.assertTrue(due, "mismatched present artifact must trigger a refetch")
-
-    def test_present_and_matching_sha_does_not_refetch(self):
-        import hashlib  # noqa: PLC0415
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            path = dest_dir / member["artifact"]
-            path.write_bytes(b"the real pinned bytes")
-            pinned_digest = hashlib.sha256(b"the real pinned bytes").hexdigest()
-
-            def fake_load_ceyx_pin():
-                return (
-                    "v0.0.0-test",
-                    {
-                        ft: {
-                            "libraries": [
-                                {"member": member["member"],
-                                 "artifact": member["artifact"],
-                                 "sha256": pinned_digest},
-                            ],
-                        },
-                    },
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig = build_apps.load_ceyx_pin
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin
-            try:
-                due = build_apps.ceyx_fetch_is_due(
-                    ft, self._make_layout(decoder_dir), self._make_args())
-            finally:
-                build_apps.load_ceyx_pin = orig
-            self.assertFalse(due, "matching present artifact must not refetch")
-
-    def test_fetch_native_flag_forces_true_regardless(self):
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            (dest_dir / member["artifact"]).write_bytes(b"anything")
-            due = build_apps.ceyx_fetch_is_due(
-                ft, self._make_layout(decoder_dir),
-                self._make_args(fetch_native=True))
-            self.assertTrue(due, "--fetch-native must force True regardless of hash state")
-
-    def test_native_always_forces_false_regardless(self):
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            # Deliberately leave the artifact absent -- native=="always" must
-            # win even over the absence branch.
-            due = build_apps.ceyx_fetch_is_due(
-                ft, self._make_layout(decoder_dir),
-                self._make_args(native="always"))
-            self.assertFalse(due, "native=='always' must force False regardless")
-
-    def test_pin_entry_without_libraries_degrades_to_absent_only(self):
-        """A pin asset entry with no (or empty) 'libraries' list must not hard
-        fail the --check path (which stays network-free): ceyx_fetch_is_due
-        degrades to the old absent-only staleness detection and returns False
-        for a PRESENT artifact, regardless of its actual bytes."""
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
-
-            def fake_load_ceyx_pin_no_libraries():
-                return (
-                    "v0.0.0-test",
-                    {ft: {"libraries": []}},
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig = build_apps.load_ceyx_pin
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin_no_libraries
-            try:
-                due = build_apps.ceyx_fetch_is_due(
-                    ft, self._make_layout(decoder_dir), self._make_args())
-            finally:
-                build_apps.load_ceyx_pin = orig
-            self.assertFalse(
-                due,
-                "an entry with no per-artifact digests must degrade to "
-                "absent-only detection, not force a refetch or hard-fail")
-
-    def test_member_without_digest_degrades_to_no_refetch_for_that_artifact(self):
-        """A 'libraries' entry present for the fetch-target but missing a
-        digest for THIS SPECIFIC member must skip the checksum-mismatch check
-        for that artifact only (warn-and-continue), not force a refetch."""
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        ft = "linux"
-        spec = build_apps.CEYX_FETCH_SPECS[ft]
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest_dir = decoder_dir / spec["dest"]
-            dest_dir.mkdir(parents=True)
-            member = spec["members"][0]
-            (dest_dir / member["artifact"]).write_bytes(b"whatever bytes are on disk")
-
-            def fake_load_ceyx_pin_no_digest_for_member():
-                return (
-                    "v0.0.0-test",
-                    {
-                        ft: {
-                            "libraries": [
-                                # "artifact" present but "sha256" missing --
-                                # digest_by_artifact filters this entry out.
-                                {"member": member["member"],
-                                 "artifact": member["artifact"]},
-                            ],
-                        },
-                    },
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig = build_apps.load_ceyx_pin
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin_no_digest_for_member
-            try:
-                due = build_apps.ceyx_fetch_is_due(
-                    ft, self._make_layout(decoder_dir), self._make_args())
-            finally:
-                build_apps.load_ceyx_pin = orig
-            self.assertFalse(
-                due,
-                "a member missing a pinned digest must skip its "
-                "checksum-mismatch check, not force a refetch")
-
-    def test_check_pin_other_arch_when_sibling_group_matches(self):
-        """S-A4 fix (2026-09-12): two fetch-targets sharing ONE on-disk path
-        (like macos-arm64/macos-x86_64) must not both report PIN-MISMATCH
-        when the on-disk bytes are legitimately one of the two pinned groups.
-        The non-matching group's row is OTHER-ARCH (visible, not counted),
-        the matching group's row is PIN-OK, and the preflight is CLEAN
-        (return False / no genuine mismatch)."""
-        import contextlib  # noqa: PLC0415
-        import hashlib  # noqa: PLC0415
-        import io  # noqa: PLC0415
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest = Path("shared") / "Libraries"
-            dest_dir = decoder_dir / dest
-            dest_dir.mkdir(parents=True)
-            artifact = "shared_decoder.dylib"
-            on_disk_bytes = b"group-a's pinned bytes"
-            (dest_dir / artifact).write_bytes(on_disk_bytes)
-            digest_a = hashlib.sha256(on_disk_bytes).hexdigest()
-            digest_b = hashlib.sha256(b"group-b's DIFFERENT pinned bytes").hexdigest()
-
-            fake_specs = {
-                "group-a": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
-                "group-b": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
-            }
-
-            def fake_load_ceyx_pin():
-                return (
-                    "v0.0.0-test",
-                    {
-                        "group-a": {"libraries": [
-                            {"member": artifact, "artifact": artifact, "sha256": digest_a}]},
-                        "group-b": {"libraries": [
-                            {"member": artifact, "artifact": artifact, "sha256": digest_b}]},
-                    },
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig_specs = build_apps.CEYX_FETCH_SPECS
-            orig_pin = build_apps.load_ceyx_pin
-            build_apps.CEYX_FETCH_SPECS = fake_specs
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin
-            try:
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    mismatched = build_apps.ceyx_check_pin(self._make_layout(decoder_dir))
-            finally:
-                build_apps.CEYX_FETCH_SPECS = orig_specs
-                build_apps.load_ceyx_pin = orig_pin
-
-            output = buf.getvalue()
-            self.assertFalse(mismatched, "a same-path sibling match must not count as a mismatch")
-            self.assertIn("PIN-OK group-a/shared_decoder.dylib", output)
-            self.assertIn("OTHER-ARCH group-b/shared_decoder.dylib", output)
-            self.assertNotIn("PIN-MISMATCH", output)
-            self.assertIn("PIN-SUMMARY checked=2 mismatched=0 absent=0 uncovered=0 other_arch=1",
-                          output)
-
-    def test_check_pin_genuine_mismatch_not_reclassified(self):
-        """A stale artifact matching NO sibling group's pin at all must stay
-        a genuine PIN-MISMATCH, not be swallowed by the OTHER-ARCH path."""
-        import contextlib  # noqa: PLC0415
-        import hashlib  # noqa: PLC0415
-        import io  # noqa: PLC0415
-        import tempfile  # noqa: PLC0415
-
-        build_apps = self._build_apps_module()
-        with tempfile.TemporaryDirectory() as td:
-            decoder_dir = Path(td)
-            dest = Path("shared") / "Libraries"
-            dest_dir = decoder_dir / dest
-            dest_dir.mkdir(parents=True)
-            artifact = "shared_decoder.dylib"
-            (dest_dir / artifact).write_bytes(b"corrupted, matches neither pin")
-            digest_a = hashlib.sha256(b"group-a's pinned bytes").hexdigest()
-            digest_b = hashlib.sha256(b"group-b's DIFFERENT pinned bytes").hexdigest()
-
-            fake_specs = {
-                "group-a": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
-                "group-b": {"dest": dest, "members": [{"member": artifact, "artifact": artifact}]},
-            }
-
-            def fake_load_ceyx_pin():
-                return (
-                    "v0.0.0-test",
-                    {
-                        "group-a": {"libraries": [
-                            {"member": artifact, "artifact": artifact, "sha256": digest_a}]},
-                        "group-b": {"libraries": [
-                            {"member": artifact, "artifact": artifact, "sha256": digest_b}]},
-                    },
-                    {"asset": "artifacts.lock", "sha256": "ignored"},
-                )
-
-            orig_specs = build_apps.CEYX_FETCH_SPECS
-            orig_pin = build_apps.load_ceyx_pin
-            build_apps.CEYX_FETCH_SPECS = fake_specs
-            build_apps.load_ceyx_pin = fake_load_ceyx_pin
-            try:
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    mismatched = build_apps.ceyx_check_pin(self._make_layout(decoder_dir))
-            finally:
-                build_apps.CEYX_FETCH_SPECS = orig_specs
-                build_apps.load_ceyx_pin = orig_pin
-
-            output = buf.getvalue()
-            self.assertTrue(mismatched, "bytes matching neither pinned group is a genuine mismatch")
-            self.assertIn("PIN-MISMATCH group-a/shared_decoder.dylib", output)
-            self.assertIn("PIN-MISMATCH group-b/shared_decoder.dylib", output)
-            self.assertNotIn("OTHER-ARCH", output)
-            self.assertIn("PIN-SUMMARY checked=2 mismatched=2 absent=0 uncovered=0 other_arch=0",
-                          output)
-
-
-class TestWi15MemberSetEqual(unittest.TestCase):
-    """WI-15 step 15.4 (S-H2): _member_set_equal is the literal
-    "archive members == pin members" comparison, factored out of
-    update_ceyx_pin_latest so it is testable without a network download --
-    extract_ceyx_archive's own guards make the real CLI path structurally
-    unable to reach a False here (they fail() one step earlier on any real
-    mismatch), so this unit test is where the red/green proof for S-H2
-    actually lives."""
-
-    def _build_apps_module(self):
-        import sys  # noqa: PLC0415
-
-        scripts_dir = REPO_ROOT / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
-        import build_apps  # noqa: PLC0415
-
-        return build_apps
-
-    def test_green_equal_sets(self):
-        build_apps = self._build_apps_module()
-        self.assertTrue(
-            build_apps._member_set_equal(
-                ["heif.dll", "libde265.dll"], ["libde265.dll", "heif.dll"]
-            ),
-            "same members in different order must compare equal (set, not "
-            "list, comparison)",
-        )
-
-    def test_red_archive_missing_a_pin_member(self):
-        build_apps = self._build_apps_module()
-        self.assertFalse(
-            build_apps._member_set_equal(
-                ["dng_decoder_native.dll", "heif.dll", "libde265.dll"],
-                ["dng_decoder_native.dll", "heif.dll"],
-            ),
-            "an archive missing a member the pin names must not compare equal",
-        )
-
-    def test_red_archive_has_an_extra_member(self):
-        build_apps = self._build_apps_module()
-        self.assertFalse(
-            build_apps._member_set_equal(
-                ["libdng_decoder_native.so"],
-                ["libdng_decoder_native.so", "libcanary.so"],
-            ),
-            "an archive carrying a member the pin does not name must not "
-            "compare equal",
-        )
-
-
-class TestWi15PlacedField(unittest.TestCase):
-    """WI-15 step 15.5 (S-H3): every asset in the committed pin has an
-    explicit 'placed' bool, and 'not_placed_reason' is present (non-empty)
-    iff placed is False."""
-
-    def test_every_asset_has_placed_and_consistent_reason(self):
+    def test_every_asserting_target_names_a_resolvable_manifest_entry(self):
         import json  # noqa: PLC0415
 
-        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
-        for name, entry in data["assets"].items():
-            with self.subTest(asset=name):
-                self.assertIn("placed", entry, f"{name} has no 'placed' field")
-                self.assertIsInstance(entry["placed"], bool)
-                reason = entry.get("not_placed_reason")
-                if entry["placed"]:
-                    self.assertFalse(
-                        reason,
-                        f"{name}: placed=true but not_placed_reason={reason!r}",
-                    )
-                else:
-                    self.assertTrue(
-                        reason and isinstance(reason, str),
-                        f"{name}: placed=false needs a non-empty "
-                        f"not_placed_reason, got {reason!r}",
-                    )
+        platforms = json.loads(self.MANIFEST.read_text(encoding="utf-8"))["platforms"]
+        for name, spec in self._targets().items():
+            with self.subTest(target=name):
+                key = spec["ffi_manifest_key"]
+                if key is not None:
+                    self.assertIn(key, platforms)
+                if spec["assertions"]:
+                    self.assertIsNotNone(key)
+                    self.assertTrue(spec["decoder_artifact"])
+                    self.assertTrue(spec["expected_arch"])
 
-    def test_load_ceyx_pin_rejects_missing_placed(self):
-        import sys  # noqa: PLC0415
-
-        scripts_dir = REPO_ROOT / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
-        import build_apps  # noqa: PLC0415
-
+    def test_manifest_no_longer_carries_ci_facts(self):
         import json  # noqa: PLC0415
 
-        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
-        del data["assets"]["linux"]["placed"]
-        orig_path = build_apps.CEYX_PIN_PATH
-        import tempfile  # noqa: PLC0415
-
-        with tempfile.TemporaryDirectory() as td:
-            broken = Path(td) / "ceyx_release_pin.json"
-            broken.write_text(json.dumps(data), encoding="utf-8")
-            build_apps.CEYX_PIN_PATH = broken
-            try:
-                with self.assertRaises(SystemExit):
-                    build_apps.load_ceyx_pin()
-            finally:
-                build_apps.CEYX_PIN_PATH = orig_path
-
-    def test_load_ceyx_pin_rejects_placed_false_without_reason(self):
-        import sys  # noqa: PLC0415
-
-        scripts_dir = REPO_ROOT / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
-        import build_apps  # noqa: PLC0415
-
-        import json  # noqa: PLC0415
-
-        data = json.loads(PIN_FILE.read_text(encoding="utf-8"))
-        data["assets"]["android"]["not_placed_reason"] = ""
-        orig_path = build_apps.CEYX_PIN_PATH
-        import tempfile  # noqa: PLC0415
-
-        with tempfile.TemporaryDirectory() as td:
-            broken = Path(td) / "ceyx_release_pin.json"
-            broken.write_text(json.dumps(data), encoding="utf-8")
-            build_apps.CEYX_PIN_PATH = broken
-            try:
-                with self.assertRaises(SystemExit):
-                    build_apps.load_ceyx_pin()
-            finally:
-                build_apps.CEYX_PIN_PATH = orig_path
+        platforms = json.loads(self.MANIFEST.read_text(encoding="utf-8"))["platforms"]
+        for key, entry in platforms.items():
+            with self.subTest(entry=key):
+                for field in ("ci_target", "decoder_artifact", "expected_arch"):
+                    self.assertNotIn(field, entry)
 
 
 class TestPinFileUntouched(unittest.TestCase):
@@ -1151,7 +558,7 @@ class TestFlutterGitTagMatchesWorkflows(unittest.TestCase):
         sys.path.insert(0, str(REPO_ROOT / "scripts"))
         from ci import targets  # noqa: PLC0415
 
-        cmds = [c for c in targets.spec("linux-arm")["provision"] if any("install_flutter" in a for a in c)]
+        cmds = [c["argv"] for c in targets.spec("linux-arm")["provision"] if any("install_flutter" in a for a in c["argv"])]
         self.assertEqual(len(cmds), 1, "linux-arm must install Flutter exactly once in provision")
         argv = cmds[0]
         tag = argv[argv.index("--tag") + 1]

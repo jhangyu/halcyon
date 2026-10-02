@@ -5,30 +5,31 @@ WHY THIS EXISTS
 ---------------
 `flutter test` over the whole suite has outgrown the foreground command timeout
 (150 s). The fix is NOT a longer timeout — it is sharding: the suite is split
-into directory-sized shards, each measured to complete well under the cap, and
-each shard is a separate child process with its own artifact and its own
-self-captured exit code.
+into shards, each measured to complete well under the cap, and each shard is a
+separate child process with its own artifact and its own self-captured exit
+code. Agents run ONE SHARD PER BASH CALL (`--shard <name>`); a run without
+`--shard` executes every shard sequentially (several minutes) and is for
+humans at a terminal only.
 
 This script deliberately does NOT reimplement anything already in `scripts/ci/`:
 
   * process execution      -> ci.run.run_logged   (shell=False, RC self-capture,
                               Windows .bat resolution, no `| grep`)
   * artifact + RC trailer  -> ci.report.write_log (last line is exactly `RC=<n>`)
-  * skip announcements     -> ci.report.skip_line (2026-08-25: a silent skip
-                              produces a green report indistinguishable from a
-                              full run)
 
-`scripts/ci.py verify` keeps its own monolithic `flutter test -j 1` step,
-because a CI runner has no foreground-timeout problem. This script is the
-canonical entry point for humans and agents on a laptop, and it is safe to point
-CI at it too (`python3 scripts/run_tests.py`).
+CI runs no tests (CI is compile-only by project rule), so this script is the
+only suite-level test gate. Shards run with `flutter test`'s default
+concurrency: a serial run changes neither RC nor totals, only wall time, so
+serial mode belongs to per-file timing attribution (with `--reporter json`),
+never to a pass/fail gate.
 
 USAGE
 -----
-    python3 scripts/run_tests.py                # every shard, in order
-    python3 scripts/run_tests.py --list         # print the shard table, run nothing
-    python3 scripts/run_tests.py --shard views  # one shard by name
-    python3 scripts/run_tests.py --shard 3      # one shard by 1-based index
+    python3 scripts/run_tests.py --shard views     # one shard by name (agents: always this)
+    python3 scripts/run_tests.py --shard 3         # one shard by 1-based index
+    python3 scripts/run_tests.py --list            # shard table + TOTAL row, runs nothing
+    python3 scripts/run_tests.py --audit-coverage  # every test file in exactly one shard
+    python3 scripts/run_tests.py                   # every shard, in order (humans only)
 
 Artifacts: build/ci-logs/tests-<shard>.txt, last line `RC=<n>`, written by the
 producing process (2026-08-23: a harness notification lies in both directions).
@@ -39,6 +40,8 @@ Final line on stdout is exactly:
 
 RC is non-zero if ANY shard failed. In `--shard` mode the same line is printed
 for the single shard, so a one-shard invocation is still machine-checkable.
+A broken shard table (see expand_shards) exits 2 before anything runs, in
+every mode.
 """
 
 from __future__ import annotations
@@ -57,197 +60,137 @@ from ci import report, run  # noqa: E402  (path bootstrap must precede import)
 
 
 # ---------------------------------------------------------------------------
-# Shard table — DATA, not logic. Derived from the 2026-09-03 timing measurement
-# recorded in docs/logs/2026-09-03/test-suite-audit.md. Every shard's measured
-# wall time is stated so a future maintainer can see the headroom against the
-# 150 s foreground cap without re-measuring. Re-measure and re-split whenever a
-# shard's measured time exceeds SHARD_BUDGET_S.
+# Shard table — DATA, not logic. Membership is glob-derived, FIRST-MATCH-WINS:
+# shards are expanded in order and a file belongs to the first shard whose
+# entry matches it. Entry kinds:
+#   * directory -> every *_test.dart underneath (recursive), minus files an
+#                  earlier shard already claimed. This is how the catch-alls
+#                  work: pipeline-misc names the whole image_pipeline
+#                  directory and picks up every file no earlier glob claimed,
+#                  so a NEW test file always lands in some shard.
+#   * glob      -> REPO_ROOT.glob(entry), *_test.dart only. Zero matches is a
+#                  hard error: a glob is a declared intent.
+#   * file      -> a nonexistent path is a hard error; a file an earlier shard
+#                  already claimed is a DUPLICATED hard error.
+# A shard expanding to zero files is a hard error too. (2026-10-02: the old
+# explicit lists silently dropped 55 deleted paths and orphaned 45 files for a
+# month after the 0f61a49 consolidation — nothing may be dropped silently.)
 #
-# `paths` are passed verbatim to `flutter test`; a directory means "every
-# *_test.dart underneath". Splitting the big image_pipeline directory is done by
-# explicit file lists so the split is auditable and stable.
+# Budget: `flutter test` and this script are classified as BUILD commands by
+# the global bash-safety hook, so the binding cap is the 150 s build allowance
+# per Bash call. SHARD_BUDGET_S keeps 50 s of that cap as headroom; a shard
+# over budget prints OVER-BUDGET — re-measure on an idle machine and, if it is
+# genuinely slow, split that shard's globs (a data edit here). Each shard
+# carries its last idle measurement as a `# measured` comment.
 # ---------------------------------------------------------------------------
 
-# The binding constraint measured on 2026-09-03 is the DEFAULT foreground cap of
-# 40 s, not the 150 s build allowance: a plain `flutter test` invocation is not
-# classified as a build command, so it is capped at 40 s. 30 s leaves headroom for
-# the machine being busier than it was when these numbers were taken.
-SHARD_BUDGET_S = 30
+SHARD_BUDGET_S = 100
+
+_PIPE = "test/services/image_pipeline/"
 
 SHARDS = [
     {
+        # measured 2026-10-02: 6.1s, load 19.16
         "name": "unit",
-        "paths": ["test/main_test.dart", "test/models", "test/perf", "test/providers"],
+        "paths": ["test/*_test.dart", "test/models", "test/perf", "test/providers"],
     },
     {
-        # Measured as one 24-file shard: 34.6 s, green but only 5 s under the
-        # 40 s cap. Split for the same reason as views-layout.
-        "name": "pipeline-a1",
-        "paths": [
-            "test/services/image_pipeline/bitmap_container_probe_test.dart",
-            "test/services/image_pipeline/cache_budget_test.dart",
-            "test/services/image_pipeline/cost_memo_longedge_test.dart",
-            "test/services/image_pipeline/dart_image_loader_no_method_channel_test.dart",
-            "test/services/image_pipeline/dart_image_loader_test.dart",
-            "test/services/image_pipeline/decode_lane_test.dart",
-            "test/services/image_pipeline/decoded_rgba_image_provider_test.dart",
-            "test/services/image_pipeline/decoded_rgba_shortcircuit_test.dart",
-        ],
+        # measured 2026-10-02: 13.0s, load 10.46
+        "name": "pipeline-decode",
+        "paths": [_PIPE + g for g in (
+            "dart_image_loader_*", "decode_*", "decoded_*", "deferred_*", "dng_*")],
     },
     {
-        # The DNG embedded-JPEG extractor family is the single heaviest cluster
-        # in the suite (byte-level fixture parsing); it owns a shard by itself.
-        "name": "pipeline-dng",
-        "paths": [
-            "test/services/image_pipeline/dng_decoder_smoke_test.dart",
-            "test/services/image_pipeline/dng_embedded_jpeg_extractor_buffer_copy_semantics_test.dart",
-            "test/services/image_pipeline/dng_embedded_jpeg_extractor_endian_test.dart",
-            "test/services/image_pipeline/dng_embedded_jpeg_extractor_long_edge_selection_test.dart",
-            "test/services/image_pipeline/dng_embedded_jpeg_extractor_sony_ifd_chain_test.dart",
-            "test/services/image_pipeline/dng_embedded_jpeg_extractor_test.dart",
-            "test/services/image_pipeline/dng_extractor_transient_read_retry_test.dart",
-        ],
+        # measured 2026-10-02: 9.0s, load 8.87
+        "name": "pipeline-preload",
+        "paths": [_PIPE + g for g in ("image_preload_*", "sidebar_*", "pacing_*")],
     },
     {
-        "name": "pipeline-a2",
-        "paths": [
-            "test/services/image_pipeline/encode_stage_test.dart",
-            "test/services/image_pipeline/exif_orientation_test.dart",
-            "test/services/image_pipeline/full_decoder_dispatch_sized_fallback_test.dart",
-            "test/services/image_pipeline/full_decoder_dispatch_test.dart",
-            "test/services/image_pipeline/inflight_bytes_budget_test.dart",
-            "test/services/image_pipeline/jpeg_encoder_test.dart",
-            "test/services/image_pipeline/payload_normalizer_test.dart",
-            "test/services/image_pipeline/payload_reencoder_test.dart",
-            "test/services/image_pipeline/photo_payload_cache_test.dart",
-        ],
+        # measured 2026-10-02: 4.2s, load 9.47
+        "name": "pipeline-payload",
+        "paths": [_PIPE + g for g in (
+            "payload_*", "encode_*", "exif_*", "frame_*", "yuv420_*", "q70_*",
+            "publish_*", "pool_*", "stage_*")],
     },
     {
-        # Measured 2026-09-03: this half is 22 s and the b2 half is 19 s. Run as
-        # one 13-file shard they total 41 s and blow the 40 s foreground cap —
-        # which is exactly how this shard was discovered, by timing out.
-        "name": "pipeline-b1",
-        "paths": [
-            "test/services/image_pipeline/image_preload_controller_cheap_on_serial_lane_test.dart",
-            "test/services/image_pipeline/image_preload_controller_dual_window_tier2_test.dart",
-            "test/services/image_pipeline/image_preload_controller_lane_race_test.dart",
-            "test/services/image_pipeline/image_preload_controller_permanent_miss_test.dart",
-            "test/services/image_pipeline/image_preload_controller_probe_first_navigation_test.dart",
-            "test/services/image_pipeline/image_preload_controller_sequential_decode_retention_test.dart",
-        ],
+        # measured 2026-10-02: 12.4s, load 11.89
+        "name": "pipeline-retention",
+        "paths": [_PIPE + g for g in (
+            "photo_source_*", "tier_two_*", "retention_*", "resolution_*")],
     },
     {
-        "name": "pipeline-b2",
-        "paths": [
-            "test/services/image_pipeline/image_preload_controller_test.dart",
-            "test/services/image_pipeline/image_preload_encode_stage_test.dart",
-            "test/services/image_pipeline/image_preload_pacer_test.dart",
-            "test/services/image_pipeline/image_preload_reencode_tier_two_test.dart",
-            "test/services/image_pipeline/image_preload_reset_tier_one_evict_test.dart",
-            "test/services/image_pipeline/image_preload_stage_overlap_test.dart",
-            "test/services/image_pipeline/image_preload_window_test.dart",
-        ],
+        # measured 2026-10-02: 14.7s, load 22.68
+        # Catch-all: every image_pipeline test no glob above claimed.
+        "name": "pipeline-misc",
+        "paths": ["test/services/image_pipeline"],
     },
     {
-        "name": "pipeline-c",
-        "paths": [
-            "test/services/image_pipeline/photo_source_fullres_handle_test.dart",
-            "test/services/image_pipeline/photo_source_probe_test.dart",
-            "test/services/image_pipeline/photo_source_reencode_test.dart",
-            "test/services/image_pipeline/photo_source_single_probe_test.dart",
-            "test/services/image_pipeline/photo_source_test.dart",
-            "test/services/image_pipeline/photo_source_two_phase_test.dart",
-            "test/services/image_pipeline/preview_floor_longedge_test.dart",
-            "test/services/image_pipeline/publication_pacer_test.dart",
-            "test/services/image_pipeline/raw_coverage_wiring_test.dart",
-            "test/services/image_pipeline/raw_pixels_image_test.dart",
-            "test/services/image_pipeline/retention_policy_test.dart",
-            "test/services/image_pipeline/retention_tier_test.dart",
-            "test/services/image_pipeline/shared_display_quality_test.dart",
-            "test/services/image_pipeline/shared_payload_retention_test.dart",
-            "test/services/image_pipeline/sidebar_lane_production_test.dart",
-            "test/services/image_pipeline/sidebar_pixel_thumbnail_test.dart",
-            "test/services/image_pipeline/sidebar_shared_payload_test.dart",
-            "test/services/image_pipeline/sidebar_thumbnail_codec_test.dart",
-            "test/services/image_pipeline/thumbnail_derivation_test.dart",
-            "test/services/image_pipeline/tier_two_piggyback_handle_test.dart",
-            "test/services/image_pipeline/tier_two_publish_race_test.dart",
-            "test/services/image_pipeline/tier_two_registry_test.dart",
-            "test/services/image_pipeline/tier_two_scheduler_test.dart",
-        ],
-    },
-    {
+        # measured 2026-10-02: 10.0s, load 27.72
         "name": "services",
-        "paths": [
-            "test/services/library",
-            "test/services/platform",
-            "test/services/rename",
-        ],
+        "paths": ["test/services/library", "test/services/platform", "test/services/rename"],
     },
     {
+        # measured 2026-10-02: 4.7s, load 21.82
         "name": "views",
-        "paths": [
-            "test/views/main_screen_shortcuts_test.dart",
-            "test/views/rename_dialog_test.dart",
-            "test/views/settings_appearance_tab_test.dart",
-            "test/views/settings_dialog_test.dart",
-            "test/views/status_line_test.dart",
-            "test/views/theme_tokens_test.dart",
-            "test/views/thumbnail_rebuild_scope_test.dart",
-            "test/views/zoom_controller_test.dart",
-        ],
+        "paths": ["test/views/*_test.dart"],
     },
     {
-        # Split at the gallery/other boundary the file names already provide.
-        # Measured as one 30-file shard it was 33.8 s — green, but only 6 s under
-        # the 40 s foreground cap, which is not enough margin to survive either a
-        # busier machine or the next few test files anyone adds.
-        #
-        # NOTE these two use explicit file lists rather than a directory glob, so
-        # a NEWLY ADDED test/views/layout/ file belongs to neither shard and would
-        # silently go unrun. `--audit-coverage` exists to catch exactly that and
-        # is asserted by the self-check; do not convert them back to a bare
-        # directory path without re-measuring.
-        "name": "views-layout-gallery",
-        "paths": [
-            "test/views/layout/gallery_column_menu_test.dart",
-            "test/views/layout/gallery_column_test.dart",
-            "test/views/layout/gallery_decode_freeze_test.dart",
-            "test/views/layout/gallery_desktop_test.dart",
-            "test/views/layout/gallery_flicker_resize_test.dart",
-            "test/views/layout/gallery_geometry_test.dart",
-            "test/views/layout/gallery_marks_reachability_test.dart",
-            "test/views/layout/gallery_marks_test.dart",
-            "test/views/layout/gallery_mobile_test.dart",
-            "test/views/layout/gallery_open_folder_shortcut_test.dart",
-            "test/views/layout/gallery_palette_test.dart",
-            "test/views/layout/gallery_thumb_anchor_test.dart",
-            "test/views/layout/gallery_thumb_select_test.dart",
-        ],
-    },
-    {
-        "name": "views-layout-rest",
-        "paths": [
-            "test/views/layout/app_actions_menu_test.dart",
-            "test/views/layout/darkroom_counter_test.dart",
-            "test/views/layout/darkroom_desktop_test.dart",
-            "test/views/layout/darkroom_empty_state_test.dart",
-            "test/views/layout/darkroom_mobile_test.dart",
-            "test/views/layout/exif_caption_joined_test.dart",
-            "test/views/layout/exif_caption_test.dart",
-            "test/views/layout/filmstrip_anchor_round4_test.dart",
-            "test/views/layout/layout_registry_test.dart",
-            "test/views/layout/paper_desktop_test.dart",
-            "test/views/layout/paper_mobile_test.dart",
-            "test/views/layout/paper_mobile_welcome_test.dart",
-            "test/views/layout/paper_overcount_test.dart",
-            "test/views/layout/paper_palette_test.dart",
-            "test/views/layout/paper_welcome_test.dart",
-            "test/views/layout/photo_thumbnail_test.dart",
-            "test/views/layout/photo_viewport_test.dart",
-        ],
+        # measured 2026-10-02: 12.7s, load 20.16
+        # Catch-all for the layout directory (the old gallery/rest split
+        # existed for a 40 s cap that never applied to this command).
+        "name": "views-layout",
+        "paths": ["test/views/layout"],
     },
 ]
+
+
+def expand_shards(shards=None):
+    """Ordered [(shard, files)] for the table; exits 2 on any table error.
+
+    First-match-wins across the ordered list (see the table comment). Every
+    error is collected and printed before exiting, so one run shows the whole
+    damage instead of the first symptom.
+    """
+    shards = SHARDS if shards is None else shards
+    claimed = {}
+    errors = []
+    expansion = []
+    for shard in shards:
+        name = shard["name"]
+        files = []
+        for entry in shard["paths"]:
+            if "*" in entry:
+                matches = sorted(
+                    p for p in REPO_ROOT.glob(entry)
+                    if p.is_file() and p.name.endswith("_test.dart"))
+                if not matches:
+                    errors.append(f"ZERO-MATCH: glob {entry} in shard {name} matches no test file")
+                fresh = [p for p in matches if p not in claimed]
+            else:
+                target = REPO_ROOT / entry
+                if target.is_dir():
+                    fresh = [p for p in sorted(target.rglob("*_test.dart")) if p not in claimed]
+                elif target.is_file():
+                    if target in claimed:
+                        errors.append(f"DUPLICATED: {entry} listed in shard {name} "
+                                      f"but already claimed by {claimed[target]}")
+                        fresh = []
+                    else:
+                        fresh = [target]
+                else:
+                    errors.append(f"MISSING: {entry} listed in shard {name}")
+                    fresh = []
+            for path in fresh:
+                claimed[path] = name
+            files.extend(fresh)
+        if not files:
+            errors.append(f"EMPTY: shard {name} expands to zero test files")
+        expansion.append((shard, sorted(files)))
+    if errors:
+        for line in errors:
+            print(line)
+        sys.exit(2)
+    return expansion
 
 
 # ---------------------------------------------------------------------------
@@ -258,18 +201,6 @@ SHARDS = [
 # ---------------------------------------------------------------------------
 
 _DECL_RE = re.compile(r"^[ \t]*(?:test|testWidgets)\(", re.MULTILINE)
-
-
-def shard_files(shard):
-    """Every *_test.dart a shard's `paths` expand to, sorted and de-duplicated."""
-    found = []
-    for entry in shard["paths"]:
-        target = REPO_ROOT / entry
-        if target.is_dir():
-            found.extend(sorted(target.rglob("*_test.dart")))
-        elif target.is_file():
-            found.append(target)
-    return sorted(set(found))
 
 
 def declared_count(files):
@@ -325,18 +256,12 @@ def _append_timing(log_path, elapsed, load_before, load_after):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_shard(shard):
+def run_shard(shard, files):
     """Runs one shard; returns a result dict. Never raises on a failing child."""
-    files = shard_files(shard)
     name = shard["name"]
-    if not files:
-        print(report.skip_line(f"shard:{name}", "expanded to zero test files"))
-        return {"name": name, "rc": 1, "passed": 0, "failed": 0, "skipped": 0,
-                "declared": 0, "executed": 0, "log": None}
-
     declared = declared_count(files)
     log_path = report.log_path_for(REPO_ROOT, "tests", name)
-    argv = ["flutter", "test", "-j", "1", *[os.fspath(f.relative_to(REPO_ROOT)) for f in files]]
+    argv = ["flutter", "test", *[os.fspath(f.relative_to(REPO_ROOT)) for f in files]]
 
     # A shard time is only interpretable next to the machine load that produced
     # it: on 2026-09-03 this machine carried a load average near 180 from another
@@ -390,54 +315,46 @@ def run_shard(shard):
             "log": os.fspath(log_path)}
 
 
-def select_shards(selector):
+def select_shards(expansion, selector):
     if selector is None:
-        return SHARDS
-    for index, shard in enumerate(SHARDS, start=1):
+        return expansion
+    for index, (shard, files) in enumerate(expansion, start=1):
         if selector == shard["name"] or selector == str(index):
-            return [shard]
+            return [(shard, files)]
     return None
 
 
-def audit_coverage():
+def audit_coverage(expansion):
     """Every `test/**/*_test.dart` must belong to exactly one shard.
 
-    Several shards use explicit file lists (to keep a measured split stable), so
-    a newly added test file can belong to NO shard — it would then never run,
-    and a full `run_tests.py` would still print a green TOTAL. That is the
-    2026-07-10 allowlist failure mode: the gap is invisible at every layer that
-    only looks at what IS listed. This check looks at what is NOT.
+    Duplicates cannot survive expand_shards (first-match-wins for directories
+    and globs, a hard DUPLICATED error for explicit files), so what is left to
+    check is the negative space: a test file under a directory no shard names
+    would never run while a full run still printed a green TOTAL — the
+    2026-07-10 allowlist failure mode. This check looks at what is NOT listed.
 
     Returns 0 when coverage is exact, 1 otherwise.
     """
     on_disk = set((REPO_ROOT / "test").rglob("*_test.dart"))
-    seen = {}
-    duplicated = []
-    for shard in SHARDS:
-        for path in shard_files(shard):
-            if path in seen:
-                duplicated.append((path, seen[path], shard["name"]))
-            else:
-                seen[path] = shard["name"]
-    orphans = sorted(on_disk - set(seen))
-    rc = 0
+    sharded = {path for _, files in expansion for path in files}
+    orphans = sorted(on_disk - sharded)
     for path in orphans:
         print(f"UNSHARDED: {path.relative_to(REPO_ROOT)} belongs to no shard — it would never run")
-        rc = 1
-    for path, first, second in duplicated:
-        print(f"DUPLICATED: {path.relative_to(REPO_ROOT)} is in both {first} and {second}")
-        rc = 1
-    print(f"COVERAGE: {len(on_disk)} files on disk, {len(seen)} sharded, "
-          f"{len(orphans)} unsharded, {len(duplicated)} duplicated")
-    return rc
+    print(f"COVERAGE: {len(on_disk)} files on disk, {len(sharded)} sharded, "
+          f"{len(orphans)} unsharded, 0 duplicated")
+    return 1 if orphans else 0
 
 
-def print_table():
-    print(f"{'#':>2}  {'shard':<14} {'files':>5} {'declared':>8}  paths")
-    for index, shard in enumerate(SHARDS, start=1):
-        files = shard_files(shard)
-        print(f"{index:>2}  {shard['name']:<14} {len(files):>5} "
-              f"{declared_count(files):>8}  {', '.join(shard['paths'])}")
+def print_table(expansion):
+    print(f"{'#':>2}  {'shard':<18} {'files':>5} {'declared':>8}  paths")
+    total_files = total_declared = 0
+    for index, (shard, files) in enumerate(expansion, start=1):
+        declared = declared_count(files)
+        total_files += len(files)
+        total_declared += declared
+        print(f"{index:>2}  {shard['name']:<18} {len(files):>5} {declared:>8}  "
+              f"{', '.join(shard['paths'])}")
+    print(f"{'':>2}  {'TOTAL':<18} {total_files:>5} {total_declared:>8}")
 
 
 def main(argv=None):
@@ -450,26 +367,28 @@ def main(argv=None):
                         help="check every test file belongs to exactly one shard, then exit")
     args = parser.parse_args(argv)
 
+    expansion = expand_shards()  # exits 2 on a broken table, in every mode
+
     if args.list:
-        print_table()
+        print_table(expansion)
         return 0
     if args.audit_coverage:
-        return audit_coverage()
+        return audit_coverage(expansion)
 
     # A full run is only meaningful if the shards actually cover the suite; a
     # green TOTAL over an incomplete roster is worse than a red one.
-    if not args.shard and audit_coverage() != 0:
+    if not args.shard and audit_coverage(expansion) != 0:
         print("ERROR: shard coverage is incomplete — fix SHARDS before trusting a full run",
               file=sys.stderr)
         return 2
 
-    shards = select_shards(args.shard)
-    if shards is None:
-        names = ", ".join(s["name"] for s in SHARDS)
+    selected = select_shards(expansion, args.shard)
+    if selected is None:
+        names = ", ".join(shard["name"] for shard, _ in expansion)
         print(f"ERROR: unknown shard {args.shard!r}; known shards: {names}", file=sys.stderr)
         return 2
 
-    results = [run_shard(shard) for shard in shards]
+    results = [run_shard(shard, files) for shard, files in selected]
     passed = sum(r["passed"] for r in results)
     failed = sum(r["failed"] for r in results)
     rc = 0 if all(r["rc"] == 0 for r in results) else 1

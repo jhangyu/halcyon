@@ -4,27 +4,10 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/layout_registry.dart';
 import 'package:halcyon_flutter/views/layout/layout_theme.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
+import '../../support/view_fixtures.dart';
 
-MainSurface _emptySurface() => MainSurface(
+MainSurface _emptySurface() => testSurface(
   viewport: const SizedBox.shrink(),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: const [],
-    selectedId: null,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => null,
-    onVisibleRange: (_, __) {},
-  ),
-  identity: null,
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
 );
 
 void main() {

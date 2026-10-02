@@ -8,6 +8,7 @@ import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
 import 'package:halcyon_flutter/views/settings_dialog.dart';
+import '../support/event_loop.dart';
 
 /// The dialog is a fixed 920x560 (settings_dialog.dart:90-92). The default
 /// 800x600 test surface squeezes it ~160px narrower than it is ever drawn, so
@@ -21,15 +22,6 @@ import 'package:halcyon_flutter/views/settings_dialog.dart';
 Future<void> _useDialogSizedSurface(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(1200, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-}
-
-/// Bounded stand-in for `pumpAndSettle()`: enough frames to clear a dialog
-/// open/close route transition without polling for full animation rest.
-Future<void> _settle(WidgetTester tester) async {
-  await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
 }
 
 Future<void> pumpDialog(WidgetTester tester, AppState state) async {
@@ -67,7 +59,7 @@ Future<void> pumpDialogViaShowDialog(WidgetTester tester, AppState state) async 
   );
   await tester.pump();
   await tester.tap(find.text('open'));
-  await _settle(tester);
+  await settleFrames(tester);
 }
 
 void main() {
@@ -401,7 +393,7 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('settingsCancel')));
-    await _settle(tester);
+    await settleFrames(tester);
 
     expect(state.decodeLaneWidth, openingLaneWidth);
     expect(state.exportJpegQuality, openingQuality);
@@ -416,7 +408,7 @@ void main() {
     context(tester).read<AppState>().setDecodeLaneWidth(openingLaneWidth + 1);
     await tester.pump();
     await tester.tap(find.byKey(const Key('settingsDone')));
-    await _settle(tester);
+    await settleFrames(tester);
 
     expect(state.decodeLaneWidth, openingLaneWidth + 1);
   });

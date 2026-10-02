@@ -31,8 +31,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:image/image.dart' as img;
-
-void _microtaskFrame(void Function() callback) => callback();
+import '../../support/event_loop.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -79,7 +78,7 @@ void main() {
   }) {
     final decodeCalls = <String>[];
     final controller = ImagePreloadController(
-      scheduleFrameCallback: _microtaskFrame,
+      scheduleFrameCallback: immediateFrameCallback,
       navigationDebounce: debounce,
       decodeLaneWidth: 1,
       retention: const RetentionPolicy(

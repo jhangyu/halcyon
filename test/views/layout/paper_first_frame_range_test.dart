@@ -11,48 +11,27 @@
 // prefetch for the initially-visible rows never started until something else
 // triggered a rebuild. This is the gate for that fix; it was RED before the
 // adoption landed.
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:halcyon_flutter/models/photo_item.dart';
-import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_desktop.dart';
 import 'package:halcyon_flutter/views/layout/paper/paper_palette.dart';
-
-PixelPayload _payload() =>
-    PixelPayload(width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
-
-PhotoItem _item(String id) => PhotoItem(id: id, files: [File('src/$id.jpg')]);
+import '../../support/view_fixtures.dart';
 
 /// Same surface construction as `paper_desktop_test.dart`'s `_emptySurface`,
 /// with a populated strip and a recording `onVisibleRange`.
 MainSurface _surface(
   List<PhotoItem> items,
   void Function(int first, int last) onVisibleRange,
-) => MainSurface(
-  viewport: const ColoredBox(key: kViewportKey, color: Colors.red),
-  statusOverlay: const SizedBox.shrink(),
-  strip: PhotoStripModel(
-    items: items,
-    selectedId: items.first.id,
-    recycleMode: false,
-    onSelect: (_) {},
-    payloadFor: (_) => _payload(),
-    onVisibleRange: onVisibleRange,
-  ),
-  identity: null,
-  actions: PhotoActions(
-    recycleMode: false,
-    onStar: () {},
-    onTrash: () {},
-    onToggleRecycleMode: () {},
-    onOpenFolder: () {},
-    menu: const SizedBox.shrink(),
-  ),
+) => testSurface(
+  viewport: kRedViewport,
+  items: items,
+  selectedId: items.first.id,
+  payloadFor: (_) => tinyPixelPayload(),
+  onVisibleRange: onVisibleRange,
 );
 
 void main() {
@@ -61,7 +40,7 @@ void main() {
     '(before the list has a scroll position)',
     (tester) async {
       final reports = <(int, int)>[];
-      final items = [for (var i = 0; i < 30; i++) _item('p$i')];
+      final items = [for (var i = 0; i < 30; i++) itemFor('p$i')];
 
       // Same pump as paper_desktop_test.dart's `_pump`.
       await tester.binding.setSurfaceSize(const Size(1440, 900));

@@ -242,10 +242,9 @@ class PhotoSource {
 
   /// Null when no RAW decoder is available. Every use is guarded by step 3b:
   /// no decoder (or a throwing one) is a genuine permanent miss (M6 U-12
-  /// ruling) -- the native CIRAWFilter re-request this used to fall back to
-  /// no longer exists on any platform, so there is nothing left to degrade
-  /// to; the caller records `payload: null, deferred: false` exactly as any
-  /// other unrecoverable file.
+  /// ruling) -- there is no legacy channel left to degrade to, so the caller
+  /// records `payload: null, deferred: false` exactly as any other
+  /// unrecoverable file.
   final DngFullDecoder? dngDecoder;
 
   /// Task 8 (native-rotation-spec): the orienting sibling of [dngDecoder].
@@ -324,15 +323,16 @@ class PhotoSource {
   ///        itself for a JPEG, or the embedded preview it selected)
   ///   3.   no usable embedded JPEG -> RAW decode, immediately reduced to
   ///        window-resolution oriented pixels
-  ///   3b.  no decoder, or the decoder threw -> legacy CIRAWFilter bytes
+  ///   3b.  no decoder, or the decoder threw -> permanent miss (no legacy
+  ///        channel exists to fall back to, M6 U-12)
   ///   4.   nothing worked -> null payload, which the caller MUST record as a
   ///        permanent miss (see §3.4: this is the one path where a spinner
   ///        could otherwise strand forever)
   ///
   /// [allowExpensive] false stops at the discovery: the bridge is asked (which
   /// is how the cost is learned at all, and is the same single round trip the
-  /// pre-M3 code made for every item in the window), but no RAW decode and no
-  /// legacy fallback runs. The caller gets `observedCost: expensive` with a
+  /// pre-M3 code made for every item in the window), but no RAW decode runs.
+  /// The caller gets `observedCost: expensive` with a
   /// null payload and re-enqueues the item on the serial decode lane, whose
   /// task body is the only caller that passes true. Without this split, a
   /// probe-unmeasurable file would perform its FFI decode inline on whichever

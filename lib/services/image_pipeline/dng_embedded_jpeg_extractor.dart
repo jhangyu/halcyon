@@ -738,7 +738,7 @@ class DngEmbeddedJpegExtractor {
   /// after those two bytes is an ordinary TIFF IFD chain -- verified against
   /// `/Users/jhangyu/project/ceyx/image_samples/raw_corpus/2026-08-10-17-47-27.rw2`,
   /// whose IFD0 sits at offset 24 and parses entry-for-entry with the reader
-  /// below (`scripts/tmp/rw2_ifd_probe.py`). What is NOT ordinary is the tag
+  /// below (measured with a scratch IFD-walker probe, not retained). What is NOT ordinary is the tag
   /// numbering: RW2 IFD0 carries no Compression (0x0103), no
   /// PhotometricInterpretation (0x0106), no StripOffsets/StripByteCounts and no
   /// SubIFDs (0x014A) at all, so accepting this version word on its own finds
@@ -1285,8 +1285,7 @@ class DngEmbeddedJpegExtractor {
   ///  - 0x0127 "JpgFromRaw2": the full-size rendition (6000x4000, 3,593,728
   ///    bytes at offset 453,120).
   ///
-  /// Measured with `scripts/tmp/rw2_ifd_probe.py` /
-  /// `scripts/tmp/rw2_blob_dims.py`; output kept under `tmp/verify/`.
+  /// Measured with scratch IFD/blob-dimension probes (not retained).
   static const List<int> _panasonicPreviewTags = <int>[0x002E, 0x0127];
 
   /// Panasonic IFD0 extent tags, most specific first: (width, height) pairs of

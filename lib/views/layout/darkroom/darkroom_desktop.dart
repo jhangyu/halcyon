@@ -1,17 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../../../models/photo_item.dart';
 import '../common/exif_caption.dart';
 import '../common/photo_viewport.dart';
+import '../common/resizable_column.dart';
 import '../main_surface.dart';
 import 'darkroom_column.dart';
 import 'darkroom_palette.dart';
-
-/// How long after the last drag delta the decode target is allowed to move
-/// again. Mirrors `kGalleryWidthBadgeDelay` (`gallery_desktop.dart:38`).
-const Duration kDarkroomDragStallDelay = Duration(milliseconds: 400);
 
 /// Key for the starred/trashed counter `Positioned(right: 24, bottom: 20)`
 /// (finding F6 of `docs/logs/2026-09-03/plan-darkroom.md`). Declared here,
@@ -38,7 +33,7 @@ const String kDarkroomVerdictKeyHint = 'S · X';
 ///
 /// Because the viewport now reflows on every drag frame, its tier-1 decode
 /// target would change every frame too. The viewport is therefore wrapped in
-/// [DecodeSizeFreeze] carrying [_DarkroomDesktopSurfaceState._dragActive]:
+/// [DecodeSizeFreeze] carrying [ResizableColumnDrag.dragActive]:
 /// layout reflows, but [PhotoViewport] keeps reporting and decoding at the last
 /// settled size until the drag stalls, so the `ImageProvider` cache key is
 /// identical for the whole gesture (AD-011). Same mechanism, same reason, as
@@ -53,41 +48,20 @@ class DarkroomDesktopSurface extends StatefulWidget {
       _DarkroomDesktopSurfaceState();
 }
 
-class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
-  // Accumulate RAW (pointer deltas arrive fractional) and round only on read —
-  // rounding the accumulator quantises each delta and the column either never
-  // moves or moves at double speed (measured, `gallery_desktop.dart:100-106`).
-  double _rawColumnWidth = kDarkroomColumnMinWidth;
-  double get _columnWidth => _rawColumnWidth.roundToDouble();
-
-  /// True from the first pointer delta until [kDarkroomDragStallDelay] after
-  /// the last one.
-  bool _dragActive = false;
-  Timer? _dragStallTimer;
+class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface>
+    with ResizableColumnDrag<DarkroomDesktopSurface> {
+  @override
+  double get columnMinWidth => kDarkroomColumnMinWidth;
 
   @override
-  void dispose() {
-    _dragStallTimer?.cancel();
-    super.dispose();
-  }
-
-  void _onWidthDelta(double dx) {
-    _dragStallTimer?.cancel();
-    setState(() {
-      _rawColumnWidth = clampDarkroomColumnWidth(_rawColumnWidth + dx);
-      _dragActive = true;
-    });
-    _dragStallTimer = Timer(kDarkroomDragStallDelay, () {
-      if (mounted) setState(() => _dragActive = false);
-    });
-  }
+  double get columnMaxWidth => kDarkroomColumnMaxWidth;
 
   @override
   Widget build(BuildContext context) {
     final surface = widget.surface;
     final palette = DarkroomPalette.of(context);
     // R-2: the photo's left edge IS the column's right edge, at every width.
-    final viewportLeft = _columnWidth;
+    final viewportLeft = columnWidth;
 
     return Stack(
       children: [
@@ -97,7 +71,7 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
           right: 0,
           bottom: 0,
           child: DecodeSizeFreeze(
-            frozen: _dragActive,
+            frozen: dragActive,
             child: surface.viewport,
           ),
         ),
@@ -140,18 +114,18 @@ class _DarkroomDesktopSurfaceState extends State<DarkroomDesktopSurface> {
           top: 20,
           child: surface.statusOverlay,
         ),
-        // The wordless picture column. It owns [0, _columnWidth]; the photo
+        // The wordless picture column. It owns [0, columnWidth]; the photo
         // owns the rest. Nothing is covered.
         Positioned(
           key: const ValueKey<String>('darkroom.column.slot'),
           left: 0,
           top: 0,
           bottom: 0,
-          width: _columnWidth,
+          width: columnWidth,
           child: DarkroomColumn(
             surface: surface,
-            width: _columnWidth,
-            onWidthDelta: _onWidthDelta,
+            width: columnWidth,
+            onWidthDelta: onWidthDelta,
           ),
         ),
         // Star/trash verdict cluster — floating over the photo, right-anchored,

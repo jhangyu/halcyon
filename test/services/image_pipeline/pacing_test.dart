@@ -1,12 +1,13 @@
 // Merged (round 4 M2 consolidation) from:
-//   publication_pacer_test.dart
-//   idle_publish_scheduler_test.dart
-//   intent_coalescing_test.dart
-//   image_preload_pacer_test.dart
-// Each source file's tests are wrapped in a group() named after its basename
+//   'publication pacer' group
+//   'idle publish scheduler' group
+//   'intent coalescing' group
+//   'image preload pacer' group
+// Each source file's tests are wrapped in a group() named after its stem
 // to keep setUp/tearDown scoping and test names intact. Top-level helper name
 // collisions across files were resolved with a private `_<shortname>` suffix
 // (Rule 2); no test behavior was changed.
+// (Group names are the former file stems with underscores as spaces.)
 
 import 'dart:async';
 import 'dart:io';
@@ -24,9 +25,10 @@ import 'package:halcyon_flutter/services/image_pipeline/lane_priority.dart';
 import 'package:halcyon_flutter/services/image_pipeline/publication_pacer.dart';
 
 import '../../support/preload_fixtures.dart';
+import '../../support/event_loop.dart';
 
 // ---------------------------------------------------------------------------
-// Helpers from publication_pacer_test.dart
+// Helpers for the 'publication pacer' group
 // ---------------------------------------------------------------------------
 
 /// A fake frame clock: `arm` records the drain callback, `frame()` runs it.
@@ -44,7 +46,7 @@ class FakeFramesPublicationPacer {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers from idle_publish_scheduler_test.dart
+// Helpers for the 'idle publish scheduler' group
 // ---------------------------------------------------------------------------
 
 /// Refuses every task below `Priority.animation`, exactly as
@@ -54,32 +56,22 @@ bool _idleRefusingStrategy({
   required SchedulerBinding scheduler,
 }) => priority >= Priority.animation.value;
 
-/// Pumps the event loop (which is what services a `Priority.idle` task) and
-/// real zero-duration timers. NOT a wall-clock wait.
-Future<void> pumpEventLoop([int rounds = 8]) async {
-  for (var i = 0; i < rounds; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
-}
-
 /// Longer than any test here lives, so the safeguard cannot be the runner.
 const Duration kNeverFires = Duration(hours: 1);
 
 // ---------------------------------------------------------------------------
-// Helpers from intent_coalescing_test.dart
+// Helpers for the 'intent coalescing' group
 // ---------------------------------------------------------------------------
 
-void _microtaskFrame(void Function() callback) => callback();
-
 ImagePreloadController _cheapController() => ImagePreloadController(
-  scheduleFrameCallback: _microtaskFrame,
+  scheduleFrameCallback: immediateFrameCallback,
   imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
       NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
   dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
 );
 
 // ---------------------------------------------------------------------------
-// Helpers from image_preload_pacer_test.dart
+// Helpers for the 'image preload pacer' group
 // ---------------------------------------------------------------------------
 
 /// Collects the pacer's armed drains and runs them only when the test says so.
@@ -119,16 +111,10 @@ ImagePreloadController buildController({FrameHook? scheduleFrameCallback}) {
   );
 }
 
-Future<void> pumpMicrotasks([int rounds = 24]) async {
-  for (var i = 0; i < rounds; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('publication_pacer_test.dart', () {
+  group('publication pacer', () {
     // TC-835
     test('at most one publication per frame', () {
       final frames = FakeFramesPublicationPacer();
@@ -402,7 +388,7 @@ void main() {
     });
   });
 
-  group('idle_publish_scheduler_test.dart', () {
+  group('idle publish scheduler', () {
     // Deliverable 1 (docs/logs/2026-09-03/decode-jank-remediation-contract.md):
     // idle-priority scheduling for pacer publishes, with a safeguard so publishes
     // cannot stall indefinitely on an app that is animating.
@@ -431,11 +417,11 @@ void main() {
       expect(runs, 0, reason: 'a slot must never be granted synchronously');
       expect(scheduler.debugPendingCount, 1);
 
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1);
       expect(scheduler.debugPendingCount, 0);
 
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1, reason: 'exactly once per schedule call');
     });
 
@@ -448,7 +434,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1, reason: 'an animating app must not stall a publish');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -464,7 +450,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -529,14 +515,14 @@ void main() {
 
       // Still well within the settle window: repeated idle attempts must keep
       // deferring, never running the callback.
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 0, reason: 'recent input means the app is not idle yet');
       expect(scheduler.debugIsIdle, false);
 
       // Advance the fake clock past the settle window with no further input.
       fakeNow = fakeNow.add(const Duration(milliseconds: 151));
       expect(scheduler.debugIsIdle, true);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(runs, 1, reason: 'once quiet, the idle path must run it');
       expect(scheduler.debugIdleRuns, 1);
       expect(scheduler.debugSafeguardRuns, 0);
@@ -552,7 +538,7 @@ void main() {
       expect(scheduler.debugIsIdle, true);
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -574,7 +560,7 @@ void main() {
       scheduler.noteInputActivity();
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
 
       expect(runs, 1, reason: 'the safeguard must still be unconditional');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -592,7 +578,7 @@ void main() {
 
       var hookRuns = 0;
       hook(() => hookRuns++);
-      await pumpEventLoop();
+      await pumpEventLoop(8);
       expect(hookRuns, 1);
 
       await gate();
@@ -600,7 +586,7 @@ void main() {
     });
   });
 
-  group('intent_coalescing_test.dart', () {
+  group('intent coalescing', () {
     // Phase 6 — intent coalescing at the scheduler entrance
     // (async-pipeline-refactor-plan.md §3 Phase 6).
     //
@@ -684,7 +670,7 @@ void main() {
         // Every item is expensive, so every issued slot lands on the lane and
         // "was this window issued at all" is readable off the lane itself.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           decodeLaneWidth: 1,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -767,7 +753,7 @@ void main() {
         // immediately and `debugLanePendingPriorityFor` reports null for it --
         // the assertion would be reading the wrong side of the lane.
         final controller = ImagePreloadController(
-          scheduleFrameCallback: _microtaskFrame,
+          scheduleFrameCallback: immediateFrameCallback,
           decodeLaneWidth: 1,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -981,7 +967,7 @@ void main() {
     });
   });
 
-  group('image_preload_pacer_test.dart', () {
+  group('image preload pacer', () {
     // Plan Task 11 (S4): tier-1 ImageCache registration is paced into the frame.
     //
     // TC-835b / TC-836b / TC-837b
@@ -1008,7 +994,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(
         controller.debugTierOneKeyIds,
@@ -1029,7 +1015,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // (q70 rewrite) A neighbour's bytes payload is an EncodedPayload, so its
       // paced unit of work is now the payload-driven TIER-2 publish (a tier-1
       // key is no longer registered for a neighbour that is served full-res
@@ -1038,11 +1024,11 @@ void main() {
       final afterSelection = controller.debugTierTwoKeyIds.length;
 
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 1);
 
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 2);
     });
 
@@ -1058,16 +1044,16 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       // Navigate away so the far neighbours leave the window before their drain.
       await controller.preloadImages(
         items: manyCheapItems(),
         selectedItemId: 'z',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
       frames.frame();
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       for (final id in controller.debugTierOneKeyIds) {
         expect(
@@ -1102,7 +1088,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpMicrotasks();
+      await pumpEventLoop(24);
 
       expect(
         controller.debugTierOneKeyIds,

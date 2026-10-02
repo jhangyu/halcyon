@@ -37,8 +37,8 @@ sealed class SourcePayload {
 
 /// An encoded bitstream (JPEG, PNG, ...) ready for `MemoryImage`/`ResizeImage`.
 ///
-/// This is what a JPEG file, an embedded DNG preview and the legacy CIRAWFilter
-/// fallback all reduce to, so all three are literally the same cache citizen.
+/// This is what a JPEG file and an embedded DNG preview both reduce to, so
+/// both are literally the same cache citizen.
 @immutable
 class EncodedPayload extends SourcePayload {
   const EncodedPayload(this.bytes, {this.width, this.height});

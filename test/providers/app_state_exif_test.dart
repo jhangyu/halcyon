@@ -4,16 +4,20 @@ import 'dart:io';
 import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/preload_fixtures.dart' show until;
 import '../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
-import 'package:halcyon_flutter/services/library/photo_library_scanner.dart';
 import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/fakes.dart';
+import '../support/fixture_files.dart';
+import '../support/app_state_fixtures.dart';
+
+const _jpegMagic = <int>[0xFF, 0xD8, 0xFF, 0xE0];  // tiny fake JPEG magic
 
 /// T13 — per-selection EXIF read + cache (round1-plan T13, TC-501..504 —
 /// the full gallery block shifted +7 by user ruling 2026-09-02).
@@ -45,16 +49,16 @@ void main() {
   group('AppState selection EXIF cache', () {
     test('TC-501 selecting and going quiet past 250ms reads once and '
         'notifies listeners once on landing', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif494_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'P1.jpg');
-      await _touch(dir, 'P2.jpg');
+      final dir = await makeTempDir('halcyon_exif494_');
+      await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
       final callPaths = <String>[];
       final gate = Completer<List<ExifMetadata?>>();
       final state = _state(
         dir: dir,
         ids: const ['P1', 'P2'],
+        exifDebounce: const Duration(milliseconds: 10),
         exifReader: (paths, {onProgress}) {
           callPaths.addAll(paths);
           return gate.future;
@@ -71,9 +75,7 @@ void main() {
 
       // Quiet for past the debounce: the reader is invoked for P1 and parks
       // on the gate.
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.isNotEmpty, reason: 'the P1 read to start');
       expect(callPaths, [p.join(dir.path, 'P1.jpg')]);
       expect(state.currentExif, isNull, reason: 'reader result still in flight');
 
@@ -90,10 +92,9 @@ void main() {
 
     test('TC-502 stepping through five photos inside the window fires '
         'exactly one read, for the photo the user stopped on', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif495_');
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_exif495_');
       for (final id in ['P1', 'P2', 'P3', 'P4', 'P5']) {
-        await _touch(dir, '$id.jpg');
+        await writeFixtureBytes(dir, '$id.jpg', _jpegMagic);
       }
 
       final callPaths = <String>[];
@@ -117,9 +118,7 @@ void main() {
       state.selectItem('P4');
       state.selectItem('P5');
 
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => state.currentExif != null, reason: 'the P5 read to land');
 
       expect(callPaths, hasLength(1), reason: 'passed-through photos are not read');
       expect(callPaths, [p.join(dir.path, 'P5.jpg')]);
@@ -129,10 +128,9 @@ void main() {
 
     test('TC-503 a reader result that arrives after the selection changed is '
         'discarded', () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif496_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'P1.jpg');
-      await _touch(dir, 'P2.jpg');
+      final dir = await makeTempDir('halcyon_exif496_');
+      await writeFixtureBytes(dir, 'P1.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'P2.jpg', _jpegMagic);
 
       // Gated reader: each path's first read parks until the test completes it.
       final gates = <String, Completer<List<ExifMetadata?>>>{};
@@ -152,9 +150,7 @@ void main() {
 
       await pumpEventQueue();
       await state.loadFolder(dir); // selects P1, schedules P1 read
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.length == 1, reason: 'the P1 read to start');
       expect(callPaths, [p.join(dir.path, 'P1.jpg')]);
 
       // Move on to P2: bumps the generation and reschedules; P1's parked read
@@ -173,9 +169,7 @@ void main() {
 
       // P2's own read then lands normally and is the only thing currentExif
       // reflects.
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      await until(() => callPaths.length == 2, reason: 'the P2 read to start');
       expect(callPaths, hasLength(2));
       gates[p.join(dir.path, 'P2.jpg')]!.complete([p2Meta]);
       await pumpEventQueue();
@@ -185,15 +179,15 @@ void main() {
 
     test('TC-504 re-selecting an already-read photo reads zero times',
         () async {
-      final dir = await Directory.systemTemp.createTemp('halcyon_exif497_');
-      addTempDirTeardown(dir);
-      await _touch(dir, 'A.jpg');
-      await _touch(dir, 'B.jpg');
+      final dir = await makeTempDir('halcyon_exif497_');
+      await writeFixtureBytes(dir, 'A.jpg', _jpegMagic);
+      await writeFixtureBytes(dir, 'B.jpg', _jpegMagic);
 
       final callPaths = <String>[];
       final state = _state(
         dir: dir,
         ids: const ['A', 'B'],
+        exifDebounce: const Duration(milliseconds: 10),
         exifReader: (paths, {onProgress}) async {
           callPaths.addAll(paths);
           final day = paths.single.endsWith('A.jpg') ? 1 : 2;
@@ -204,24 +198,27 @@ void main() {
 
       await pumpEventQueue();
       await state.loadFolder(dir); // selects A, reads it after quiet
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
+      await until(
+        () => callPaths.length == 1 && state.currentExif != null,
+        reason: 'the A read to land',
       );
       expect(callPaths, hasLength(1));
       expect(state.currentExif!.captureDate, DateTime(2026, 1, 1));
 
       state.selectItem('B');
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
+      await until(
+        () =>
+            callPaths.length == 2 &&
+            state.currentExif?.captureDate == DateTime(2026, 1, 2),
+        reason: 'the B read to land',
       );
       expect(callPaths, hasLength(2), reason: 'B is a first visit');
       expect(state.currentExif!.captureDate, DateTime(2026, 1, 2));
 
       // Back to A: cached, so no new read, and the cache answers immediately.
       state.selectItem('A');
-      await Future<void>.delayed(
-        kSelectionExifDebounce + const Duration(milliseconds: 20),
-      );
+      // Absence window (D5): 20x the injected 10ms debounce.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
       expect(callPaths, hasLength(2),
           reason: 'revisiting an already-read photo must not re-read');
       expect(state.selectedItemID, 'A');
@@ -245,8 +242,7 @@ List<PhotoItem> _exifItems(Directory dir, List<String> ids) => [
 class _SilentPreload extends ImagePreloadController {
   _SilentPreload()
       : super(
-          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
+          imageLoader: bytesStubLoader,
         );
 
   @override
@@ -265,13 +261,6 @@ class _SilentPreload extends ImagePreloadController {
   }) async {}
 }
 
-class _FixedScanner extends PhotoLibraryScanner {
-  _FixedScanner(this.result);
-  final List<PhotoItem> result;
-  @override
-  Future<List<PhotoItem>> scan(Directory dir) async => result;
-}
-
 AppState _state({
   required Directory dir,
   required List<String> ids,
@@ -280,18 +269,14 @@ AppState _state({
     void Function(int done, int total)? onProgress,
   })
   exifReader,
+  Duration exifDebounce = kSelectionExifDebounce,
 }) {
   return AppState(
-    scanner: _FixedScanner(_exifItems(dir, ids)),
-    imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-        NativeImageBytes(Uint8List.fromList(const [1, 2, 3])),
+    scanner: FixedScanner(_exifItems(dir, ids)),
+    imageLoader: bytesStubLoader,
     preloadController: _SilentPreload(),
     exifReader: exifReader,
+    exifDebounce: exifDebounce,
   );
 }
 
-Future<void> _touch(Directory dir, String name) async {
-  await File(p.join(dir.path, name)).writeAsBytes(
-    Uint8List.fromList(const [0xFF, 0xD8, 0xFF, 0xE0]), // tiny fake JPEG magic
-  );
-}

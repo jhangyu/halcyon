@@ -77,23 +77,15 @@ void main() {
     expect(service.longEdge, kDefaultExportLongEdge);
   });
 
-  // TC-477b (UPDATED 2026-08-30, codec expansion): `ExportFiletype.available`
-  // was deleted -- build intent is now `ExportFiletype.buildIntent` (all six
-  // entries declare it true), and real selectability is
-  // `AppState.selectableExportFiletypes` (build intent INTERSECTED with
-  // runtime capability, ruling Q4). This asserts the intersection itself at
-  // its two extremes (full capability set, and an empty one falling back to
-  // the default); `photo_export_service_test.dart`'s "codec expansion" group
-  // covers the partial-intersection case (one format present, one absent)
-  // from a different angle (the settings-panel UI-filtering entry point).
-  test('TC-477b all six filetypes declare build intent true; '
-      'selectableExportFiletypes is the full set when every format has '
-      'runtime capability, and falls back to just the default when none do',
+  // TC-477b (UPDATED 2026-10-02): the compile-time build-intent flag (all six
+  // entries true, so a no-op filter) was deleted; real selectability is
+  // `AppState.selectableExportFiletypes` (runtime capability, ruling Q4). This
+  // asserts it at its two extremes (full capability set, and an empty one
+  // falling back to the default); `photo_export_service_test.dart`'s "codec
+  // expansion" group covers the partial case from the settings-panel angle.
+  test('TC-477b selectableExportFiletypes is the full set when every format '
+      'has runtime capability, and falls back to just the default when none do',
       () {
-    for (final ft in ExportFiletype.values) {
-      expect(ft.buildIntent, isTrue, reason: '${ft.name} buildIntent');
-    }
-
     final fullyCapable = AppState.forTesting(
       runtimeCapabilities: ExportFiletype.values.toSet(),
     );

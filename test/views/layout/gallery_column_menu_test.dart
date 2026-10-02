@@ -43,10 +43,7 @@ void main() {
   }) async {
     late AppState state;
     await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp(
-        'halcyon_gallery_menu_',
-      );
-      addTempDirTeardown(dir);
+      final dir = await makeTempDir('halcyon_gallery_menu_');
       await File(p.join(dir.path, 'IMG_0001.jpg')).writeAsBytes([1, 2, 3]);
       if (withSibling) {
         await File(p.join(dir.path, 'IMG_0001.dng')).writeAsBytes([1, 2, 3]);
@@ -126,15 +123,16 @@ void main() {
       await tester.runAsync(() async {
         button.onSelected!(kThumbnailStarredMenuValue);
         await until(
-          () => state.status?.text.contains('已匯出') ?? false,
+          () =>
+              state.statusEvents.value?.message.text.contains('已匯出') ?? false,
           reason: 'the export to finish and set the "已匯出" status message',
           pollInterval: const Duration(milliseconds: 5),
         );
       });
       await tester.pump();
 
-      expect(state.status?.text, contains('已匯出'));
-      expect(state.status?.revealPath, exportDest.path);
+      expect(state.statusEvents.value?.message.text, contains('已匯出'));
+      expect(state.statusEvents.value?.message.revealPath, exportDest.path);
       expect(outFile.existsSync(), isTrue);
     },
   );

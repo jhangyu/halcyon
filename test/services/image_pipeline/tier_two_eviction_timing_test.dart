@@ -171,7 +171,12 @@ void main() {
       rig.scheduler.schedule(items, 2, () {}); // same position: no leavers
       expect(rig.registry.keyIds, contains('a9'),
           reason: 'R1 did not touch a9 -- the sweep has not run yet');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await until(
+        () =>
+            !rig.registry.keyIds.contains('a9') &&
+            tester.binding.hasScheduledFrame,
+        reason: 'the settle sweep to evict a9 and request a frame',
+      );
     });
     expect(rig.registry.keyIds, isNot(contains('a9')),
         reason: 'the settle sweep evicted the out-of-band entry');

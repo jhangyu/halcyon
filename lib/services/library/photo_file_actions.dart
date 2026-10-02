@@ -44,6 +44,28 @@ class BatchFileOutcome {
   final bool bridgeUnavailable;
 }
 
+/// Outcome of a batch delete, returned to the view layer so feedback lives
+/// in the widgets rather than the provider. Failures are never swallowed.
+class BatchDeleteResult {
+  const BatchDeleteResult({
+    required this.recycled,
+    required this.movedCount,
+    required this.failures,
+    this.trashDirPath,
+    this.mixedDestination = false,
+  });
+
+  final bool recycled;
+  final int movedCount;
+  final List<String> failures;
+  final String? trashDirPath;
+
+  /// True when the batch began deleting through the system trash and only
+  /// finished in `.trash/` because the bridge went away mid-batch. Callers
+  /// must not report "moved to system trash" when this is true.
+  final bool mixedDestination;
+}
+
 class PhotoFileActions {
   PhotoFileActions({TrashFile? trashFile, MoveFile? moveFile})
     : _trashFile = trashFile ?? TrashService.trashFile,
@@ -78,7 +100,7 @@ class PhotoFileActions {
         try {
           if (!overwriteExisting && await File(newPath).exists()) continue;
           if (move) {
-            await retryOnSharingViolation(() => file.rename(newPath));
+            await _moveFile(file, newPath);
             await _deleteIfExists(destSidecarPath);
             await _deleteIfExists(srcSidecarPath);
           } else {
@@ -173,6 +195,77 @@ class PhotoFileActions {
     }
 
     return RecycleOutcome(movedCount: movedCount, failures: failures);
+  }
+
+  /// The full batch-delete policy, moved verbatim from `AppState.deleteTrashed`:
+  /// intent x dir-null x bridge-unavailable x recycle-fallback, including the
+  /// S2.4 mixed-destination honesty flag.
+  ///
+  /// Returns the result plus whether this batch PROVED the system-trash bridge
+  /// absent. The caller owns the process-lifetime latch; this service only
+  /// reports the fact. `bridgeUnavailable` is true on the dir-null arm too,
+  /// exactly as the latch used to be set before the `dir != null` check.
+  Future<({BatchDeleteResult result, bool bridgeUnavailable})> deleteBatch(
+    List<PhotoItem> items,
+    Directory? dir, {
+    required bool recycleMode,
+  }) async {
+    // The branch actually taken depends on both the intent flag AND
+    // `dir != null`; feedback (recycled field) must reflect that actual
+    // branch, not just the intent flag, or it can claim recycling happened
+    // when the fallback direct-delete branch ran instead.
+    final tookRecycleBranch = recycleMode && dir != null;
+
+    var movedCount = 0;
+    final failures = <String>[];
+    String? trashDirPath;
+    var recycledResult = tookRecycleBranch;
+    var mixed = false;
+    var bridgeUnavailable = false;
+
+    try {
+      if (tookRecycleBranch) {
+        trashDirPath = p.join(dir.path, '.trash');
+        final outcome = await recycleTrashed(items, dir);
+        movedCount = outcome.movedCount;
+        failures.addAll(outcome.failures);
+      } else {
+        final outcome = await deleteTrashed(items);
+        failures.addAll(outcome.failures);
+        if (outcome.bridgeUnavailable) {
+          bridgeUnavailable = true;
+          if (dir != null) {
+            // Finish the batch where it CAN land. Files already in the
+            // system trash stay there; both destinations are recoverable,
+            // but the result must not claim a single destination (S2.4).
+            trashDirPath = p.join(dir.path, '.trash');
+            final fallback = await recycleTrashed(items, dir);
+            movedCount = fallback.movedCount;
+            failures.addAll(fallback.failures);
+            recycledResult = true;
+            mixed = outcome.processedCount > 0;
+          } else {
+            // No folder in view: nowhere to recycle to. Report as before.
+            failures.add('Trash service is unavailable');
+          }
+        }
+      }
+    } catch (e) {
+      // Previously this only debugPrint()ed, so a card where the system trash
+      // is unavailable looked like a broken app. Report it instead.
+      failures.add('$e');
+    }
+
+    return (
+      result: BatchDeleteResult(
+        recycled: recycledResult,
+        movedCount: movedCount,
+        failures: failures,
+        trashDirPath: trashDirPath,
+        mixedDestination: mixed,
+      ),
+      bridgeUnavailable: bridgeUnavailable,
+    );
   }
 
   /// `IMG_0001.jpg` -> `IMG_0001-1.jpg` -> `IMG_0001-2.jpg` when taken.
