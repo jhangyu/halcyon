@@ -6,6 +6,11 @@ Subcommands:
             headless decode of the frozen corpus through the app's FFI entry,
             then the app's idle funnel, then a 12 s in-process wait; samples
             GPU Total Committed, PrivateBytes and write-combine regions.
+  app       --exe <halcyon.exe> --prereg <md> --out <dir> --label <name> [...]
+            ONE launch of a PerfDriver build in memgate mode (P6): 2 s GPU/PB
+            samples by PID, one sample per app idle line, then on
+            `memgate|done` a final sample + write-combine walk of that PID, then
+            terminates ONLY that PID. The user prefs store must be unchanged.
   compare   --base <dir> --cand <dir> --prereg <md> [--out <file>]
   detach    --out <dir> -- <subcommand args...>   run a subcommand in a
             windowless detached supervisor that appends PROCESS_RC=<n> to
@@ -25,10 +30,15 @@ Expected values come from the caller's pre-registration file, section
 samples: pre_decode, peak, after_decode, idle
 metrics: tc_mib, pb_mib, wc_total_mib, wc_max_region_mib, wc_count_ge_16,
          wc_count_ge_256, decode_errors, decodes, and tc_mib_getcounter (the
-         independent Get-Counter reading; pre_decode/after_decode/idle only)
+         independent Get-Counter reading; pre_decode/after_decode/idle only);
+         native idle also: the 7 funnel counters (idle.funnel_calls ...) and
+         idle.idlefunnel_released_lines.
+  app: see the keys written in result.md section 4 (idle.*, peak.*, final.*,
+       log.*, store.changes).
 """
 import argparse
 import ast
+import atexit
 import ctypes as C
 import ctypes.wintypes as W
 import datetime
@@ -70,6 +80,11 @@ def sha256_file(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def tool_line():
+    """Ties an artifact to the exact instrument bytes that produced it."""
+    return "memgate_py_sha256: %s" % sha256_file(os.path.abspath(__file__))
 
 
 def now():
@@ -249,14 +264,42 @@ class MBI(C.Structure):
                 ("Protect", W.DWORD), ("Type", W.DWORD)]
 
 
-def wc_walk():
-    """Private committed PAGE_WRITECOMBINE regions of this process (= Halide Vulkan
-    blocks on the Arc iGPU, final-report.md section 1)."""
+PROCESS_QUERY_INFORMATION = 0x0400
+PROCESS_VM_READ = 0x0010
+
+
+def _open_process(pid):
     k32 = C.windll.kernel32
-    k32.VirtualQuery.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t]
-    k32.VirtualQuery.restype = C.c_size_t
+    k32.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
+    k32.OpenProcess.restype = W.HANDLE
+    h = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+    if not h:
+        raise GateError("OpenProcess(%d) failed, GetLastError=%d" % (pid, k32.GetLastError()))
+    return h
+
+
+def _close(h):
+    C.windll.kernel32.CloseHandle(W.HANDLE(h))
+
+
+def wc_walk(pid=None):
+    """Private committed PAGE_WRITECOMBINE regions of this process, or of <pid>
+    (= Halide Vulkan blocks on the Arc iGPU, final-report.md section 1)."""
+    k32 = C.windll.kernel32
+    k32.VirtualQueryEx.argtypes = [W.HANDLE, C.c_void_p, C.c_void_p, C.c_size_t]
+    k32.VirtualQueryEx.restype = C.c_size_t
+    k32.GetCurrentProcess.restype = W.HANDLE
+    h = k32.GetCurrentProcess() if pid is None else _open_process(pid)
+    try:
+        return _wc_walk(k32, h)
+    finally:
+        if pid is not None:
+            _close(h)
+
+
+def _wc_walk(k32, h):
     addr, mbi, tot, regions = 0, MBI(), 0, []
-    while k32.VirtualQuery(C.c_void_p(addr), C.byref(mbi), C.sizeof(mbi)):
+    while k32.VirtualQueryEx(h, C.c_void_p(addr), C.byref(mbi), C.sizeof(mbi)):
         if mbi.State == 0x1000 and mbi.Type == 0x20000 and (mbi.Protect & 0x400):
             tot += mbi.RegionSize
             if mbi.RegionSize >= 16 << 20:
@@ -267,6 +310,107 @@ def wc_walk():
     return round(tot / MIB, 1), sorted(regions, reverse=True)
 
 
+def wc_detail(min_bytes=1 << 20, pid=None):
+    """Committed private PAGE_WRITECOMBINE regions >= min_bytes of this process (or <pid>) with
+    allocation identity, so a residue is judged per AllocationBase rather than per VirtualQuery split."""
+    k32 = C.windll.kernel32
+    k32.VirtualQueryEx.argtypes = [W.HANDLE, C.c_void_p, C.c_void_p, C.c_size_t]
+    k32.VirtualQueryEx.restype = C.c_size_t
+    k32.GetCurrentProcess.restype = W.HANDLE
+    h = k32.GetCurrentProcess() if pid is None else _open_process(pid)
+    try:
+        addr, mbi, out = 0, MBI(), []
+        while k32.VirtualQueryEx(h, C.c_void_p(addr), C.byref(mbi), C.sizeof(mbi)):
+            if (mbi.State == 0x1000 and mbi.Type == 0x20000 and (mbi.Protect & 0x400)
+                    and mbi.RegionSize >= min_bytes):
+                out.append({"base": hex(mbi.BaseAddress or 0), "abase": hex(mbi.AllocationBase or 0),
+                            "bytes": int(mbi.RegionSize), "protect": hex(mbi.Protect),
+                            "alloc_protect": hex(mbi.AllocationProtect),
+                            "state": hex(mbi.State), "type": hex(mbi.Type)})
+            addr = (mbi.BaseAddress or 0) + mbi.RegionSize
+            if addr >= 1 << 47:
+                break
+        return out
+    finally:
+        if pid is not None:
+            _close(h)
+
+
+def wc_alloc_sums(detail):
+    """{AllocationBase: committed WC MiB summed over its regions}, largest first."""
+    sums = {}
+    for r in detail:
+        sums[r["abase"]] = sums.get(r["abase"], 0) + r["bytes"]
+    return {k: round(v / MIB, 1) for k, v in sorted(sums.items(), key=lambda kv: -kv[1])}
+
+
+HEAP_MIN_MIB = 16.0
+
+
+def arena_ranges(dll, export_name):
+    """[{base, bytes}] from dng_debug_arena_ranges (a C++-mangled export; cap grows until untruncated)."""
+    fn = getattr(dll, export_name)
+    fn.argtypes = [C.c_void_p, C.c_size_t]
+    fn.restype = C.c_size_t
+
+    class Rng(C.Structure):
+        _fields_ = [("base", C.c_void_p), ("bytes", C.c_size_t)]
+    cap = max(int(fn(None, 0)), 1)
+    while True:
+        arr = (Rng * cap)()
+        n = int(fn(arr, cap))
+        if n <= cap:
+            return [{"base": hex(arr[i].base or 0), "bytes": int(arr[i].bytes)} for i in range(n)]
+        cap = n
+
+
+def _alloc_mib(sample):
+    sums = {}
+    for r in sample["wc_detail"]:
+        sums[r["abase"]] = sums.get(r["abase"], 0) + r["bytes"]
+    return sums
+
+
+def _in_ranges(addr_hex, ranges):
+    a = int(addr_hex, 16)
+    return any(int(g["base"], 16) <= a < int(g["base"], 16) + g["bytes"] for g in ranges)
+
+
+def alloc_verdict_values(pre, idle1, idle2):
+    """Amended T3 (contract :50) from three samples carrying wc_detail and arena_ranges.
+    ceyx_held_ge16: allocations whose AllocationBase lies in a ceyx arena range with >= 16 MiB committed WC
+    at idle2. ctx_heap_*: allocations outside every arena range with >= 16 MiB at idle2 are excluded only if
+    present at idle1 with byte-identical committed bytes; any other is unproven (counted, not excluded).
+    net_residue: idle2 WC total - pre_decode WC total - excluded heap."""
+    for s in (pre, idle1, idle2):
+        if "wc_detail" not in s or "arena_ranges" not in s:
+            raise GateError("sample lacks wc_detail/arena_ranges (allocation-level judgment impossible)")
+    if not idle2["arena_ranges"]:
+        raise GateError("no arena ranges at idle2: ceyx-held cannot be told from the context heap")
+    min_b = HEAP_MIN_MIB * MIB
+    s1, s2 = _alloc_mib(idle1), _alloc_mib(idle2)
+    held, unproven, heap_b = 0, 0, 0
+    for abase, b in s2.items():
+        if b < min_b:
+            continue
+        if _in_ranges(abase, idle2["arena_ranges"]):
+            held += 1
+        elif s1.get(abase) == b:
+            heap_b += b
+        else:
+            unproven += 1
+    heap_mib = round(heap_b / MIB, 1)
+    return {"alloc.ceyx_held_ge16": float(held), "alloc.ctx_heap_unproven": float(unproven),
+            "alloc.ctx_heap_mib": heap_mib,
+            "alloc.net_residue_mib": round(idle2["wc_total_mib"] - pre["wc_total_mib"] - heap_mib, 1)}
+
+
+def release_gpu_at_exit(dll):
+    """Run ceyx_native_release_gpu (IC9) at interpreter exit, after main() has returned (the verdict is
+    fsynced by then), so the harness's own igvk64 exit crash (0xC0000409) does not occur."""
+    atexit.register(dll.ceyx_native_release_gpu)
+
+
 class PMC(C.Structure):
     _fields_ = [("cb", W.DWORD), ("PageFaultCount", W.DWORD)] + \
                [(n, C.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
@@ -275,14 +419,19 @@ class PMC(C.Structure):
                                           "PrivateUsage")]
 
 
-def private_bytes_mib():
+def private_bytes_mib(pid=None):
     k32 = C.windll.kernel32
     k32.GetCurrentProcess.restype = W.HANDLE
     k32.K32GetProcessMemoryInfo.argtypes = [W.HANDLE, C.c_void_p, W.DWORD]
     c = PMC()
     c.cb = C.sizeof(c)
-    if not k32.K32GetProcessMemoryInfo(k32.GetCurrentProcess(), C.byref(c), c.cb):
-        raise GateError("GetProcessMemoryInfo failed")
+    h = k32.GetCurrentProcess() if pid is None else _open_process(pid)
+    try:
+        if not k32.K32GetProcessMemoryInfo(h, C.byref(c), c.cb):
+            raise GateError("GetProcessMemoryInfo failed")
+    finally:
+        if pid is not None:
+            _close(h)
     return round(c.PrivateUsage / MIB, 1)
 
 
@@ -354,9 +503,11 @@ def take_sample(name, t0, cross_check=False):
     pid = os.getpid()
     tc, ninst, per = gpu_total_committed(pid)
     wc_tot, regions = wc_walk()
+    detail = wc_detail()
     s = {"name": name, "t_s": round(time.perf_counter() - t0, 2), "at": now(),
          "tc_mib": tc, "tc_instances": ninst, "tc_per_instance": per,
-         "pb_mib": private_bytes_mib(), "wc_total_mib": wc_tot, "wc_regions_mib": regions}
+         "pb_mib": private_bytes_mib(), "wc_total_mib": wc_tot, "wc_regions_mib": regions,
+         "wc_detail": detail, "wc_alloc_mib": wc_alloc_sums(detail)}
     if cross_check:
         s["tc_mib_getcounter"], s["getcounter_rc"] = gpu_total_committed_getcounter(pid)
     return s
@@ -416,6 +567,41 @@ class DngResult(C.Structure):
                 ("error_code", C.c_int32), ("decode_ms", C.c_double), ("process_ms", C.c_double)]
 
 
+# IC1: out-parameter order of ceyx_debug_idle_funnel_counters (plan :1360-1367).
+FUNNEL_FIELDS = ("funnel_calls", "device_release_runs", "device_release_skipped_uninitialized",
+                 "device_release_errors", "page_return_calls", "page_return_unavailable",
+                 "last_funnel_bytes")
+IDLEFUNNEL_RELEASED_RE = re.compile(r"\[IdleFunnel\] event=funnel .*\bdevice_release=released\b")
+
+
+def bind_funnel_counters(dll):
+    fn = dll.ceyx_debug_idle_funnel_counters
+    fn.argtypes = [C.POINTER(C.c_uint64)] * len(FUNNEL_FIELDS)
+    fn.restype = C.c_int32
+    return fn
+
+
+def read_funnel_counters(fn):
+    """Call the IC1 probe once; {field: int} in ABI order. Non-zero return = GateError."""
+    outs = [C.c_uint64(0) for _ in FUNNEL_FIELDS]
+    rc = fn(*[C.pointer(o) for o in outs])
+    if rc != 0:
+        raise GateError("ceyx_debug_idle_funnel_counters returned %d" % rc)
+    return {k: int(o.value) for k, o in zip(FUNNEL_FIELDS, outs)}
+
+
+def idlefunnel_released_lines(text):
+    """IC2 provenance: funnel lines whose device release actually ran."""
+    return sum(1 for ln in text.splitlines() if IDLEFUNNEL_RELEASED_RE.search(ln))
+
+
+def decode_count_problem(actual, files, passes):
+    expected = files * passes
+    if actual != expected:
+        return "DECODE_COUNT actual=%d expected=%d (a gate on fewer decodes is a different gate)" % (actual, expected)
+    return None
+
+
 def redirect_native_stdio(path):
     """Give the process valid std handles pointing at a file BEFORE the decoder DLL
     loads, so native stderr lines ([IdleFunnel] markers) land in the artifact even
@@ -461,6 +647,8 @@ class Result:
 
 
 def cmd_native(a):
+    if a.cycles < 1:
+        raise SystemExit("--cycles must be >= 1")
     os.makedirs(a.out, exist_ok=True)
     res = Result(os.path.join(a.out, "result.md"))
     log = open(os.path.join(a.out, "native.log"), "w", encoding="utf-8", buffering=1)
@@ -469,7 +657,7 @@ def cmd_native(a):
         log.write(" ".join(str(i) for i in x) + "\n")
     rc_total = 0
     try:
-        res.w("# D5 native run: %s" % a.label, "", "started %s pid %d" % (now(), os.getpid()), "")
+        res.w("# D5 native run: %s" % a.label, "", "started %s pid %d" % (now(), os.getpid()), tool_line(), "")
         text, digest, expects, reports = read_prereg(a.prereg)
         res.w("## 1. Pre-registration (verbatim, copied before any measurement)", "",
               "file: %s" % os.path.abspath(a.prereg), "sha256: %s" % digest, "copied_at: %s" % now(), "",
@@ -527,6 +715,13 @@ def cmd_native(a):
         d.dng_free_result.argtypes = [C.POINTER(DngResult)]
         d.ceyx_native_idle_shrink.argtypes = [C.c_int32]
         d.ceyx_native_idle_shrink.restype = C.c_int64
+        funnel_fn = bind_funnel_counters(d) if has_funnel_counters else None
+        if "ceyx_native_release_gpu" in exports:
+            d.ceyx_native_release_gpu.argtypes = []
+            d.ceyx_native_release_gpu.restype = None
+            release_gpu_at_exit(d)
+        arena_name = next((e for e in exports if "dng_debug_arena_ranges" in e), None)
+        arena_fn = (lambda: arena_ranges(d, arena_name)) if arena_name else None
 
         t0 = time.perf_counter()
         files = []
@@ -540,6 +735,7 @@ def cmd_native(a):
             files.append((name, p, b.value))
 
         samples = {"pre_decode": take_sample("pre_decode", t0, cross_check=True)}
+        samples["pre_decode"]["arena_ranges"] = arena_fn() if arena_fn else None
         P("SAMPLE", json.dumps(samples["pre_decode"]))
 
         work = files * a.passes
@@ -549,50 +745,68 @@ def cmd_native(a):
         per_decode, errors, spans = [], [], []
 
         def lane(i):
-            for name, p, nbytes in work[i::a.threads]:
-                buf = C.create_string_buffer(nbytes)
-                ts = time.perf_counter()
-                r = d.ceyx_decode_into_buffer_format(p, 0, buf, nbytes, YUV420, None)
-                te = time.perf_counter()
-                rr = r.contents
+            try:
+                for name, p, nbytes in work[i::a.threads]:
+                    buf = C.create_string_buffer(nbytes)
+                    ts = time.perf_counter()
+                    r = d.ceyx_decode_into_buffer_format(p, 0, buf, nbytes, YUV420, None)
+                    te = time.perf_counter()
+                    rr = r.contents
+                    with lock:
+                        spans.append((ts, te))
+                        s = take_sample("dec", t0)
+                        per_decode.append(s)
+                        if rr.error_code != 0:
+                            errors.append((name, rr.error_code))
+                        P("DEC lane=%d %s rc=%d %dx%d wall_ms=%.0f tc=%.1f pb=%.1f wc=%.1f regions=%s"
+                          % (i, name, rr.error_code, rr.width, rr.height, (te - ts) * 1000,
+                             s["tc_mib"], s["pb_mib"], s["wc_total_mib"], s["wc_regions_mib"]))
+                    d.dng_free_result(r)
+                    del buf
+            except Exception as e:
                 with lock:
-                    spans.append((ts, te))
-                    s = take_sample("dec", t0)
-                    per_decode.append(s)
-                    if rr.error_code != 0:
-                        errors.append((name, rr.error_code))
-                    P("DEC lane=%d %s rc=%d %dx%d wall_ms=%.0f tc=%.1f pb=%.1f wc=%.1f regions=%s"
-                      % (i, name, rr.error_code, rr.width, rr.height, (te - ts) * 1000,
-                         s["tc_mib"], s["pb_mib"], s["wc_total_mib"], s["wc_regions_mib"]))
-                d.dng_free_result(r)
-                del buf
-        threads = [threading.Thread(target=lane, args=(i,)) for i in range(a.threads)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        ev = sorted([(x, 1) for x, _ in spans] + [(y, -1) for _, y in spans])
-        cur = mx = 0
-        for _, s in ev:
-            cur += s
-            mx = max(mx, cur)
-        P("MAX_CONCURRENT_DECODES", mx, "decodes", len(spans), "errors", errors)
+                    errors.append(("lane%d" % i, repr(e)))
+                    P("LANE_EXCEPTION lane=%d %s" % (i, traceback.format_exc()))
+        counters_by = {}
+        for cycle in range(a.cycles):
+            sfx = "" if cycle == 0 else str(cycle + 1)
+            P("CYCLE", cycle + 1, "of", a.cycles)
+            threads = [threading.Thread(target=lane, args=(i,)) for i in range(a.threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            ev = sorted([(x, 1) for x, _ in spans] + [(y, -1) for _, y in spans])
+            cur = mx = 0
+            for _, s in ev:
+                cur += s
+                mx = max(mx, cur)
+            P("MAX_CONCURRENT_DECODES", mx, "decodes", len(spans), "errors", errors)
 
-        samples["after_decode"] = take_sample("after_decode", t0, cross_check=True)
-        P("SAMPLE", json.dumps(samples["after_decode"]))
-        ts = time.perf_counter()
-        shrunk = d.ceyx_native_idle_shrink(a.floor)
-        shrink_ms = (time.perf_counter() - ts) * 1000
-        P("IDLE_SHRINK floor=%d returned=%d ms=%.1f at=%s" % (a.floor, shrunk, shrink_ms, now()))
-        time.sleep(a.idle_wait)
-        samples["idle"] = take_sample("idle", t0, cross_check=True)
-        P("SAMPLE", json.dumps(samples["idle"]))
+            samples["after_decode" + sfx] = take_sample("after_decode" + sfx, t0, cross_check=True)
+            samples["after_decode" + sfx]["arena_ranges"] = arena_fn() if arena_fn else None
+            P("SAMPLE", json.dumps(samples["after_decode" + sfx]))
+            ts = time.perf_counter()
+            shrunk = d.ceyx_native_idle_shrink(a.floor)
+            shrink_ms = (time.perf_counter() - ts) * 1000
+            P("IDLE_SHRINK floor=%d returned=%d ms=%.1f at=%s" % (a.floor, shrunk, shrink_ms, now()))
+            P("SAMPLE", json.dumps(take_sample("post_funnel" + sfx, t0)))
+            time.sleep(a.idle_wait)
+            samples["idle" + sfx] = take_sample("idle" + sfx, t0, cross_check=True)
+            samples["idle" + sfx]["arena_ranges"] = arena_fn() if arena_fn else None
+            P("SAMPLE", json.dumps(samples["idle" + sfx]))
+            counters_by[sfx] = read_funnel_counters(funnel_fn) if funnel_fn else None
+            P("FUNNEL_COUNTERS", json.dumps(counters_by[sfx]))
+        counters = counters_by[""]
+        after_keys = [k for k in samples if k.startswith("after_decode")]
         peak = {"name": "peak"}
         for k in ("tc_mib", "pb_mib", "wc_total_mib"):
-            peak[k] = max([s[k] for s in per_decode] + [samples["after_decode"][k]])
-        peak["wc_regions_mib"] = max([s["wc_regions_mib"] for s in per_decode] + [samples["after_decode"]["wc_regions_mib"]],
+            peak[k] = max([s[k] for s in per_decode] + [samples[x][k] for x in after_keys])
+        peak["wc_regions_mib"] = max([s["wc_regions_mib"] for s in per_decode] +
+                                     [samples[x]["wc_regions_mib"] for x in after_keys],
                                      key=lambda r: sum(r))
         samples["peak"] = peak
+        sample_keys = list(SAMPLES) + [k for k in samples if k[-1:].isdigit() and k[:-1] in SAMPLES]
         stdio.flush()
 
         # 3-4. samples and judged values
@@ -603,7 +817,7 @@ def cmd_native(a):
               % (a.floor, shrunk, shrink_ms, samples["idle"]["t_s"] - samples["after_decode"]["t_s"]), "")
         res.w("| sample | t_s | TotalCommitted_MiB (PDH) | TotalCommitted_MiB (Get-Counter) | PrivateBytes_MiB | WC_total_MiB | WC regions >=16 MiB |",
               "|---|---|---|---|---|---|---|")
-        for k in SAMPLES:
+        for k in sample_keys:
             s = samples[k]
             res.w("| %s | %s | %.1f | %s | %.1f | %.1f | %s |" % (
                 k, s.get("t_s", "max-over-decodes"), s["tc_mib"],
@@ -612,32 +826,49 @@ def cmd_native(a):
         res.w("", "peak = per-metric maximum over every post-decode sample (each metric maximised independently;"
               " the peak region list is the sample with the largest WC region sum).", "")
         values = {}
-        for k in SAMPLES:
+        for k in sample_keys:
             for m, v in derive(samples[k]).items():
                 values["%s.%s" % (k, m)] = v
-        for k in SAMPLES:
+        for k in sample_keys:
             values["%s.decode_errors" % k] = float(len(errors))
             values["%s.decodes" % k] = float(len(spans))
         res.w("## 4. Judged values (after_decode / idle)", "")
-        for k in ("after_decode", "idle"):
+        for k in [x for x in sample_keys if x.startswith(("after_decode", "idle"))]:
             for m in METRICS[:6]:
                 res.w("%s.%s = %s" % (k, m, values["%s.%s" % (k, m)]))
         res.w("")
-        with open(os.path.join(a.out, "values.json"), "w", encoding="utf-8") as f:
-            json.dump({"label": a.label, "values": values, "samples": samples}, f, indent=1)
+        if a.cycles >= 2 and arena_fn:
+            values.update(alloc_verdict_values(samples["pre_decode"], samples["idle"], samples["idle2"]))
+            res.w("## 4b. Allocation-level values (amended T3, idle -> idle2)", "",
+                  *["%s = %s" % kv for kv in sorted(values.items()) if kv[0].startswith("alloc.")], "",
+                  "idle2 WC allocations (AllocationBase: MiB): %s" % json.dumps(wc_alloc_sums(samples["idle2"]["wc_detail"])),
+                  "arena ranges at idle2: %s" % json.dumps(samples["idle2"]["arena_ranges"]), "")
 
-        # 5-6. funnel counters + stderr markers
-        res.w("## 5. Funnel counters", "",
-              "ceyx_debug_idle_funnel_counters: %s" % ("present (ABI reader lands with M1)" if has_funnel_counters else "absent"), "")
+        # 5-6. funnel counters + stderr markers (read in the idle sample)
+        res.w("## 5. Funnel counters (idle sample)", "")
+        if counters is None:
+            res.w("ceyx_debug_idle_funnel_counters: absent", "")
+        else:
+            for sfx, cn in counters_by.items():
+                for k, v in cn.items():
+                    values["idle%s.%s" % (sfx, k)] = float(v)
+                    res.w("idle%s.%s = %d" % (sfx, k, v))
+            res.w("")
         err_txt = open(os.path.join(a.out, "native_stderr.log"), encoding="utf-8", errors="replace").read()
         funnel = [ln for ln in err_txt.splitlines() if "[IdleFunnel]" in ln]
-        res.w("## 6. [IdleFunnel] stderr lines", "", *(funnel or ["NONE"]),
-              "", "native_stderr.log bytes: %d" % len(err_txt.encode("utf-8", "replace")), "")
+        values["idle.idlefunnel_released_lines"] = float(idlefunnel_released_lines(err_txt))
+        res.w("## 6. [IdleFunnel] stderr lines", "", *(funnel or ["NONE"]), "",
+              "idle.idlefunnel_released_lines = %d" % values["idle.idlefunnel_released_lines"],
+              "native_stderr.log bytes: %d" % len(err_txt.encode("utf-8", "replace")), "")
+        with open(os.path.join(a.out, "values.json"), "w", encoding="utf-8") as f:
+            json.dump({"label": a.label, "values": values, "samples": samples, "funnel_counters": counters}, f, indent=1)
 
         # 7. verdict
         lines, rc_total = judge(expects, reports, values)
-        if errors:
-            lines.insert(0, "DECODE_ERRORS %s (a gate on fewer decodes is a different gate)" % errors)
+        count_problem = decode_count_problem(len(spans), len(files), a.passes * a.cycles)
+        for bad in ([count_problem] if count_problem else []) + (
+                ["DECODE_ERRORS %s (a gate on fewer decodes is a different gate)" % errors] if errors else []):
+            lines.insert(0, bad)
             rc_total = 1
             lines[-1] = "MEMGATE_RC=1"
         res.w("## 7. Verdict and RC", "", *lines)
@@ -647,6 +878,321 @@ def cmd_native(a):
         res.w("", "## ERROR", "", "```", traceback.format_exc().rstrip(), "```", "MEMGATE_RC=2", "RC=2",
               "finished %s" % now())
         P("ERROR", repr(e))
+    return rc_total
+
+
+# --------------------------------------------------------------------------
+# app layer: one launched PerfDriver build per measurement (P6), PerfDriver
+# memgate-mode log contract IC8 (lib/perf/perf_driver.dart formatMemgateSample,
+# formatMemgateStep, memgateCompletion)
+# --------------------------------------------------------------------------
+
+TEXTURE_RATIO = (1.50, 1.70)
+
+
+def _perf_fields(line):
+    """'PERF|<us>|<msg fields...>|iso=<x>' -> (us, [fields]) or None."""
+    if not line.startswith("PERF|"):
+        return None
+    parts = line.rstrip("\r\n").split("|")
+    try:
+        us = int(parts[1])
+    except (IndexError, ValueError):
+        return None
+    fields = parts[2:]
+    if fields and fields[-1].startswith("iso="):
+        fields = fields[:-1]
+    return us, fields
+
+
+def _kv(fields):
+    out = {}
+    for f in fields:
+        k, sep, v = f.partition("=")
+        if sep:
+            out[k] = None if v == "absent" else int(v) if re.fullmatch(r"-?\d+", v) else v
+    return out
+
+
+def parse_perf_log(text):
+    """samples (memgate| sample lines), steps (memgate.step), done_t_ms, raw decodes
+    per walk step (req_end rawDecode=true attributed to the latest preceding step,
+    -1 = before step 0), and every full-frame RGBA byte count the log names."""
+    samples, steps, frame_bytes, raw = [], [], set(), {}
+    done_t_ms = None
+    for line in text.splitlines():
+        pf = _perf_fields(line)
+        if pf is None or not pf[1]:
+            continue
+        us, f = pf
+        head = f[0]
+        if head == "memgate" and len(f) > 1 and f[1] == "done":
+            done_t_ms = _kv(f[2:]).get("t_ms")
+        elif head == "memgate":
+            s = _kv(f[1:])
+            s["us"] = us
+            samples.append(s)
+        elif head == "memgate.step":
+            s = _kv(f[1:])
+            steps.append({"us": us, "t_ms": s.get("t_ms"), "step": s.get("step"), "id": s.get("id")})
+            raw.setdefault(s.get("step"), 0)
+        elif head == "req_end" and _kv(f[1:]).get("rawDecode") == "true":
+            cur = [s["step"] for s in steps if s["us"] <= us]
+            k = cur[-1] if cur else -1
+            raw[k] = raw.get(k, 0) + 1
+        elif head in ("materialize", "reencode.submit"):
+            b = _kv(f[1:]).get("bytes")
+            if isinstance(b, int) and b > 0:
+                frame_bytes.add(b)
+        elif head == "normalize_end":
+            kv = _kv(f[1:])
+            if kv.get("ok") == "true" and isinstance(kv.get("w"), int) and isinstance(kv.get("h"), int):
+                frame_bytes.add(kv["w"] * kv["h"] * 4)
+    return {"samples": samples, "steps": steps, "done_t_ms": done_t_ms,
+            "raw_decodes_per_step": raw, "frame_bytes": frame_bytes}
+
+
+def lane_width_violations(samples, want):
+    return sum(1 for s in samples if s.get("lane_width") != want)
+
+
+def split_texture_regions(regions_mib, frame_bytes, live_bytes, ratio=TEXTURE_RATIO):
+    """T2-app texture rule: a WC region within [1.50, 1.70] x W*H*4 of a full frame
+    the run decoded is a texture region -- unless the frames so matched add up to
+    more than the bytes actually live in the sample, in which case nothing is
+    excluded. Returns (non_texture_regions, texture_regions)."""
+    lo, hi = ratio
+    tex, nontex, matched = [], [], 0
+    for r in regions_mib:
+        rb = r * MIB
+        fits = [b for b in frame_bytes if lo * b <= rb <= hi * b]
+        if fits:
+            b = min(fits, key=lambda x: abs(rb / x - 1.6))
+            tex.append(r)
+            matched += b
+        else:
+            nontex.append(r)
+    if matched > live_bytes:
+        return list(regions_mib), []
+    return nontex, tex
+
+
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
+
+
+def app_counter_sample(pid, tag, t0):
+    tc, ninst, per = gpu_total_committed(pid)
+    return {"tag": tag, "t_s": round(time.perf_counter() - t0, 2), "at": now(), "tc_mib": tc,
+            "tc_instances": ninst, "tc_per_instance": per, "pb_mib": private_bytes_mib(pid)}
+
+
+def cmd_app(a):
+    os.makedirs(a.out, exist_ok=True)
+    res = Result(os.path.join(a.out, "result.md"))
+    clog = open(os.path.join(a.out, "counters.log"), "w", encoding="utf-8", buffering=1)
+    rc_total, proc, before, store, store_checked = 0, None, None, None, False
+    try:
+        res.w("# D5 app run: %s" % a.label, "", "started %s pid %d" % (now(), os.getpid()), tool_line(), "")
+        text, digest, expects, reports = read_prereg(a.prereg)
+        res.w("## 1. Pre-registration (verbatim, copied before any measurement)", "",
+              "file: %s" % os.path.abspath(a.prereg), "sha256: %s" % digest, "copied_at: %s" % now(), "",
+              "```", text.rstrip("\n"), "```", "")
+
+        # 2. provenance
+        manifest = json.load(open(a.manifest, encoding="utf-8"))
+        corpus = a.corpus or manifest["corpus_root"]
+        problems = verify_corpus(manifest, corpus)
+        res.w("## 2. Provenance", "", "corpus: %s" % corpus,
+              "corpus_check: %s" % ("OK (%d files)" % len(manifest["files"]) if not problems
+                                    else "FAIL " + "; ".join(problems)))
+        if problems:
+            raise GateError("corpus manifest mismatch: " + "; ".join(problems))
+        exe = os.path.abspath(a.exe)
+        exedir = os.path.dirname(exe)
+        if not os.path.isfile(exe):
+            raise GateError("--exe not found: %s" % exe)
+        res.w("exe_sha256 %s %s" % (sha256_file(exe), exe))
+        hashes = {}
+        for n in sorted(x for x in os.listdir(exedir) if x.lower().endswith(".dll")):
+            hashes[n] = sha256_file(os.path.join(exedir, n))
+            res.w("dll_sha256 %s %s" % (hashes[n], n))
+        if "dng_decoder_native.dll" not in hashes:
+            raise GateError("dng_decoder_native.dll not beside --exe")
+        if a.pin_ref:
+            tag, pinned = pin_libraries(a.pin_ref)
+            bad = [n for n, h in pinned.items() if hashes.get(n) != h]
+            res.w("pin_check ref=%s tag=%s %s" % (a.pin_ref, tag,
+                  "OK (%d libraries equal the pin)" % len(pinned) if not bad else "FAIL " + ",".join(bad)))
+            if bad:
+                raise GateError("DLLs beside the exe differ from pin %s: %s" % (a.pin_ref, bad))
+        else:
+            res.w("pin_check: not requested (--pin-ref absent)")
+        exports = pe_exports(os.path.join(exedir, "dng_decoder_native.dll"))
+        res.w("ceyx_debug_idle_funnel_counters: %s"
+              % ("present" if "ceyx_debug_idle_funnel_counters" in exports else "absent"),
+              "halcyon HEAD: %s" % git_head(HALCYON_ROOT), "ceyx HEAD: %s" % git_head(a.ceyx_repo),
+              "params: n=%d pace_ms=%d prefs=%s timeout_s=%g" % (a.n, a.pace, a.prefs, a.timeout), "")
+
+        # R11 guard, before
+        store = a.store or user_store_dir()
+        before = store_snapshot(store)
+        res.w("## 2b. User store guard (R11)", "", "store: %s" % store,
+              "before: exists=%s files=%d at %s" % (before["exists"], len(before["files"]), now()), "")
+
+        perf_path = os.path.join(a.out, "perf.log")
+        stdio_path = os.path.join(a.out, "stdio.log")
+        for p in (perf_path, stdio_path):
+            if os.path.exists(p):
+                raise GateError("refusing to reuse an existing artifact: %s" % p)
+        env = dict(os.environ)
+        env.update({"HALCYON_PERF_DIR": corpus, "HALCYON_PERF_MODE": "memgate", "HALCYON_PERF_N": str(a.n),
+                    "HALCYON_PERF_PACE": str(a.pace), "HALCYON_PERF_PREFS": a.prefs,
+                    "HALCYON_PERF_OUT": perf_path, "HALCYON_STDIO_LOG": stdio_path})
+        # No std handles and no console: the runner fills the missing handles from
+        # HALCYON_STDIO_LOG (windows/runner/utils.cpp EnsureStdOutputHandles).
+        t0 = time.perf_counter()
+        proc = subprocess.Popen([exe], cwd=exedir, env=env, close_fds=True,
+                                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        res.w("## 3. Run", "", "launched pid %d at %s" % (proc.pid, now()))
+
+        periodic, idle_samples, seen_idle, pos, buf = [], [], 0, 0, ""
+        parsed = None
+        next_tick = time.perf_counter()
+        while True:
+            if os.path.exists(perf_path):
+                with open(perf_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+                buf += chunk
+                complete = buf[:buf.rfind("\n") + 1]
+                for line in complete.splitlines():
+                    pf = _perf_fields(line)
+                    if pf and pf[1][:1] == ["memgate"] and "phase=idle" in pf[1]:
+                        seen_idle += 1
+                        s = app_counter_sample(proc.pid, "idle%d" % seen_idle, t0)
+                        idle_samples.append(s)
+                        clog.write(json.dumps(s) + "\n")
+                    if pf and pf[1][:2] == ["memgate", "done"]:
+                        parsed = True
+                buf = buf[len(complete):]
+            if parsed:
+                break
+            rc_app = proc.poll()
+            if rc_app is not None:
+                raise GateError("app exited before memgate|done, exit code %d%s"
+                                % (rc_app, " (120 s safety timer)" if rc_app == 3 else ""))
+            if time.perf_counter() - t0 > a.timeout:
+                raise GateError("no memgate|done within %g s" % a.timeout)
+            if time.perf_counter() >= next_tick and not seen_idle:
+                s = app_counter_sample(proc.pid, "walk", t0)
+                periodic.append(s)
+                clog.write(json.dumps(s) + "\n")
+                next_tick += 2.0
+            time.sleep(0.25)
+
+        # final walk + counters on the live PID, then terminate ONLY that PID
+        final = app_counter_sample(proc.pid, "final", t0)
+        final["wc_total_mib"], final["wc_regions_mib"] = wc_walk(proc.pid)
+        clog.write(json.dumps(final) + "\n")
+        alive = proc.poll() is None
+        proc.terminate()
+        app_rc = proc.wait(timeout=30)
+        res.w("done seen; final sample at %s; app alive at final sample: %s" % (final["at"], alive),
+              "terminated pid %d; PROCESS_RC=%d" % (proc.pid, app_rc), "")
+
+        after = store_snapshot(store)
+        changes = store_diff(before, after)
+        store_checked = True
+        res.w("## 3b. User store guard (R11), after", "",
+              "after: exists=%s files=%d at %s" % (after["exists"], len(after["files"]), now()),
+              "store_diff: %s" % ("EMPTY (unchanged)" if not changes else "; ".join(changes)), "")
+
+        perf_txt = open(perf_path, encoding="utf-8", errors="replace").read()
+        stdio_txt = open(stdio_path, encoding="utf-8", errors="replace").read() if os.path.exists(stdio_path) else ""
+        p = parse_perf_log(perf_txt)
+        idle_lines = [s for s in p["samples"] if s.get("phase") == "idle"]
+        last_idle = idle_lines[-1] if idle_lines else {}
+        nontex, tex = split_texture_regions(final["wc_regions_mib"], p["frame_bytes"],
+                                            last_idle.get("live_image_bytes") or 0)
+        values = {
+            "idle.tc_mib": _median([s["tc_mib"] for s in idle_samples]) if idle_samples else None,
+            "idle.pb_mib": _median([s["pb_mib"] for s in idle_samples]) if idle_samples else None,
+            "idle.samples": float(len(idle_samples)),
+            "peak.tc_mib": max([s["tc_mib"] for s in periodic]) if periodic else None,
+            "peak.pb_mib": max([s["pb_mib"] for s in periodic]) if periodic else None,
+            "final.tc_mib": final["tc_mib"], "final.pb_mib": final["pb_mib"],
+            "final.wc_total_mib": final["wc_total_mib"],
+            "final.wc_count_ge_256": float(sum(1 for r in final["wc_regions_mib"] if r >= 256.0)),
+            "final.wc_nontex_count_ge_256": float(sum(1 for r in nontex if r >= 256.0)),
+            "final.wc_nontex_count_ge_16": float(len(nontex)),
+            "final.wc_nontex_total_ge_16_mib": float(sum(nontex)),
+            "final.wc_texture_regions": float(len(tex)),
+            "idle.live_image_mib": (last_idle.get("live_image_bytes") or 0) / MIB if idle_lines else None,
+            "idle.funnel_calls": last_idle.get("funnel_calls"),
+            "idle.device_release_runs": last_idle.get("device_release_runs"),
+            "log.idlefunnel_released_lines": float(idlefunnel_released_lines(stdio_txt)),
+            "log.memgate_samples": float(len(p["samples"])),
+            "log.idle_samples": float(len(idle_lines)),
+            "log.lane_width_violations": float(lane_width_violations(p["samples"], a.lane_width)),
+            "log.steps": float(len(p["steps"])),
+            "log.step_ids_wrap_ok": float(all(s["step"] == k for k, s in enumerate(p["steps"]))),
+            "log.done": 1.0 if p["done_t_ms"] is not None else 0.0,
+            "log.raw_decodes_total": float(sum(p["raw_decodes_per_step"].values())),
+            "log.raw_decodes_pre_walk": float(p["raw_decodes_per_step"].get(-1, 0)),
+            "log.raw_decodes_steps_1_12": float(sum(p["raw_decodes_per_step"].get(k, 0) for k in range(1, 13))),
+            "log.raw_decodes_steps_14_25": float(sum(p["raw_decodes_per_step"].get(k, 0) for k in range(14, 26))),
+            "store.changes": float(len(changes)),
+            "process.alive_at_final": 1.0 if alive else 0.0,
+        }
+        for k, n in p["raw_decodes_per_step"].items():
+            if k is not None and k >= 0:
+                values["log.raw_decodes_step_%d" % k] = float(n)
+        values = {k: (float(v) if isinstance(v, int) else v) for k, v in values.items()}
+        res.w("## 4. Samples and judged values", "",
+              "walk samples (2 s, memgate-side): %d; idle samples (one per app idle line): %d"
+              % (len(periodic), len(idle_samples)),
+              "idle TC samples MiB: %s" % [s["tc_mib"] for s in idle_samples],
+              "final WC regions >=16 MiB: %s" % final["wc_regions_mib"],
+              "texture regions excluded: %s; full-frame sizes in log (MiB): %s"
+              % (tex, sorted(round(b / MIB, 1) for b in p["frame_bytes"])),
+              "raw decodes per step: %s" % dict(sorted(p["raw_decodes_per_step"].items(),
+                                                       key=lambda kv: (kv[0] is None, kv[0] or 0))), "")
+        for k in sorted(values):
+            res.w("%s = %s" % (k, values[k]))
+        res.w("")
+        with open(os.path.join(a.out, "values.json"), "w", encoding="utf-8") as f:
+            json.dump({"label": a.label, "values": values, "final": final, "idle_samples": idle_samples,
+                       "walk_samples": periodic}, f, indent=1)
+        funnel = [ln for ln in stdio_txt.splitlines() if "[IdleFunnel]" in ln]
+        res.w("## 5. Funnel counters (last idle memgate| line)", "",
+              "funnel_calls=%s device_release_runs=%s" % (last_idle.get("funnel_calls"),
+                                                          last_idle.get("device_release_runs")), "")
+        res.w("## 6. [IdleFunnel] stdio lines", "", *(funnel or ["NONE"]), "",
+              "stdio.log bytes: %d" % len(stdio_txt.encode("utf-8", "replace")), "")
+
+        lines, rc_total = judge(expects, reports, values)
+        if changes:
+            lines.insert(0, "R11_HARD_STOP user store changed: %s" % "; ".join(changes))
+            rc_total = 1
+            lines[-1] = "MEMGATE_RC=1"
+        res.w("## 7. Verdict and RC", "", *lines)
+        res.w("RC=%d" % rc_total, "finished %s" % now())
+    except Exception as e:
+        rc_total = 2
+        res.w("", "## ERROR", "", "```", traceback.format_exc().rstrip(), "```", "MEMGATE_RC=2", "RC=2",
+              "finished %s" % now())
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            res.w("cleanup: terminated launched pid %d, PROCESS_RC=%s" % (proc.pid, proc.wait(timeout=30)))
+        if before is not None and not store_checked:
+            changes = store_diff(before, store_snapshot(store))
+            res.w("store_diff (error path): %s" % ("EMPTY (unchanged)" if not changes else
+                                                   "R11_HARD_STOP user store changed: " + "; ".join(changes)))
     return rc_total
 
 
@@ -664,7 +1210,7 @@ def cmd_compare(a):
     lines, rc = judge(expects, reports, values)
     out = ["# D5 compare", "", "base: %s" % os.path.abspath(a.base), "cand: %s" % os.path.abspath(a.cand), "",
            "## Pre-registration (verbatim)", "", "file: %s" % os.path.abspath(a.prereg), "sha256: %s" % digest,
-           "", "```", text.rstrip("\n"), "```", "", "## Verdict", ""] + lines + ["RC=%d" % rc, "finished %s" % now()]
+           "", "```", text.rstrip("\n"), "```", "", tool_line(), "", "## Verdict", ""] + lines + ["RC=%d" % rc, "finished %s" % now()]
     if a.out:
         with open(a.out, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(out) + "\n")
@@ -714,6 +1260,7 @@ def build_parser():
     n.add_argument("--label", required=True)
     n.add_argument("--threads", type=int, default=2)
     n.add_argument("--passes", type=int, default=2)
+    n.add_argument("--cycles", type=int, default=1, help="decode+funnel+idle cycles in one process (amended T3 needs 2)")
     n.add_argument("--seed", type=int, default=20261003)
     n.add_argument("--floor", type=int, default=2)
     n.add_argument("--idle-wait", type=float, default=12.0)
@@ -721,6 +1268,21 @@ def build_parser():
     n.add_argument("--corpus", default=None)
     n.add_argument("--pin-ref", default=None, help="git ref whose scripts/ceyx_release_pin.json the DLLs must equal")
     n.add_argument("--ceyx-repo", default=os.path.join(os.path.dirname(HALCYON_ROOT), "ceyx"))
+    ap_ = sp.add_parser("app")
+    ap_.add_argument("--exe", required=True)
+    ap_.add_argument("--prereg", required=True)
+    ap_.add_argument("--out", required=True)
+    ap_.add_argument("--label", required=True)
+    ap_.add_argument("--prefs", default='{"decodeLaneWidth":2}')
+    ap_.add_argument("--lane-width", type=int, default=2, help="value every memgate| sample line must show")
+    ap_.add_argument("--n", type=int, default=26)
+    ap_.add_argument("--pace", type=int, default=6000)
+    ap_.add_argument("--timeout", type=float, default=420.0, help="seconds from launch to memgate|done")
+    ap_.add_argument("--manifest", default=MANIFEST_PATH)
+    ap_.add_argument("--corpus", default=None)
+    ap_.add_argument("--store", default=None, help="prefs store to guard (default %%APPDATA%%\\jhangy.us\\Halcyon)")
+    ap_.add_argument("--pin-ref", default=None)
+    ap_.add_argument("--ceyx-repo", default=os.path.join(os.path.dirname(HALCYON_ROOT), "ceyx"))
     c = sp.add_parser("compare")
     c.add_argument("--base", required=True)
     c.add_argument("--cand", required=True)
@@ -737,7 +1299,7 @@ def main(argv=None):
     a = build_parser().parse_args(argv)
     if getattr(a, "rest", None) and a.rest[0] == "--":
         a.rest = a.rest[1:]
-    return {"manifest": cmd_manifest, "native": cmd_native, "compare": cmd_compare,
+    return {"manifest": cmd_manifest, "native": cmd_native, "app": cmd_app, "compare": cmd_compare,
             "detach": cmd_detach, "supervise": cmd_supervise}[a.cmd](a)
 
 
