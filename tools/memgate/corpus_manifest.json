@@ -1,0 +1,22 @@
+{
+ "corpus_root": "C:\\Users\\User\\project\\ceyx\\image_samples\\raw_corpus",
+ "excluded": {
+  "raw_sample.arw.cfa.raw": "malformed fixture; ceyx native/tests/raw_corpus_manifest.json expects kRawErrLayoutUnsupported, so it can never decode and would FAIL every run",
+  "raw_sample.arw.trunc.raw": "malformed fixture; ceyx native/tests/raw_corpus_manifest.json expects kRawErrUnpackFailed, so it can never decode and would FAIL every run"
+ },
+ "files": {
+  "2026-08-10-17-47-27.rw2": "7fb8eb119e7bf26ffee5abe35cd5e828b9d429361789f69b0aaac9332b478855",
+  "DXT50003.RAF": "61e8aaaf23ff3b697cf78cd3647b3d4ff2193e79e29e6dd05a19f48efadf6187",
+  "DXT50004.RAF": "6dfc5ec33ed2d08e71f16a732ed2816434cb08da1fa265337b800b5e82a0c045",
+  "L1010069.DNG": "f56fcd9815f0550342409dba603a975d95d699fc633fec5100efa354d91a9d93",
+  "L1010070.DNG": "a0c6cc6f36a0174a2ff12d55a3b62d8de7a94d75b7e11bf81cd63d19a2d6f1b0",
+  "L1010071.DNG": "56f1b07f14f48ad4666ee370742656175f02dcaacf40a5ea32b33178acf9fc4a",
+  "fuji_xt3.raf": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+  "fuji_xt5.raf": "cddd7ae0c43f9280876e5fdcbdf8878718972ebd3d034d8affc8cfc6752d33dc",
+  "natural_fallback.rw2": "7fb8eb119e7bf26ffee5abe35cd5e828b9d429361789f69b0aaac9332b478855",
+  "nikon_z8_he.nef": "82df041542b8d328738443bb5ff3373b396e406ecc8cbe7dc3b35252790c53e7",
+  "nikon_z8_he_star.nef": "ea8b093cd11c946c5eeb501b775859e8e617ce1d79577abc41b233c339e4004c",
+  "sigma_sd_quattro_h_19.x3f": "0e41954fa1ece9a03f61b06c19fc2d333bb20916d1c39b5283ea6d809d325076",
+  "sigma_sd_quattro_h_23.x3f": "5fabb0e4a3fd6680c58094eeb04983fb6ec6b76e14606df2cc7eac92c4d8f06b"
+ }
+}
