@@ -32,7 +32,8 @@
 // memgate mode (D5 app gate, tools/memgate/memgate.py app): warm up, walk
 // HALCYON_PERF_N steps (one nextPhoto every HALCYON_PERF_PACE ms, ping-pong at
 // the ends), one `memgate|...` sample every 2 s, idle 15 s, 5 idle samples 2 s
-// apart, then exit(0).
+// apart, then a `memgate|done|t_ms=<n>` line and stay idle (the gate
+// terminates the PID; a one-shot 120 s timer exits 3 if it never does).
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
@@ -164,7 +165,6 @@ class PerfDriver {
 
     if (_mode == 'memgate') {
       await _memgate(state);
-      await _finish();
       return;
     }
 
@@ -331,6 +331,12 @@ class PerfDriver {
       _memgateSample(state, 'idle', _n);
       await Future<void>.delayed(const Duration(seconds: 2));
     }
+    // The gate runs its last process samplers on this PID and then terminates
+    // it; exiting here would race them. The one-shot timer only stops a dead
+    // gate from orphaning the app.
+    PerfLog.log('memgate|done|t_ms=${PerfLog.us ~/ 1000}');
+    PerfLog.flushSync();
+    Timer(const Duration(seconds: 120), () => exit(3));
   }
 
   static Future<void> _pass(AppState state, String label, int paceMs) async {
