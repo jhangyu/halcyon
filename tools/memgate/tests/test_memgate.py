@@ -228,5 +228,137 @@ class Probes(unittest.TestCase):
         self.assertIn("Py_Initialize", memgate.pe_exports(dll))
 
 
+class FunnelCounters(unittest.TestCase):
+    """E1: the IC1 ABI reader (7 uint64 outs in plan order, int32 return)."""
+
+    @staticmethod
+    def fake(values, rc=0):
+        def fn(*ptrs):
+            assert len(ptrs) == 7
+            for p, v in zip(ptrs, values):
+                p.contents.value = v
+            return rc
+        return fn
+
+    def test_reads_seven_counters_in_abi_order(self):
+        got = memgate.read_funnel_counters(self.fake([5, 4, 1, 0, 0, 0, 123456789]))
+        self.assertEqual(list(got), list(memgate.FUNNEL_FIELDS))
+        self.assertEqual(got["funnel_calls"], 5)
+        self.assertEqual(got["device_release_runs"], 4)
+        self.assertEqual(got["device_release_skipped_uninitialized"], 1)
+        self.assertEqual(got["last_funnel_bytes"], 123456789)
+
+    def test_nonzero_return_is_an_error(self):
+        with self.assertRaisesRegex(memgate.GateError, "returned -1"):
+            memgate.read_funnel_counters(self.fake([0] * 7, rc=-1))
+
+    def test_released_lines_counted_exactly(self):
+        err = ("noise\n"
+               "[IdleFunnel] event=funnel floor=2 arena_bytes=1 dng_bytes=0 device_release=released\n"
+               "[IdleFunnel] event=funnel floor=2 arena_bytes=0 dng_bytes=0 device_release=skipped_uninitialized\n"
+               "x [IdleFunnel] event=funnel floor=2 arena_bytes=0 dng_bytes=0 device_release=released\n")
+        self.assertEqual(memgate.idlefunnel_released_lines(err), 2)
+
+
+class DecodeCount(unittest.TestCase):
+    """Parked S3: a run with fewer decodes than the procedure demands is not the gate."""
+
+    def test_exact_count_ok(self):
+        self.assertIsNone(memgate.decode_count_problem(26, 13, 2))
+
+    def test_short_count_flagged(self):
+        self.assertIn("actual=25 expected=26", memgate.decode_count_problem(25, 13, 2))
+
+
+PERF_LOG = "\n".join([
+    "PERF|1000000|driver.config|dir=x|n=26|pace=6000|mode=memgate|iso=main",
+    "PERF|2000000|memgate.walk.begin|n=26|pace=6000|iso=main",
+    "PERF|2000100|memgate.step|t_ms=2000|step=0|id=a|iso=main",
+    "PERF|2500000|req_end|id=a|dur=1|rawDecode=true|payloadKind=Pixel|bytes=1|cost=x|exifOrientation=null|rotatedPass=false|iso=main",
+    "PERF|2600000|materialize|id=77|bytes=400|dur_us=5|src=fullres|iso=main",
+    "PERF|3000000|memgate|t_ms=3000|phase=walk|step=0|live_image_bytes=100|cache_bytes=0|cache_count=0|lane_width=2|funnel_calls=0|device_release_runs=0|displayed_redecodes=absent|iso=main",
+    "PERF|8000100|memgate.step|t_ms=8000|step=1|id=b|iso=main",
+    "PERF|8100000|req_end|id=b|dur=1|rawDecode=true|payloadKind=Pixel|bytes=1|cost=x|exifOrientation=null|rotatedPass=false|iso=main",
+    "PERF|8200000|req_end|id=c|dur=1|rawDecode=false|payloadKind=Encoded|bytes=1|cost=x|exifOrientation=null|rotatedPass=false|iso=main",
+    "PERF|8300000|normalize_end|ok=true|dur=5|w=10|h=20|iso=main",
+    "PERF|9000000|memgate|t_ms=9000|phase=walk|step=1|live_image_bytes=100|cache_bytes=0|cache_count=0|lane_width=5|funnel_calls=1|device_release_runs=1|displayed_redecodes=absent|iso=main",
+    "PERF|20000000|memgate|t_ms=20000|phase=idle|step=2|live_image_bytes=4000|cache_bytes=0|cache_count=0|lane_width=2|funnel_calls=3|device_release_runs=2|displayed_redecodes=absent|iso=main",
+    "PERF|21000000|memgate|done|t_ms=21000|iso=main",
+])
+
+
+class AppLog(unittest.TestCase):
+    """E2: the PerfDriver memgate-mode log contract (IC8)."""
+
+    def test_parse_samples_steps_done(self):
+        p = memgate.parse_perf_log(PERF_LOG)
+        self.assertEqual(len(p["samples"]), 3)
+        self.assertEqual([s["phase"] for s in p["samples"]], ["walk", "walk", "idle"])
+        self.assertEqual([(s["step"], s["id"]) for s in p["steps"]], [(0, "a"), (1, "b")])
+        self.assertEqual(p["done_t_ms"], 21000)
+        self.assertEqual(p["samples"][2]["device_release_runs"], 2)
+
+    def test_lane_width_violation_counted(self):
+        p = memgate.parse_perf_log(PERF_LOG)
+        self.assertEqual(memgate.lane_width_violations(p["samples"], 2), 1)
+
+    def test_raw_decodes_attributed_to_step(self):
+        p = memgate.parse_perf_log(PERF_LOG)
+        self.assertEqual(p["raw_decodes_per_step"], {0: 1, 1: 1})
+
+    def test_full_frame_sizes_collected(self):
+        p = memgate.parse_perf_log(PERF_LOG)
+        self.assertEqual(sorted(p["frame_bytes"]), [400, 800])
+
+    def test_texture_exclusion(self):
+        mib = 1 << 20
+        frames = [150 * mib, 230 * mib]
+        # 368 MiB = 1.6 x 230 MiB -> texture; 300 MiB matches nothing in [1.5, 1.7] x {150, 230}.
+        nontex, tex = memgate.split_texture_regions([368.0, 300.0, 20.0], frames, live_bytes=400 * mib)
+        self.assertEqual(nontex, [300.0, 20.0])
+        self.assertEqual(tex, [368.0])
+
+    def test_texture_exclusion_void_when_more_than_live(self):
+        mib = 1 << 20
+        nontex, tex = memgate.split_texture_regions([368.0], [230 * mib], live_bytes=100 * mib)
+        self.assertEqual(nontex, [368.0])
+        self.assertEqual(tex, [])
+
+    def test_app_refuses_without_prereg_and_never_launches(self):
+        os.makedirs(SCRATCH, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=SCRATCH) as root:
+            out = os.path.join(root, "run")
+            rc = memgate.main(["app", "--exe", os.path.join(root, "halcyon.exe"), "--prereg",
+                               os.path.join(root, "nope.md"), "--out", out, "--label", "x"])
+            self.assertEqual(rc, 2)
+            txt = open(os.path.join(out, "result.md"), encoding="utf-8").read()
+            self.assertIn("REFUSED", txt)
+            self.assertNotIn("launched pid", txt)
+
+
+class SelfHash(unittest.TestCase):
+    """Parked S4: every artifact records the sha256 of the memgate.py that produced it."""
+
+    def test_native_result_records_tool_hash(self):
+        os.makedirs(SCRATCH, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=SCRATCH) as root:
+            out = os.path.join(root, "run")
+            memgate.main(["native", "--dll-dir", root, "--prereg", os.path.join(root, "nope.md"),
+                          "--out", out, "--label", "x"])
+            txt = open(os.path.join(out, "result.md"), encoding="utf-8").read()
+            self.assertIn("memgate_py_sha256: %s" % memgate.sha256_file(memgate.__file__), txt)
+
+    def test_compare_records_tool_hash(self):
+        os.makedirs(SCRATCH, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=SCRATCH) as root:
+            prereg = os.path.join(root, "p.md")
+            write(prereg, PREREG_T1_T2)
+            base = values_dir(root, "b", 1.0, 1.0, 0)
+            out = os.path.join(root, "cmp.md")
+            memgate.main(["compare", "--base", base, "--cand", base, "--prereg", prereg, "--out", out])
+            self.assertIn("memgate_py_sha256: %s" % memgate.sha256_file(memgate.__file__),
+                          open(out, encoding="utf-8").read())
+
+
 if __name__ == "__main__":
     unittest.main()
