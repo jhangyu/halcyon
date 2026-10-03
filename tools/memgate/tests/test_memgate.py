@@ -477,5 +477,113 @@ class SelfHash(unittest.TestCase):
                           open(out, encoding="utf-8").read())
 
 
+T4_IDS = ["i%02d" % k for k in range(13)]
+
+
+def t4_log(extra_after=None, extra_before_marker=None, drop=None):
+    """Synthetic 26-step wrap walk, one publish per band entrant (preflight 1.2).
+    The jump's publish of i00 is synchronous: it lands BEFORE the step-13 marker.
+    extra_after[step] / extra_before_marker[step] add raw lines; drop = set of
+    (step) whose entrant publish is omitted."""
+    extra_after, extra_before_marker, drop = extra_after or {}, extra_before_marker or {}, drop or set()
+    us = [1000]
+    out = []
+
+    def add(msg):
+        us[0] += 10
+        out.append("PERF|%d|%s|iso=main" % (us[0], msg))
+
+    add("memgate.walk.begin|n=26|pace=6000")
+    for step in range(26):
+        tid = T4_IDS[step % 13]
+        if step == 0:
+            for e in (0, 1):
+                add("publish|id=%s|path=publishEncoded" % T4_IDS[e])
+        for ln in extra_before_marker.get(step, []):
+            add(ln)
+        if step == 13:
+            add("publish|id=%s|path=publishEncoded" % T4_IDS[0])
+        add("memgate.step|t_ms=%d|step=%d|id=%s" % (step * 6000, step, tid))
+        if step > 0 and step not in (12, 13, 25) and step not in drop:
+            add("publish|id=%s|path=%s" % (T4_IDS[(step + 1) % 13], "upgrade" if step == 7 else "publishEncoded"))
+        if step == 13:
+            add("publish|id=%s|path=publishEncoded" % T4_IDS[1])
+        for ln in extra_after.get(step, []):
+            add(ln)
+    add("memgate.walk.end|steps=26")
+    add("memgate|done|t_ms=1")
+    return "\n".join(out) + "\n"
+
+
+class T4Counter(unittest.TestCase):
+    """M2 instrument: T4 tier-2 publish counter over W2 = [step-12 marker, walk.end)."""
+
+    def test_clean_pass_counts_one_per_id(self):
+        t = memgate.t4_analysis(t4_log())
+        self.assertEqual(t["w2"], {i: 1 for i in T4_IDS})
+        self.assertEqual(t["total"], 13)
+        self.assertTrue(t["per_id_pass"])
+        self.assertTrue(t["valid"])
+
+    def test_excess_publish_in_w2_fails_per_id(self):
+        extra = {20: ["publish|id=i05|path=publishEncoded"]}
+        t = memgate.t4_analysis(t4_log(extra_after=extra))
+        self.assertEqual(t["w2"]["i05"], 2)
+        self.assertEqual(t["total"], 14)
+        self.assertFalse(t["per_id_pass"])
+        self.assertTrue(t["valid"])
+        self.assertIn("MEMGATE_TARGET T4.per_id FAIL", "\n".join(memgate.t4_verdict_lines(t)))
+
+    def test_jump_pre_marker_publish_counted_once(self):
+        t = memgate.t4_analysis(t4_log())
+        self.assertEqual(t["w2"]["i00"], 1)
+        self.assertEqual(t["first_pass"]["i00"], 1)
+        self.assertTrue(t["per_id_pass"])
+
+    def test_missing_publish_fails_per_id(self):
+        t = memgate.t4_analysis(t4_log(drop={20}))
+        self.assertEqual(t["w2"]["i08"], 0)
+        self.assertFalse(t["per_id_pass"])
+
+    def test_dup_dropped_and_cache_refused_excluded(self):
+        extra = {15: ["publish|id=i03|path=publishEncoded|dup_dropped=1",
+                      "publish|id=i04|path=upgrade|cache_refused=1"]}
+        t = memgate.t4_analysis(t4_log(extra_after=extra))
+        self.assertEqual(t["w2"], {i: 1 for i in T4_IDS})
+        self.assertTrue(t["per_id_pass"])
+        self.assertEqual(t["dup_dropped"], 1)
+        self.assertEqual(t["cache_refused"], 1)
+
+    def test_tier1_publish_not_counted(self):
+        t = memgate.t4_analysis(t4_log(extra_after={15: ["publish|id=i03|path=tier1"]}))
+        self.assertEqual(t["total"], 13)
+
+    def test_raw_decode_in_w2_is_invalid(self):
+        extra = {18: ["req_end|id=i05|dur=1|rawDecode=true|payloadKind=Pixel|bytes=1|cost=x|exifOrientation=null|rotatedPass=false"]}
+        t = memgate.t4_analysis(t4_log(extra_after=extra))
+        self.assertFalse(t["valid"])
+        self.assertIn("T4.valid INVALID", "\n".join(memgate.t4_verdict_lines(t)))
+
+    def test_reencode_submit_in_w2_is_invalid(self):
+        t = memgate.t4_analysis(t4_log(extra_after={18: ["reencode.submit|id=9|bytes=4"]}))
+        self.assertFalse(t["valid"])
+
+    def test_first_pass_activity_reported_not_gated(self):
+        early = {3: ["req_end|id=i03|dur=1|rawDecode=true|payloadKind=Pixel|bytes=1|cost=x|exifOrientation=null|rotatedPass=false",
+                     "publish|id=i03|path=publishEncoded"]}
+        t = memgate.t4_analysis(t4_log(extra_after=early))
+        self.assertTrue(t["valid"])
+        self.assertTrue(t["per_id_pass"])
+        self.assertEqual(t["first_pass"]["i03"], 2)
+
+    def test_missing_step12_marker_is_invalid(self):
+        text = "\n".join(ln for ln in t4_log().splitlines() if "|step=12|" not in ln)
+        self.assertFalse(memgate.t4_analysis(text)["valid"])
+
+    def test_wrong_id_count_is_invalid(self):
+        text = t4_log().replace("|step=3|id=i03", "|step=3|id=i02").replace("|step=16|id=i03", "|step=16|id=i02")
+        self.assertFalse(memgate.t4_analysis(text, expected_ids=13)["valid"])
+
+
 if __name__ == "__main__":
     unittest.main()
