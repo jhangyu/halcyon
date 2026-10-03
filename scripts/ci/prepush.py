@@ -94,6 +94,11 @@ QUARANTINED_FILES = {
         "run0-red.log, run1.log, quiet-tests.log, serial-diag.txt, isolate-rerun.txt",
     _PIPE_TESTS + "image_preload_flow_test.dart":
         "run1.log, run3.log, run4.log, isolate-rerun.txt",
+    # user-approved 2026-10-03: gate run 1 AC8.1/8.2 timeout, gate run 2 AC8.3/8.4
+    # timeout (different case each run); solo 10/10 green on merged 38461568 and
+    # M2_BASE 2eb7f23 (m2-lanecancel-*); same until-poll timeout family as TC-079
+    _PIPE_TESTS + "lane_cancellation_test.dart":
+        "m2-prepush.txt, m2-prepush-2.txt, m2-lanecancel-* (solo 10/10 both trees)",
     _PIPE_TESTS + "native_orientation_pointer_test.dart": "run4.log, quiet-tests.log",
     _PIPE_TESTS + "pacing_test.dart": "quiet-tests.log, serial-diag.txt",
     _PIPE_TESTS + "q70_out_of_window_test.dart": "run4.log, quiet-tests.log",

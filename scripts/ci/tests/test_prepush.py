@@ -137,7 +137,7 @@ class TestJudgeTests(unittest.TestCase):
                 self.assertTrue(path.startswith("test/") and path.endswith("_test.dart"))
                 self.assertTrue((repo / path).is_file(), f"{path} does not exist")
                 self.assertRegex(evidence, r"(run[0-4][^,]*\.log|quiet-tests\.log|"
-                                           r"serial-diag\.txt|isolate-\w+\.txt|v-r3D-tests\.log)")
+                                           r"serial-diag\.txt|isolate-\w+\.txt|v-r3D-tests\.log|m2-prepush(-\d)?\.txt)")
 
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github" / "workflows"
