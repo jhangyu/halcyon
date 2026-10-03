@@ -211,10 +211,12 @@ def declared_count(files):
 
 
 # `flutter test`'s expanded/compact reporter trailer, e.g.
-#   "00:41 +212 -3 ~9: Some test name"
-# Skips (`~`) and failures (`-`) are optional. The LAST match in the stream is
-# the final tally.
-_TALLY_RE = re.compile(r"\+(\d+)(?:\s+-(\d+))?(?:\s+~(\d+))?\s*:")
+#   "00:41 +212 ~9 -3: Some test name"
+# Skips (`~`) and failures (`-`) are optional and their order is not assumed:
+# the reporter prints `~` before `-`, and a fixed `-`-then-`~` pattern silently
+# matched an earlier, failure-free trailer instead (2026-10-03: a red shard
+# reported `failed=0`). The LAST match in the stream is the final tally.
+_TALLY_RE = re.compile(r"\+(\d+)((?:\s+[~-]\d+)*)\s*:")
 
 
 def parse_tally(text):
@@ -222,8 +224,11 @@ def parse_tally(text):
     matches = _TALLY_RE.findall(text)
     if not matches:
         return None
-    passed, failed, skipped = matches[-1]
-    return int(passed), int(failed or 0), int(skipped or 0)
+    passed, rest = matches[-1]
+    counts = {"-": 0, "~": 0}
+    for sign, value in re.findall(r"([~-])(\d+)", rest):
+        counts[sign] = int(value)
+    return int(passed), counts["-"], counts["~"]
 
 
 def _loadavg():

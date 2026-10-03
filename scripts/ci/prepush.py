@@ -15,6 +15,11 @@ included job becomes a step; matrix legs (`{os: R, target: T}` lines) become one
 step per target whose runner equals this host (targets.RUNNER_HOST). Identical
 argv from two workflows (ci.yml and release.yml both build) runs once.
 
+Both clones are checked out with core.autocrlf=false, i.e. the committed bytes
+exactly, independent of the host's git config: several tests pin source text
+with `\\n` needles, and a CRLF checkout (Git for Windows' default) fails them on
+Windows only while macOS passes -- a host artifact, not a property of the commit.
+
 Prebuilt ceyx libraries: build_apps.py's --fetch-native reads its pinned
 release cache (build/ceyx-release-cache/<tag>/) before downloading and re-checks
 every cached file's sha256 against the pin. The clone's cache is seeded with
@@ -53,7 +58,6 @@ EXCLUDED_JOBS = {
                     "builds and checks nothing",
 }
 
-FIXED_STEPS = ("clone", "workflow-lint", "toolchain")
 TEST_STEP = "tests"
 
 _JOB_RE = re.compile(r"^  ([\w-]+):\s*$")
@@ -277,7 +281,9 @@ def _step_clone(layout, log_path):
         if layout.work.exists():
             _rmtree(layout.work)
         layout.work.mkdir(parents=True)
-        argv = ["git", "clone", "--quiet", os.fspath(layout.source), os.fspath(layout.clone)]
+        argv = ["git", "-c", "core.autocrlf=false", "clone", "--quiet",
+                "--config", "core.autocrlf=false",
+                os.fspath(layout.source), os.fspath(layout.clone)]
         r = run.run(argv)
         out.append(f"$ {' '.join(argv)}\n{r.stdout}{r.stderr}RC={r.returncode}")
         if r.returncode:
@@ -291,7 +297,8 @@ def _step_clone(layout, log_path):
             raise RuntimeError(f"workflows must pin exactly one ceyx ref, found {sorted(refs)}")
         ref = refs.pop()
         ceyx_src = layout.source.parent / "ceyx"
-        for argv in (["git", "clone", "--quiet", "--no-checkout", os.fspath(ceyx_src),
+        for argv in (["git", "clone", "--quiet", "--no-checkout",
+                      "--config", "core.autocrlf=false", os.fspath(ceyx_src),
                       os.fspath(layout.ceyx)],
                      ["git", "-C", os.fspath(layout.ceyx), "checkout", "--quiet", "--detach", ref]):
             r = run.run(argv)
@@ -347,9 +354,9 @@ def _step_ci(layout, tail, log_path):
     argv = [sys.executable, os.fspath(layout.clone / "scripts" / "ci.py"), *tail]
     rc = run.run_logged(argv, log_path, cwd=layout.clone).returncode
     pin = _pin(layout.clone)
-    copied = _seed([_cache_dir(layout.clone, pin)], layout.cache / pin["tag"], pin)
-    for line in copied:
-        print(f"CACHE-BACK {line}")
+    if _cache_dir(layout.clone, pin).is_dir():
+        for line in _seed([_cache_dir(layout.clone, pin)], layout.cache / pin["tag"], pin):
+            print(f"CACHE-BACK {line}")
     return rc
 
 
