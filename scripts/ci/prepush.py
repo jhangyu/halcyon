@@ -84,6 +84,8 @@ TEST_STEP = "tests"
 _PIPE_TESTS = "test/services/image_pipeline/"
 QUARANTINED_FILES = {
     "test/providers/app_state_open_with_test.dart": "run0-red.log",
+    # lead-approved addition (TC-860 timing failure in a verifier run)
+    "test/providers/app_state_counts_test.dart": "v-r3D-tests.log:1930",
     _PIPE_TESTS + "admission_gate_test.dart":
         "run2.log, run3.log, run4.log, isolate-admission.txt",
     _PIPE_TESTS + "decode_lane_pool_test.dart": "serial-diag.txt",
@@ -102,8 +104,8 @@ QUARANTINED_FILES = {
         "run1.log, run4.log, isolate-rerun.txt",
 }
 
-_FAIL_RE = re.compile(r"^\d+:\d+ \+\d+(?: [~-]\d+)*: (.*) \[E\]$")
 _SHARD_RE = re.compile(r"^SHARD (\S+): .* RC=(\d+) log=(.+?)\s*$", re.MULTILINE)
+_STRUCTURAL = ("(setUpAll)", "(tearDownAll)")
 
 _JOB_RE = re.compile(r"^  ([\w-]+):\s*$")
 _RUN_RE = re.compile(r"^\s*run:\s*(.*?)\s*$")
@@ -471,42 +473,93 @@ def _step_container(layout, runner, log_path):
     return run.run_logged(argv, log_path, cwd=layout.work).returncode
 
 
-def failing_tests(shard_log_text, clone):
-    """Exact `<test file>: <test name>` of every `[E]` line in a shard log."""
+def _strip_clone(path, clone):
     prefix = clone.as_posix().rstrip("/") + "/"
-    names = set()
-    for line in shard_log_text.splitlines():
-        m = _FAIL_RE.match(line.rstrip())
-        if m:
-            name = m.group(1)
-            names.add(name[len(prefix):] if name.startswith(prefix) else name)
-    return names
+    path = Path(path).as_posix()
+    return path[len(prefix):] if path.startswith(prefix) else path
+
+
+def test_results(json_text, clone):
+    """[(test file, test name, outcome)] from a `flutter test` JSON report;
+    outcome is pass / skip / fail. Hidden entries (setUpAll/tearDownAll hooks,
+    `loading`) are kept only when they failed."""
+    suites, tests, results = {}, {}, []
+    for line in json_text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if kind == "suite":
+            suites[event["suite"]["id"]] = event["suite"]["path"]
+        elif kind == "testStart":
+            test = event["test"]
+            tests[test["id"]] = (suites.get(test["suiteID"], "?"), test["name"])
+        elif kind == "testDone" and event.get("testID") in tests:
+            path, name = tests[event["testID"]]
+            if event.get("skipped"):
+                outcome = "skip"
+            elif event.get("result") == "success":
+                outcome = "pass"
+            else:
+                outcome = "fail"
+            if event.get("hidden") and outcome != "fail":
+                continue
+            results.append((_strip_clone(path, clone), name, outcome))
+    return results
 
 
 def judge_tests(run_tests_output, raw_rc, clone):
     """Returns (rc, flaky_known, lines). Green only when every red shard is
-    fully explained by failures inside QUARANTINED_FILES; anything else --
-    including a quarantined file that fails to load -- stays hard red."""
+    fully explained by timing-sized failures inside QUARANTINED_FILES.
+    Hard red regardless of the list: a failure in any other file; a file that
+    fails to load; a setUpAll/tearDownAll failure (it silently cancels the
+    tests behind it); a listed file that ran no tests; a listed file where
+    more than half of the tests that ran failed (not timing-flake territory);
+    a shard without its JSON report."""
     lines, flaky, unexplained = [], set(), False
     shards = _SHARD_RE.findall(run_tests_output)
     if raw_rc != 0 and not any(rc != "0" for _, rc, _ in shards):
         lines.append(f"TESTS-RED run_tests.py RC={raw_rc} with no red shard (table/coverage error)")
         unexplained = True
-    for name, rc, log in shards:
-        if rc == "0":
-            continue
-        failed = failing_tests(Path(log).read_text(encoding="utf-8", errors="replace"), clone)
-        if not failed:
-            lines.append(f"TESTS-RED shard {name} RC={rc} with no failing test named (load/compile error?)")
+    ran, failed_by_file = {}, {}
+    for shard, rc, log in shards:
+        report_path = Path(log).with_suffix(".json")
+        if not report_path.is_file():
+            lines.append(f"TESTS-RED shard {shard}: no JSON report at {report_path}")
             unexplained = True
-        for test in sorted(failed):
-            test_file = test.split(": ", 1)[0]
-            if test_file in QUARANTINED_FILES:
+            continue
+        results = test_results(report_path.read_text(encoding="utf-8", errors="replace"), clone)
+        failures = [(f, n) for f, n, outcome in results if outcome == "fail"]
+        for test_file, name, outcome in results:
+            if outcome != "skip":
+                ran[test_file] = ran.get(test_file, 0) + 1
+        if rc != "0" and not failures:
+            lines.append(f"TESTS-RED shard {shard} RC={rc} with no failing test in its report")
+            unexplained = True
+        for test_file, name in sorted(failures):
+            test = f"{test_file}: {name}"
+            structural = name.startswith("loading ") or name.endswith(_STRUCTURAL)
+            if test_file in QUARANTINED_FILES and not structural:
                 flaky.add(test)
+                failed_by_file[test_file] = failed_by_file.get(test_file, 0) + 1
                 lines.append(f"FLAKY-KNOWN {test} (quarantined file; evidence: "
                              f"{QUARANTINED_FILES[test_file]})")
             else:
                 lines.append(f"TESTS-RED {test}")
+                unexplained = True
+    if shards:
+        for test_file in sorted(QUARANTINED_FILES):
+            executed = ran.get(test_file, 0)
+            failed = failed_by_file.get(test_file, 0)
+            if executed == 0:
+                lines.append(f"TESTS-RED quarantined file {test_file} ran no tests")
+                unexplained = True
+            elif failed * 2 > executed:
+                lines.append(f"TESTS-RED quarantined file {test_file}: {failed} of {executed} "
+                             "tests failed (>50%: wholesale failure, not a timing flake)")
                 unexplained = True
     rc = 1 if unexplained else 0
     lines.append(f"TESTS-VERDICT raw_rc={raw_rc} flaky_known={len(flaky)} rc={rc}")

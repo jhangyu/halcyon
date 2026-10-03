@@ -437,6 +437,7 @@ RUNNER_HOST: dict = {
 # container when the host is not that runner itself. Where docker is absent
 # the leg is a printed, counted skip, never a silent one.
 RUNNER_CONTAINER: dict = {
+    "ubuntu-latest": ("ubuntu:24.04", "linux/amd64"),
     "ubuntu-24.04-arm": ("ubuntu:24.04", "linux/arm64"),
 }
 

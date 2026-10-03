@@ -1,9 +1,11 @@
 """prepush.judge_tests: the quarantine may explain a red tests step only when
-EVERY failure in EVERY red shard is a test inside a QUARANTINED_FILES file.
+EVERY failure in EVERY red shard is a timing-sized failure inside a
+QUARANTINED_FILES file (results read from the shard's JSON report).
 stdlib only."""
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -13,50 +15,101 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from ci import prepush  # noqa: E402
 
 CLONE = Path("C:/scratch/Halcyon") if sys.platform == "win32" else Path("/scratch/Halcyon")
-QUARANTINED_FILE = next(iter(prepush.QUARANTINED_FILES))
-QUARANTINED = f"{QUARANTINED_FILE}: any test name in that file"
+LISTED = next(iter(prepush.QUARANTINED_FILES))
 
 
-def _fail_line(name):
-    return f"00:08 +77 ~1 -1: {CLONE.as_posix()}/{name} [E]"
+def _report(results):
+    """JSON-reporter lines for [(file, name, outcome[, hidden])]."""
+    events, suites = [], {}
+    for i, (path, name, outcome, *hidden) in enumerate(results):
+        if path not in suites:
+            suites[path] = len(suites)
+            events.append({"type": "suite", "suite": {"id": suites[path],
+                                                      "path": f"{CLONE.as_posix()}/{path}"}})
+        events.append({"type": "testStart", "test": {"id": 100 + i, "name": name,
+                                                     "suiteID": suites[path]}})
+        events.append({"type": "testDone", "testID": 100 + i, "hidden": bool(hidden),
+                       "skipped": outcome == "skip",
+                       "result": "success" if outcome in ("pass", "skip") else "failure"})
+    return "\n".join(json.dumps(e) for e in events)
+
+
+def _all_listed_pass(n=4):
+    return [(f, f"t{k}", "pass") for f in prepush.QUARANTINED_FILES for k in range(n)]
 
 
 class TestJudgeTests(unittest.TestCase):
-    def _run(self, shard_logs, raw_rc):
+    def _run(self, shards, raw_rc):
+        """shards: [(rc, results or None for a missing JSON report)]."""
         with tempfile.TemporaryDirectory() as tmp:
             out = []
-            for i, (rc, text) in enumerate(shard_logs):
+            for i, (rc, results) in enumerate(shards):
                 log = Path(tmp, f"tests-s{i}.txt")
-                log.write_text(text, encoding="utf-8")
+                log.write_text("", encoding="utf-8")
+                if results is not None:
+                    log.with_suffix(".json").write_text(_report(results), encoding="utf-8")
                 out.append(f"SHARD s{i}: files=1 declared=1 executed=1 passed=0 failed=1 "
                            f"skipped=0 elapsed=1.0s load=unavailable RC={rc} log={log}")
             return prepush.judge_tests("\n".join(out), raw_rc, CLONE)
 
-    def test_any_failure_inside_a_quarantined_file_is_flaky_not_red(self):
-        rc, flaky, _ = self._run([(1, _fail_line(QUARANTINED)), (0, "")], raw_rc=1)
+    def test_a_timing_sized_failure_inside_a_listed_file_is_flaky_not_red(self):
+        rc, flaky, _ = self._run([(1, [(LISTED, "flaky one", "fail")]),
+                                  (0, _all_listed_pass())], raw_rc=1)
         self.assertEqual((rc, flaky), (0, 1))
 
-    def test_an_unlisted_file_stays_red_even_beside_a_quarantined_one(self):
-        text = _fail_line(QUARANTINED) + "\n" + _fail_line("test/x_test.dart: a real failure")
-        rc, flaky, lines = self._run([(1, text)], raw_rc=1)
+    def test_an_unlisted_file_stays_red_even_beside_a_listed_one(self):
+        results = [(LISTED, "flaky one", "fail"), ("test/x_test.dart", "a real failure", "fail")]
+        rc, flaky, lines = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
         self.assertEqual((rc, flaky), (1, 1))
         self.assertIn("TESTS-RED test/x_test.dart: a real failure", lines)
 
-    def test_a_quarantined_file_that_fails_to_load_stays_red(self):
-        line = f"00:00 +0 -1: loading {CLONE.as_posix()}/{QUARANTINED_FILE} [E]"
-        rc, flaky, _ = self._run([(1, line)], raw_rc=1)
+    def test_setupall_failure_in_a_listed_file_is_red(self):
+        results = [(LISTED, "group (setUpAll)", "fail", True)]
+        rc, flaky, _ = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
         self.assertEqual((rc, flaky), (1, 0))
 
-    def test_red_shard_without_a_named_failure_is_red(self):
-        rc, _, _ = self._run([(1, "Error: Compilation failed.")], raw_rc=1)
+    def test_teardownall_failure_in_a_listed_file_is_red(self):
+        results = [(LISTED, "(tearDownAll)", "fail", True)]
+        rc, _, _ = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
+        self.assertEqual(rc, 1)
+
+    def test_a_listed_file_that_fails_to_load_is_red(self):
+        results = [(LISTED, f"loading {CLONE.as_posix()}/{LISTED}", "fail", True)]
+        rc, flaky, _ = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
+        self.assertEqual((rc, flaky), (1, 0))
+
+    def test_a_listed_file_that_ran_no_tests_is_red(self):
+        others = [r for r in _all_listed_pass() if r[0] != LISTED]
+        rc, _, lines = self._run([(0, others + [(LISTED, "all skipped", "skip")])], raw_rc=0)
+        self.assertEqual(rc, 1)
+        self.assertIn(f"TESTS-RED quarantined file {LISTED} ran no tests", lines)
+
+    def test_more_than_half_of_a_listed_file_failing_is_red(self):
+        others = [r for r in _all_listed_pass() if r[0] != LISTED]
+        mine = [(LISTED, "a", "fail"), (LISTED, "b", "fail"), (LISTED, "c", "pass")]
+        rc, flaky, _ = self._run([(1, others + mine)], raw_rc=1)
+        self.assertEqual((rc, flaky), (1, 2))
+
+    def test_exactly_half_failing_is_still_timing_territory(self):
+        others = [r for r in _all_listed_pass() if r[0] != LISTED]
+        mine = [(LISTED, "a", "fail"), (LISTED, "b", "pass")]
+        rc, flaky, _ = self._run([(1, others + mine)], raw_rc=1)
+        self.assertEqual((rc, flaky), (0, 1))
+
+    def test_a_shard_without_its_json_report_is_red(self):
+        rc, _, _ = self._run([(0, None), (0, _all_listed_pass())], raw_rc=0)
+        self.assertEqual(rc, 1)
+
+    def test_red_shard_without_a_failing_test_is_red(self):
+        rc, _, _ = self._run([(1, _all_listed_pass())], raw_rc=1)
         self.assertEqual(rc, 1)
 
     def test_nonzero_runner_rc_without_a_red_shard_is_red(self):
-        rc, _, _ = self._run([(0, "")], raw_rc=2)
+        rc, _, _ = self._run([(0, _all_listed_pass())], raw_rc=2)
         self.assertEqual(rc, 1)
 
     def test_all_green_is_green(self):
-        self.assertEqual(self._run([(0, "")], raw_rc=0)[:2], (0, 0))
+        self.assertEqual(self._run([(0, _all_listed_pass())], raw_rc=0)[:2], (0, 0))
 
     def test_every_quarantined_file_exists_and_cites_evidence(self):
         repo = Path(__file__).resolve().parents[3]
@@ -65,7 +118,7 @@ class TestJudgeTests(unittest.TestCase):
                 self.assertTrue(path.startswith("test/") and path.endswith("_test.dart"))
                 self.assertTrue((repo / path).is_file(), f"{path} does not exist")
                 self.assertRegex(evidence, r"(run[0-4][^,]*\.log|quiet-tests\.log|"
-                                           r"serial-diag\.txt|isolate-\w+\.txt)")
+                                           r"serial-diag\.txt|isolate-\w+\.txt|v-r3D-tests\.log)")
 
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github" / "workflows"

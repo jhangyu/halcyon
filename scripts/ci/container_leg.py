@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -65,20 +66,37 @@ def main(argv=None):
     if errors:
         print("\n".join(f"UNCLASSIFIED {e}" for e in errors))
         return 1
+    _, flutter_versions = prepush.workflow_pins(clone / ".github" / "workflows")
     failed = 0
     for name, tail in prepush.leg_steps(steps):
+        if tail[0] != "provision" and shutil.which("flutter") is None:
+            # The workflow's `uses: subosito/flutter-action` step has no run
+            # line to derive; legs whose provision does not install Flutter
+            # get the same pinned SDK the workflows name.
+            rc = run.run_logged([sys.executable, os.fspath(clone / "scripts" / "ci" / "install_flutter.py"),
+                                 "--tag", sorted(flutter_versions)[0], "--dest", "~/flutter"],
+                                out / "install-flutter.txt", cwd=clone).returncode
+            print(f"CONTAINER-STEP install-flutter RC={rc}", flush=True)
+            _apply_github_path(github_path)
+            if rc:
+                failed += 1
+                break
         rc = run.run_logged([sys.executable, os.fspath(clone / "scripts" / "ci.py"), *tail],
                             out / f"{name}.txt", cwd=clone).returncode
         print(f"CONTAINER-STEP {name} RC={rc}", flush=True)
         failed += rc != 0
-        # Emulates the runner: entries a step appended to $GITHUB_PATH reach later steps.
-        added = [l for l in github_path.read_text(encoding="utf-8").splitlines() if l]
-        os.environ["PATH"] = os.pathsep.join([*reversed(added), os.environ["PATH"]])
-        github_path.write_text("", encoding="utf-8")
+        _apply_github_path(github_path)
         if tail[0] == "assert-capabilities" and rc == 0:
             failed += _assert_with_system_libs_hidden(name, tail, clone, out, run)
     print(f"CONTAINER-SUMMARY runner={args.runner} failed={failed}")
     return 1 if failed else 0
+
+
+def _apply_github_path(github_path):
+    """Emulates the runner: entries a step appended to $GITHUB_PATH reach later steps."""
+    added = [l for l in github_path.read_text(encoding="utf-8").splitlines() if l]
+    os.environ["PATH"] = os.pathsep.join([*reversed(added), os.environ["PATH"]])
+    github_path.write_text("", encoding="utf-8")
 
 
 def _assert_with_system_libs_hidden(name, tail, clone, out, run):

@@ -266,7 +266,14 @@ def run_shard(shard, files):
     name = shard["name"]
     declared = declared_count(files)
     log_path = report.log_path_for(REPO_ROOT, "tests", name)
-    argv = ["flutter", "test", *[os.fspath(f.relative_to(REPO_ROOT)) for f in files]]
+    # Exact per-test results beside the log: the console reporter throttles
+    # progress lines when not on a terminal, so most test names never appear in
+    # the .txt; prepush's quarantine judge reads this file instead.
+    json_path = log_path.with_suffix(".json")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    argv = ["flutter", "test", "--file-reporter",
+            f"json:{os.fspath(json_path.relative_to(REPO_ROOT))}",
+            *[os.fspath(f.relative_to(REPO_ROOT)) for f in files]]
 
     # A shard time is only interpretable next to the machine load that produced
     # it: on 2026-09-03 this machine carried a load average near 180 from another
