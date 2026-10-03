@@ -60,6 +60,57 @@ EXCLUDED_JOBS = {
 
 TEST_STEP = "tests"
 
+# Known timing-flaky tests (lead ruling 2026-10-03): their failures are counted
+# as flaky_known and printed, never folded into pass; any failure NOT listed
+# here stays hard red, and there is no retry-to-green. Frozen and exact: every
+# key is the `<file>: <full test name>` flutter prints. De-flaking them is
+# campaign work (handed to the planner), not gate work. Evidence for every
+# entry: each failed in one run and passed in another with no code change --
+# full-gate runs tmp/memprofile/prepush-hal/run0-red.log + run1.log, and
+# per-file isolation reruns (3x each) tmp/memprofile/prepush-hal/isolate-rerun.txt.
+_RUN_EVIDENCE = "run0-red.log/run1.log"
+_ISOLATE_EVIDENCE = "isolate-rerun.txt"
+_PRELOAD = "test/services/image_pipeline/image_preload_controller_test.dart: image preload controller "
+_FLOW = "test/services/image_pipeline/image_preload_flow_test.dart: image preload window "
+_YUV = ("test/services/image_pipeline/yuv420_pointer_encode_address_test.dart: "
+        "yuv420 pointer-encode address (2026-09-20 all-RAW crash) ")
+QUARANTINE = {
+    # red in run0, green in run1
+    _PRELOAD + "probe first navigation P3 translated: one-step expensive round trip "
+               "decodes once and retains the PixelPayload": _RUN_EVIDENCE,
+    # red in run1, green in run0
+    _PRELOAD + "raw-decode path TC-079 leaving the tier-2 window evicts the ImageCache "
+               "entry while the payload stays retained": _RUN_EVIDENCE,
+    # isolation: pass / fail / pass; green in both full runs
+    _PRELOAD + "dual window tier2 M5-DW1 tier-2 keys equal the +/-2 band after settle, "
+               "for encoded and pixel payloads alike": _ISOLATE_EVIDENCE,
+    # isolation: pass / pass / fail; green in both full runs
+    _PRELOAD + "raw-decode path TC-078 an expensive payload survives leaving the +/-1 "
+               "STARTUP window and is dropped only on leaving the -3..+5 RETENTION "
+               "window": _ISOLATE_EVIDENCE,
+    # red in run1, green in run0 and isolation 3/3
+    _FLOW + "TC-098c fresh settle decode START order is 0, +1, -1, +2, -2, +3, -3, +4, "
+            "+5 (criterion 4)": _RUN_EVIDENCE,
+    # isolation: pass / pass / fail; green in both full runs
+    _FLOW + "TC-357 width 3 keeps the near-to-far START order: the first three starts "
+            "are distances 0, +1, -1": _ISOLATE_EVIDENCE,
+    # red in run1, green in run0; isolation pass / fail / pass
+    _YUV + "the pointer encoder receives the UPCONVERT DESTINATION address, never the "
+           "released yuv420 source": _RUN_EVIDENCE + " + " + _ISOLATE_EVIDENCE,
+    # red in run1, green in run0
+    _YUV + "the DESTINATION slot is still live at encode time, and its keep-alive "
+           "travels with the address": _RUN_EVIDENCE,
+    # red in run1, green in run0 and isolation 3/3
+    "test/services/image_pipeline/q70_payload_publish_test.dart: TC-1393 (AC4): a payload "
+    "that cannot serve pixels takes the COUNTED file fallback": _RUN_EVIDENCE,
+    # red in run0 (async work after completion), green in run1 and isolation 3/3
+    "test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-160 keeps "
+    "the loaded folder when the file does not exist": _RUN_EVIDENCE,
+}
+
+_FAIL_RE = re.compile(r"^\d+:\d+ \+\d+(?: [~-]\d+)*: (.*) \[E\]$")
+_SHARD_RE = re.compile(r"^SHARD (\S+): .* RC=(\d+) log=(.+?)\s*$", re.MULTILINE)
+
 _JOB_RE = re.compile(r"^  ([\w-]+):\s*$")
 _RUN_RE = re.compile(r"^\s*run:\s*(.*?)\s*$")
 _MATRIX_RE = re.compile(r"^\s*-\s*\{os:\s*([\w.-]+)\s*,\s*target:\s*([\w.-]+)\s*(?:,[^}]*)?\}")
@@ -207,6 +258,7 @@ class Layout:
         self.clone = self.work / "Halcyon"
         self.ceyx = self.work / "ceyx"
         self.cache = self.work.with_name(self.work.name + "-cache")
+        self.flaky_known = 0
 
 
 def _git_head(repo):
@@ -360,9 +412,56 @@ def _step_ci(layout, tail, log_path):
     return rc
 
 
+def failing_tests(shard_log_text, clone):
+    """Exact `<test file>: <test name>` of every `[E]` line in a shard log."""
+    prefix = clone.as_posix().rstrip("/") + "/"
+    names = set()
+    for line in shard_log_text.splitlines():
+        m = _FAIL_RE.match(line.rstrip())
+        if m:
+            name = m.group(1)
+            names.add(name[len(prefix):] if name.startswith(prefix) else name)
+    return names
+
+
+def judge_tests(run_tests_output, raw_rc, clone):
+    """Returns (rc, flaky_known, lines). Green only when every red shard is
+    fully explained by QUARANTINE entries; anything else stays hard red."""
+    lines, flaky, unexplained = [], set(), False
+    shards = _SHARD_RE.findall(run_tests_output)
+    if raw_rc != 0 and not any(rc != "0" for _, rc, _ in shards):
+        lines.append(f"TESTS-RED run_tests.py RC={raw_rc} with no red shard (table/coverage error)")
+        unexplained = True
+    for name, rc, log in shards:
+        if rc == "0":
+            continue
+        failed = failing_tests(Path(log).read_text(encoding="utf-8", errors="replace"), clone)
+        if not failed:
+            lines.append(f"TESTS-RED shard {name} RC={rc} with no failing test named (load/compile error?)")
+            unexplained = True
+        for test in sorted(failed):
+            if test in QUARANTINE:
+                flaky.add(test)
+                lines.append(f"FLAKY-KNOWN {test} (evidence: {QUARANTINE[test]})")
+            else:
+                lines.append(f"TESTS-RED {test}")
+                unexplained = True
+    rc = 1 if unexplained else 0
+    lines.append(f"TESTS-VERDICT raw_rc={raw_rc} flaky_known={len(flaky)} rc={rc}")
+    return rc, len(flaky), lines
+
+
 def _step_tests(layout, log_path):
     argv = [sys.executable, os.fspath(layout.clone / "scripts" / "run_tests.py")]
-    return run.run_logged(argv, log_path, cwd=layout.clone).returncode
+    r = run.run(argv, cwd=layout.clone)
+    output = r.stdout + r.stderr
+    rc, layout.flaky_known, lines = judge_tests(output, r.returncode, layout.clone)
+    for line in lines:
+        if line.startswith(("FLAKY-KNOWN", "TESTS-RED")):
+            print(line)
+    report.write_log(log_path, header=" ".join(r.argv),
+                     body=output + "\n" + "\n".join(lines), rc=rc)
+    return rc
 
 
 def all_steps(layout):
@@ -458,7 +557,12 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
     ci_logs = layout.clone / "build" / "ci-logs"
     if ci_logs.is_dir():
         shutil.copytree(ci_logs, log_dir / "clone-ci-logs", dirs_exist_ok=True)
+    host_excluded = sum("-> excluded: runner" in line for line in derivation)
+    if layout.flaky_known:
+        print(f"WARNING: {layout.flaky_known} quarantined known-flaky test failure(s) -- "
+              "counted as flaky_known, NOT as passed (see FLAKY-KNOWN lines)")
     summary = (f"PREPUSH-SUMMARY steps={len(selected)} failed={failed} "
+               f"flaky_known={layout.flaky_known} host_excluded_legs={host_excluded} "
                f"elapsed={time.monotonic() - started:.1f}s")
     print(summary)
     summary_lines.append(summary)
