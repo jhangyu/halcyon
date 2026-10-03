@@ -433,6 +433,22 @@ RUNNER_HOST: dict = {
     "windows-11-arm": ("windows", "arm64"),
 }
 
+# Runner label -> (docker image, docker --platform) for legs prepush runs in a
+# container when the host is not that runner itself. Replaces
+# local_gate_linux_arm.sh (same image and platform). Where docker is absent the
+# leg is a printed, counted skip, never a silent one.
+RUNNER_CONTAINER: dict = {
+    "ubuntu-24.04-arm": ("ubuntu:24.04", "linux/arm64"),
+}
+
+# Bootstrap installed in a fresh container before container_leg.py can run:
+# python3/git for the runner itself, sudo because targets.py provision argv
+# uses it, and the Flutter Linux desktop toolchain the runner image ships.
+CONTAINER_APT_PACKAGES: tuple = (
+    "python3", "git", "sudo", "ca-certificates", "curl", "xz-utils", "unzip", "zip",
+    "clang", "cmake", "ninja-build", "pkg-config", "libgtk-3-dev", "libglu1-mesa",
+)
+
 # platform.machine().lower() -> the arch spelling RUNNER_HOST uses. Windows
 # reports AMD64/ARM64, macOS x86_64/arm64, Linux x86_64/aarch64.
 HOST_ARCH: dict = {

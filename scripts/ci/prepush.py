@@ -27,11 +27,19 @@ pin-verified copies from this checkout's cache and from a persistent cache
 beside the scratch dir, and whatever the build had to download is copied back
 there, so the build argv stays byte-identical to CI's and bytes are fetched once.
 
+Legs whose runner is another Linux machine run in docker when one answers
+(targets.RUNNER_CONTAINER, container_leg.py: the same derivation, inside the
+runner's image); without docker each is a printed, counted skip. Legs neither
+runnable here nor containerised are counted as excluded_host.
+
 Steps (see `--list`): clone, workflow-lint, toolchain, <derived workflow
-steps>, tests. Each step writes `<log-dir>/<step>.txt` whose last line is
-`RC=<n>`, written by this process; stdout ends with one
-`PREPUSH-SUMMARY steps=<n> failed=<k>` line. `--step NAME` runs one step against
-the existing clone (refused if the clone is missing or not at HEAD).
+steps>, container-<runner>..., tests. Each step writes `<log-dir>/<step>.txt`
+whose last line is `RC=<n>`, written by this process. A full run ends with one
+`PREPUSH-SUMMARY steps=<n> failed=<k> flaky_known= excluded_host= skipped=`
+line; `--step NAME` runs one step against the existing clone (refused if the
+clone is missing or not at HEAD) and ends with `PREPUSH-PARTIAL step=NAME`
+instead, so a single green step never reads as a green gate. The scratch
+workdir carries a marker file; a directory without it is never deleted.
 """
 
 from __future__ import annotations
@@ -190,7 +198,12 @@ def derive_plan(workflows_dir, host=None):
         if legs:
             local = [t for r, t in legs if targets.RUNNER_HOST.get(r) == host]
             for r, t in legs:
-                if t not in local:
+                if t in local:
+                    continue
+                if r in targets.RUNNER_CONTAINER:
+                    derivation.append(f"JOB {label}[{t}] -> container step container-{r} "
+                                      f"(docker {targets.RUNNER_CONTAINER[r]})")
+                else:
                     derivation.append(f"JOB {label}[{t}] -> excluded: runner {r} is "
                                       f"{targets.RUNNER_HOST.get(r)}, host is {host}")
         else:
@@ -214,8 +227,17 @@ def derive_plan(workflows_dir, host=None):
     return steps, derivation, errors
 
 
+def leg_steps(steps):
+    """The target-matrix steps of a derived plan (those carrying --target)."""
+    return [(name, tail) for name, tail in steps if "--target" in tail]
+
+
 def _render_run(raw, target):
     prefix = "python3 scripts/ci.py "
+    if "prepush" in raw:
+        # Never a step: a workflow running the gate would make the gate run
+        # itself, and the inner run deletes the outer run's clone.
+        return None, f"workflow invokes the local-only prepush gate: {raw!r}"
     if not raw.startswith(prefix):
         return None, f"run line is not `{prefix}...`: {raw!r}"
     text = raw[len(prefix):]
@@ -259,6 +281,22 @@ class Layout:
         self.ceyx = self.work / "ceyx"
         self.cache = self.work.with_name(self.work.name + "-cache")
         self.flaky_known = 0
+        self.skipped = 0
+
+
+WORKDIR_MARKER = ".halcyon-prepush-workdir"
+
+
+def remove_workdir(work):
+    """Deletes [work] only if the gate created it (marker present); a --workdir
+    pointing at anything else -- a repo, a home dir -- is refused, not wiped."""
+    work = Path(work)
+    if not work.exists():
+        return
+    if not (work / WORKDIR_MARKER).is_file():
+        raise RuntimeError(f"refusing to delete {work}: no {WORKDIR_MARKER} marker, "
+                           "so prepush did not create it")
+    _rmtree(work)
 
 
 def _git_head(repo):
@@ -330,9 +368,9 @@ def _step_clone(layout, log_path):
         head = _git_head(layout.source)
         if head is None:
             raise RuntimeError(f"{layout.source} is not a git repository")
-        if layout.work.exists():
-            _rmtree(layout.work)
+        remove_workdir(layout.work)
         layout.work.mkdir(parents=True)
+        (layout.work / WORKDIR_MARKER).write_text("created by ci.py prepush\n", encoding="utf-8")
         argv = ["git", "-c", "core.autocrlf=false", "clone", "--quiet",
                 "--config", "core.autocrlf=false",
                 os.fspath(layout.source), os.fspath(layout.clone)]
@@ -412,6 +450,41 @@ def _step_ci(layout, tail, log_path):
     return rc
 
 
+def docker_unavailable_reason():
+    """None when a docker daemon answers; otherwise why the container legs skip."""
+    if shutil.which("docker") is None:
+        return "docker is not installed on this host"
+    if run.run(["docker", "info"]).returncode != 0:
+        return "docker is installed but its daemon does not answer `docker info`"
+    return None
+
+
+def _step_container(layout, runner, log_path):
+    """Runs one container leg (targets.RUNNER_CONTAINER) via container_leg.py.
+    Without docker it is a printed, counted skip -- never a silent pass."""
+    reason = docker_unavailable_reason()
+    if reason:
+        layout.skipped += 1
+        line = f"PREPUSH-SKIP container-{runner}: {reason}"
+        print(line)
+        report.write_log(log_path, header=f"prepush container-{runner}", body=line, rc=0)
+        return 0
+    image, docker_platform = targets.RUNNER_CONTAINER[runner]
+    refs, _ = workflow_pins(layout.clone / ".github" / "workflows")
+    out_dir = log_path.with_suffix("")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap = (
+        "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y "
+        f"--no-install-recommends {' '.join(targets.CONTAINER_APT_PACKAGES)} && "
+        f"python3 /in/Halcyon/scripts/ci/container_leg.py --runner {runner} "
+        f"--ceyx-ref {sorted(refs)[0]} --in /in --out /out"
+    )
+    argv = ["docker", "run", "--rm", "--platform", docker_platform,
+            "-v", f"{os.fspath(layout.work)}:/in:ro", "-v", f"{os.fspath(out_dir)}:/out",
+            image, "sh", "-c", bootstrap]
+    return run.run_logged(argv, log_path, cwd=layout.work).returncode
+
+
 def failing_tests(shard_log_text, clone):
     """Exact `<test file>: <test name>` of every `[E]` line in a shard log."""
     prefix = clone.as_posix().rstrip("/") + "/"
@@ -477,6 +550,10 @@ def all_steps(layout):
     ]
     steps += [(name, (lambda tail: lambda p: _step_ci(layout, tail, p))(tail))
               for name, tail in derived]
+    container_runners = [r for r in targets.RUNNER_CONTAINER
+                         if any(f"container step container-{r} " in d for d in derivation)]
+    steps += [(f"container-{r}", (lambda r: lambda p: _step_container(layout, r, p))(r))
+              for r in container_runners]
     steps.append((TEST_STEP, lambda p: _step_tests(layout, p)))
     return steps, derivation, wf_dir
 
@@ -505,8 +582,11 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
             print(f"STEP {n}")
         return 0
     if step == "cleanup":
-        if layout.work.exists():
-            _rmtree(layout.work)
+        try:
+            remove_workdir(layout.work)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         print(f"PREPUSH-CLEANUP removed {layout.work}")
         return 0
     if step is not None and step not in names:
@@ -519,7 +599,7 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
         if head is None or clone_head != head:
             print(f"ERROR: clone at {layout.clone} is missing or not at HEAD "
                   f"(source {head}, clone {clone_head}); run --step clone first", file=sys.stderr)
-            print("PREPUSH-SUMMARY steps=1 failed=1")
+            print(f"PREPUSH-PARTIAL step={step} RC=1 (clone missing or stale)")
             return 1
 
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -557,24 +637,28 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
     ci_logs = layout.clone / "build" / "ci-logs"
     if ci_logs.is_dir():
         shutil.copytree(ci_logs, log_dir / "clone-ci-logs", dirs_exist_ok=True)
-    host_excluded = sum("-> excluded: runner" in line for line in derivation)
+    excluded_host = sum("-> excluded: runner" in line for line in derivation)
     if layout.flaky_known:
         print(f"WARNING: {layout.flaky_known} quarantined known-flaky test failure(s) -- "
               "counted as flaky_known, NOT as passed (see FLAKY-KNOWN lines)")
-    summary = (f"PREPUSH-SUMMARY steps={len(selected)} failed={failed} "
-               f"flaky_known={layout.flaky_known} host_excluded_legs={host_excluded} "
-               f"elapsed={time.monotonic() - started:.1f}s")
+    counters = (f"failed={failed} flaky_known={layout.flaky_known} "
+                f"excluded_host={excluded_host} skipped={layout.skipped} "
+                f"elapsed={time.monotonic() - started:.1f}s")
+    rc = 1 if failed else 0
+    # A single step is never reported with the full-gate line: a green
+    # `--step X` must not be mistakable for a green gate.
+    summary = (f"PREPUSH-SUMMARY steps={len(selected)} {counters}" if step is None
+               else f"PREPUSH-PARTIAL step={step} RC={rc} {counters}")
     print(summary)
     summary_lines.append(summary)
-    rc = 1 if failed else 0
     report.write_log(log_dir / ("prepush.txt" if step is None else f"prepush-{step}.summary.txt"),
                      header="ci.py prepush" + ("" if step is None else f" --step {step}"),
                      body="\n".join(summary_lines), rc=rc)
     if step is None and not failed and not keep:
         try:
-            _rmtree(layout.work)
+            remove_workdir(layout.work)
             print(f"PREPUSH-CLEANUP removed {layout.work}")
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             print(f"WARN: cleanup of {layout.work} failed: {exc}")
     elif step is None:
         print(f"PREPUSH-KEPT {layout.work}")

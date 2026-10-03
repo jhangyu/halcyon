@@ -58,5 +58,68 @@ class TestJudgeTests(unittest.TestCase):
                 self.assertRegex(evidence, r"(run0-red\.log|isolate-rerun\.txt)")
 
 
+REPO = Path(__file__).resolve().parents[3]
+WORKFLOWS = REPO / ".github" / "workflows"
+
+
+class TestGateSafety(unittest.TestCase):
+    def test_a_workflow_running_prepush_is_a_lint_error_never_a_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "x.yml").write_text(
+                "jobs:\n  gate:\n    steps:\n      - name: gate\n"
+                "        run: python3 scripts/ci.py prepush\n",
+                encoding="utf-8")
+            steps, _, errors = prepush.derive_plan(Path(tmp), host=("windows", "x86_64"))
+        self.assertEqual(steps, [])
+        self.assertTrue(any("prepush" in e for e in errors), errors)
+
+    def test_workdir_without_marker_is_never_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = Path(tmp, "not-ours")
+            victim.mkdir()
+            Path(victim, "precious.txt").write_text("x", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                prepush.remove_workdir(victim)
+            self.assertTrue(Path(victim, "precious.txt").is_file())
+            Path(victim, prepush.WORKDIR_MARKER).write_text("", encoding="utf-8")
+            prepush.remove_workdir(victim)
+            self.assertFalse(victim.exists())
+
+    def test_single_step_prints_partial_never_the_full_summary(self):
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                rc = prepush.main(REPO, step="selftest", workdir=Path(tmp, "none"),
+                                  log_dir=Path(tmp, "logs"))
+        self.assertEqual(rc, 1)
+        self.assertIn("PREPUSH-PARTIAL step=selftest", buf.getvalue())
+        self.assertNotIn("PREPUSH-SUMMARY", buf.getvalue())
+
+
+class TestContainerLeg(unittest.TestCase):
+    def test_container_leg_runs_only_its_target_steps(self):
+        runner = "ubuntu-24.04-arm"
+        steps, _, errors = prepush.derive_plan(WORKFLOWS, host=prepush.targets.RUNNER_HOST[runner])
+        self.assertEqual(errors, [])
+        names = [n for n, _ in prepush.leg_steps(steps)]
+        self.assertIn("build-linux-arm", names)
+        self.assertIn("assert-capabilities-linux-arm", names)
+        self.assertFalse(any(n in ("selftest", "verify") for n in names), names)
+
+    def test_no_docker_is_a_counted_skip(self):
+        from unittest import mock  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = prepush.Layout(REPO, Path(tmp, "w"))
+            log = Path(tmp, "container.txt")
+            with mock.patch.object(prepush, "docker_unavailable_reason", return_value="no docker"):
+                rc = prepush._step_container(layout, "ubuntu-24.04-arm", log)
+            self.assertEqual((rc, layout.skipped), (0, 1))
+            self.assertIn("PREPUSH-SKIP container-ubuntu-24.04-arm", log.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
