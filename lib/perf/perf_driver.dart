@@ -30,8 +30,8 @@
 //                      in-memory store (see installIsolatedPrefs)
 //
 // memgate mode (D5 app gate, tools/memgate/memgate.py app): warm up, walk
-// HALCYON_PERF_N steps (one nextPhoto every HALCYON_PERF_PACE ms, ping-pong at
-// the ends), one `memgate|...` sample every 2 s, idle 15 s, 5 idle samples 2 s
+// HALCYON_PERF_N steps (one forward move every HALCYON_PERF_PACE ms; last -> first is
+// one direct jump, no backward step; each step logs `memgate.step|...|id=`), one `memgate|...` sample every 2 s, idle 15 s, 5 idle samples 2 s
 // apart, then a `memgate|done|t_ms=<n>` line and stay idle (the gate
 // terminates the PID; a one-shot 120 s timer exits 3 if it never does).
 import 'dart:async';
@@ -303,6 +303,20 @@ class PerfDriver {
     PerfLog.flushSync();
   }
 
+  /// Index of the image shown at 0-based walk [step]: forward through the
+  /// folder, wrapping last -> first. Step 0 is the already-selected first
+  /// image; every step displays one image (one full decode in a cold cache).
+  @visibleForTesting
+  static int memgateWalkIndex(int count, int step) => step % count;
+
+  /// Per-step attribution line: lets the gate map each decode to a step.
+  static String formatMemgateStep({
+    required int tMs,
+    required int step,
+    required String id,
+  }) =>
+      'memgate.step|t_ms=$tMs|step=$step|id=$id';
+
   static Future<void> _memgate(AppState state) async {
     _trackImages();
     state.selectItem(state.items.first.id);
@@ -310,17 +324,19 @@ class PerfDriver {
     PerfLog.log('memgate.walk.begin|n=$_n|pace=$_pace');
 
     var step = 0;
-    var forward = true;
     final sampler = Timer.periodic(const Duration(seconds: 2), (_) {
       _memgateSample(state, 'walk', step);
     });
+    final ids = [for (final item in state.items) item.id];
     for (; step < _n; step++) {
-      final before = state.selectedItemID;
-      forward ? state.nextPhoto() : state.previousPhoto();
-      if (state.selectedItemID == before) {
-        forward = !forward;
-        forward ? state.nextPhoto() : state.previousPhoto();
+      final target = memgateWalkIndex(ids.length, step);
+      if (step > 0) {
+        // nextPhoto() does not wrap: the one non-forward move is a direct
+        // jump last -> first, which starts the next pass.
+        target == 0 ? state.selectItem(ids.first) : state.nextPhoto();
       }
+      PerfLog.log(formatMemgateStep(
+          tMs: PerfLog.us ~/ 1000, step: step, id: ids[target]));
       await Future<void>.delayed(Duration(milliseconds: _pace));
     }
     sampler.cancel();

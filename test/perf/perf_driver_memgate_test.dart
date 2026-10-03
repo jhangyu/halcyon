@@ -3,6 +3,7 @@ import 'package:halcyon_flutter/perf/perf_driver.dart';
 
 void main() {
   _completionTests();
+  _walkTests();
   test('TC-1430 memgate sample line carries every field the D5 gate reads', () {
     final line = PerfDriver.formatMemgateSample(
       tMs: 1000,
@@ -62,5 +63,30 @@ void _completionTests() {
     expect(exits, isEmpty);
     await tester.pump(const Duration(seconds: 2));
     expect(exits, [3]);
+  });
+}
+
+void _walkTests() {
+  test('TC-1430 wrap walk: 13 images, 26 steps, one jump, no backward step',
+      () {
+    final idx = [for (var k = 0; k < 26; k++) PerfDriver.memgateWalkIndex(13, k)];
+    expect(idx.first, 0);
+    expect(idx[13], 0, reason: 'step 13 lands on the first image');
+    expect(idx[25], 12, reason: 'step 26 (last, 0-based 25) is the last image');
+    var jumps = 0;
+    for (var k = 1; k < idx.length; k++) {
+      if (idx[k] == idx[k - 1] + 1) continue;
+      expect(idx[k], 0, reason: 'only last->first may break +1');
+      expect(idx[k - 1], 12);
+      jumps++;
+    }
+    expect(jumps, 1);
+  });
+
+  test('TC-1430 per-step line carries step index and image id', () {
+    expect(
+      PerfDriver.formatMemgateStep(tMs: 7, step: 13, id: 'a.raf'),
+      'memgate.step|t_ms=7|step=13|id=a.raf',
+    );
   });
 }
