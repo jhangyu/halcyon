@@ -37,7 +37,6 @@ import '../models/shortcut_bindings.dart';
 import '../views/layout/layout_theme.dart' show LayoutThemeId;
 import 'app_settings.dart';
 import '../services/library/photo_export_service.dart';
-import '../services/platform/working_set_trim.dart';
 import '../services/rename/rename_coordinator.dart';
 
 /// The idle window after which a selection's EXIF read starts. Mirrors the
@@ -680,11 +679,6 @@ class AppState extends ChangeNotifier {
     _exifGeneration++;
     _exifDebounceTimer?.cancel();
     _exifDebounceTimer = null;
-    // The single largest release moment in the app: reset() has just evicted
-    // both ImageCache tiers and dropped every retained payload, and nothing is
-    // about to be re-read, so the page re-fault cost is minimal. Deliberately
-    // bypasses the rate limit.
-    WorkingSetTrim.trimNow();
     _selectedItemID = null;
     notifyListeners();
 
