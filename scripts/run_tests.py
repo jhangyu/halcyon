@@ -90,9 +90,15 @@ _PIPE = "test/services/image_pipeline/"
 
 SHARDS = [
     {
+        # Behavioural parity tests, default-on in the local prepush gate
+        # (parity rule, clause 8). Listed first so first-match-wins claims them.
+        "name": "parity",
+        "paths": ["test/services/image_pipeline/idle_funnel_wiring_test.dart", "test/perf"],
+    },
+    {
         # measured 2026-10-02: 6.1s, load 19.16
         "name": "unit",
-        "paths": ["test/*_test.dart", "test/models", "test/perf", "test/providers"],
+        "paths": ["test/*_test.dart", "test/models", "test/providers"],
     },
     {
         # measured 2026-10-02: 13.0s, load 10.46
