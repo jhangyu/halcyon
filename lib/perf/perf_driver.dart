@@ -298,7 +298,7 @@ class PerfDriver {
       laneWidth: state.decodeLaneWidth,
       funnelCalls: funnel?.$1,
       deviceReleaseRuns: funnel?.$2,
-      displayedRedecodes: null,
+      displayedRedecodes: state.debugDisplayedRedecodeCount, // M2-ACCEPTANCE-PROBE
     ));
     PerfLog.flushSync();
   }
