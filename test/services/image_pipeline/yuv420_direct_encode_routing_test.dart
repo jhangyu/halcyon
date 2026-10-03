@@ -177,6 +177,7 @@ void main() {
       selectedItemId: 'a',
       notifyLoaded: () {},
     );
+    await pumpUntil(() => yuv420Calls + rgba8Calls + byteCalls > 0);
     await pumpEventLoop(40);
     planarReleasedAfterEncode = planarReleased;
 
