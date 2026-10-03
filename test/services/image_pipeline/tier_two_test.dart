@@ -30,6 +30,7 @@ import 'package:halcyon_flutter/services/image_pipeline/tier_two_scheduler.dart'
 
 import '../../support/preload_fixtures.dart';
 import '../../support/fakes.dart';
+import '../../support/event_loop.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers for the 'tier two scheduler' group
@@ -1299,9 +1300,7 @@ void main() {
 
         // Let the debounce fire, the inline chained load run, ensurePayload
         // land the payload, and the inline upgrade reach its held decode.
-        for (var i = 0; i < 8; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        await pumpUntil(() => decoderCalls >= 1);
         expect(
           decoderCalls,
           1,
@@ -1312,10 +1311,11 @@ void main() {
         // this item is collected as a catch-up upgrade and queued under the
         // DIFFERENT lane key -- exactly the S-1 shape.
         scheduler.schedule(items, 0, () {});
+        // Negative: the turned-away upgrade leaves no observable positive state;
+        // polling cannot prove absence, so this stays a short fixed pump.
         for (var i = 0; i < 8; i++) {
           await Future<void>.delayed(Duration.zero);
         }
-
         expect(
           decoderCalls,
           1,
@@ -1326,9 +1326,8 @@ void main() {
         );
 
         decodeGate.complete();
-        for (var i = 0; i < 8; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        await pumpUntil(() => registry.keyIds.contains('a0'));
+        await pumpEventLoop(8); // exact-set expect below is partly negative
         expect(registry.keyIds, {'a0'});
       },
     );
