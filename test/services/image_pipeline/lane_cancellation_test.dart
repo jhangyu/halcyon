@@ -360,7 +360,10 @@ void main() {
           selectedItemId: items[1].id,
           notifyLoaded: () {},
         );
-        await Future<void>.delayed(Duration.zero);
+        await until(
+          () => controller.debugWindowGeneration > 0,
+          reason: 'the window move to register',
+        );
 
         final beforeGeneration = controller.debugWindowGeneration;
         expect(beforeGeneration, greaterThan(0));
