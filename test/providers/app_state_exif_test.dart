@@ -10,7 +10,6 @@ import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/models/rename_rule.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
-import 'package:halcyon_flutter/services/platform/working_set_trim.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../support/fakes.dart';
@@ -38,12 +37,10 @@ void main() {
     // microtask, so its one `notifyListeners` lands deterministically inside
     // the construction settle and never leaks into the counts below.
     CeyxEncodeService.debugMarkUnavailableForTesting(null);
-    WorkingSetTrim.debugReset();
   });
 
   tearDown(() {
     CeyxEncodeService.resetAvailabilityCacheForTesting();
-    WorkingSetTrim.debugReset();
   });
 
   group('AppState selection EXIF cache', () {

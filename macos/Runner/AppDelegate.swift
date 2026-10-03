@@ -18,7 +18,7 @@ class AppDelegate: FlutterAppDelegate {
   // until Dart registers its handler, so a pressure event that fires during
   // startup is delivered rather than lost.
   //
-  // Why a channel at all, when halcyon/device_memory was deleted (see the note
+  // Why a channel at all, when the macOS-only RAM channel was deleted (see the note
   // further down): total RAM is a value Dart CAN read for itself, so that
   // channel bought nothing. Memory pressure is a PUSH EVENT from the operating
   // system -- there is nothing to poll, so the Dart-side-read replacement is
@@ -61,11 +61,10 @@ class AppDelegate: FlutterAppDelegate {
     })
 
     // Total physical RAM for machine-adaptive cache sizing used to be a
-    // macOS-only MethodChannel here (halcyon/device_memory). It is gone:
-    // Dart side (lib/services/platform/device_memory.dart) now reads RAM
-    // itself via `sysctl`/`/proc/meminfo`/PowerShell per platform, which
-    // works on Linux and Windows too and has no cold-start registration
-    // race with Dart's `main()`.
+    // macOS-only MethodChannel here. It is gone: the Dart side now reads RAM
+    // through the ceyx native export (`ceyxPhysicalMemoryBytes()` from
+    // `package:ceyx/ceyx.dart`), which works on every platform and has no
+    // cold-start registration race with Dart's `main()`.
 
     let openWithChannel = FlutterMethodChannel(name: "halcyon/open_with",
                                                binaryMessenger: controller.engine.binaryMessenger)

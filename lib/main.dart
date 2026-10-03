@@ -1,14 +1,15 @@
 import 'dart:io' show Platform;
+import 'package:ceyx/ceyx.dart' show ceyxPhysicalMemoryBytes;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'memory_pressure_wiring.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1)
 import 'providers/app_state.dart';
+import 'providers/legacy_prefs_migration.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/full_decoder_dispatch.dart';
 import 'services/image_pipeline/retention_policy.dart';
-import 'services/platform/device_memory.dart';
 import 'services/platform/open_with_channel.dart';
 import 'views/layout/layout_registry.dart';
 import 'views/main_screen.dart';
@@ -16,20 +17,13 @@ import 'views/main_screen.dart';
 // ImageCache budget: derived below (S3.1), not Flutter's 100MB default.
 
 void configureImageCache({int? physicalMemoryBytes}) {
-  // S3.1 (2026-09-11), re-derived under spec v2 the same day: the budget is
-  // derived from the DECODED-PIXEL working set the +/-1 band implies, NOT
-  // from a fraction of machine memory and no longer from the retention
-  // window either (ruling R-B abolished window-resolution retention, so a
-  // wider retention window holds more JPEG payloads, not more decoded
-  // images). The memory reading, when DeviceMemory supplies one (macOS only
-  // today; null everywhere else, and Platform.isX branches are forbidden by
-  // C-3), is only a downward safety ceiling. Surplus memory is deliberately
-  // left to the operating system file cache, which accelerates this app's
-  // own reads. See lib/services/image_pipeline/cache_budget.dart for the
-  // full derivation and its attribution evidence.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheBudgetBytes(
-    physicalMemoryBytes: physicalMemoryBytes,
-  );
+  // The budget is derived from the DECODED-PIXEL working set of the +/-1
+  // band, sized for the largest full-resolution image seen so far and grown
+  // as larger ones arrive (ImageCacheBudget, memory-reclamation campaign
+  // M2.2). Machine memory is only a downward safety ceiling. Surplus memory is
+  // deliberately left to the operating system file cache. Full derivation:
+  // lib/services/image_pipeline/cache_budget.dart.
+  ImageCacheBudget.configure(physicalMemoryBytes: physicalMemoryBytes);
 }
 
 Future<void> main() async {
@@ -43,14 +37,17 @@ Future<void> main() async {
   }
   // D5 measurement builds only (compile-time HALCYON_PERF_DRIVER): an in-memory
   // prefs store, so a measured process never touches the user's real store.
+  // Every other build imports, once, the settings store orphaned by 12f5c06
+  // (Windows CompanyName / Linux APPLICATION_ID change), before AppState
+  // hydrates from the same SharedPreferences singleton.
   if (PerfDriver.active) {
     PerfDriver.installIsolatedPrefs();
+  } else {
+    await runLegacyPrefsMigration();
   }
-  // ONE reading, taken before runApp. It must be awaited here rather than
-  // fired off: AppState is constructed on the next line, and a late-arriving
-  // reading would silently leave the app on the floor policy while looking
-  // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
-  final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
+  // ONE reading, taken before runApp, from the same native function the
+  // ceyx decoder's own width recommendation reads (fork A2 removed).
+  final physicalMemoryBytes = ceyxPhysicalMemoryBytes();
   // Retention is resolved here for AppState. It no longer feeds the
   // image-cache budget: spec v2 made that budget band-derived and
   // rung-independent.

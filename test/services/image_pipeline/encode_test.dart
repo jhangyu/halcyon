@@ -179,6 +179,7 @@ void main() {
           notifyLoaded: () {},
         ),
       );
+      await pumpUntil(() => decodeStarts.length >= 2);
       await pumpEventLoop(24);
 
       // Item b's decode has started even though item a's encode has not finished.
@@ -440,6 +441,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
+        await pumpUntil(() => pointerCalls + copyCalls > 0);
         await pumpEventLoop(24);
 
         expect(pointerCalls, 1);

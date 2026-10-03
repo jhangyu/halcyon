@@ -165,6 +165,7 @@ void main() {
       selectedItemId: 'a',
       notifyLoaded: () {},
     );
+    await pumpUntil(() => pointerCalls + copyCalls > 0);
     await pumpEventLoop(24);
 
     return (

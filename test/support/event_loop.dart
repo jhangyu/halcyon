@@ -9,6 +9,23 @@ Future<void> pumpEventLoop(int rounds) async {
   }
 }
 
+/// Polls (10 ms real-time steps, up to [timeout]) until [condition] holds.
+/// Never fails by itself: on timeout it returns false and the caller's own
+/// `expect` reports the failure with its original reason. A fixed
+/// [pumpEventLoop] count cannot wait for real I/O, so under CPU load it ends
+/// before the work does.
+Future<bool> pumpUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) return false;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return true;
+}
+
 /// Runs a scheduled frame callback immediately (synchronously) instead of
 /// waiting for a real frame, which a headless test binding never produces.
 void immediateFrameCallback(void Function() callback) => callback();

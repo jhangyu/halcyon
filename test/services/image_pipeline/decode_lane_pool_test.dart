@@ -13,6 +13,7 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/image_pipeline/stage_widths.dart';
 
+import '../../support/event_loop.dart';
 import '../../support/preload_fixtures.dart';
 
 /// A body that reports when it starts, and finishes when its completer does.
@@ -448,6 +449,7 @@ void main() {
         );
 
         // Let both entrants get past the probe await before anything lands.
+        await pumpUntil(() => loadsByPath.isNotEmpty);
         for (var i = 0; i < 8; i++) {
           await Future<void>.delayed(Duration.zero);
         }

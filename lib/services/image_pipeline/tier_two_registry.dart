@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
+import 'cache_budget.dart';
 import 'photo_payload.dart';
 import 'raw_full_res_image.dart';
 
@@ -98,6 +99,35 @@ class TierTwoRegistry {
 
   ImageCache get _imageCache => PaintingBinding.instance.imageCache;
 
+  /// Residency, the one definition every predicate below uses: the ImageCache
+  /// still holds [key] as PENDING, KEEPALIVE or LIVE.
+  ///
+  /// `ImageCache.containsKey` sees only the first two. An entry the cache's
+  /// LRU dropped while a widget still paints it stays LIVE: it is in memory,
+  /// and resolving its provider is a cache hit through the live branch. A
+  /// containsKey-only answer called that image absent, so the sweep decoded
+  /// it again into a SECOND texture (memory-reclamation campaign M2.1,
+  /// tmp/memprofile/i3/findings.md). Registry-initiated evictions use
+  /// `ImageCache.evict` with its default `includeLive: true`, so they still
+  /// make a key untracked at once.
+  bool _isTracked(Object key) => _imageCache.statusForKey(key).tracked;
+
+  int _displayedRedecodeCount = 0;
+
+  /// Publishes that went ahead while the id's previous entry, for the SAME
+  /// payload object, was still LIVE (being painted): each one is a second
+  /// texture for a displayed image. D5 probe field `displayed_redecodes`.
+  int get displayedRedecodeCount => _displayedRedecodeCount;
+
+  void _countIfDisplayedRedecode(String id, SourcePayload payload) {
+    final previous = _keys[id];
+    if (previous != null &&
+        identical(_sources[id], payload) &&
+        _imageCache.statusForKey(previous).live) {
+      _displayedRedecodeCount++;
+    }
+  }
+
   /// Whether the full-size (tier-2) decode for [id] has COMPLETED and the
   /// resulting ImageCache entry is still resident **for the item's current
   /// payload**. A conjunction of two independent facts, both required
@@ -110,9 +140,10 @@ class TierTwoRegistry {
   ///      synchronously right after `resolve()` inserts the pending entry --
   ///      so a containsKey-only check flips true the instant a ~124ms
   ///      full-frame decode STARTS, not when it lands (BLOCKER 3).
-  ///   2. `identical(decodedFor, current)` + `containsKey(key)` -- the finished
+  ///   2. `identical(decodedFor, current)` + residency (`_isTracked`) -- the finished
   ///      entry is still the one for the CURRENT payload and is still resident,
   ///      not stale bookkeeping for a payload since replaced (BLOCKER 1).
+  ///      `_isTracked` is `containsKey` plus LIVE entries (M2.1).
   ///
   /// Both kinds of payload go through this same conjunction. The pixel kind
   /// used to get its own early return, which meant loosening exactly the terms
@@ -124,7 +155,7 @@ class TierTwoRegistry {
     final decodedFor = _sources[id];
     final current = _currentPayloadFor(id);
     if (decodedFor == null || !identical(decodedFor, current)) return false;
-    return _imageCache.containsKey(key);
+    return _isTracked(key);
   }
 
   /// The full-resolution tier-2 provider for [id], for EITHER tier-2 family
@@ -207,14 +238,15 @@ class TierTwoRegistry {
   /// NEW payload object -- user-visible as "stays blurry until I navigate
   /// away and back", and confirmed by the user's own recovery signature.
   ///
-  /// `containsKey`, not [isReady]: a publish whose decode listener has not
-  /// fired yet is still genuinely in hand (containsKey is true for a pending
-  /// entry too), and answering false there would buy exactly the second
-  /// decode AC-M5-4 forbids.
+  /// `_isTracked`, not [isReady]: a publish whose decode listener has not
+  /// fired yet is still genuinely in hand (it is true for a pending entry
+  /// too), and answering false there would buy exactly the second
+  /// decode AC-M5-4 forbids. `_isTracked` is `containsKey` plus LIVE entries
+  /// (M2.1).
   bool hasFullResEntryFor(String id, SourcePayload payload) {
     if (!identical(_sources[id], payload)) return false;
     final key = _keys[id];
-    return key != null && _imageCache.containsKey(key);
+    return key != null && _isTracked(key);
   }
 
   /// True when a full-resolution upgrade already failed for THIS payload
@@ -255,24 +287,26 @@ class TierTwoRegistry {
     // `_sources`), stranding the item on tier-1 forever.
     //
     // round-2 review re-review (S1): residency is checked with
-    // `_imageCache.containsKey`, NOT [isReady]. [isReady] additionally
+    // `_isTracked`, NOT [isReady]. [isReady] additionally
     // requires the decode LISTENER to have fired, so it is false for the
     // whole window between "registration landed" and "decode completed" --
     // during which the entry is still genuinely resident (containsKey is
     // true for a pending entry, same fact BLOCKER 3 documents on [isReady]
     // itself). Using [isReady] here would have let a same-payload resubmit
     // through mid-decode, buying a second redundant pending registration for
-    // an upgrade already in flight. `containsKey` closes that window while
+    // an upgrade already in flight. `_isTracked` closes that window while
     // still going false -- and so still allowing recovery -- once the entry
-    // is actually evicted.
+    // is actually evicted. `_isTracked` is `containsKey` plus LIVE entries
+    // (M2.1).
     final registeredKey = _keys[id];
     final stillResident = identical(_sources[id], payload) &&
         registeredKey != null &&
-        _imageCache.containsKey(registeredKey);
+        _isTracked(registeredKey);
     if (identical(_pendingEncoded[id], payload) || stillResident) {
       PerfLog.log('publish|id=$id|path=publishEncoded|dup_dropped=1');
       return;
     }
+    _countIfDisplayedRedecode(id, payload);
     _pendingEncoded[id] = payload;
     // PERF-INSTRUMENTATION (D1 AC3 marker, H2): pacing for this path is now
     // decided by the caller (TierTwoScheduler._publishEncodedOrDiscard),
@@ -283,6 +317,8 @@ class TierTwoRegistry {
     late ImageStreamListener listener;
     listener = ImageStreamListener((image, synchronousCall) {
       stream.removeListener(listener);
+      ImageCacheBudget.observeFullResolution(
+          image.image.width, image.image.height);
       // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
       image.dispose();
       _readyIds.add(id);
@@ -343,11 +379,16 @@ class TierTwoRegistry {
     }
     // PERF-INSTRUMENTATION (D1 AC3 marker): only the WINNING writer reaches
     // here, so this is the actual publish, not merely an attempt.
+    _countIfDisplayedRedecode(id, payload);
     PerfLog.log('publish|id=$id|path=$source');
     // Any entry still here is for a DIFFERENT (replaced) payload. Evicting it
     // before the overwrite closes the same orphan leak on the stale-payload
     // path.
     evict(id);
+    // Before the resolve: the budget must already fit this frame, or the
+    // cache could refuse it or LRU-evict a band neighbour to make room
+    // (memory-reclamation campaign M2.2).
+    ImageCacheBudget.observeFullResolution(image.width, image.height);
     final provider = RawFullResImage(
       payloadIdentity: payload,
       width: image.width,

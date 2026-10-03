@@ -952,6 +952,83 @@ def parse_perf_log(text):
             "raw_decodes_per_step": raw, "frame_bytes": frame_bytes}
 
 
+T4_COUNTED_PATHS = ("publishEncoded", "upgrade")
+
+
+T4_WINDOW_STEP = 12
+
+
+def t4_analysis(text, expected_ids=13):
+    """T4 tier-2 publish counter. Window W2 = [memgate.step line of step 12, memgate.walk.end),
+    in log order. Counted line: publish| with path publishEncoded or upgrade and neither
+    dup_dropped=1 nor cache_refused=1. Filing is per id over the window, not per step: the jump's
+    selected-item publish is synchronous and precedes its own step marker. valid is False when the
+    window cannot be established, the walk does not name expected_ids distinct ids, or W2 holds a
+    rawDecode=true req_end or a reencode.submit (payloads not stable)."""
+    step_ids, first_pass, w2 = [], {}, {}
+    in_w2, w2_start_seen, w2_end_seen = False, False, False
+    dup_dropped = cache_refused = raw_w2 = reencode_w2 = 0
+    for line in text.splitlines():
+        pf = _perf_fields(line)
+        if pf is None or not pf[1]:
+            continue
+        head, kv = pf[1][0], _kv(pf[1][1:])
+        if head == "memgate.step":
+            if kv.get("id") not in step_ids:
+                step_ids.append(kv.get("id"))
+            if kv.get("step") == T4_WINDOW_STEP and not w2_end_seen:
+                in_w2 = w2_start_seen = True
+        elif head == "memgate.walk.end":
+            if in_w2:
+                w2_end_seen = True
+            in_w2 = False
+        elif head == "publish":
+            if kv.get("dup_dropped") == 1:
+                dup_dropped += 1
+            elif kv.get("cache_refused") == 1:
+                cache_refused += 1
+            elif kv.get("path") in T4_COUNTED_PATHS:
+                table = w2 if in_w2 else first_pass if not w2_start_seen else None
+                if table is not None:
+                    table[kv.get("id")] = table.get(kv.get("id"), 0) + 1
+        elif in_w2 and head == "req_end" and kv.get("rawDecode") == "true":
+            raw_w2 += 1
+        elif in_w2 and head == "reencode.submit":
+            reencode_w2 += 1
+    reasons = []
+    if not w2_start_seen:
+        reasons.append("no memgate.step line for step %d" % T4_WINDOW_STEP)
+    if not w2_end_seen:
+        reasons.append("no memgate.walk.end line after the step-%d marker" % T4_WINDOW_STEP)
+    if len(step_ids) != expected_ids:
+        reasons.append("walk names %d distinct ids, expected %d" % (len(step_ids), expected_ids))
+    if raw_w2:
+        reasons.append("%d req_end rawDecode=true line(s) in W2" % raw_w2)
+    if reencode_w2:
+        reasons.append("%d reencode.submit line(s) in W2" % reencode_w2)
+    for i in step_ids:
+        w2.setdefault(i, 0)
+        first_pass.setdefault(i, 0)
+    total = sum(w2.values())
+    per_id_pass = (w2_start_seen and w2_end_seen and total == len(w2)
+                   and all(n == 1 for n in w2.values()))
+    return {"per_id_pass": per_id_pass, "valid": not reasons, "invalid_reasons": reasons,
+            "w2": w2, "first_pass": first_pass, "total": total, "dup_dropped": dup_dropped,
+            "cache_refused": cache_refused, "raw_w2": raw_w2, "reencode_w2": reencode_w2}
+
+
+def t4_verdict_lines(t):
+    over = {i: n for i, n in t["w2"].items() if n != 1}
+    return [
+        "MEMGATE_TARGET T4.per_id %s   [W2 counted publishes: total=%d over=%s]"
+        % ("PASS" if t["per_id_pass"] else "FAIL", t["total"], over or "none"),
+        "MEMGATE_TARGET T4.valid %s   [%s]" % ("VALID" if t["valid"] else "INVALID",
+                                              "; ".join(t["invalid_reasons"]) or "no rawDecode/reencode in W2"),
+        "MEMGATE_TARGET T4.first_pass REPORT   [per-id counted publishes before W2: %s]" % t["first_pass"],
+        "MEMGATE_TARGET T4.excluded REPORT   [dup_dropped=%d cache_refused=%d]" % (t["dup_dropped"], t["cache_refused"]),
+    ]
+
+
 def lane_width_violations(samples, want):
     return sum(1 for s in samples if s.get("lane_width") != want)
 
@@ -1114,6 +1191,8 @@ def cmd_app(a):
         perf_txt = open(perf_path, encoding="utf-8", errors="replace").read()
         stdio_txt = open(stdio_path, encoding="utf-8", errors="replace").read() if os.path.exists(stdio_path) else ""
         p = parse_perf_log(perf_txt)
+        t4 = t4_analysis(perf_txt)
+        walk_samples = [x for x in p["samples"] if x.get("phase") == "walk"]
         idle_lines = [s for s in p["samples"] if s.get("phase") == "idle"]
         last_idle = idle_lines[-1] if idle_lines else {}
         nontex, tex = split_texture_regions(final["wc_regions_mib"], p["frame_bytes"],
@@ -1145,6 +1224,14 @@ def cmd_app(a):
             "log.raw_decodes_pre_walk": float(p["raw_decodes_per_step"].get(-1, 0)),
             "log.raw_decodes_steps_1_12": float(sum(p["raw_decodes_per_step"].get(k, 0) for k in range(1, 13))),
             "log.raw_decodes_steps_14_25": float(sum(p["raw_decodes_per_step"].get(k, 0) for k in range(14, 26))),
+            "log.t4_w2_total": float(t4["total"]),
+            "log.t4_w2_max_per_id": float(max(t4["w2"].values(), default=0)),
+            "log.t4_first_pass_total": float(sum(t4["first_pass"].values())),
+            "log.t4_per_id_pass": 1.0 if t4["per_id_pass"] else 0.0,
+            "log.t4_valid": 1.0 if t4["valid"] else 0.0,
+            "log.cache_refused_lines": float(t4["cache_refused"]),
+            "log.dup_dropped_lines": float(t4["dup_dropped"]),
+            "log.displayed_redecodes_final": walk_samples[-1].get("displayed_redecodes") if walk_samples else None,
             "store.changes": float(len(changes)),
             "process.alive_at_final": 1.0 if alive else 0.0,
         }
@@ -1175,6 +1262,7 @@ def cmd_app(a):
               "stdio.log bytes: %d" % len(stdio_txt.encode("utf-8", "replace")), "")
 
         lines, rc_total = judge(expects, reports, values)
+        lines[-1:-1] = t4_verdict_lines(t4)
         if changes:
             lines.insert(0, "R11_HARD_STOP user store changed: %s" % "; ".join(changes))
             rc_total = 1
