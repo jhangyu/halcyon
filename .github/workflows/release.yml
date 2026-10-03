@@ -88,9 +88,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jhangyu/ceyx
-          ref: 0f0a691b12008f698213c459db8a05931b68461d
+          ref: ebf13b05a3c5fe09fee1703edd95d12fd5609fb2
           path: ceyx
-          # CAMPAIGN-LOCAL PIN (unpushed ceyx hash) - release chain MUST repin to the released tag
+          # pinned to pushed ceyx main (M5 merge); release chain repins to the released tag
 
       # architecture: the action's own default is runner.arch, so every leg but
       # windows-arm is unchanged. Flutter 3.44.6 ships no windows-arm64 SDK, so
