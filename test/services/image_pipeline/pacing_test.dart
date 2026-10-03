@@ -417,11 +417,11 @@ void main() {
       expect(runs, 0, reason: 'a slot must never be granted synchronously');
       expect(scheduler.debugPendingCount, 1);
 
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
       expect(runs, 1);
       expect(scheduler.debugPendingCount, 0);
 
-      await pumpEventLoop(8);
+      await pumpEventLoop(8); // negative: runs stays 1
       expect(runs, 1, reason: 'exactly once per schedule call');
     });
 
@@ -434,7 +434,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
 
       expect(runs, 1, reason: 'an animating app must not stall a publish');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -450,7 +450,7 @@ void main() {
       var runs = 0;
 
       scheduler.schedule(() => runs++);
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -522,7 +522,7 @@ void main() {
       // Advance the fake clock past the settle window with no further input.
       fakeNow = fakeNow.add(const Duration(milliseconds: 151));
       expect(scheduler.debugIsIdle, true);
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
       expect(runs, 1, reason: 'once quiet, the idle path must run it');
       expect(scheduler.debugIdleRuns, 1);
       expect(scheduler.debugSafeguardRuns, 0);
@@ -538,7 +538,7 @@ void main() {
       expect(scheduler.debugIsIdle, true);
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
 
       expect(runs, 1);
       expect(scheduler.debugIdleRuns, 1);
@@ -560,7 +560,7 @@ void main() {
       scheduler.noteInputActivity();
       var runs = 0;
       scheduler.schedule(() => runs++);
-      await pumpEventLoop(8);
+      await pumpUntil(() => runs >= 1);
 
       expect(runs, 1, reason: 'the safeguard must still be unconditional');
       expect(scheduler.debugSafeguardRuns, 1);
@@ -578,7 +578,7 @@ void main() {
 
       var hookRuns = 0;
       hook(() => hookRuns++);
-      await pumpEventLoop(8);
+      await pumpUntil(() => hookRuns >= 1);
       expect(hookRuns, 1);
 
       await gate();
@@ -994,7 +994,7 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugTierOneKeyIds.contains('c'));
 
       expect(
         controller.debugTierOneKeyIds,
@@ -1015,7 +1015,11 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(
+        () =>
+            controller.debugTierOneKeyIds.contains('c') &&
+            frames.armedCount > 0,
+      );
       // (q70 rewrite) A neighbour's bytes payload is an EncodedPayload, so its
       // paced unit of work is now the payload-driven TIER-2 publish (a tier-1
       // key is no longer registered for a neighbour that is served full-res
@@ -1024,11 +1028,15 @@ void main() {
       final afterSelection = controller.debugTierTwoKeyIds.length;
 
       frames.frame();
-      await pumpEventLoop(24);
+      await pumpUntil(
+        () => controller.debugTierTwoKeyIds.length >= afterSelection + 1,
+      );
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 1);
 
       frames.frame();
-      await pumpEventLoop(24);
+      await pumpUntil(
+        () => controller.debugTierTwoKeyIds.length >= afterSelection + 2,
+      );
       expect(controller.debugTierTwoKeyIds.length, afterSelection + 2);
     });
 
@@ -1044,16 +1052,20 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(
+        () =>
+            controller.debugTierOneKeyIds.contains('c') &&
+            frames.armedCount > 0,
+      );
       // Navigate away so the far neighbours leave the window before their drain.
       await controller.preloadImages(
         items: manyCheapItems(),
         selectedItemId: 'z',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugTierOneKeyIds.contains('z'));
       frames.frame();
-      await pumpEventLoop(24);
+      await pumpEventLoop(24); // negative: no key for a dropped payload
 
       for (final id in controller.debugTierOneKeyIds) {
         expect(
@@ -1088,7 +1100,13 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(
+        () =>
+            controller.debugTierOneKeyIds.contains('c') &&
+            frames.armedCount > 0,
+      );
+      // The expect below is negative: polling cannot prove absence.
+      await pumpEventLoop(8);
 
       expect(
         controller.debugTierOneKeyIds,

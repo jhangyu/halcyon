@@ -26,6 +26,8 @@ import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart'
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:image/image.dart' as img;
 
+import '../../support/event_loop.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -138,9 +140,12 @@ void main() {
     );
     await Future<void>.delayed(Duration.zero);
     gateA.complete();
-    for (var i = 0; i < 80; i++) {
-      await Future<void>.delayed(Duration.zero);
-    }
+    await pumpUntil(
+      () => controller.debugPayloadFor('a') != null && planarReleases >= 1,
+    );
+    // planarReleases == 1 and no leaked checkout are negative: polling cannot
+    // prove absence of a second release.
+    await pumpEventLoop(8);
 
     return (
       planarEncoderCalls: planarEncoderCalls,

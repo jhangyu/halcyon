@@ -230,14 +230,14 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugInflightBytes > 0);
       expect(
         controller.debugInflightBytes,
         greaterThan(0),
         reason: 'bytes must be charged before the decoder returns',
       );
       gate.complete();
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugInflightBytes == 0);
     });
 
     // TC-1044 -- deadlock regression: the byte gate REFUSES an admission and
@@ -335,7 +335,7 @@ void main() {
         reason: 'two full frames must be admitted concurrently',
       );
       encodeGate.complete();
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugInflightBytes == 0);
     });
 
     // TC-1046 -- erratum E-WP2-C2: the charge spans the OFF-LANE ENCODE, not
@@ -361,14 +361,14 @@ void main() {
           notifyLoaded: () {},
         ),
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugInflightBytes > 0);
       expect(
         controller.debugInflightBytes,
         greaterThan(0),
         reason: 'the decode is done but its frame is still alive in the encode',
       );
       encodeGate.complete();
-      await pumpEventLoop(64);
+      await pumpUntil(() => controller.debugInflightBytes == 0);
       expect(
         controller.debugInflightBytes,
         0,
@@ -400,7 +400,8 @@ void main() {
             notifyLoaded: () {},
           )
           .timeout(const Duration(seconds: 5));
-      await pumpEventLoop(64);
+      await pumpUntil(
+          () => attempts.length == 3 && controller.debugInflightBytes == 0);
       expect(
         controller.debugInflightBytes,
         0,
@@ -543,7 +544,9 @@ void main() {
             notifyLoaded: () {},
           )
           .timeout(const Duration(seconds: 5));
-      await pumpEventLoop(64);
+      await pumpUntil(
+          () => controller.debugAdmissionAdjustmentCount == 1 &&
+              controller.debugInflightBytes == 0);
       expect(controller.debugInflightBytes, 0);
       expect(
         controller.debugAdmissionAdjustmentCount,
@@ -682,7 +685,9 @@ void main() {
       await until(() => controller.debugEncodePublishTailBytes > 0);
       controller.dispose();
       encodeGate.complete();
-      await pumpEventLoop(64);
+      await pumpUntil(
+          () => controller.debugInflightBytes == 0 &&
+              controller.debugEncodePublishTailBytes == 0);
       expect(controller.debugInflightBytes, 0);
       expect(controller.debugEncodePublishTailBytes, 0);
     });

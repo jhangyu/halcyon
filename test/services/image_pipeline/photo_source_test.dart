@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/event_loop.dart';
 import '../../support/temp_dirs.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
@@ -1165,9 +1166,7 @@ void main() {
           selectedItemId: 'x',
           notifyLoaded: () {},
         );
-        for (var i = 0; i < 24; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        await pumpUntil(() => gate.requests > 0);
 
         expect(
           gate.requests,

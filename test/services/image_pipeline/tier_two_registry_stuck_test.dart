@@ -23,6 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 
+import '../../support/event_loop.dart';
 import '../../support/preload_fixtures.dart';
 
 Future<ui.Image> _image(int w, int h) {
@@ -137,9 +138,8 @@ void main() {
 
         final loser = await _image(8, 8);
         registry.publishFullRes('IMG_00', payload, loser, () => notifications++);
-        for (var i = 0; i < 10; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        await pumpUntil(() => loser.debugDisposed);
+        await pumpEventLoop(4); // notifications stays 1: negative
 
         expect(notifications, 1,
             reason: 'the losing publish must not notify');
@@ -166,9 +166,8 @@ void main() {
         imageCache.maximumSizeBytes = 1024;
 
         registry.publishFullRes('IMG_00', payload, await _image(64, 64), () {});
-        for (var i = 0; i < 10; i++) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        await pumpUntil(() => registry.hasFullResFailure('IMG_00', payload));
+        await pumpEventLoop(4); // isReady/keyIds expects below are negative
 
         expect(registry.isReady('IMG_00'), isFalse,
             reason: 'a refused frame is not a ready tier-2 entry');

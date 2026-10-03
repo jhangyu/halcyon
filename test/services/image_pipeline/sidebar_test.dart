@@ -450,7 +450,9 @@ void main() {
       final controller = ImagePreloadController(
         imageLoader: needsRawDecodeLoader,
         dngDecoder: decoder.call,
-        payloadEncoder: throwingPayloadEncoder,
+        // The throwing fixture forced the PixelPayload fallback path, whose tier-2 file decode
+        // was masked by the null-orientation bug; production default is the q70 encoder.
+        payloadEncoder: fakeJpegEncoder,
       );
       final items = photoItems(1, extension: 'arw');
       controller.updateTargetSize(800, 600);

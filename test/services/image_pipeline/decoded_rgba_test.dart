@@ -540,6 +540,9 @@ void main() {
         return value;
       });
 
+      await pumpUntil(() => gate.requests >= 1);
+      // The expects below are negative (not settled): polling cannot prove
+      // absence.
       await pumpEventLoop(8);
       expect(
         settled,
@@ -607,7 +610,7 @@ void main() {
       // property below is untouched and still capable of failing: a producer
       // that skips the gate, or asks for two slots, fails it. That was proven
       // by mutation rather than asserted -- tmp/verify/t15a/m8.txt, m9.txt.
-      await pumpEventLoop(8);
+      await pumpUntil(() => gate.requests >= 1);
       gate.openAll();
       final image = await pending;
       addTearDown(image.dispose);
@@ -630,7 +633,8 @@ void main() {
         return value;
       });
 
-      await pumpEventLoop(8);
+      await pumpUntil(() => gate.requests >= 1);
+      await pumpEventLoop(8); // negative: not settled before openAll
       expect(settled, isFalse);
       expect(gate.requests, 1);
 

@@ -18,6 +18,7 @@ import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart'
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 import '../../support/event_loop.dart';
+import '../../support/event_loop.dart' as el;
 import '../../support/fakes.dart';
 
 // Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
@@ -815,6 +816,10 @@ void main() {
           }
           // 60ms: 20ms of margin over the 40ms debounce, enough for the fake
           // (near-instant) decode to also land.
+          await el.pumpUntil(() {
+            final b = controller.imageBytesFor(items[5].id);
+            return b != null && !identical(originalBytes, b);
+          });
           await Future<void>.delayed(const Duration(milliseconds: 60));
 
           final currentBytes = controller.imageBytesFor(items[5].id)!;
@@ -1068,8 +1073,16 @@ void main() {
         clearImageCacheSetUp();
 
         var live = 0;
-        ui.Image.onCreate = (image) => live++;
-        ui.Image.onDispose = (image) => live--;
+        // Only images created after this point count: a disposal of an image
+        // that predates the hooks must not drive the balance negative.
+        final created = Set<ui.Image>.identity();
+        ui.Image.onCreate = (image) {
+          created.add(image);
+          live++;
+        };
+        ui.Image.onDispose = (image) {
+          if (created.contains(image)) live--;
+        };
         addTearDown(() {
           ui.Image.onCreate = null;
           ui.Image.onDispose = null;
@@ -2119,6 +2132,8 @@ void main() {
           );
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
+        await el.pumpUntil(() => targetDecodes() >= 2);
+        await pumpEventLoop(24);
         expect(
           controller.payloadFor(items[8].id),
           isA<PixelPayload>(),
@@ -2176,6 +2191,7 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
+      await el.pumpUntil(() => decodesOfTarget() >= 3 && controller.debugBandEntryFileDecodeCount > 0);
       // The PixelPayload (window-resolution) is retained through the whole
       // excursion: it never leaves the unchanged -3..+5 retention window.
       expect(identical(controller.payloadFor(items[8].id), first), isTrue);
@@ -2719,6 +2735,7 @@ void main() {
           notifyLoaded: () {},
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
+        await el.pumpUntil(() => !controller.debugTierTwoKeyIds.contains(items[8].id));
         expect(
           controller.debugTierTwoKeyIds.contains(items[8].id),
           isFalse,
@@ -2853,6 +2870,7 @@ void main() {
         notifyLoaded: () {},
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
+      await el.pumpUntil(() => targetCalls() >= 3);
       expect(
         targetCalls(),
         3,

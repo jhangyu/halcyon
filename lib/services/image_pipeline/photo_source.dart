@@ -465,7 +465,10 @@ class PhotoSource {
               fullRes: null,
               observedCost: SourceCost.expensive,
               deferred: false,
-              exifOrientation: null,
+              // The bridge answer is the only orientation source for a file the
+              // probe could not measure; carried so the caller memoises it and
+              // the tier-2 file fallback can orient its own fresh decode.
+              exifOrientation: exifOrientation,
               failureCode: null,
               nativeAddress: decoded.nativeAddress,
               nativeKeepAlive: decoded.nativeKeepAlive,
@@ -513,7 +516,7 @@ class PhotoSource {
             fullRes: fullRes,
             observedCost: SourceCost.expensive,
             deferred: false,
-            exifOrientation: null,
+            exifOrientation: exifOrientation,
             failureCode: null,
             nativeAddress: decoded.nativeAddress,
             nativeKeepAlive: decoded.nativeKeepAlive,

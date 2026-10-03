@@ -99,7 +99,8 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpEventLoop(24);
+        await pumpUntil(() => pointerCalls > 0);
+        await pumpEventLoop(24); // copyCalls == 0 / no-fallback are negative
 
         expect(pointerCalls, 1);
         expect(copyCalls, 0, reason: 'AC-8.1: byte encoder must not run');

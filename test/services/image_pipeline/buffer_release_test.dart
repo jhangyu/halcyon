@@ -118,6 +118,7 @@ void main() {
       );
       // Extra pumping AFTER the wait, so a spurious SECOND release would still
       // be caught by the exactly-once assertions below.
+      await pumpUntil(() => controller.payloadFor('a') != null);
       await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<EncodedPayload>());
@@ -181,6 +182,7 @@ void main() {
       );
       // Extra pumping AFTER the wait, so a spurious SECOND release would still
       // be caught by the exactly-once assertion below.
+      await pumpUntil(() => controller.payloadFor('a') != null);
       await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
@@ -234,6 +236,7 @@ void main() {
           'the rotated fallback never returned the native buffer within 5s',
         ),
       );
+      await pumpUntil(() => controller.payloadFor('a') != null);
       await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
@@ -406,13 +409,15 @@ void main() {
           selectedItemId: 'w1-0',
           notifyLoaded: () {},
         );
-        await pumpEventLoop(80);
+        await pumpUntil(() => decoderCalls >= 4 && pool.debugExplicitReleases == decoderCalls);
+        await pumpEventLoop(24);
         await controller.preloadImages(
           items: wave('w2-'),
           selectedItemId: 'w2-0',
           notifyLoaded: () {},
         );
-        await pumpEventLoop(80);
+        await pumpUntil(() => decoderCalls >= 4 && pool.debugExplicitReleases == decoderCalls);
+        await pumpEventLoop(24);
 
         // FIXTURE GUARD, not an AC. A zero-wait count is trivially true for a
         // pool nothing ever asked for a buffer, which is exactly how this test

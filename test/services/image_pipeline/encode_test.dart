@@ -193,7 +193,7 @@ void main() {
       expect(controller.debugEncodeStageRunningCount, greaterThan(0));
 
       encodeGate.complete();
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.payloadFor('a') is EncodedPayload);
       expect(controller.payloadFor('a'), isA<EncodedPayload>());
       expect(controller.debugEncodeStageRunningCount, 0);
     });
@@ -259,7 +259,7 @@ void main() {
           notifyLoaded: () => flushed++,
         ),
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.debugEncodeStageRunningCount > 0);
       // Navigate far enough that 'a' leaves the retention window (-3..+5).
       unawaited(
         controller.preloadImages(
@@ -268,8 +268,10 @@ void main() {
           notifyLoaded: () {},
         ),
       );
+      // Time-budget only: eviction of 'a' has no positive observable to poll.
       await pumpEventLoop(24);
       encodeGate.complete();
+      await pumpUntil(() => flushed > 0 && controller.debugEncodeStageRunningCount == 0);
       await pumpEventLoop(24);
 
       expect(controller.payloadFor('a'), isNull);
@@ -295,7 +297,7 @@ void main() {
         selectedItemId: 'a',
         notifyLoaded: () {},
       );
-      await pumpEventLoop(24);
+      await pumpUntil(() => controller.payloadFor('a') is PixelPayload);
 
       expect(controller.payloadFor('a'), isA<PixelPayload>());
     });
@@ -333,11 +335,12 @@ void main() {
           ),
         );
         // The encode is now parked: bytes are acquired and not yet released.
-        await pumpEventLoop(24);
+        await pumpUntil(() => controller.debugInflightBytes > 0);
 
         controller.dispose();
         encodeGate.complete();
         // The continuation resumes here and runs its `finally` release.
+        await pumpUntil(() => controller.debugInflightBytes == 0);
         await pumpEventLoop(24);
       },
     );
@@ -370,7 +373,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
-        await pumpEventLoop(24);
+        await pumpUntil(() => controller.debugFullResBytesReleasedEarly > 0);
 
         expect(
           controller.debugFullResBytesReleasedEarly,
@@ -442,6 +445,7 @@ void main() {
           notifyLoaded: () {},
         );
         await pumpUntil(() => pointerCalls + copyCalls > 0);
+        await pumpUntil(() => controller.payloadFor('a') != null);
         await pumpEventLoop(24);
 
         expect(pointerCalls, 1);
@@ -495,6 +499,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
+        await pumpUntil(() => controller.payloadFor('a') != null);
         await pumpEventLoop(24);
 
         expect(pointerCalls, 0);
