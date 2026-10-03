@@ -141,7 +141,7 @@ void main() {
       () {
         final source = File(
           'lib/services/image_pipeline/photo_source.dart',
-        ).readAsStringSync();
+        ).readAsStringSync().replaceAll('\r\n', '\n');
         final needle = 'final usePointer = fullRes != null &&\n'
             '        fullRes.image == null &&\n'
             '        fullRes.nativeAddress != 0;';
@@ -222,6 +222,7 @@ void main() {
           selectedItemId: 'a',
           notifyLoaded: () {},
         );
+        await pumpUntil(() => legacyCalls + copyCalls > 0);
         await pumpEventLoop(24);
 
         expect(legacyCalls, 1);
