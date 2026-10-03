@@ -1361,6 +1361,11 @@ class ImagePreloadController {
   /// lives in exactly one place -- see [TierTwoRegistry.isReady].
   bool isFullSizeReady(String id) => _tierTwo.isReady(id);
 
+  /// Publishes that created a second texture for a displayed image
+  /// (D5 probe `displayed_redecodes`); see
+  /// [TierTwoRegistry.displayedRedecodeCount].
+  int get debugDisplayedRedecodeCount => _tierTwo.displayedRedecodeCount;
+
   /// R4 (q70-decouple, 2026-09-29): the bytes a DEFERRED decode really holds
   /// between the decode and the release inside `encodePhase`.
   ///
