@@ -18,6 +18,7 @@ import 'package:halcyon_flutter/services/image_pipeline/raw_full_res_image.dart'
 import '../../support/synthetic_dng.dart';
 import '../../support/temp_dirs.dart';
 import '../../support/event_loop.dart';
+import '../../support/event_loop.dart' as el;
 import '../../support/fakes.dart';
 
 // Drains SYNCHRONOUSLY instead of waiting for a real (disabled-by-default
@@ -815,7 +816,7 @@ void main() {
           }
           // 60ms: 20ms of margin over the 40ms debounce, enough for the fake
           // (near-instant) decode to also land.
-          await pumpUntil(() {
+          await el.pumpUntil(() {
             final b = controller.imageBytesFor(items[5].id);
             return b != null && !identical(originalBytes, b);
           });
@@ -2180,7 +2181,7 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      await pumpUntil(() => decodesOfTarget() >= 3 && controller.debugBandEntryFileDecodeCount > 0);
+      await el.pumpUntil(() => decodesOfTarget() >= 3 && controller.debugBandEntryFileDecodeCount > 0);
       // The PixelPayload (window-resolution) is retained through the whole
       // excursion: it never leaves the unchanged -3..+5 retention window.
       expect(identical(controller.payloadFor(items[8].id), first), isTrue);
@@ -2724,7 +2725,7 @@ void main() {
           notifyLoaded: () {},
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
-        await pumpUntil(() => !controller.debugTierTwoKeyIds.contains(items[8].id));
+        await el.pumpUntil(() => !controller.debugTierTwoKeyIds.contains(items[8].id));
         expect(
           controller.debugTierTwoKeyIds.contains(items[8].id),
           isFalse,
@@ -2859,7 +2860,7 @@ void main() {
         notifyLoaded: () {},
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      await pumpUntil(() => targetCalls() >= 3);
+      await el.pumpUntil(() => targetCalls() >= 3);
       expect(
         targetCalls(),
         3,
