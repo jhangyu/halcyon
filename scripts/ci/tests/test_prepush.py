@@ -30,7 +30,10 @@ def _report(results):
                                                      "suiteID": suites[path]}})
         events.append({"type": "testDone", "testID": 100 + i, "hidden": bool(hidden),
                        "skipped": outcome == "skip",
-                       "result": "success" if outcome in ("pass", "skip") else "failure"})
+                       "result": "failure" if outcome == "fail" else "success"})
+        if outcome == "late-fail":  # "This test failed after it had already completed"
+            events.append({"type": "error", "testID": 100 + i, "isFailure": False,
+                           "error": "This test failed after it had already completed."})
     return "\n".join(json.dumps(e) for e in events)
 
 
@@ -95,6 +98,12 @@ class TestJudgeTests(unittest.TestCase):
         mine = [(LISTED, "a", "fail"), (LISTED, "b", "pass")]
         rc, flaky, _ = self._run([(1, others + mine)], raw_rc=1)
         self.assertEqual((rc, flaky), (0, 1))
+
+    def test_an_error_after_a_passing_testdone_is_a_failure(self):
+        results = [("test/x_test.dart", "passed then errored", "late-fail")]
+        rc, _, lines = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
+        self.assertEqual(rc, 1)
+        self.assertIn("TESTS-RED test/x_test.dart: passed then errored", lines)
 
     def test_a_shard_without_its_json_report_is_red(self):
         rc, _, _ = self._run([(0, None), (0, _all_listed_pass())], raw_rc=0)

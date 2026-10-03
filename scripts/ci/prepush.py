@@ -481,9 +481,12 @@ def _strip_clone(path, clone):
 
 def test_results(json_text, clone):
     """[(test file, test name, outcome)] from a `flutter test` JSON report;
-    outcome is pass / skip / fail. Hidden entries (setUpAll/tearDownAll hooks,
-    `loading`) are kept only when they failed."""
-    suites, tests, results = {}, {}, []
+    outcome is pass / skip / fail. A test with any `error` event is a failure
+    even when its testDone said success: a test can fail AFTER it completed
+    (async work outliving it), and that error arrives as a later event.
+    Hidden entries (setUpAll/tearDownAll hooks, `loading`) are kept only when
+    they failed."""
+    suites, tests, done, errored = {}, {}, {}, set()
     for line in json_text.splitlines():
         try:
             event = json.loads(line)
@@ -497,17 +500,24 @@ def test_results(json_text, clone):
         elif kind == "testStart":
             test = event["test"]
             tests[test["id"]] = (suites.get(test["suiteID"], "?"), test["name"])
-        elif kind == "testDone" and event.get("testID") in tests:
-            path, name = tests[event["testID"]]
-            if event.get("skipped"):
-                outcome = "skip"
-            elif event.get("result") == "success":
-                outcome = "pass"
-            else:
-                outcome = "fail"
-            if event.get("hidden") and outcome != "fail":
-                continue
-            results.append((_strip_clone(path, clone), name, outcome))
+        elif kind == "error":
+            errored.add(event.get("testID"))
+        elif kind == "testDone":
+            done[event.get("testID")] = event
+    results = []
+    for test_id, (path, name) in tests.items():
+        event = done.get(test_id, {})
+        if test_id in errored or (event and event.get("result") != "success"):
+            outcome = "fail"
+        elif not event:
+            continue
+        elif event.get("skipped"):
+            outcome = "skip"
+        else:
+            outcome = "pass"
+        if event.get("hidden") and outcome != "fail":
+            continue
+        results.append((_strip_clone(path, clone), name, outcome))
     return results
 
 
