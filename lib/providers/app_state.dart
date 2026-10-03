@@ -273,6 +273,11 @@ class AppState extends ChangeNotifier {
       // ignore: invalid_use_of_visible_for_testing_member
       _preloadController.debugRetentionIds;
 
+  /// Publishes that created a second texture for a displayed image; the D5
+  /// probe field `displayed_redecodes`. Delegates to the controller.
+  int get debugDisplayedRedecodeCount =>
+      _preloadController.debugDisplayedRedecodeCount;
+
   /// The retained payload for [id] as the controller THIS `AppState` built
   /// reports it -- the DIMENSIONS-capture companion to [debugRetentionIds]:
   /// a slot id alone has no width/height/byte-length without reading back

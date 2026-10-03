@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/painting.dart';
+
+import '../../perf/perf_log.dart';
 import 'prefetch_scheduler.dart';
 
 /// S3.1 (2026-09-11): the Flutter image-cache budget is derived from the
@@ -67,12 +71,23 @@ import 'prefetch_scheduler.dart';
 /// times a measured per-item cost times a headroom factor — and machine memory
 /// only selects WHICH RUNG applies, so S3.1 leaves their values untouched.
 
-/// Full-resolution (tier-2) pixel cost of one item of the cheap 24 MP corpus:
-/// 6000 x 4000 x 4 B RGBA = 91.55 MiB.
+/// What the ImageCache CHARGES per decoded pixel (RGBA8888): the unit
+/// `maximumSizeBytes` is compared against (`ImageInfo.sizeBytes`). The GPU
+/// texture behind an entry costs ~1.6x this (mips allocated at upload plus
+/// tiling, tmp/memprofile/i3/findings.md), but the cache never sees that
+/// factor, so the budget is sized in the cache's own unit.
+const int kDecodedBytesPerPixel = 4;
+
+/// The reference full-resolution item, 6000 x 4000 = 24 MP. The budget is
+/// never sized below it.
 ///
 /// Evidence: `docs/logs/2026-08-23/cache-sizing-estimate.md` §A.4, re-read in
 /// `docs/logs/2026-08-28/cache-sizing-rederivation.md` §1.
-const int kFullResolutionImageByteCost = 96000000;
+const int kReferenceFullResolutionPixels = 24000000;
+
+/// Full-resolution (tier-2) pixel cost of the reference item: 91.55 MiB.
+const int kFullResolutionImageByteCost =
+    kReferenceFullResolutionPixels * kDecodedBytesPerPixel;
 
 /// Window-resolution (tier-1) pixel cost of one item: 18.54 MiB at the
 /// reference 1440x900 logical window and device pixel ratio 2.0.
@@ -153,21 +168,24 @@ int imageCacheBudgetBytesFromWorkingSet({
       : afterSafetyCeiling;
 }
 
-/// The app's image-cache budget.
+/// The app's image-cache budget for a session whose largest full-resolution
+/// image so far has [largestFullResolutionPixels] pixels (never below the
+/// 24 MP reference item).
 ///
-/// Takes no retention argument: since spec v2 every input is derived from
-/// the +/-1 full-resolution BAND, so a wider retention window changes how
-/// many JPEG PAYLOADS are held (`kPayloadByteBudget`'s business) and not
-/// how many decoded images are. [physicalMemoryBytes] is used solely as the
-/// downward safety ceiling described in
-/// [kMachineMemorySafetyCeilingDivisor]; a null reading (every platform
-/// except macOS today) simply means no ceiling applies.
+/// Takes no retention argument: every input is derived from the +/-1
+/// full-resolution BAND. [physicalMemoryBytes] is used solely as the downward
+/// safety ceiling described in [kMachineMemorySafetyCeilingDivisor]; null
+/// means no ceiling applies.
 int imageCacheBudgetBytes({
   int? physicalMemoryBytes,
+  int largestFullResolutionPixels = kReferenceFullResolutionPixels,
 }) {
+  final pixels = largestFullResolutionPixels > kReferenceFullResolutionPixels
+      ? largestFullResolutionPixels
+      : kReferenceFullResolutionPixels;
   return imageCacheBudgetBytesFromWorkingSet(
     fullResolutionBandSlotCount: kFullResolutionBandSlotCount,
-    fullResolutionImageByteCost: kFullResolutionImageByteCost,
+    fullResolutionImageByteCost: pixels * kDecodedBytesPerPixel,
     windowResolutionImageByteCost: kWindowResolutionImageByteCost,
     sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
     safetyFactor: kImageCacheSafetyFactor,
@@ -175,4 +193,60 @@ int imageCacheBudgetBytes({
         ? null
         : physicalMemoryBytes ~/ kMachineMemorySafetyCeilingDivisor,
   );
+}
+
+/// Grows `PaintingBinding.instance.imageCache.maximumSizeBytes` with the
+/// largest full-resolution image this session has decoded (memory-reclamation
+/// campaign M2.2).
+///
+/// A 24 MP-sized budget cannot hold the +/-1 band at 40 MP (3 x 153 MiB >
+/// 382 MiB), so the LRU evicted band neighbours and they were decoded again
+/// on every navigation. Monotonic on purpose: lowering the budget mid-session
+/// would evict the band the user just walked through.
+///
+/// Inert until [configure] runs. Only `main.dart` configures it, so unit tests
+/// that publish tier-2 entries never resize the global cache.
+abstract final class ImageCacheBudget {
+  static bool _configured = false;
+  static int? _physicalMemoryBytes;
+  static int _largestFullResolutionPixels = kReferenceFullResolutionPixels;
+
+  @visibleForTesting
+  static (int, int)? debugLastObserved;
+
+  static int get largestFullResolutionPixels => _largestFullResolutionPixels;
+
+  static void configure({int? physicalMemoryBytes}) {
+    _configured = true;
+    _physicalMemoryBytes = physicalMemoryBytes;
+    PaintingBinding.instance.imageCache.maximumSizeBytes =
+        imageCacheBudgetBytes(
+          physicalMemoryBytes: physicalMemoryBytes,
+          largestFullResolutionPixels: _largestFullResolutionPixels,
+        );
+  }
+
+  static void observeFullResolution(int width, int height) {
+    debugLastObserved = (width, height);
+    if (!_configured) return;
+    final pixels = width * height;
+    if (pixels <= _largestFullResolutionPixels) return;
+    _largestFullResolutionPixels = pixels;
+    final budget = imageCacheBudgetBytes(
+      physicalMemoryBytes: _physicalMemoryBytes,
+      largestFullResolutionPixels: pixels,
+    );
+    final cache = PaintingBinding.instance.imageCache;
+    if (budget <= cache.maximumSizeBytes) return;
+    cache.maximumSizeBytes = budget;
+    PerfLog.log('cache.budget|bytes=$budget|largest_px=$pixels');
+  }
+
+  @visibleForTesting
+  static void debugReset() {
+    _configured = false;
+    _physicalMemoryBytes = null;
+    _largestFullResolutionPixels = kReferenceFullResolutionPixels;
+    debugLastObserved = null;
+  }
 }
