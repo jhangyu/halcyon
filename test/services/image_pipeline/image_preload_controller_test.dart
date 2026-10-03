@@ -2124,6 +2124,8 @@ void main() {
           );
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
+        await el.pumpUntil(() => targetDecodes() >= 2);
+        await pumpEventLoop(24);
         expect(
           controller.payloadFor(items[8].id),
           isA<PixelPayload>(),
