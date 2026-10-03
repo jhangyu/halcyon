@@ -25,12 +25,26 @@
 //   HALCYON_PERF_OUT   log file path (default tmp/verify/perf/run.log)
 //   HALCYON_PERF_N     switches per pass (default 24)
 //   HALCYON_PERF_PACE  ms to wait after a switch settles, paced pass (default 1200)
-//   HALCYON_PERF_MODE  "paced" | "rapid" | "both" (default both)
+//   HALCYON_PERF_MODE  "paced" | "rapid" | "both" (default both) | "memgate"
+//   HALCYON_PERF_PREFS JSON object of unprefixed scalar prefs seeded into the
+//                      in-memory store (see installIsolatedPrefs)
+//
+// memgate mode (D5 app gate, tools/memgate/memgate.py app): warm up, walk
+// HALCYON_PERF_N steps (one forward move every HALCYON_PERF_PACE ms; last -> first is
+// one direct jump, no backward step; each step logs `memgate.step|...|id=`), one `memgate|...` sample every 2 s, idle 15 s, 5 idle samples 2 s
+// apart, then a `memgate|done|t_ms=<n>` line and stay idle (the gate
+// terminates the PID; a one-shot 120 s timer exits 3 if it never does).
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/app_state.dart';
 import '../services/image_pipeline/dart_image_loader.dart';
@@ -46,9 +60,47 @@ import 'perf_log.dart';
 const String _perfDriverEnv = String.fromEnvironment('HALCYON_PERF_DRIVER');
 const bool kPerfDriver = _perfDriverEnv == '1' || _perfDriverEnv == 'true';
 
+typedef _FunnelNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>);
+typedef _FunnelDart = int Function(
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>);
+
 class PerfDriver {
   static bool get active =>
       kPerfDriver && Platform.environment['HALCYON_PERF_DIR'] != null;
+
+  /// D5 measurement runs (memory-reclamation campaign): an IN-MEMORY prefs
+  /// store seeded from HALCYON_PERF_PREFS, so a measured process never reads
+  /// or writes the user's real store (on Windows its location comes from the
+  /// exe's VERSIONINFO, so every local build shares it) and lane width is a
+  /// pinned run parameter. Unprefixed keys; scalar values only.
+  static void installIsolatedPrefs([String? json]) {
+    final decoded = jsonDecode(
+            json ?? Platform.environment['HALCYON_PERF_PREFS'] ?? '{}')
+        as Map<String, dynamic>;
+    final values = <String, Object>{};
+    for (final MapEntry(:key, :value) in decoded.entries) {
+      if (value is bool || value is int || value is double || value is String) {
+        values[key] = value as Object;
+      } else {
+        throw ArgumentError.value(value, key, 'HALCYON_PERF_PREFS scalar');
+      }
+    }
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues(values);
+  }
 
   static String get _dir => Platform.environment['HALCYON_PERF_DIR']!;
   static String get _out =>
@@ -112,6 +164,11 @@ class PerfDriver {
     await Future<void>.delayed(const Duration(milliseconds: 4000));
     PerfLog.log('driver.warmup.done');
 
+    if (_mode == 'memgate') {
+      await _memgate(state);
+      return;
+    }
+
     if (_mode == 'paced' || _mode == 'both') {
       await _pass(state, 'paced', _pace);
     }
@@ -124,6 +181,191 @@ class PerfDriver {
 
     await _microbench(state);
     await _finish();
+  }
+
+  /// One `memgate|...` PerfLog line; the field order and spelling are the
+  /// contract `tools/memgate/memgate.py app` parses. A null counter prints
+  /// `absent`.
+  static String formatMemgateSample({
+    required int tMs,
+    required String phase,
+    required int step,
+    required int liveImageBytes,
+    required int cacheBytes,
+    required int cacheCount,
+    required int laneWidth,
+    required int? funnelCalls,
+    required int? deviceReleaseRuns,
+    required int? displayedRedecodes,
+  }) {
+    String c(int? v) => v?.toString() ?? 'absent';
+    return 'memgate|t_ms=$tMs|phase=$phase|step=$step'
+        '|live_image_bytes=$liveImageBytes|cache_bytes=$cacheBytes'
+        '|cache_count=$cacheCount|lane_width=$laneWidth'
+        '|funnel_calls=${c(funnelCalls)}'
+        '|device_release_runs=${c(deviceReleaseRuns)}'
+        '|displayed_redecodes=${c(displayedRedecodes)}';
+  }
+
+  // Every ui.Image handle created while the memgate run is live, weakly held
+  // so the accounting never extends an image's lifetime. Clones share one GPU
+  // texture, so live bytes are counted once per unique underlying image.
+  static final List<WeakReference<ui.Image>> _handles = [];
+  static final Expando<bool> _disposed = Expando<bool>();
+
+  static void _trackImages() {
+    final prevCreate = ui.Image.onCreate;
+    final prevDispose = ui.Image.onDispose;
+    ui.Image.onCreate = (img) {
+      prevCreate?.call(img);
+      _handles.add(WeakReference(img));
+    };
+    ui.Image.onDispose = (img) {
+      prevDispose?.call(img);
+      _disposed[img] = true;
+    };
+  }
+
+  static int _liveImageBytes() {
+    _handles.removeWhere((r) {
+      final t = r.target;
+      return t == null || _disposed[t] == true;
+    });
+    final uniques = <ui.Image>[];
+    for (final r in _handles) {
+      final img = r.target;
+      if (img == null) continue;
+      if (!uniques.any(img.isCloneOf)) uniques.add(img);
+    }
+    var bytes = 0;
+    for (final u in uniques) {
+      bytes += u.width * u.height * 4;
+    }
+    return bytes;
+  }
+
+  // The native library is already loaded by the decoder; reopening it by file
+  // name returns the same module. Names are data, the control flow is one path.
+  static const _nativeLibraryNames = [
+    'dng_decoder_native.dll',
+    'libdng_decoder_native.dylib',
+    'libdng_decoder_native.so',
+  ];
+  static bool _funnelResolved = false;
+  static _FunnelDart? _funnel;
+
+  /// (funnel_calls, device_release_runs), or null when the loaded library does
+  /// not export `ceyx_debug_idle_funnel_counters` (builds before M1).
+  static (int, int)? _funnelCounters() {
+    if (!_funnelResolved) {
+      for (final name in _nativeLibraryNames) {
+        try {
+          final lib = ffi.DynamicLibrary.open(name);
+          _funnelResolved = true;
+          try {
+            _funnel = lib.lookupFunction<_FunnelNative, _FunnelDart>(
+                'ceyx_debug_idle_funnel_counters');
+          } catch (_) {
+            _funnel = null;
+          }
+          break;
+        } catch (_) {
+          continue;
+        }
+      }
+    }
+    final fn = _funnel;
+    if (fn == null) return null;
+    final p = calloc<ffi.Uint64>(7);
+    try {
+      final rc = fn(p, p + 1, p + 2, p + 3, p + 4, p + 5, p + 6);
+      return rc == 0 ? (p[0], p[1]) : null;
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  static void _memgateSample(AppState state, String phase, int step) {
+    final cache = PaintingBinding.instance.imageCache;
+    final funnel = _funnelCounters();
+    PerfLog.log(formatMemgateSample(
+      tMs: PerfLog.us ~/ 1000,
+      phase: phase,
+      step: step,
+      liveImageBytes: _liveImageBytes(),
+      cacheBytes: cache.currentSizeBytes,
+      cacheCount: cache.currentSize,
+      laneWidth: state.decodeLaneWidth,
+      funnelCalls: funnel?.$1,
+      deviceReleaseRuns: funnel?.$2,
+      displayedRedecodes: null,
+    ));
+    PerfLog.flushSync();
+  }
+
+  /// Index of the image shown at 0-based walk [step]: forward through the
+  /// folder, wrapping last -> first. Step 0 is the already-selected first
+  /// image; every step displays one image (one full decode in a cold cache).
+  @visibleForTesting
+  static int memgateWalkIndex(int count, int step) => step % count;
+
+  /// Per-step attribution line: lets the gate map each decode to a step.
+  static String formatMemgateStep({
+    required int tMs,
+    required int step,
+    required String id,
+  }) =>
+      'memgate.step|t_ms=$tMs|step=$step|id=$id';
+
+  static Future<void> _memgate(AppState state) async {
+    _trackImages();
+    state.selectItem(state.items.first.id);
+    await Future<void>.delayed(const Duration(milliseconds: 4000));
+    PerfLog.log('memgate.walk.begin|n=$_n|pace=$_pace');
+
+    var step = 0;
+    final sampler = Timer.periodic(const Duration(seconds: 2), (_) {
+      _memgateSample(state, 'walk', step);
+    });
+    final ids = [for (final item in state.items) item.id];
+    for (; step < _n; step++) {
+      final target = memgateWalkIndex(ids.length, step);
+      if (step > 0) {
+        // nextPhoto() does not wrap: the one non-forward move is a direct
+        // jump last -> first, which starts the next pass.
+        target == 0 ? state.selectItem(ids.first) : state.nextPhoto();
+      }
+      PerfLog.log(formatMemgateStep(
+          tMs: PerfLog.us ~/ 1000, step: step, id: ids[target]));
+      await Future<void>.delayed(Duration(milliseconds: _pace));
+    }
+    sampler.cancel();
+    _memgateSample(state, 'walk', step);
+    PerfLog.log('memgate.walk.end|steps=$step');
+
+    await Future<void>.delayed(const Duration(seconds: 15));
+    for (var i = 0; i < 5; i++) {
+      _memgateSample(state, 'idle', _n);
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    memgateCompletion(log: PerfLog.log, flush: PerfLog.flushSync);
+  }
+
+  /// End of a memgate run. The gate runs its last process samplers on this PID
+  /// and then terminates it, so the app must NOT exit here (it would race
+  /// them). The one-shot timer only stops a dead gate from orphaning the app.
+  @visibleForTesting
+  static const memgateSafetyExit = Duration(seconds: 120);
+
+  @visibleForTesting
+  static void memgateCompletion({
+    required void Function(String) log,
+    required void Function() flush,
+    void Function(int) exitFn = exit,
+  }) {
+    log('memgate|done|t_ms=${PerfLog.us ~/ 1000}');
+    flush();
+    Timer(memgateSafetyExit, () => exitFn(3));
   }
 
   static Future<void> _pass(AppState state, String label, int paceMs) async {

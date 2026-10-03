@@ -41,6 +41,11 @@ Future<void> main() async {
   if (kPerfLog) {
     PerfLog.initForInteractiveSession();
   }
+  // D5 measurement builds only (compile-time HALCYON_PERF_DRIVER): an in-memory
+  // prefs store, so a measured process never touches the user's real store.
+  if (PerfDriver.active) {
+    PerfDriver.installIsolatedPrefs();
+  }
   // ONE reading, taken before runApp. It must be awaited here rather than
   // fired off: AppState is constructed on the next line, and a late-arriving
   // reading would silently leave the app on the floor policy while looking
