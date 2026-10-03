@@ -38,6 +38,7 @@ metrics: tc_mib, pb_mib, wc_total_mib, wc_max_region_mib, wc_count_ge_16,
 """
 import argparse
 import ast
+import atexit
 import ctypes as C
 import ctypes.wintypes as W
 import datetime
@@ -309,6 +310,107 @@ def _wc_walk(k32, h):
     return round(tot / MIB, 1), sorted(regions, reverse=True)
 
 
+def wc_detail(min_bytes=1 << 20, pid=None):
+    """Committed private PAGE_WRITECOMBINE regions >= min_bytes of this process (or <pid>) with
+    allocation identity, so a residue is judged per AllocationBase rather than per VirtualQuery split."""
+    k32 = C.windll.kernel32
+    k32.VirtualQueryEx.argtypes = [W.HANDLE, C.c_void_p, C.c_void_p, C.c_size_t]
+    k32.VirtualQueryEx.restype = C.c_size_t
+    k32.GetCurrentProcess.restype = W.HANDLE
+    h = k32.GetCurrentProcess() if pid is None else _open_process(pid)
+    try:
+        addr, mbi, out = 0, MBI(), []
+        while k32.VirtualQueryEx(h, C.c_void_p(addr), C.byref(mbi), C.sizeof(mbi)):
+            if (mbi.State == 0x1000 and mbi.Type == 0x20000 and (mbi.Protect & 0x400)
+                    and mbi.RegionSize >= min_bytes):
+                out.append({"base": hex(mbi.BaseAddress or 0), "abase": hex(mbi.AllocationBase or 0),
+                            "bytes": int(mbi.RegionSize), "protect": hex(mbi.Protect),
+                            "alloc_protect": hex(mbi.AllocationProtect),
+                            "state": hex(mbi.State), "type": hex(mbi.Type)})
+            addr = (mbi.BaseAddress or 0) + mbi.RegionSize
+            if addr >= 1 << 47:
+                break
+        return out
+    finally:
+        if pid is not None:
+            _close(h)
+
+
+def wc_alloc_sums(detail):
+    """{AllocationBase: committed WC MiB summed over its regions}, largest first."""
+    sums = {}
+    for r in detail:
+        sums[r["abase"]] = sums.get(r["abase"], 0) + r["bytes"]
+    return {k: round(v / MIB, 1) for k, v in sorted(sums.items(), key=lambda kv: -kv[1])}
+
+
+HEAP_MIN_MIB = 16.0
+
+
+def arena_ranges(dll, export_name):
+    """[{base, bytes}] from dng_debug_arena_ranges (a C++-mangled export; cap grows until untruncated)."""
+    fn = getattr(dll, export_name)
+    fn.argtypes = [C.c_void_p, C.c_size_t]
+    fn.restype = C.c_size_t
+
+    class Rng(C.Structure):
+        _fields_ = [("base", C.c_void_p), ("bytes", C.c_size_t)]
+    cap = max(int(fn(None, 0)), 1)
+    while True:
+        arr = (Rng * cap)()
+        n = int(fn(arr, cap))
+        if n <= cap:
+            return [{"base": hex(arr[i].base or 0), "bytes": int(arr[i].bytes)} for i in range(n)]
+        cap = n
+
+
+def _alloc_mib(sample):
+    sums = {}
+    for r in sample["wc_detail"]:
+        sums[r["abase"]] = sums.get(r["abase"], 0) + r["bytes"]
+    return sums
+
+
+def _in_ranges(addr_hex, ranges):
+    a = int(addr_hex, 16)
+    return any(int(g["base"], 16) <= a < int(g["base"], 16) + g["bytes"] for g in ranges)
+
+
+def alloc_verdict_values(pre, idle1, idle2):
+    """Amended T3 (contract :50) from three samples carrying wc_detail and arena_ranges.
+    ceyx_held_ge16: allocations whose AllocationBase lies in a ceyx arena range with >= 16 MiB committed WC
+    at idle2. ctx_heap_*: allocations outside every arena range with >= 16 MiB at idle2 are excluded only if
+    present at idle1 with byte-identical committed bytes; any other is unproven (counted, not excluded).
+    net_residue: idle2 WC total - pre_decode WC total - excluded heap."""
+    for s in (pre, idle1, idle2):
+        if "wc_detail" not in s or "arena_ranges" not in s:
+            raise GateError("sample lacks wc_detail/arena_ranges (allocation-level judgment impossible)")
+    if not idle2["arena_ranges"]:
+        raise GateError("no arena ranges at idle2: ceyx-held cannot be told from the context heap")
+    min_b = HEAP_MIN_MIB * MIB
+    s1, s2 = _alloc_mib(idle1), _alloc_mib(idle2)
+    held, unproven, heap_b = 0, 0, 0
+    for abase, b in s2.items():
+        if b < min_b:
+            continue
+        if _in_ranges(abase, idle2["arena_ranges"]):
+            held += 1
+        elif s1.get(abase) == b:
+            heap_b += b
+        else:
+            unproven += 1
+    heap_mib = round(heap_b / MIB, 1)
+    return {"alloc.ceyx_held_ge16": float(held), "alloc.ctx_heap_unproven": float(unproven),
+            "alloc.ctx_heap_mib": heap_mib,
+            "alloc.net_residue_mib": round(idle2["wc_total_mib"] - pre["wc_total_mib"] - heap_mib, 1)}
+
+
+def release_gpu_at_exit(dll):
+    """Run ceyx_native_release_gpu (IC9) at interpreter exit, after main() has returned (the verdict is
+    fsynced by then), so the harness's own igvk64 exit crash (0xC0000409) does not occur."""
+    atexit.register(dll.ceyx_native_release_gpu)
+
+
 class PMC(C.Structure):
     _fields_ = [("cb", W.DWORD), ("PageFaultCount", W.DWORD)] + \
                [(n, C.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
@@ -401,9 +503,11 @@ def take_sample(name, t0, cross_check=False):
     pid = os.getpid()
     tc, ninst, per = gpu_total_committed(pid)
     wc_tot, regions = wc_walk()
+    detail = wc_detail()
     s = {"name": name, "t_s": round(time.perf_counter() - t0, 2), "at": now(),
          "tc_mib": tc, "tc_instances": ninst, "tc_per_instance": per,
-         "pb_mib": private_bytes_mib(), "wc_total_mib": wc_tot, "wc_regions_mib": regions}
+         "pb_mib": private_bytes_mib(), "wc_total_mib": wc_tot, "wc_regions_mib": regions,
+         "wc_detail": detail, "wc_alloc_mib": wc_alloc_sums(detail)}
     if cross_check:
         s["tc_mib_getcounter"], s["getcounter_rc"] = gpu_total_committed_getcounter(pid)
     return s
@@ -543,6 +647,8 @@ class Result:
 
 
 def cmd_native(a):
+    if a.cycles < 1:
+        raise SystemExit("--cycles must be >= 1")
     os.makedirs(a.out, exist_ok=True)
     res = Result(os.path.join(a.out, "result.md"))
     log = open(os.path.join(a.out, "native.log"), "w", encoding="utf-8", buffering=1)
@@ -610,6 +716,12 @@ def cmd_native(a):
         d.ceyx_native_idle_shrink.argtypes = [C.c_int32]
         d.ceyx_native_idle_shrink.restype = C.c_int64
         funnel_fn = bind_funnel_counters(d) if has_funnel_counters else None
+        if "ceyx_native_release_gpu" in exports:
+            d.ceyx_native_release_gpu.argtypes = []
+            d.ceyx_native_release_gpu.restype = None
+            release_gpu_at_exit(d)
+        arena_name = next((e for e in exports if "dng_debug_arena_ranges" in e), None)
+        arena_fn = (lambda: arena_ranges(d, arena_name)) if arena_name else None
 
         t0 = time.perf_counter()
         files = []
@@ -623,6 +735,7 @@ def cmd_native(a):
             files.append((name, p, b.value))
 
         samples = {"pre_decode": take_sample("pre_decode", t0, cross_check=True)}
+        samples["pre_decode"]["arena_ranges"] = arena_fn() if arena_fn else None
         P("SAMPLE", json.dumps(samples["pre_decode"]))
 
         work = files * a.passes
@@ -654,35 +767,46 @@ def cmd_native(a):
                 with lock:
                     errors.append(("lane%d" % i, repr(e)))
                     P("LANE_EXCEPTION lane=%d %s" % (i, traceback.format_exc()))
-        threads = [threading.Thread(target=lane, args=(i,)) for i in range(a.threads)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        ev = sorted([(x, 1) for x, _ in spans] + [(y, -1) for _, y in spans])
-        cur = mx = 0
-        for _, s in ev:
-            cur += s
-            mx = max(mx, cur)
-        P("MAX_CONCURRENT_DECODES", mx, "decodes", len(spans), "errors", errors)
+        counters_by = {}
+        for cycle in range(a.cycles):
+            sfx = "" if cycle == 0 else str(cycle + 1)
+            P("CYCLE", cycle + 1, "of", a.cycles)
+            threads = [threading.Thread(target=lane, args=(i,)) for i in range(a.threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            ev = sorted([(x, 1) for x, _ in spans] + [(y, -1) for _, y in spans])
+            cur = mx = 0
+            for _, s in ev:
+                cur += s
+                mx = max(mx, cur)
+            P("MAX_CONCURRENT_DECODES", mx, "decodes", len(spans), "errors", errors)
 
-        samples["after_decode"] = take_sample("after_decode", t0, cross_check=True)
-        P("SAMPLE", json.dumps(samples["after_decode"]))
-        ts = time.perf_counter()
-        shrunk = d.ceyx_native_idle_shrink(a.floor)
-        shrink_ms = (time.perf_counter() - ts) * 1000
-        P("IDLE_SHRINK floor=%d returned=%d ms=%.1f at=%s" % (a.floor, shrunk, shrink_ms, now()))
-        time.sleep(a.idle_wait)
-        samples["idle"] = take_sample("idle", t0, cross_check=True)
-        P("SAMPLE", json.dumps(samples["idle"]))
-        counters = read_funnel_counters(funnel_fn) if funnel_fn else None
-        P("FUNNEL_COUNTERS", json.dumps(counters))
+            samples["after_decode" + sfx] = take_sample("after_decode" + sfx, t0, cross_check=True)
+            samples["after_decode" + sfx]["arena_ranges"] = arena_fn() if arena_fn else None
+            P("SAMPLE", json.dumps(samples["after_decode" + sfx]))
+            ts = time.perf_counter()
+            shrunk = d.ceyx_native_idle_shrink(a.floor)
+            shrink_ms = (time.perf_counter() - ts) * 1000
+            P("IDLE_SHRINK floor=%d returned=%d ms=%.1f at=%s" % (a.floor, shrunk, shrink_ms, now()))
+            P("SAMPLE", json.dumps(take_sample("post_funnel" + sfx, t0)))
+            time.sleep(a.idle_wait)
+            samples["idle" + sfx] = take_sample("idle" + sfx, t0, cross_check=True)
+            samples["idle" + sfx]["arena_ranges"] = arena_fn() if arena_fn else None
+            P("SAMPLE", json.dumps(samples["idle" + sfx]))
+            counters_by[sfx] = read_funnel_counters(funnel_fn) if funnel_fn else None
+            P("FUNNEL_COUNTERS", json.dumps(counters_by[sfx]))
+        counters = counters_by[""]
+        after_keys = [k for k in samples if k.startswith("after_decode")]
         peak = {"name": "peak"}
         for k in ("tc_mib", "pb_mib", "wc_total_mib"):
-            peak[k] = max([s[k] for s in per_decode] + [samples["after_decode"][k]])
-        peak["wc_regions_mib"] = max([s["wc_regions_mib"] for s in per_decode] + [samples["after_decode"]["wc_regions_mib"]],
+            peak[k] = max([s[k] for s in per_decode] + [samples[x][k] for x in after_keys])
+        peak["wc_regions_mib"] = max([s["wc_regions_mib"] for s in per_decode] +
+                                     [samples[x]["wc_regions_mib"] for x in after_keys],
                                      key=lambda r: sum(r))
         samples["peak"] = peak
+        sample_keys = list(SAMPLES) + [k for k in samples if k[-1:].isdigit() and k[:-1] in SAMPLES]
         stdio.flush()
 
         # 3-4. samples and judged values
@@ -693,7 +817,7 @@ def cmd_native(a):
               % (a.floor, shrunk, shrink_ms, samples["idle"]["t_s"] - samples["after_decode"]["t_s"]), "")
         res.w("| sample | t_s | TotalCommitted_MiB (PDH) | TotalCommitted_MiB (Get-Counter) | PrivateBytes_MiB | WC_total_MiB | WC regions >=16 MiB |",
               "|---|---|---|---|---|---|---|")
-        for k in SAMPLES:
+        for k in sample_keys:
             s = samples[k]
             res.w("| %s | %s | %.1f | %s | %.1f | %.1f | %s |" % (
                 k, s.get("t_s", "max-over-decodes"), s["tc_mib"],
@@ -702,26 +826,33 @@ def cmd_native(a):
         res.w("", "peak = per-metric maximum over every post-decode sample (each metric maximised independently;"
               " the peak region list is the sample with the largest WC region sum).", "")
         values = {}
-        for k in SAMPLES:
+        for k in sample_keys:
             for m, v in derive(samples[k]).items():
                 values["%s.%s" % (k, m)] = v
-        for k in SAMPLES:
+        for k in sample_keys:
             values["%s.decode_errors" % k] = float(len(errors))
             values["%s.decodes" % k] = float(len(spans))
         res.w("## 4. Judged values (after_decode / idle)", "")
-        for k in ("after_decode", "idle"):
+        for k in [x for x in sample_keys if x.startswith(("after_decode", "idle"))]:
             for m in METRICS[:6]:
                 res.w("%s.%s = %s" % (k, m, values["%s.%s" % (k, m)]))
         res.w("")
+        if a.cycles >= 2 and arena_fn:
+            values.update(alloc_verdict_values(samples["pre_decode"], samples["idle"], samples["idle2"]))
+            res.w("## 4b. Allocation-level values (amended T3, idle -> idle2)", "",
+                  *["%s = %s" % kv for kv in sorted(values.items()) if kv[0].startswith("alloc.")], "",
+                  "idle2 WC allocations (AllocationBase: MiB): %s" % json.dumps(wc_alloc_sums(samples["idle2"]["wc_detail"])),
+                  "arena ranges at idle2: %s" % json.dumps(samples["idle2"]["arena_ranges"]), "")
 
         # 5-6. funnel counters + stderr markers (read in the idle sample)
         res.w("## 5. Funnel counters (idle sample)", "")
         if counters is None:
             res.w("ceyx_debug_idle_funnel_counters: absent", "")
         else:
-            for k, v in counters.items():
-                values["idle.%s" % k] = float(v)
-                res.w("idle.%s = %d" % (k, v))
+            for sfx, cn in counters_by.items():
+                for k, v in cn.items():
+                    values["idle%s.%s" % (sfx, k)] = float(v)
+                    res.w("idle%s.%s = %d" % (sfx, k, v))
             res.w("")
         err_txt = open(os.path.join(a.out, "native_stderr.log"), encoding="utf-8", errors="replace").read()
         funnel = [ln for ln in err_txt.splitlines() if "[IdleFunnel]" in ln]
@@ -734,7 +865,7 @@ def cmd_native(a):
 
         # 7. verdict
         lines, rc_total = judge(expects, reports, values)
-        count_problem = decode_count_problem(len(spans), len(files), a.passes)
+        count_problem = decode_count_problem(len(spans), len(files), a.passes * a.cycles)
         for bad in ([count_problem] if count_problem else []) + (
                 ["DECODE_ERRORS %s (a gate on fewer decodes is a different gate)" % errors] if errors else []):
             lines.insert(0, bad)
@@ -1129,6 +1260,7 @@ def build_parser():
     n.add_argument("--label", required=True)
     n.add_argument("--threads", type=int, default=2)
     n.add_argument("--passes", type=int, default=2)
+    n.add_argument("--cycles", type=int, default=1, help="decode+funnel+idle cycles in one process (amended T3 needs 2)")
     n.add_argument("--seed", type=int, default=20261003)
     n.add_argument("--floor", type=int, default=2)
     n.add_argument("--idle-wait", type=float, default=12.0)
@@ -1148,7 +1280,7 @@ def build_parser():
     ap_.add_argument("--timeout", type=float, default=420.0, help="seconds from launch to memgate|done")
     ap_.add_argument("--manifest", default=MANIFEST_PATH)
     ap_.add_argument("--corpus", default=None)
-    ap_.add_argument("--store", default=None, help="prefs store to guard (default %%APPDATA%%\jhangy.us\Halcyon)")
+    ap_.add_argument("--store", default=None, help="prefs store to guard (default %%APPDATA%%\\jhangy.us\\Halcyon)")
     ap_.add_argument("--pin-ref", default=None)
     ap_.add_argument("--ceyx-repo", default=os.path.join(os.path.dirname(HALCYON_ROOT), "ceyx"))
     c = sp.add_parser("compare")

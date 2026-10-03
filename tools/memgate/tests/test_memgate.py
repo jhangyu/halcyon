@@ -223,6 +223,41 @@ class Probes(unittest.TestCase):
         tot, regions = memgate.wc_walk()
         self.assertGreaterEqual(tot, 0.0)
 
+    def test_wc_detail_records_address_and_ownership(self):
+        import ctypes as C
+        k32 = C.windll.kernel32
+        k32.VirtualAlloc.restype = C.c_void_p
+        k32.VirtualAlloc.argtypes = [C.c_void_p, C.c_size_t, C.c_uint32, C.c_uint32]
+        k32.VirtualFree.argtypes = [C.c_void_p, C.c_size_t, C.c_uint32]
+        size = 2 << 20
+        p = k32.VirtualAlloc(None, size, 0x3000, 0x404)  # MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE|PAGE_WRITECOMBINE
+        self.assertTrue(p)
+        try:
+            got = [r for r in memgate.wc_detail(min_bytes=1 << 20) if r["base"] == hex(p)]
+            self.assertEqual(len(got), 1)
+            r = got[0]
+            self.assertEqual((r["abase"], r["bytes"], r["protect"], r["state"], r["type"]),
+                             (hex(p), size, "0x404", "0x1000", "0x20000"))
+            self.assertFalse([x for x in memgate.wc_detail(min_bytes=4 << 20) if x["base"] == hex(p)])
+        finally:
+            k32.VirtualFree(p, 0, 0x8000)
+
+    def test_gpu_release_registered_at_exit(self):
+        calls, registered = [], []
+
+        class FakeDll:
+            def ceyx_native_release_gpu(self):
+                calls.append(1)
+        orig = memgate.atexit.register
+        memgate.atexit.register = registered.append
+        try:
+            memgate.release_gpu_at_exit(FakeDll())
+        finally:
+            memgate.atexit.register = orig
+        self.assertEqual(len(registered), 1)
+        registered[0]()
+        self.assertEqual(calls, [1])
+
     def test_pe_exports_reads_python_dll(self):
         dll = os.path.join(os.path.dirname(sys.executable), "python3.dll")
         self.assertIn("Py_Initialize", memgate.pe_exports(dll))
@@ -268,6 +303,81 @@ class DecodeCount(unittest.TestCase):
 
     def test_short_count_flagged(self):
         self.assertIn("actual=25 expected=26", memgate.decode_count_problem(25, 13, 2))
+
+
+class AllocationVerdict(unittest.TestCase):
+    """Amended T3 (contract :50): allocation-level, GPU-context heap excluded only when proven."""
+
+    MIB = 1 << 20
+    ARENA = {"base": hex(0x10000000), "bytes": 256 * (1 << 20)}
+
+    def sample(self, wc_total, allocs, arenas=None):
+        return {"wc_total_mib": wc_total,
+                "wc_detail": [{"base": a, "abase": a, "bytes": int(mib * self.MIB), "protect": "0x404",
+                               "alloc_protect": "0x4", "state": "0x1000", "type": "0x20000"}
+                              for a, mib in allocs],
+                "arena_ranges": [self.ARENA] if arenas is None else arenas}
+
+    def test_steady_heap_excluded_and_net_residue(self):
+        pre = self.sample(0.0, [])
+        i1 = self.sample(17.2, [(hex(0x50000000), 16.0)])
+        i2 = self.sample(17.2, [(hex(0x50000000), 16.0)])
+        v = memgate.alloc_verdict_values(pre, i1, i2)
+        self.assertEqual((v["alloc.ceyx_held_ge16"], v["alloc.ctx_heap_unproven"]), (0.0, 0.0))
+        self.assertEqual(v["alloc.ctx_heap_mib"], 16.0)
+        self.assertAlmostEqual(v["alloc.net_residue_mib"], 1.2)
+
+    def test_growth_between_idles_is_unproven(self):
+        pre = self.sample(0.0, [])
+        i1 = self.sample(17.2, [(hex(0x50000000), 16.0)])
+        i2 = self.sample(17.5, [(hex(0x50000000), 16.25)])
+        v = memgate.alloc_verdict_values(pre, i1, i2)
+        self.assertEqual(v["alloc.ctx_heap_unproven"], 1.0)
+        self.assertEqual(v["alloc.ctx_heap_mib"], 0.0)
+
+    def test_new_at_second_idle_is_unproven(self):
+        v = memgate.alloc_verdict_values(self.sample(0.0, []), self.sample(0.0, []),
+                                         self.sample(20.0, [(hex(0x50000000), 20.0)]))
+        self.assertEqual(v["alloc.ctx_heap_unproven"], 1.0)
+
+    def test_ceyx_held_allocation_counted(self):
+        a = hex(0x10000000 + 4096)
+        i = self.sample(32.0, [(a, 32.0)])
+        v = memgate.alloc_verdict_values(self.sample(0.0, []), i, i)
+        self.assertEqual(v["alloc.ceyx_held_ge16"], 1.0)
+        self.assertEqual(v["alloc.ctx_heap_mib"], 0.0)
+
+    def test_split_regions_summed_per_allocation(self):
+        i = self.sample(20.0, [])
+        i["wc_detail"] = [{"base": hex(0x50000000 + k * 0x1000000), "abase": hex(0x50000000),
+                           "bytes": 10 * self.MIB} for k in range(2)]
+        v = memgate.alloc_verdict_values(self.sample(0.0, []), i, i)
+        self.assertEqual(v["alloc.ctx_heap_mib"], 20.0)
+
+    def test_judge_growth_fails_steady_passes(self):
+        expects = [("T3.held", "alloc.ceyx_held_ge16", "<=", 0.0),
+                   ("T3.heap", "alloc.ctx_heap_unproven", "<=", 0.0),
+                   ("T3.net", "alloc.net_residue_mib", "<=", 16.0)]
+        pre = self.sample(0.0, [])
+        ok = memgate.alloc_verdict_values(pre, self.sample(17.0, [(hex(0x50000000), 16.0)]),
+                                          self.sample(17.0, [(hex(0x50000000), 16.0)]))
+        self.assertEqual(memgate.judge(expects, [], ok)[1], 0)
+        bad = memgate.alloc_verdict_values(pre, self.sample(17.0, [(hex(0x50000000), 16.0)]),
+                                           self.sample(18.0, [(hex(0x50000000), 17.0)]))
+        lines, rc = memgate.judge(expects, [], bad)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("T3.heap" in ln and "verdict=FAIL" in ln for ln in lines))
+
+    def test_empty_arena_ranges_is_error(self):
+        s = self.sample(0.0, [(hex(0x50000000), 16.0)], arenas=[])
+        with self.assertRaises(memgate.GateError):
+            memgate.alloc_verdict_values(s, s, s)
+
+    def test_missing_arena_ranges_is_error(self):
+        s = self.sample(0.0, [])
+        del s["arena_ranges"]
+        with self.assertRaises(memgate.GateError):
+            memgate.alloc_verdict_values(s, s, s)
 
 
 PERF_LOG = "\n".join([
