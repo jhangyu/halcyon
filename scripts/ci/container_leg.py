@@ -9,8 +9,7 @@ derivation prepush.py uses (`derive_plan` with this runner as the host),
 restricted to the target-matrix steps -- the host already ran the
 host-independent ones. Each step writes /out/<step>.txt ending `RC=<n>`.
 
-Instrument check carried over from the retired local_gate_linux_arm.sh: a
-system libheif/libde265 would satisfy the decoder's dlopen and blind the
+Instrument check: a system libheif/libde265 would satisfy the decoder's dlopen and blind the
 capability assertions, so if the image has any, they are hidden (reversible
 rename) and assert-capabilities is re-run as `<step>-system-libs-hidden`.
 """

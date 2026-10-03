@@ -434,9 +434,8 @@ RUNNER_HOST: dict = {
 }
 
 # Runner label -> (docker image, docker --platform) for legs prepush runs in a
-# container when the host is not that runner itself. Replaces
-# local_gate_linux_arm.sh (same image and platform). Where docker is absent the
-# leg is a printed, counted skip, never a silent one.
+# container when the host is not that runner itself. Where docker is absent
+# the leg is a printed, counted skip, never a silent one.
 RUNNER_CONTAINER: dict = {
     "ubuntu-24.04-arm": ("ubuntu:24.04", "linux/arm64"),
 }

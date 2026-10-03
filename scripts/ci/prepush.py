@@ -80,6 +80,9 @@ _RUN_EVIDENCE = "run0-red.log/run1.log"
 _ISOLATE_EVIDENCE = "isolate-rerun.txt"
 _PRELOAD = "test/services/image_pipeline/image_preload_controller_test.dart: image preload controller "
 _FLOW = "test/services/image_pipeline/image_preload_flow_test.dart: image preload window "
+_ADMISSION = ("test/services/image_pipeline/admission_gate_test.dart: "
+              "admission_gate_test.dart (controller) ")
+_ADMISSION_EVIDENCE = "run2.log + isolate-admission.txt"
 _YUV = ("test/services/image_pipeline/yuv420_pointer_encode_address_test.dart: "
         "yuv420 pointer-encode address (2026-09-20 all-RAW crash) ")
 QUARANTINE = {
@@ -114,6 +117,10 @@ QUARANTINE = {
     # red in run0 (async work after completion), green in run1 and isolation 3/3
     "test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-160 keeps "
     "the loaded folder when the file does not exist": _RUN_EVIDENCE,
+    # red in run2, green in run0/run1; isolation 5x: pass / pass / FAIL / pass / pass
+    _ADMISSION + "admission is charged before the decode runs": _ADMISSION_EVIDENCE,
+    # green in all full runs; isolation 5x: pass / FAIL / pass / pass / pass
+    _ADMISSION + "the byte admission is held across the off-lane encode": _ADMISSION_EVIDENCE,
 }
 
 _FAIL_RE = re.compile(r"^\d+:\d+ \+\d+(?: [~-]\d+)*: (.*) \[E\]$")

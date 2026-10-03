@@ -55,7 +55,7 @@ class TestJudgeTests(unittest.TestCase):
         for name, evidence in prepush.QUARANTINE.items():
             with self.subTest(name=name):
                 self.assertTrue(name.startswith("test/") and ".dart: " in name)
-                self.assertRegex(evidence, r"(run0-red\.log|isolate-rerun\.txt)")
+                self.assertRegex(evidence, r"(run0-red\.log|run2\.log|isolate-rerun\.txt|isolate-admission\.txt)")
 
 
 REPO = Path(__file__).resolve().parents[3]
