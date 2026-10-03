@@ -420,6 +420,28 @@ TARGETS: dict = {
     },
 }
 
+# Workflow runner label -> (platform, arch) of the machine that label provisions.
+# Read only by prepush.py to decide which workflow matrix legs this host can run
+# itself: a leg is locally runnable iff its runner equals the host. A new runner
+# label in a workflow matrix with no entry here fails `ci.py prepush` loudly
+# (and the policy test), so a leg can never silently drop out of the local gate.
+RUNNER_HOST: dict = {
+    "macos-14": ("macos", "arm64"),
+    "windows-latest": ("windows", "x86_64"),
+    "ubuntu-latest": ("linux", "x86_64"),
+    "ubuntu-24.04-arm": ("linux", "arm64"),
+    "windows-11-arm": ("windows", "arm64"),
+}
+
+# platform.machine().lower() -> the arch spelling RUNNER_HOST uses. Windows
+# reports AMD64/ARM64, macOS x86_64/arm64, Linux x86_64/aarch64.
+HOST_ARCH: dict = {
+    "amd64": "x86_64",
+    "x86_64": "x86_64",
+    "arm64": "arm64",
+    "aarch64": "arm64",
+}
+
 # Every entry must carry exactly these keys (Plan §2). Enforced by _validate().
 REQUIRED_KEYS = (
     "build_target",

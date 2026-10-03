@@ -584,5 +584,38 @@ class TestAssertionIdsResolve(unittest.TestCase):
                     [a for a in spec["assertions"] if a not in assertions.SUITE], [])
 
 
+class TestPrepushNeverInWorkflows(unittest.TestCase):
+    """2026-10-03 user ruling: `ci.py prepush` runs tests, so it is LOCAL ONLY.
+    Remote CI stays compile-only; no workflow line may mention it. Runs here
+    (selftest, i.e. remote CI) as well as in the gate's own workflow-lint step,
+    because a workflow edit pushed without running the local gate must still
+    be caught somewhere."""
+
+    def _prepush(self):
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from ci import prepush  # noqa: PLC0415
+
+        return prepush
+
+    def test_no_workflow_mentions_prepush(self):
+        self.assertEqual(self._prepush().workflow_hits(WORKFLOWS_DIR), [])
+
+    def test_lint_detects_an_injected_invocation(self):
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "x.yml").write_text("      run: python3 scripts/ci.py prepush\n",
+                                          encoding="utf-8")
+            self.assertEqual(len(self._prepush().workflow_hits(Path(tmp))), 1)
+
+    def test_every_workflow_job_is_classified(self):
+        """A new job or runner label must be classified for the local gate
+        (included, or excluded with a reason) -- never silently dropped."""
+        _steps, _derivation, errors = self._prepush().derive_plan(WORKFLOWS_DIR)
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

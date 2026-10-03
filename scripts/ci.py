@@ -22,6 +22,8 @@ Frozen CLI surface (workflows depend on these exact strings):
     python3 scripts/ci.py release-preflight   --version V --target T [--target T2 ...]
     python3 scripts/ci.py auto-release        --repo OWNER/NAME [--ref main]
     python3 scripts/ci.py --print-plan        --target T
+    python3 scripts/ci.py prepush             [--step S] [--list] [--keep] [--workdir D] [--log-dir D]
+        LOCAL ONLY -- never in .github/workflows (prepush.py workflow-lint + test_policy.py)
 
 If a function in this file grows past 15 lines it belongs in phases.py.
 """
@@ -84,6 +86,14 @@ def build_parser():
                         help="publish a release for pubspec's version if its tag is absent")
     ar.add_argument("--repo", required=True, help="OWNER/NAME")
     ar.add_argument("--ref", default="main", help="branch the release workflow runs from")
+    pp = sub.add_parser("prepush",
+                        help="LOCAL ONLY pre-push gate: fresh clone -> workflow steps + tests")
+    pp.add_argument("--step", help="run one step against the existing clone (see --list); "
+                                   "'cleanup' removes the scratch clone")
+    pp.add_argument("--list", action="store_true", help="print the derived step plan, run nothing")
+    pp.add_argument("--keep", action="store_true", help="keep the scratch clone after a green run")
+    pp.add_argument("--workdir", help="scratch dir for the clone (default: <tmp>/halcyon-prepush)")
+    pp.add_argument("--log-dir", help="step artifacts (default: build/prepush)")
     return p
 
 
@@ -113,6 +123,9 @@ def dispatch(args):
     if args.command == "auto-release":
         import ci.release_gate as release_gate
         return release_gate.auto_release(REPO_ROOT, args.repo, args.ref)
+    if args.command == "prepush":
+        import ci.prepush as prepush
+        return prepush.main(REPO_ROOT, args.step, args.workdir, args.log_dir, args.keep, args.list)
     return phases.release_preflight(REPO_ROOT, args.version, args.targets)
 
 
