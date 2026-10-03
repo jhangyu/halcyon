@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
+import 'cache_budget.dart';
 import 'photo_payload.dart';
 import 'raw_full_res_image.dart';
 
@@ -316,6 +317,8 @@ class TierTwoRegistry {
     late ImageStreamListener listener;
     listener = ImageStreamListener((image, synchronousCall) {
       stream.removeListener(listener);
+      ImageCacheBudget.observeFullResolution(
+          image.image.width, image.image.height);
       // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
       image.dispose();
       _readyIds.add(id);
@@ -382,6 +385,10 @@ class TierTwoRegistry {
     // before the overwrite closes the same orphan leak on the stale-payload
     // path.
     evict(id);
+    // Before the resolve: the budget must already fit this frame, or the
+    // cache could refuse it or LRU-evict a band neighbour to make room
+    // (memory-reclamation campaign M2.2).
+    ImageCacheBudget.observeFullResolution(image.width, image.height);
     final provider = RawFullResImage(
       payloadIdentity: payload,
       width: image.width,

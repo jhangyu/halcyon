@@ -16,20 +16,13 @@ import 'views/main_screen.dart';
 // ImageCache budget: derived below (S3.1), not Flutter's 100MB default.
 
 void configureImageCache({int? physicalMemoryBytes}) {
-  // S3.1 (2026-09-11), re-derived under spec v2 the same day: the budget is
-  // derived from the DECODED-PIXEL working set the +/-1 band implies, NOT
-  // from a fraction of machine memory and no longer from the retention
-  // window either (ruling R-B abolished window-resolution retention, so a
-  // wider retention window holds more JPEG payloads, not more decoded
-  // images). The memory reading, when DeviceMemory supplies one (macOS only
-  // today; null everywhere else, and Platform.isX branches are forbidden by
-  // C-3), is only a downward safety ceiling. Surplus memory is deliberately
-  // left to the operating system file cache, which accelerates this app's
-  // own reads. See lib/services/image_pipeline/cache_budget.dart for the
-  // full derivation and its attribution evidence.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = imageCacheBudgetBytes(
-    physicalMemoryBytes: physicalMemoryBytes,
-  );
+  // The budget is derived from the DECODED-PIXEL working set of the +/-1
+  // band, sized for the largest full-resolution image seen so far and grown
+  // as larger ones arrive (ImageCacheBudget, memory-reclamation campaign
+  // M2.2). Machine memory is only a downward safety ceiling. Surplus memory is
+  // deliberately left to the operating system file cache. Full derivation:
+  // lib/services/image_pipeline/cache_budget.dart.
+  ImageCacheBudget.configure(physicalMemoryBytes: physicalMemoryBytes);
 }
 
 Future<void> main() async {
@@ -49,7 +42,7 @@ Future<void> main() async {
   // ONE reading, taken before runApp. It must be awaited here rather than
   // fired off: AppState is constructed on the next line, and a late-arriving
   // reading would silently leave the app on the floor policy while looking
-  // like it adapted. Real reading on macOS only; null (-> floor) elsewhere.
+  // like it adapted. Null only when the platform read fails (-> floor).
   final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
   // Retention is resolved here for AppState. It no longer feeds the
   // image-cache budget: spec v2 made that budget band-derived and
