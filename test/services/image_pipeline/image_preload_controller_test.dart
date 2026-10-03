@@ -1073,8 +1073,16 @@ void main() {
         clearImageCacheSetUp();
 
         var live = 0;
-        ui.Image.onCreate = (image) => live++;
-        ui.Image.onDispose = (image) => live--;
+        // Only images created after this point count: a disposal of an image
+        // that predates the hooks must not drive the balance negative.
+        final created = Set<ui.Image>.identity();
+        ui.Image.onCreate = (image) {
+          created.add(image);
+          live++;
+        };
+        ui.Image.onDispose = (image) {
+          if (created.remove(image)) live--;
+        };
         addTearDown(() {
           ui.Image.onCreate = null;
           ui.Image.onDispose = null;
