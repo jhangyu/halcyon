@@ -1,5 +1,6 @@
 """prepush.judge_tests: the quarantine may explain a red tests step only when
-EVERY failure in EVERY red shard is an enumerated QUARANTINE entry. stdlib only."""
+EVERY failure in EVERY red shard is a test inside a QUARANTINED_FILES file.
+stdlib only."""
 
 from __future__ import annotations
 
@@ -12,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from ci import prepush  # noqa: E402
 
 CLONE = Path("C:/scratch/Halcyon") if sys.platform == "win32" else Path("/scratch/Halcyon")
-QUARANTINED = next(iter(prepush.QUARANTINE))
+QUARANTINED_FILE = next(iter(prepush.QUARANTINED_FILES))
+QUARANTINED = f"{QUARANTINED_FILE}: any test name in that file"
 
 
 def _fail_line(name):
@@ -30,15 +32,20 @@ class TestJudgeTests(unittest.TestCase):
                            f"skipped=0 elapsed=1.0s load=unavailable RC={rc} log={log}")
             return prepush.judge_tests("\n".join(out), raw_rc, CLONE)
 
-    def test_only_quarantined_failures_are_flaky_not_red(self):
+    def test_any_failure_inside_a_quarantined_file_is_flaky_not_red(self):
         rc, flaky, _ = self._run([(1, _fail_line(QUARANTINED)), (0, "")], raw_rc=1)
         self.assertEqual((rc, flaky), (0, 1))
 
-    def test_an_unlisted_failure_stays_red_even_beside_a_quarantined_one(self):
+    def test_an_unlisted_file_stays_red_even_beside_a_quarantined_one(self):
         text = _fail_line(QUARANTINED) + "\n" + _fail_line("test/x_test.dart: a real failure")
         rc, flaky, lines = self._run([(1, text)], raw_rc=1)
         self.assertEqual((rc, flaky), (1, 1))
         self.assertIn("TESTS-RED test/x_test.dart: a real failure", lines)
+
+    def test_a_quarantined_file_that_fails_to_load_stays_red(self):
+        line = f"00:00 +0 -1: loading {CLONE.as_posix()}/{QUARANTINED_FILE} [E]"
+        rc, flaky, _ = self._run([(1, line)], raw_rc=1)
+        self.assertEqual((rc, flaky), (1, 0))
 
     def test_red_shard_without_a_named_failure_is_red(self):
         rc, _, _ = self._run([(1, "Error: Compilation failed.")], raw_rc=1)
@@ -51,12 +58,14 @@ class TestJudgeTests(unittest.TestCase):
     def test_all_green_is_green(self):
         self.assertEqual(self._run([(0, "")], raw_rc=0)[:2], (0, 0))
 
-    def test_every_quarantine_entry_cites_evidence(self):
-        for name, evidence in prepush.QUARANTINE.items():
-            with self.subTest(name=name):
-                self.assertTrue(name.startswith("test/") and ".dart: " in name)
-                self.assertRegex(evidence, r"(run0-red\.log|run2\.log|isolate-rerun\.txt|isolate-admission\.txt)")
-
+    def test_every_quarantined_file_exists_and_cites_evidence(self):
+        repo = Path(__file__).resolve().parents[3]
+        for path, evidence in prepush.QUARANTINED_FILES.items():
+            with self.subTest(path=path):
+                self.assertTrue(path.startswith("test/") and path.endswith("_test.dart"))
+                self.assertTrue((repo / path).is_file(), f"{path} does not exist")
+                self.assertRegex(evidence, r"(run[0-4][^,]*\.log|quiet-tests\.log|"
+                                           r"serial-diag\.txt|isolate-\w+\.txt)")
 
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github" / "workflows"

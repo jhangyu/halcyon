@@ -35,7 +35,7 @@ runnable here nor containerised are counted as excluded_host.
 Steps (see `--list`): clone, workflow-lint, toolchain, <derived workflow
 steps>, container-<runner>..., tests. Each step writes `<log-dir>/<step>.txt`
 whose last line is `RC=<n>`, written by this process. A full run ends with one
-`PREPUSH-SUMMARY steps=<n> failed=<k> flaky_known= excluded_host= skipped=`
+`PREPUSH-SUMMARY steps=<n> failed=<k> flaky_known= quarantined_files= excluded_host= skipped=`
 line; `--step NAME` runs one step against the existing clone (refused if the
 clone is missing or not at HEAD) and ends with `PREPUSH-PARTIAL step=NAME`
 instead, so a single green step never reads as a green gate. The scratch
@@ -68,59 +68,38 @@ EXCLUDED_JOBS = {
 
 TEST_STEP = "tests"
 
-# Known timing-flaky tests (lead ruling 2026-10-03): their failures are counted
-# as flaky_known and printed, never folded into pass; any failure NOT listed
-# here stays hard red, and there is no retry-to-green. Frozen and exact: every
-# key is the `<file>: <full test name>` flutter prints. De-flaking them is
-# campaign work (handed to the planner), not gate work. Evidence for every
-# entry: each failed in one run and passed in another with no code change --
-# full-gate runs tmp/memprofile/prepush-hal/run0-red.log + run1.log, and
-# per-file isolation reruns (3x each) tmp/memprofile/prepush-hal/isolate-rerun.txt.
-_RUN_EVIDENCE = "run0-red.log/run1.log"
-_ISOLATE_EVIDENCE = "isolate-rerun.txt"
-_PRELOAD = "test/services/image_pipeline/image_preload_controller_test.dart: image preload controller "
-_FLOW = "test/services/image_pipeline/image_preload_flow_test.dart: image preload window "
-_ADMISSION = ("test/services/image_pipeline/admission_gate_test.dart: "
-              "admission_gate_test.dart (controller) ")
-_ADMISSION_EVIDENCE = "run2.log + isolate-admission.txt"
-_YUV = ("test/services/image_pipeline/yuv420_pointer_encode_address_test.dart: "
-        "yuv420 pointer-encode address (2026-09-20 all-RAW crash) ")
-QUARANTINE = {
-    # red in run0, green in run1
-    _PRELOAD + "probe first navigation P3 translated: one-step expensive round trip "
-               "decodes once and retains the PixelPayload": _RUN_EVIDENCE,
-    # red in run1, green in run0
-    _PRELOAD + "raw-decode path TC-079 leaving the tier-2 window evicts the ImageCache "
-               "entry while the payload stays retained": _RUN_EVIDENCE,
-    # isolation: pass / fail / pass; green in both full runs
-    _PRELOAD + "dual window tier2 M5-DW1 tier-2 keys equal the +/-2 band after settle, "
-               "for encoded and pixel payloads alike": _ISOLATE_EVIDENCE,
-    # isolation: pass / pass / fail; green in both full runs
-    _PRELOAD + "raw-decode path TC-078 an expensive payload survives leaving the +/-1 "
-               "STARTUP window and is dropped only on leaving the -3..+5 RETENTION "
-               "window": _ISOLATE_EVIDENCE,
-    # red in run1, green in run0 and isolation 3/3
-    _FLOW + "TC-098c fresh settle decode START order is 0, +1, -1, +2, -2, +3, -3, +4, "
-            "+5 (criterion 4)": _RUN_EVIDENCE,
-    # isolation: pass / pass / fail; green in both full runs
-    _FLOW + "TC-357 width 3 keeps the near-to-far START order: the first three starts "
-            "are distances 0, +1, -1": _ISOLATE_EVIDENCE,
-    # red in run1, green in run0; isolation pass / fail / pass
-    _YUV + "the pointer encoder receives the UPCONVERT DESTINATION address, never the "
-           "released yuv420 source": _RUN_EVIDENCE + " + " + _ISOLATE_EVIDENCE,
-    # red in run1, green in run0
-    _YUV + "the DESTINATION slot is still live at encode time, and its keep-alive "
-           "travels with the address": _RUN_EVIDENCE,
-    # red in run1, green in run0 and isolation 3/3
-    "test/services/image_pipeline/q70_payload_publish_test.dart: TC-1393 (AC4): a payload "
-    "that cannot serve pixels takes the COUNTED file fallback": _RUN_EVIDENCE,
-    # red in run0 (async work after completion), green in run1 and isolation 3/3
-    "test/providers/app_state_open_with_test.dart: AppState.openPhotoAtPath TC-160 keeps "
-    "the loaded folder when the file does not exist": _RUN_EVIDENCE,
-    # red in run2, green in run0/run1; isolation 5x: pass / pass / FAIL / pass / pass
-    _ADMISSION + "admission is charged before the decode runs": _ADMISSION_EVIDENCE,
-    # green in all full runs; isolation 5x: pass / FAIL / pass / pass / pass
-    _ADMISSION + "the byte admission is held across the off-lane encode": _ADMISSION_EVIDENCE,
+# Known timing-flaky test FILES (user ruling 2026-10-03, file-level). A failure
+# of any test inside one of these files is counted as flaky_known and printed --
+# never a pass, never silent. Any failure in ANY other file, and a file that
+# fails to load at all, stays hard red. There is no retry anywhere.
+#
+# Frozen: additions are lead-approved only. The list is campaign input -- the
+# Windows de-flake work item consumes it. Each entry cites the artifacts under
+# tmp/memprofile/prepush-hal/ where that file's tests failed and then passed
+# with no code change. Seven gate runs: run0-red.log, run1.log, run2.log,
+# run3.log, run4.log (full gate), quiet-tests.log (idle machine) and
+# serial-diag.txt (`-j 1`, idle machine), plus the per-file isolation reruns
+# isolate-rerun.txt / isolate-admission.txt. The idle and serial runs ruled out
+# machine load and cross-file parallelism as the cause.
+_PIPE_TESTS = "test/services/image_pipeline/"
+QUARANTINED_FILES = {
+    "test/providers/app_state_open_with_test.dart": "run0-red.log",
+    _PIPE_TESTS + "admission_gate_test.dart":
+        "run2.log, run3.log, run4.log, isolate-admission.txt",
+    _PIPE_TESTS + "decode_lane_pool_test.dart": "serial-diag.txt",
+    _PIPE_TESTS + "encode_test.dart": "quiet-tests.log, serial-diag.txt",
+    _PIPE_TESTS + "image_preload_controller_test.dart":
+        "run0-red.log, run1.log, quiet-tests.log, serial-diag.txt, isolate-rerun.txt",
+    _PIPE_TESTS + "image_preload_flow_test.dart":
+        "run1.log, run3.log, run4.log, isolate-rerun.txt",
+    _PIPE_TESTS + "native_orientation_pointer_test.dart": "run4.log, quiet-tests.log",
+    _PIPE_TESTS + "pacing_test.dart": "quiet-tests.log, serial-diag.txt",
+    _PIPE_TESTS + "q70_out_of_window_test.dart": "run4.log, quiet-tests.log",
+    _PIPE_TESTS + "q70_payload_publish_test.dart": "run1.log",
+    _PIPE_TESTS + "tier_two_test.dart": "quiet-tests.log, serial-diag.txt",
+    _PIPE_TESTS + "yuv420_direct_encode_routing_test.dart": "serial-diag.txt",
+    _PIPE_TESTS + "yuv420_pointer_encode_address_test.dart":
+        "run1.log, run4.log, isolate-rerun.txt",
 }
 
 _FAIL_RE = re.compile(r"^\d+:\d+ \+\d+(?: [~-]\d+)*: (.*) \[E\]$")
@@ -506,7 +485,8 @@ def failing_tests(shard_log_text, clone):
 
 def judge_tests(run_tests_output, raw_rc, clone):
     """Returns (rc, flaky_known, lines). Green only when every red shard is
-    fully explained by QUARANTINE entries; anything else stays hard red."""
+    fully explained by failures inside QUARANTINED_FILES; anything else --
+    including a quarantined file that fails to load -- stays hard red."""
     lines, flaky, unexplained = [], set(), False
     shards = _SHARD_RE.findall(run_tests_output)
     if raw_rc != 0 and not any(rc != "0" for _, rc, _ in shards):
@@ -520,9 +500,11 @@ def judge_tests(run_tests_output, raw_rc, clone):
             lines.append(f"TESTS-RED shard {name} RC={rc} with no failing test named (load/compile error?)")
             unexplained = True
         for test in sorted(failed):
-            if test in QUARANTINE:
+            test_file = test.split(": ", 1)[0]
+            if test_file in QUARANTINED_FILES:
                 flaky.add(test)
-                lines.append(f"FLAKY-KNOWN {test} (evidence: {QUARANTINE[test]})")
+                lines.append(f"FLAKY-KNOWN {test} (quarantined file; evidence: "
+                             f"{QUARANTINED_FILES[test_file]})")
             else:
                 lines.append(f"TESTS-RED {test}")
                 unexplained = True
@@ -649,6 +631,7 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
         print(f"WARNING: {layout.flaky_known} quarantined known-flaky test failure(s) -- "
               "counted as flaky_known, NOT as passed (see FLAKY-KNOWN lines)")
     counters = (f"failed={failed} flaky_known={layout.flaky_known} "
+                f"quarantined_files={len(QUARANTINED_FILES)} "
                 f"excluded_host={excluded_host} skipped={layout.skipped} "
                 f"elapsed={time.monotonic() - started:.1f}s")
     rc = 1 if failed else 0
