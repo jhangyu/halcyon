@@ -41,6 +41,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -331,12 +332,24 @@ class PerfDriver {
       _memgateSample(state, 'idle', _n);
       await Future<void>.delayed(const Duration(seconds: 2));
     }
-    // The gate runs its last process samplers on this PID and then terminates
-    // it; exiting here would race them. The one-shot timer only stops a dead
-    // gate from orphaning the app.
-    PerfLog.log('memgate|done|t_ms=${PerfLog.us ~/ 1000}');
-    PerfLog.flushSync();
-    Timer(const Duration(seconds: 120), () => exit(3));
+    memgateCompletion(log: PerfLog.log, flush: PerfLog.flushSync);
+  }
+
+  /// End of a memgate run. The gate runs its last process samplers on this PID
+  /// and then terminates it, so the app must NOT exit here (it would race
+  /// them). The one-shot timer only stops a dead gate from orphaning the app.
+  @visibleForTesting
+  static const memgateSafetyExit = Duration(seconds: 120);
+
+  @visibleForTesting
+  static void memgateCompletion({
+    required void Function(String) log,
+    required void Function() flush,
+    void Function(int) exitFn = exit,
+  }) {
+    log('memgate|done|t_ms=${PerfLog.us ~/ 1000}');
+    flush();
+    Timer(memgateSafetyExit, () => exitFn(3));
   }
 
   static Future<void> _pass(AppState state, String label, int paceMs) async {

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/perf/perf_driver.dart';
 
 void main() {
+  _completionTests();
   test('TC-1430 memgate sample line carries every field the D5 gate reads', () {
     final line = PerfDriver.formatMemgateSample(
       tMs: 1000,
@@ -38,5 +39,28 @@ void main() {
     );
     expect(line, endsWith('|lane_width=5|funnel_calls=7|'
         'device_release_runs=4|displayed_redecodes=0'));
+  });
+}
+
+void _completionTests() {
+  testWidgets('TC-1430 completion logs done, never exits early, exits 3 at '
+      '120 s', (tester) async {
+    final lines = <String>[];
+    final exits = <int>[];
+    var flushed = 0;
+    PerfDriver.memgateCompletion(
+      log: lines.add,
+      flush: () => flushed++,
+      exitFn: exits.add,
+    );
+    expect(lines, hasLength(1));
+    expect(lines.single, matches(RegExp(r'^memgate\|done\|t_ms=\d+$')));
+    expect(flushed, 1);
+    expect(exits, isEmpty);
+
+    await tester.pump(const Duration(seconds: 119));
+    expect(exits, isEmpty);
+    await tester.pump(const Duration(seconds: 2));
+    expect(exits, [3]);
   });
 }
