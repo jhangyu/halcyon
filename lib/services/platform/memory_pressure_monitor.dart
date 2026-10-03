@@ -40,19 +40,19 @@ enum MemoryPressureLevel {
 /// (`lib/services/platform/open_with_channel.dart:29-42`,
 /// `macos/Runner/AppDelegate.swift:6-11`).
 ///
-/// ## Why a channel is correct here, when `halcyon/device_memory` was deleted
+/// ## Why a channel is correct here, when the macOS-only RAM channel was deleted
 ///
-/// `macos/Runner/AppDelegate.swift:42-47` records that a previous macOS-only
-/// channel (`halcyon/device_memory`) was DELETED in favour of a Dart-side read
-/// (now `ceyxPhysicalMemoryBytes()` from `package:ceyx/ceyx.dart`), for two reasons: it only ever
-/// answered on macOS, and it had a cold-start registration race with Dart's
+/// `macos/Runner/AppDelegate.swift:63-68` records that a previous macOS-only
+/// RAM channel was DELETED in favour of a Dart-side read
+/// (`ceyxPhysicalMemoryBytes()` from `package:ceyx/ceyx.dart`), for two
+/// reasons: it only ever answered on macOS, and it had a cold-start registration race with Dart's
 /// `main()`. **Neither reason applies to this channel**, and the difference is
 /// the direction of travel:
 ///
 /// 1. Total physical RAM is a VALUE THAT CAN BE POLLED -- Dart can read it
 ///    itself, so a channel bought nothing. Memory pressure is a PUSH EVENT
 ///    from the operating system: there is no equivalent Dart-side reading, and
-///    nothing to poll. The `device_memory` replacement strategy is simply not
+///    nothing to poll. The Dart-side read strategy is simply not
 ///    available for it.
 /// 2. The cold-start race that motivated that deletion was a Dart -> platform
 ///    call arriving before the native handler existed. This channel is
