@@ -1769,10 +1769,20 @@ class ImagePreloadController {
     // That rank -- not this loop's completion order -- is what the lane sorts
     // by, which is why removing the barrier does not re-open the round-1
     // IO-jitter defect (plan risk R8).
+    // Probes run concurrently, but each slot routes only after the slot before
+    // it in this walk has been routed: the lane starts whatever is pending the
+    // moment it has a free slot, so without this gate IO-jittered probe
+    // completion decides which slots start first at lane width > 1.
+    var routedGate = Future<void>.value();
     for (final i in nearToFarOrder) {
+      final routeAfter = routedGate;
+      final routed = Completer<void>();
+      routedGate = routed.future;
       unawaited(
         _issueWindowItem(
           items[i],
+          routeAfter: routeAfter,
+          routed: routed,
           distance: i - currentIndex,
           // The selected slot carries the caller's repaint callback; every
           // other slot notifies through the payload-landing path.
@@ -1996,23 +2006,35 @@ class ImagePreloadController {
   /// [_completeOutcome].
   Future<void> _issueWindowItem(
     PhotoItem item, {
+    required Future<void> routeAfter,
+    required Completer<void> routed,
     required int distance,
     required VoidCallback? notifyLoaded,
     required int generation,
   }) async {
-    final probed = await _probeWindowItem(
-      item,
-      distance: distance,
-      notifyLoaded: notifyLoaded,
-    );
-    if (probed == null) return;
-    if (generation != _previewGeneration) return;
-    await _ensurePayload(
-      probed.item,
-      distance: probed.distance,
-      notifyLoaded: probed.notifyLoaded,
-      precomputedProbe: probed.probe,
-    );
+    Future<void>? load;
+    try {
+      final probed = await _probeWindowItem(
+        item,
+        distance: distance,
+        notifyLoaded: notifyLoaded,
+      );
+      await routeAfter;
+      if (probed == null) return;
+      if (generation != _previewGeneration) return;
+      // Not awaited here: `_ensurePayload` enqueues on the lane synchronously
+      // when handed a probe, so the gate opens as soon as this slot is routed
+      // and a cheap slot's load does not hold back the slots after it.
+      load = _ensurePayload(
+        probed.item,
+        distance: probed.distance,
+        notifyLoaded: probed.notifyLoaded,
+        precomputedProbe: probed.probe,
+      );
+    } finally {
+      routed.complete();
+    }
+    await load;
   }
 
   Future<void> _ensurePayload(
