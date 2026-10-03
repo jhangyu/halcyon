@@ -1596,6 +1596,7 @@ void main() {
         selectedItemId: 'p0',
         notifyLoaded: () {},
       );
+      await pumpUntil(() => controller.debugTierOneKeyIds.isNotEmpty);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(
