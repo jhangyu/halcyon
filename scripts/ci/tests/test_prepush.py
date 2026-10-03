@@ -28,6 +28,8 @@ def _report(results):
                                                       "path": f"{CLONE.as_posix()}/{path}"}})
         events.append({"type": "testStart", "test": {"id": 100 + i, "name": name,
                                                      "suiteID": suites[path]}})
+        if outcome == "no-done":  # started, then the file crashed before testDone
+            continue
         events.append({"type": "testDone", "testID": 100 + i, "hidden": bool(hidden),
                        "skipped": outcome == "skip",
                        "result": "failure" if outcome == "fail" else "success"})
@@ -104,6 +106,14 @@ class TestJudgeTests(unittest.TestCase):
         rc, _, lines = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
         self.assertEqual(rc, 1)
         self.assertIn("TESTS-RED test/x_test.dart: passed then errored", lines)
+
+    def test_a_started_test_with_no_testdone_is_a_failure(self):
+        results = [("test/x_test.dart", "never finished", "no-done")]
+        self.assertEqual(prepush.test_results(_report(results), CLONE),
+                         [("test/x_test.dart", "never finished", "fail")])
+        rc, _, lines = self._run([(1, results), (0, _all_listed_pass())], raw_rc=1)
+        self.assertEqual(rc, 1)
+        self.assertIn("TESTS-RED test/x_test.dart: never finished", lines)
 
     def test_a_shard_without_its_json_report_is_red(self):
         rc, _, _ = self._run([(0, None), (0, _all_listed_pass())], raw_rc=0)

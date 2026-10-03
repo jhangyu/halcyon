@@ -481,7 +481,8 @@ def _strip_clone(path, clone):
 
 def test_results(json_text, clone):
     """[(test file, test name, outcome)] from a `flutter test` JSON report;
-    outcome is pass / skip / fail. A test with any `error` event is a failure
+    outcome is pass / skip / fail. A test that started but never got a
+    testDone is a failure. A test with any `error` event is a failure
     even when its testDone said success: a test can fail AFTER it completed
     (async work outliving it), and that error arrives as a later event.
     Hidden entries (setUpAll/tearDownAll hooks, `loading`) are kept only when
@@ -507,10 +508,10 @@ def test_results(json_text, clone):
     results = []
     for test_id, (path, name) in tests.items():
         event = done.get(test_id, {})
-        if test_id in errored or (event and event.get("result") != "success"):
+        if test_id in errored or not event or event.get("result") != "success":
+            # No testDone at all = started but never finished (a crash late in
+            # the file); counted as failed, never silently dropped.
             outcome = "fail"
-        elif not event:
-            continue
         elif event.get("skipped"):
             outcome = "skip"
         else:
