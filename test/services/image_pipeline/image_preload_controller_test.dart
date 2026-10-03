@@ -1081,7 +1081,7 @@ void main() {
           live++;
         };
         ui.Image.onDispose = (image) {
-          if (created.remove(image)) live--;
+          if (created.contains(image)) live--;
         };
         addTearDown(() {
           ui.Image.onCreate = null;
