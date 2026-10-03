@@ -5,6 +5,7 @@ import 'memory_pressure_wiring.dart';
 import 'perf/perf_driver.dart'; // PERF-INSTRUMENTATION
 import 'perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1)
 import 'providers/app_state.dart';
+import 'providers/legacy_prefs_migration.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/full_decoder_dispatch.dart';
 import 'services/image_pipeline/retention_policy.dart';
@@ -36,8 +37,13 @@ Future<void> main() async {
   }
   // D5 measurement builds only (compile-time HALCYON_PERF_DRIVER): an in-memory
   // prefs store, so a measured process never touches the user's real store.
+  // Every other build imports, once, the settings store orphaned by 12f5c06
+  // (Windows CompanyName / Linux APPLICATION_ID change), before AppState
+  // hydrates from the same SharedPreferences singleton.
   if (PerfDriver.active) {
     PerfDriver.installIsolatedPrefs();
+  } else {
+    await runLegacyPrefsMigration();
   }
   // ONE reading, taken before runApp. It must be awaited here rather than
   // fired off: AppState is constructed on the next line, and a late-arriving
