@@ -368,6 +368,13 @@ class AllocationVerdict(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertTrue(any("T3.heap" in ln and "verdict=FAIL" in ln for ln in lines))
 
+    def test_wc_alloc_sums_groups_and_orders(self):
+        d = [{"abase": "0xa", "bytes": 3 * self.MIB}, {"abase": "0xb", "bytes": 8 * self.MIB},
+             {"abase": "0xa", "bytes": 2 * self.MIB}]
+        got = memgate.wc_alloc_sums(d)
+        self.assertEqual(got, {"0xb": 8.0, "0xa": 5.0})
+        self.assertEqual(list(got), ["0xb", "0xa"])
+
     def test_empty_arena_ranges_is_error(self):
         s = self.sample(0.0, [(hex(0x50000000), 16.0)], arenas=[])
         with self.assertRaises(memgate.GateError):
