@@ -27,6 +27,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 /// Code lines only: a doc comment that MENTIONS a format is prose, not a
 /// conditional, and this project has been bitten before by greps that could not
@@ -43,6 +44,10 @@ Iterable<File> _libDartFiles() => Directory('lib')
     .listSync(recursive: true)
     .whereType<File>()
     .where((f) => f.path.endsWith('.dart'));
+
+/// The rosters below are written with `/`; `Directory.listSync` yields the
+/// host separator (`\` on Windows), so compare in POSIX form.
+String _posixPath(File f) => p.posix.joinAll(p.split(f.path));
 
 void main() {
   group('yuv420 flip acceptance probes (T15a.5 items 1-2)', () {
@@ -151,23 +156,23 @@ void main() {
       final planarExemptLineSightings = <String>[];
       for (final file in _libDartFiles()) {
         final code = _codeOf(file);
-        if (code.contains('CeyxOutputFormat')) mentions.add(file.path);
+        if (code.contains('CeyxOutputFormat')) mentions.add(_posixPath(file));
         for (final line in code.split('\n')) {
           // Condition 1: the exempted TEXT is tracked wherever it appears, not
           // only where it is allowed to appear, so a copy of it in another file
           // is visible rather than silently tolerated.
           if (line.trim() == kExemptLine) {
-            exemptLineSightings.add(file.path);
+            exemptLineSightings.add(_posixPath(file));
           }
           if (line.trim() == kPlanarEncodeExemptLine) {
-            planarExemptLineSightings.add(file.path);
+            planarExemptLineSightings.add(_posixPath(file));
           }
           if (!line.contains('OutputFormat')) continue;
           // A branch on the format, in any of the three shapes Dart offers.
           if (line.contains('if (') ||
               line.contains('case ') ||
               line.contains('? ')) {
-            final entry = '${file.path}: ${line.trim()}';
+            final entry = '${_posixPath(file)}: ${line.trim()}';
             if (kArguedFormatBranchExemptions.contains(entry)) {
               exemptionHits++;
               continue;

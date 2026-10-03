@@ -308,105 +308,120 @@ void main() {
       'TC-975: one unresolved window probe does not hold up the pass, the '
       'lane, or the tier-2 debounce',
       () async {
-        // A FIFO with no writer: opening it for read genuinely never
-        // resolves (real OS blocking semantics), which is a stronger and
-        // more honest "probe that never resolves" than any fake seam --
-        // there is no test injection point on PrefetchScheduler today.
-        final tmpDir = Directory.systemTemp.createTempSync('b4_fifo');
-        final fifoPath = '${tmpDir.path}/never.dng';
-        final mkfifo = Process.runSync('mkfifo', [fifoPath]);
-        expect(
-          mkfifo.exitCode,
-          0,
-          reason: 'mkfifo unavailable on this host: ${mkfifo.stderr}',
-        );
-        // Deliberately NEVER unblocked and NEVER cleaned up here: the
-        // pending `preloadImages` call below is itself deliberately
-        // unawaited and outlives this test (the whole point of the pin is
-        // that a probe never resolves). Writing to the FIFO, or deleting
-        // its directory, in a teardown would resume that dangling future
-        // and let it reach real production code (the imageLoader fake)
-        // AFTER this test has already reported pass/fail, which the test
-        // runner correctly treats as a leak ("test failed after it had
-        // already completed"). Leaving one blocked OS thread and one
-        // never-deleted temp dir for the remainder of this test PROCESS is
-        // the smaller and more honest cost.
+        // A probe that never resolves: the stuck slot's file exists (so an
+        // existence check passes, as a real photo's would), but `open()` on
+        // it returns a future that never completes. Injected through
+        // `IOOverrides.runZoned(createFile:)`, the same no-production-seam
+        // route test/support/fakes.dart and flaky_io.dart use. This replaced
+        // a POSIX `mkfifo` FIFO: Git-for-Windows' mkfifo exits 0 without
+        // creating a blocking FIFO, so on Windows the "stuck" open resolved
+        // and the test failed for a host reason, not a product one.
+        //
+        // Deliberately NEVER resolved: the pending `preloadImages` call below
+        // is itself deliberately unawaited and outlives this test (the whole
+        // point of the pin is that a probe never resolves). Completing the
+        // open in a teardown would resume that dangling future and let it
+        // reach real production code (the imageLoader fake) AFTER this test
+        // has already reported pass/fail, which the test runner correctly
+        // treats as a leak ("test failed after it had already completed").
+        final tmpDir = Directory.systemTemp.createTempSync('b4_stuck');
+        final stuckPath = '${tmpDir.path}/never.dng';
+        File(stuckPath).writeAsBytesSync(const []);
+        var stuckOpens = 0;
 
-        // Every OTHER window item is an ordinary cheap item, so the pass has
-        // real work to finish while the FIFO slot's probe stays stuck
-        // forever. Tier-2 is the load-bearing observation: it is armed on the
-        // synchronous tail of the pass and its 250ms debounce fires into a
-        // real full-size decode, which the barrier used to make unreachable.
-        final controller = ImagePreloadController(
-          scheduleFrameCallback: immediateFrameCallback,
-          imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
-          dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
-        );
-        addTearDown(controller.dispose);
-        controller.updateTargetSize(800, 600);
+        await IOOverrides.runZoned(
+          () async {
+            // Every OTHER window item is an ordinary cheap item, so the pass
+            // has real work to finish while the stuck slot's probe stays stuck
+            // forever. Tier-2 is the load-bearing observation: it is armed on
+            // the synchronous tail of the pass and its 250ms debounce fires
+            // into a real full-size decode, which the barrier used to make
+            // unreachable.
+            final controller = ImagePreloadController(
+              scheduleFrameCallback: immediateFrameCallback,
+              imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+                  NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+              dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
+            );
+            addTearDown(controller.dispose);
+            controller.updateTargetSize(800, 600);
 
-        // Selected item (index 0) plus 4 ordinary items, plus one window item
-        // (farthest, distance 5) whose file is the never-resolving FIFO
-        // instead of a real photo.
-        final cheapItems = paddedItems(6, extension: 'jpg');
-        final items = List<PhotoItem>.generate(6, (i) {
-          if (i == 5) {
-            return PhotoItem(id: 'FIFO_05', files: [File(fifoPath)]);
-          }
-          return cheapItems[i];
-        });
+            // Selected item (index 0) plus 4 ordinary items, plus one window
+            // item (farthest, distance 5) whose file never finishes opening.
+            final cheapItems = paddedItems(6, extension: 'jpg');
+            final items = List<PhotoItem>.generate(6, (i) {
+              if (i == 5) {
+                return PhotoItem(id: 'FIFO_05', files: [File(stuckPath)]);
+              }
+              return cheapItems[i];
+            });
 
-        // Deliberately unawaited AND observed for completion: with the probe
-        // barrier intact this future never completes (it awaited
-        // Future.wait over every window probe, including the stuck one).
-        // Phase 3 removed the barrier, so it resolves on this turn of the
-        // event loop -- and the `until` below is the assertion that fails,
-        // by its own `fail()`, if the barrier ever comes back.
-        var passCompleted = false;
-        unawaited(
-          controller
-              .preloadImages(
-                items: items,
-                selectedItemId: items[0].id,
-                notifyLoaded: () {},
-              )
-              .then((_) => passCompleted = true),
-        );
+            // Deliberately unawaited AND observed for completion: with the
+            // probe barrier intact this future never completes (it awaited
+            // Future.wait over every window probe, including the stuck one).
+            // Phase 3 removed the barrier, so it resolves on this turn of the
+            // event loop -- and the `until` below is the assertion that fails,
+            // by its own `fail()`, if the barrier ever comes back.
+            var passCompleted = false;
+            unawaited(
+              controller
+                  .preloadImages(
+                    items: items,
+                    selectedItemId: items[0].id,
+                    notifyLoaded: () {},
+                  )
+                  .then((_) => passCompleted = true),
+            );
 
-        await until(
-          () => passCompleted,
-          reason:
-              'preloadImages to complete despite one window item whose probe '
-              'never resolves (the FIFO item)',
-        );
+            await until(
+              () => passCompleted,
+              reason:
+                  'preloadImages to complete despite one window item whose '
+                  'probe never resolves (the stuck item)',
+            );
 
-        // INVERTED: the other window items DO reach production now. Each
-        // routes on its own probe's completion instead of waiting for the set.
-        await until(
-          () => items
-              .sublist(1, 5)
-              .every((item) => controller.imageBytesFor(item.id) != null),
-          reason:
-              'every non-stuck window item to be produced while the FIFO '
-              "item's probe is still unresolved",
-        );
+            // INVERTED: the other window items DO reach production now. Each
+            // routes on its own probe's completion instead of waiting for the
+            // set.
+            await until(
+              () => items
+                  .sublist(1, 5)
+                  .every((item) => controller.imageBytesFor(item.id) != null),
+              reason:
+                  'every non-stuck window item to be produced while the stuck '
+                  "item's probe is still unresolved",
+            );
 
-        // The tier-2 debounce was ARMED on the pass's synchronous tail and
-        // fired: under the barrier it was never even armed.
-        await until(
-          () => controller.debugTierTwoKeyIds.contains(items[0].id),
-          reason:
-              'the tier-2 debounce to be armed and to fire for the selected '
-              'item despite the unresolved probe',
-        );
+            // The tier-2 debounce was ARMED on the pass's synchronous tail and
+            // fired: under the barrier it was never even armed.
+            await until(
+              () => controller.debugTierTwoKeyIds.contains(items[0].id),
+              reason:
+                  'the tier-2 debounce to be armed and to fire for the selected '
+                  'item despite the unresolved probe',
+            );
 
-        // The stuck slot itself is the ONLY casualty: it never reaches the
-        // lane, because its own probe is what is blocked.
-        expect(
-          controller.imageBytesFor('FIFO_05'),
-          isNull,
-          reason: 'the stuck slot alone stays unproduced',
+            // The stuck probe really is in flight: without this, a pass that
+            // never probed the stuck slot at all would satisfy the isNull
+            // below vacuously.
+            await until(
+              () => stuckOpens > 0,
+              reason: "the stuck item's probe to have opened its file",
+            );
+
+            // The stuck slot itself is the ONLY casualty: it never reaches the
+            // lane, because its own probe is what is blocked.
+            expect(
+              controller.imageBytesFor('FIFO_05'),
+              isNull,
+              reason: 'the stuck slot alone stays unproduced',
+            );
+          },
+          createFile: (path) {
+            final real = Zone.root.run(() => File(path));
+            if (path != stuckPath) return real;
+            return _NeverOpeningFile(real, () => stuckOpens++);
+          },
         );
       },
     );
@@ -443,4 +458,32 @@ void main() {
       },
     );
   });
+}
+
+/// A [File] whose `open()` never completes: the portable stand-in for a FIFO
+/// with no writer. Only what the probe path touches is implemented; anything
+/// else fails loudly via [noSuchMethod] rather than silently succeeding.
+class _NeverOpeningFile implements File {
+  _NeverOpeningFile(this._inner, this._onOpen);
+
+  final File _inner;
+  final void Function() _onOpen;
+
+  @override
+  String get path => _inner.path;
+
+  @override
+  Future<bool> exists() => _inner.exists();
+
+  @override
+  bool existsSync() => _inner.existsSync();
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
+    _onOpen();
+    return Completer<RandomAccessFile>().future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

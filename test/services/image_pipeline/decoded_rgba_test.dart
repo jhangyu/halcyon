@@ -490,6 +490,7 @@ void main() {
         expect(orient[1], contains('bytes=${2 * 3 * 4}'));
       } finally {
         PerfLog.enabled = false;
+        await PerfLog.close();
         await dir.delete(recursive: true);
       }
     });
@@ -1361,6 +1362,7 @@ void main() {
         expect(materializeLines, isEmpty);
       } finally {
         PerfLog.enabled = false;
+        await PerfLog.close();
         await dir.delete(recursive: true);
       }
     });
@@ -1392,6 +1394,7 @@ void main() {
         expect(line, contains('bytes=${2 * 3 * 4}'));
       } finally {
         PerfLog.enabled = false;
+        await PerfLog.close();
         await dir.delete(recursive: true);
       }
     });
