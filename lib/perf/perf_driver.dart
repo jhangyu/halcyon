@@ -27,10 +27,12 @@
 //   HALCYON_PERF_PACE  ms to wait after a switch settles, paced pass (default 1200)
 //   HALCYON_PERF_MODE  "paced" | "rapid" | "both" (default both)
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/app_state.dart';
 import '../services/image_pipeline/dart_image_loader.dart';
@@ -49,6 +51,27 @@ const bool kPerfDriver = _perfDriverEnv == '1' || _perfDriverEnv == 'true';
 class PerfDriver {
   static bool get active =>
       kPerfDriver && Platform.environment['HALCYON_PERF_DIR'] != null;
+
+  /// D5 measurement runs (memory-reclamation campaign): an IN-MEMORY prefs
+  /// store seeded from HALCYON_PERF_PREFS, so a measured process never reads
+  /// or writes the user's real store (on Windows its location comes from the
+  /// exe's VERSIONINFO, so every local build shares it) and lane width is a
+  /// pinned run parameter. Unprefixed keys; scalar values only.
+  static void installIsolatedPrefs([String? json]) {
+    final decoded = jsonDecode(
+            json ?? Platform.environment['HALCYON_PERF_PREFS'] ?? '{}')
+        as Map<String, dynamic>;
+    final values = <String, Object>{};
+    for (final MapEntry(:key, :value) in decoded.entries) {
+      if (value is bool || value is int || value is double || value is String) {
+        values[key] = value as Object;
+      } else {
+        throw ArgumentError.value(value, key, 'HALCYON_PERF_PREFS scalar');
+      }
+    }
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues(values);
+  }
 
   static String get _dir => Platform.environment['HALCYON_PERF_DIR']!;
   static String get _out =>
