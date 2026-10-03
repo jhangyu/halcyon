@@ -46,11 +46,11 @@ def main(argv=None):
     if stamp.exists():
         stamp.unlink()
         print(f"removed {stamp}")
-    rc = subprocess.run(cmd).returncode
+    rc = subprocess.run(cmd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode
     if rc != 0:
         print(f"ERROR: refresh command exited {rc}: {cmd!r}", file=sys.stderr)
         return rc
-    out = subprocess.run([str(root / a.dart), "--version"], capture_output=True, text=True)
+    out = subprocess.run([str(root / a.dart), "--version"], capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     text = out.stdout + out.stderr
     print(text.strip())
     if a.expect not in text:

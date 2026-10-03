@@ -50,7 +50,7 @@ def main():
          "--dart-define=HALCYON_PERF_LOG=1",
          f"--dart-define=HALCYON_PERF_LOG_DIR={outdir}"],
         cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
+        stderr=subprocess.STDOUT, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     log_path = None
     # Serializes writes to the real terminal between the background pump
@@ -112,7 +112,7 @@ def main():
     rc = subprocess.run(["sample", str(pid), str(args.duration), "1",
                          "-f", sample_path],
                         stdout=subprocess.DEVNULL,
-                        stderr=subprocess.STDOUT).returncode
+                        stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode
     time.sleep(1.0)  # let the app's 300ms periodic flush land the last events
 
     artifacts = []
@@ -160,7 +160,7 @@ def main():
     for mode, p in artifacts:
         print(f"\n{'=' * 70}\n== analyze_perf.py {mode} "
               f"{os.path.basename(p)}\n{'=' * 70}")
-        subprocess.run([sys.executable, ANALYZE, mode, p])
+        subprocess.run([sys.executable, ANALYZE, mode, p], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return 0
 
 

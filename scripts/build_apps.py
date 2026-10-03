@@ -750,7 +750,7 @@ def locate_vs_install():
             [str(vswhere), "-latest", "-products", "*",
              "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
              "-property", "installationPath"],
-            capture_output=True, timeout=30,
+            capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         # TimeoutExpired is a SubprocessError, not an OSError - catching only
@@ -785,7 +785,7 @@ def ensure_msvc_env():
         # not compose with Python's argv-list quoting when the batch path
         # contains spaces (e.g. "Program Files (x86)"), so the whole
         # "call vcvars && set" line is handed to the shell as one string.
-        proc = subprocess.run(f'"{vcvars}" && set', shell=True, capture_output=True, timeout=180)
+        proc = subprocess.run(f'"{vcvars}" && set', shell=True, capture_output=True, timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return False
     if proc.returncode != 0:
@@ -858,7 +858,7 @@ def run_checked(exe, args, cwd, what, hints=None):
         text=True,
         encoding="utf-8",
         errors="replace",
-        shell=use_shell,
+        shell=use_shell, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -884,7 +884,7 @@ def cmake_version_ok(cmake_exe):
     """Returns a 3-tuple, or None if the version could not be established.
     None must be treated as a failure: it means the >=3.14 gate did not run."""
     try:
-        proc = subprocess.run([cmake_exe, "--version"], capture_output=True, timeout=60)
+        proc = subprocess.run([cmake_exe, "--version"], capture_output=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -918,7 +918,7 @@ def vulkan_api_version(vulkaninfo_exe):
     """Actually run vulkaninfo and read apiVersion, instead of reporting that
     it exists and telling the user to run it themselves."""
     try:
-        proc = subprocess.run([vulkaninfo_exe, "--summary"], capture_output=True, timeout=120)
+        proc = subprocess.run([vulkaninfo_exe, "--summary"], capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     out = decode_bytes(proc.stdout) + decode_bytes(proc.stderr)
@@ -1283,7 +1283,7 @@ def macho_uuid_of(path):
     try:
         proc = subprocess.run(
             ["dwarfdump", "--uuid", str(path)],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return None
@@ -2442,7 +2442,7 @@ def assert_ffi_exports(nt, built):
     listing = None
     for argv in commands:
         try:
-            proc = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             continue
         if proc.returncode == 0:
@@ -2610,7 +2610,7 @@ def git_build_commit(halcyon):
     try:
         rev = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=str(halcyon), capture_output=True, timeout=15, text=True,
+            cwd=str(halcyon), capture_output=True, timeout=15, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         return "unknown"
@@ -2622,7 +2622,7 @@ def git_build_commit(halcyon):
     try:
         status = subprocess.run(
             ["git", "status", "--porcelain"],
-            cwd=str(halcyon), capture_output=True, timeout=15, text=True,
+            cwd=str(halcyon), capture_output=True, timeout=15, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         # Commit hash is real; dirty-or-not is merely unknown. Report the
@@ -2728,7 +2728,7 @@ def print_windows_protocol(release_dir):
 def lipo_slices(binary):
     """Architecture slices in a Mach-O file, or None if lipo could not say."""
     try:
-        proc = subprocess.run(["lipo", "-info", str(binary)], capture_output=True, timeout=60)
+        proc = subprocess.run(["lipo", "-info", str(binary)], capture_output=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -2881,7 +2881,7 @@ def verify_macos_heif_rpaths(app_bundle):
                 "load at runtime on any machine without a system libheif."
             )
     out = subprocess.run(["otool", "-L", str(decoder)],
-                         capture_output=True, text=True, check=False).stdout
+                         capture_output=True, text=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
     for name in HEIF_RUNTIME_LIBS["macos"]:
         if f"@rpath/{name}" not in out:
             problems.append(
@@ -2921,7 +2921,7 @@ def verify_macos_dependency_closure(app_bundle):
         if not lib.exists():
             continue
         out = subprocess.run(["otool", "-L", str(lib)],
-                             capture_output=True, text=True, check=False).stdout
+                             capture_output=True, text=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
         for line in out.splitlines():
             line = line.strip()
             if not line.startswith("@rpath/"):

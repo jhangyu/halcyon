@@ -68,7 +68,7 @@ def check_symbol(binary_path: Path, tool: str, tool_args: list[str], symbol: str
             [tool_bin, *tool_args, str(binary_path)],
             capture_output=True,
             text=True,
-            check=False,
+            check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         # Tool resolved by shutil.which but failed to execute (e.g. wrong

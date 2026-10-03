@@ -27,7 +27,7 @@ HIDE_SUFFIX = ".prepush-hidden"
 
 
 def _system_codec_libs():
-    out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True).stdout
+    out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
     paths = set()
     for line in out.splitlines():
         if ("libheif" in line or "libde265" in line) and "=> " in line:
@@ -44,13 +44,13 @@ def main(argv=None):
     args = p.parse_args(argv)
     src, out = Path(args.src), Path(args.out)
     work = Path("/work")
-    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=True)
+    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     for argv_ in (["git", "clone", "--quiet", os.fspath(src / "Halcyon"), os.fspath(work / "Halcyon")],
                   ["git", "clone", "--quiet", "--no-checkout", os.fspath(src / "ceyx"),
                    os.fspath(work / "ceyx")],
                   ["git", "-C", os.fspath(work / "ceyx"), "checkout", "--quiet", "--detach",
                    args.ceyx_ref]):
-        subprocess.run(argv_, check=True)
+        subprocess.run(argv_, check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     clone = work / "Halcyon"
     sys.path.insert(0, os.fspath(clone / "scripts"))
     from ci import prepush, run, targets  # noqa: PLC0415
@@ -109,13 +109,13 @@ def _assert_with_system_libs_hidden(name, tail, clone, out, run):
         for lib in libs:
             os.rename(lib, lib + HIDE_SUFFIX)
             hidden.append(lib)
-        subprocess.run(["ldconfig"], check=True)
+        subprocess.run(["ldconfig"], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         rc = run.run_logged([sys.executable, os.fspath(clone / "scripts" / "ci.py"), *tail],
                             out / f"{name}-system-libs-hidden.txt", cwd=clone).returncode
     finally:
         for lib in hidden:
             os.rename(lib + HIDE_SUFFIX, lib)
-        subprocess.run(["ldconfig"], check=False)
+        subprocess.run(["ldconfig"], check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     print(f"CONTAINER-STEP {name}-system-libs-hidden RC={rc}", flush=True)
     return 1 if rc else 0
 

@@ -108,7 +108,7 @@ def run(argv, cwd=None, env=None):
             encoding="utf-8",
             errors="replace",
             cwd=workdir,
-            env=env,
+            env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError as exc:
         result = RunResult(argv=argv, returncode=127, stdout="", stderr=f"{exc}\n")

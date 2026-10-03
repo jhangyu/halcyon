@@ -27,7 +27,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     dest = Path(a.dest).expanduser().resolve()
     if not dest.exists():
-        rc = subprocess.run(["git", "clone", "--depth", "1", "-b", a.tag, REPO, str(dest)]).returncode
+        rc = subprocess.run(["git", "clone", "--depth", "1", "-b", a.tag, REPO, str(dest)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode
         if rc != 0:
             print(f"ERROR: git clone of flutter {a.tag} failed (rc {rc})", file=sys.stderr)
             return rc
@@ -36,7 +36,7 @@ def main(argv=None):
     if gh_path:
         with open(gh_path, "a", encoding="utf-8") as f:
             f.write(f"{bindir}\n")
-    out = subprocess.run([str(bindir / "flutter"), "--version"], capture_output=True, text=True)
+    out = subprocess.run([str(bindir / "flutter"), "--version"], capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     print((out.stdout + out.stderr).strip())
     if out.returncode != 0 or a.tag not in out.stdout + out.stderr:
         print(f"ERROR: flutter --version did not report {a.tag} (rc {out.returncode})", file=sys.stderr)
