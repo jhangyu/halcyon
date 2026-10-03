@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'package:ceyx/ceyx.dart' show ceyxPhysicalMemoryBytes;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'memory_pressure_wiring.dart';
@@ -9,7 +10,6 @@ import 'providers/legacy_prefs_migration.dart';
 import 'services/image_pipeline/cache_budget.dart';
 import 'services/image_pipeline/full_decoder_dispatch.dart';
 import 'services/image_pipeline/retention_policy.dart';
-import 'services/platform/device_memory.dart';
 import 'services/platform/open_with_channel.dart';
 import 'views/layout/layout_registry.dart';
 import 'views/main_screen.dart';
@@ -45,11 +45,9 @@ Future<void> main() async {
   } else {
     await runLegacyPrefsMigration();
   }
-  // ONE reading, taken before runApp. It must be awaited here rather than
-  // fired off: AppState is constructed on the next line, and a late-arriving
-  // reading would silently leave the app on the floor policy while looking
-  // like it adapted. Null only when the platform read fails (-> floor).
-  final physicalMemoryBytes = await DeviceMemory.totalPhysicalBytes();
+  // ONE reading, taken before runApp, from the same native function the
+  // ceyx decoder's own width recommendation reads (fork A2 removed).
+  final physicalMemoryBytes = ceyxPhysicalMemoryBytes();
   // Retention is resolved here for AppState. It no longer feeds the
   // image-cache budget: spec v2 made that budget band-derived and
   // rung-independent.

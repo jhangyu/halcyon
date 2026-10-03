@@ -15,10 +15,6 @@ in the same commit that removes the fork. Campaign end state: no open_forks anyw
 REQUIRE_CLOSED = False
 
 REGISTRY: dict[str, dict] = {
-    "lib/services/platform/device_memory.dart": {
-        "guard_lines": 3, "role": "fork-host",
-        "contract": "duplicates ceyx physicalMemoryBytes with per-OS branches (A2)",
-        "open_forks": ["A2"]},
     "lib/services/platform/file_retry.dart": {
         "guard_lines": 1, "role": "adapter",
         "contract": "comment-only match: documents that the retry loop is deliberately unconditional (no platform branch)"},

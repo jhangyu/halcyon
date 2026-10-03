@@ -44,7 +44,7 @@ enum MemoryPressureLevel {
 ///
 /// `macos/Runner/AppDelegate.swift:42-47` records that a previous macOS-only
 /// channel (`halcyon/device_memory`) was DELETED in favour of a Dart-side read
-/// (`lib/services/platform/device_memory.dart`), for two reasons: it only ever
+/// (now `ceyxPhysicalMemoryBytes()` from `package:ceyx/ceyx.dart`), for two reasons: it only ever
 /// answered on macOS, and it had a cold-start registration race with Dart's
 /// `main()`. **Neither reason applies to this channel**, and the difference is
 /// the direction of travel:
