@@ -174,7 +174,7 @@ void main() {
       () => items.every((i) => c.debugPayloadFor(i.id) != null),
       'all four EncodedPayloads resident',
     );
-    await settleTierTwo(c, {'a', 'b'}); // band is +/-1
+    await settleTierTwo(c, {'a', 'b', 'c'}); // band is -1..+2 (AD-072)
     // d: band {c,d}; b leaves tier-2 (distance -2) but stays retained.
     await select(c, 'd');
     await settleTierTwo(c, {'c', 'd'});
@@ -212,7 +212,7 @@ void main() {
     // re-navigation WORKS AROUND that gap and is NOT the intended final
     // behaviour.
     await select(c, 'a');
-    await settleTierTwo(c, {'a', 'b'}); // band is +/-1
+    await settleTierTwo(c, {'a', 'b', 'c'}); // band is -1..+2 (AD-072)
     await select(c, 'd');
     await settleTierTwo(c, {'c', 'd'});
 
@@ -234,12 +234,12 @@ void main() {
     // only eviction the return can observe is the band-leave one (spec R1).
     final h = newHarness(encoded: true, debounce: const Duration(seconds: 10));
     final c = h.controller;
-    await select(c, 'b'); // band a..c
+    await select(c, 'b'); // band a..d (-1..+2)
     await until(
       () => items.every((i) => c.debugPayloadFor(i.id) != null),
       'all four EncodedPayloads resident',
     );
-    await settleTierTwo(c, {'a', 'b', 'c'});
+    await settleTierTwo(c, {'a', 'b', 'c', 'd'});
 
     await select(c, 'd'); // band c..d: a and b leave
     expect(c.debugTierTwoKeyIds, isNot(contains('b')),

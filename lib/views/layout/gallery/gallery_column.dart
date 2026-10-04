@@ -31,8 +31,8 @@ const double kChipHeight = kChipWidth / kChipAspect; // 49.33 at rest
 /// the gutter's maximum width — so a chip can never be drawn larger than the
 /// bitmap it already has. This is therefore a pure layout change: the existing
 /// decode is kept and the widget scales it DOWN at narrower widths. No
-/// re-decode, and no freeze mechanism (unlike the tier-1 viewport, which needs
-/// [DecodeSizeFreeze] because its target genuinely changes).
+/// re-decode, and no freeze mechanism (unlike the viewport, which needs
+/// [DecodeSizeFreeze] because its reported target genuinely changes).
 ///
 /// Requesting at this constant rather than at the live chip width is what
 /// makes that true: a `ResizeImage` key derives from the requested size, so a

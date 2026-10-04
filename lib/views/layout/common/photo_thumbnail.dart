@@ -83,36 +83,52 @@ class PhotoThumbnail extends StatelessWidget {
     );
   }
 
-  ImageProvider _thumbnailProvider(BuildContext context, SourcePayload payload) {
-    switch (payload) {
-      case EncodedPayload(:final bytes):
-        // M1 (image-pipeline redesign, docs/logs/2026-08-23/
-        // image-pipeline-redesign-handover.md §6 M1): width/height on
-        // Image.memory alone are LAYOUT constraints only — the decoder still
-        // produces a full-resolution bitmap. Cap the DECODE itself at
-        // size * devicePixelRatio on the longest edge via ResizeImage's `fit`
-        // policy, which fits the source within a cap x cap box while
-        // preserving aspect ratio — `exact` (or naive cacheWidth +
-        // cacheHeight) would silently squash non-square sources.
-        final cap =
-            (math.max(width, height) * MediaQuery.devicePixelRatioOf(context)).round();
-        return ResizeImage(
-          MemoryImage(bytes),
-          width: cap,
-          height: cap,
-          policy: ResizeImagePolicy.fit,
-        );
-      case PixelPayload():
-        // NOT wrapped in ResizeImage, deliberately: ResizeImage applies its
-        // cap only through the `decode` callback it hands down
-        // (flutter image_provider.dart:1350-1418), and RawPixelsImage ignores
-        // that callback -- it builds the image with decodeImageFromPixels
-        // (raw_pixels_image.dart:36-45). A wrapper here would cap nothing
-        // while reading in review as protection that exists. The bound is
-        // enforced at PRODUCTION time instead: the payload is already capped
-        // at 200px long edge (image_preload_controller.dart, RAW branch), and
-        // TC-373 asserts that on the payload rather than on a wrapper.
-        return RawPixelsImage(payload);
-    }
+  ImageProvider _thumbnailProvider(
+    BuildContext context,
+    SourcePayload payload,
+  ) => thumbnailProviderFor(
+    payload,
+    decodeCap:
+        (math.max(width, height) * MediaQuery.devicePixelRatioOf(context))
+            .round(),
+  );
+}
+
+/// The provider for a sidebar-thumbnail [payload]. Shared by the sidebar chip
+/// and by [PhotoViewport]'s interim display, so the two can never disagree on
+/// what a thumbnail payload decodes as.
+///
+/// [decodeCap], when given, caps an encoded payload's longest edge at DECODE
+/// time (see the chip's M1 note below). Null decodes it at its own size, which
+/// for a sidebar thumbnail is already bounded by production
+/// (`kSidebarThumbnailLongEdge`).
+ImageProvider thumbnailProviderFor(SourcePayload payload, {int? decodeCap}) {
+  switch (payload) {
+    case EncodedPayload(:final bytes):
+      // M1 (image-pipeline redesign, docs/logs/2026-08-23/
+      // image-pipeline-redesign-handover.md §6 M1): width/height on
+      // Image.memory alone are LAYOUT constraints only — the decoder still
+      // produces a full-resolution bitmap. Cap the DECODE itself on the longest
+      // edge via ResizeImage's `fit` policy, which fits the source within a
+      // cap x cap box while preserving aspect ratio — `exact` (or naive
+      // cacheWidth + cacheHeight) would silently squash non-square sources.
+      if (decodeCap == null) return MemoryImage(bytes);
+      return ResizeImage(
+        MemoryImage(bytes),
+        width: decodeCap,
+        height: decodeCap,
+        policy: ResizeImagePolicy.fit,
+      );
+    case PixelPayload():
+      // NOT wrapped in ResizeImage, deliberately: ResizeImage applies its
+      // cap only through the `decode` callback it hands down
+      // (flutter image_provider.dart:1350-1418), and RawPixelsImage ignores
+      // that callback -- it builds the image with decodeImageFromPixels
+      // (raw_pixels_image.dart:36-45). A wrapper here would cap nothing
+      // while reading in review as protection that exists. The bound is
+      // enforced at PRODUCTION time instead: the payload is already capped
+      // at 200px long edge (image_preload_controller.dart, RAW branch), and
+      // TC-373 asserts that on the payload rather than on a wrapper.
+      return RawPixelsImage(payload);
   }
 }

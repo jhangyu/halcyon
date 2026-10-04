@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/photo_item.dart';
+import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
@@ -487,125 +488,10 @@ void main() {
       );
     });
 
-    test(
-      'tierOneProviderFor produces an identical ImageCache key for the same '
-      'bytes object identity and same width/height (AC2: display and '
-      'precache must share one cache entry, not silently double-decode)',
-      () async {
-        final bytes = Uint8List.fromList(List.generate(16, (i) => i));
-
-        // Simulates the precache call site.
-        final precacheProvider = tierOneProviderFor(
-          bytes,
-          width: 800,
-          height: 600,
-        );
-        // Simulates the display call site: a fresh ResizeImage/MemoryImage
-        // instance, but built from the SAME bytes object and SAME dimensions.
-        final displayProvider = tierOneProviderFor(
-          bytes,
-          width: 800,
-          height: 600,
-        );
-
-        final precacheKey = await precacheProvider.obtainKey(
-          ImageConfiguration.empty,
-        );
-        final displayKey = await displayProvider.obtainKey(
-          ImageConfiguration.empty,
-        );
-
-        expect(
-          precacheKey,
-          equals(displayKey),
-          reason:
-              'ImageCache dedups strictly by key equality; a mismatch here '
-              'means the display path always misses the precache and '
-              'decodes a second time.',
-        );
-        expect(precacheKey.hashCode, equals(displayKey.hashCode));
-
-        // Sanity: a different bytes object (even with identical content and
-        // dimensions) must NOT collapse to the same key, since MemoryImage
-        // compares bytes by identity, not content. Rebuilding/copying the
-        // bytes between the precache and display call sites would silently
-        // reintroduce the double-decode bug this factory exists to prevent.
-        final copiedBytes = Uint8List.fromList(bytes);
-        final copiedProvider = tierOneProviderFor(
-          copiedBytes,
-          width: 800,
-          height: 600,
-        );
-        final copiedKey = await copiedProvider.obtainKey(
-          ImageConfiguration.empty,
-        );
-        expect(copiedKey, isNot(equals(precacheKey)));
-      },
-    );
-
-    testWidgets(
-      'precache-then-display resolves as an ImageCache hit (AC2 integration: '
-      'no second decode once the tier-1 entry is warm)',
-      (tester) async {
-        await tester.runAsync(() async {
-          final bytes = Uint8List.fromList(tinyPngBytes);
-
-          final precacheProvider = tierOneProviderFor(
-            bytes,
-            width: 10,
-            height: 10,
-          );
-          final precacheKey = await precacheProvider.obtainKey(
-            ImageConfiguration.empty,
-          );
-
-          // Simulate the controller's precache: resolve without ever
-          // attaching to a widget tree or passing a BuildContext.
-          final completer = Completer<void>();
-          final stream = precacheProvider.resolve(ImageConfiguration.empty);
-          late ImageStreamListener listener;
-          listener = ImageStreamListener(
-            (image, synchronousCall) {
-              stream.removeListener(listener);
-              completer.complete();
-            },
-            onError: (error, stackTrace) {
-              stream.removeListener(listener);
-              completer.completeError(error, stackTrace);
-            },
-          );
-          stream.addListener(listener);
-          await completer.future;
-
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(precacheKey),
-            isTrue,
-            reason: 'precache must land a decoded entry under this key',
-          );
-
-          // Simulate the display path: a fresh provider instance, same bytes
-          // object + same size.
-          final displayProvider = tierOneProviderFor(
-            bytes,
-            width: 10,
-            height: 10,
-          );
-          final displayKey = await displayProvider.obtainKey(
-            ImageConfiguration.empty,
-          );
-
-          expect(displayKey, equals(precacheKey));
-          expect(
-            PaintingBinding.instance.imageCache.containsKey(displayKey),
-            isTrue,
-            reason:
-                'display path key must already be present in the cache '
-                'populated by precache -> ImageCache.putIfAbsent returns the '
-                'cached entry instead of decoding again',
-          );
-        });
-      },
-    );
+    // The two pixelPayloadProviderFor cache-key tests (AC2) are DELETED with the
+    // viewport-resolution tier (2026-10-04, memory.md AD-072). The identity
+    // rule for the one remaining factory, fullSizeProviderFor, is pinned by
+    // async_baseline_pins_test.dart TC-972.
 
     testWidgets(
       'tier-2 full-size decode does not start until the navigation debounce '
@@ -1796,11 +1682,12 @@ void main() {
 
     setUp(clearImageCacheSetUp);
 
-    test('P1 translated: cheap DNG has tier-1 entries at arrival; expensive '
-        'cold arrival fills the same window, one decode at a time', () async {
-      // Left at the production debounce (no override): the currentSize==3
-      // assertion below needs the tier-1 band to finish BEFORE tier-2 starts
-      // adding its own (distinct-key) entries to the same ImageCache. Even a
+    test('P1 translated: cheap DNG has full-size band entries at arrival; '
+        'expensive cold arrival fills the same window, one decode at a time',
+        () async {
+      // Left at the production debounce (no override): the currentSize==4
+      // assertion below needs the band to finish BEFORE the debounced sweep
+      // could add anything else to the same ImageCache. Even a
       // short 40ms debounce raced the async probe/content-check chain that
       // preloadImages itself performs before this poll's first check, so this
       // one keeps the real interval.
@@ -1818,41 +1705,38 @@ void main() {
         selectedItemId: cheapItems[5].id,
         notifyLoaded: () {},
       );
-      // Poll the ASSERTED quantity itself (currentSize == 3), not a proxy: a
+      // Poll the ASSERTED quantity itself (currentSize == 4), not a proxy: a
       // fixed sleep races real precache completion under CPU contention --
       // containsKey below stays true for a still-pending entry, so only
       // currentSize (completed entries) can tell "resident" from "in flight".
       // (round-2 review blocker: reproduced 3/3 in a 14-file batch run.)
       await until(
-        () => PaintingBinding.instance.imageCache.currentSize == 3,
-        reason: 'the +/-1 tier-1 band to finish precaching (spec v2 R-B, '
-            '2026-09-11: window-resolution retention is abolished)',
+        () => PaintingBinding.instance.imageCache.currentSize == 4,
+        reason: 'the -1..+2 full-size band to finish (AD-072)',
       );
       // Quiescence drain: the poll above returns the INSTANT currentSize first
-      // reads 3, which an over-decoding regression (e.g. still climbing past
+      // reads 4, which an over-decoding regression (e.g. still climbing past
       // the band) could pass through on its way past -- re-settle briefly so
-      // the frozen ==3 expect below still catches "more than 3", not just
-      // "at least 3".
+      // the frozen ==4 expect below still catches "more than 4", not just
+      // "at least 4".
       await Future<void>.delayed(const Duration(milliseconds: 20));
       final neighbourBytes = cheap.imageBytesFor(cheapItems[6].id)!;
-      // (q70 rewrite) A cheap (EncodedPayload) neighbour in the +/-1 band is
-      // served full-res straight from its payload, so the resident entry per
-      // band slot is its TIER-2 key, not a window-resolution tier-1 key.
+      // A cheap (EncodedPayload) neighbour in the band is served full-res
+      // straight from its payload: the resident entry per band slot is its
+      // full-size key.
       final key = await fullSizeProviderFor(
         neighbourBytes,
       ).obtainKey(const ImageConfiguration());
       expect(PaintingBinding.instance.imageCache.containsKey(key), isTrue);
       expect(
         PaintingBinding.instance.imageCache.currentSize,
-        3,
+        4,
         reason:
-            'P1 frozen cheap arrival count: exactly the +/-1 tier-1 band is '
-            'decoded before the tier-2 debounce. Was 9 (the whole -3..+5 '
-            'retention window) until spec v2 abolished window-resolution '
-            'retention (ruling R-B, 2026-09-11, lead ruling round 3): tier-1 '
-            'now covers only the +/-1 full-resolution band, rung-independent. '
-            'The byte-identity gate on this file re-anchors to the new '
-            'sha256; it is amended, not retired',
+            'P1 frozen cheap arrival count: exactly the -1..+2 full-size band '
+            'is decoded before the debounce. Was 9 (the whole -3..+5 '
+            'retention window) until spec v2 (ruling R-B, 2026-09-11), then 3 '
+            '(+/-1) until the 2026-10-04 ruling widened the band to -1..+2 '
+            'and removed the viewport-resolution tier (AD-072)',
       );
 
       PaintingBinding.instance.imageCache.clear();
@@ -2039,26 +1923,16 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      // Tier-agnostic witness (AC-P2a, docs/logs/2026-09-12/
-      // gpu-texture-contract.md): the claim under test is "the burst
-      // actually decoded jpgs[5]", not "jpgs[5] is currently held at
-      // tier-1". With `navigationDebounce: Duration.zero` here, index 5's
-      // tier-2 can beat its tier-1 registration to ready and
-      // `_evictTierOneDuplicate` reclaims the tier-1 entry the instant that
-      // happens -- a strictly better outcome (no duplicate GPU texture), not
-      // a regression this witness should flag.
+      // Witness: the claim under test is "the burst actually decoded
+      // jpgs[5]" -- its full-size entry is resident or at least pending (a
+      // MemoryImage is its own ImageCache key, and containsKey sees PENDING).
       final bytes5 = cheap.imageBytesFor(jpgs[5].id)!;
-      final key5 = await tierOneProviderFor(
-        bytes5,
-        width: 800,
-        height: 600,
-      ).obtainKey(const ImageConfiguration());
       expect(
-        PaintingBinding.instance.imageCache.containsKey(key5) ||
+        PaintingBinding.instance.imageCache
+                .containsKey(fullSizeProviderFor(bytes5)) ||
             cheap.isFullSizeReady(jpgs[5].id),
         isTrue,
-        reason: 'jpgs[5] must have been decoded during the burst, whether '
-            'it currently sits at tier-1 or has already advanced to tier-2',
+        reason: 'jpgs[5] must have been decoded during the burst',
       );
 
       // Separate real-DNG witness: the cheap result must come from TIFF content,
@@ -2358,8 +2232,8 @@ void main() {
 
     // ------------------------------------------------------------- AC-M5-2
 
-    test('M5-DW1 tier-2 keys equal the +/-2 band after settle, for encoded and '
-        'pixel payloads alike', () async {
+    test('M5-DW1 tier-2 keys equal the -1..+2 band after settle, for encoded '
+        'and pixel payloads alike', () async {
       // --- cheap (encoded) sub-case: whole window is populated in one pass.
       final cheap = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
@@ -2379,14 +2253,13 @@ void main() {
       );
       await until(
         () =>
-            cheap.debugTierTwoKeyIds.length ==
-            2 * kFullResolutionBandRadius + 1,
-        reason: 'cheap full-resolution band to settle to +/-1',
+            cheap.debugTierTwoKeyIds.length == kFullResolutionBandSlotCount,
+        reason: 'cheap full-resolution band to settle to -1..+2',
       );
 
       final cheapExpectedBand = <String>{
-        for (var d = -kFullResolutionBandRadius;
-            d <= kFullResolutionBandRadius;
+        for (var d = -kFullResolutionBandBefore;
+            d <= kFullResolutionBandAfter;
             d++)
           cheapItems[cheapSelected + d].id,
       };
@@ -2395,11 +2268,10 @@ void main() {
         cheapExpectedBand,
         reason:
             'encoded payloads: the tier-2 key id set must equal exactly the '
-            '+/-1 full-resolution band after settle (WP4.2/S3.2)',
+            '-1..+2 full-resolution band after settle (AD-072)',
       );
-      // +2 and +3 joined this list when S3.2 narrowed the full-resolution band
-      // from -1..+3 to +/-1: they are DEGRADED, not evicted -- still retained,
-      // no full-size entry.
+      // Slots beyond the -1..+2 band are DEGRADED, not evicted -- still
+      // retained, no full-size entry.
       //
       // The tier-1 half of this loop's claim ("still holding a window-
       // resolution tier-1 entry") is DELETED (spec v2 R-B, 2026-09-11, lead
@@ -2407,7 +2279,7 @@ void main() {
       // outside the +/-1 band now holds NO decoded tier-1 entry either --
       // only its payload survives. The tier-2-absence claim is independent
       // of R-B and stays.
-      for (final d in [-3, -2, 2, 3, 4, 5]) {
+      for (final d in [-3, -2, 3, 4, 5]) {
         final id = cheapItems[cheapSelected + d].id;
         expect(
           cheap.debugTierTwoKeyIds.contains(id),
@@ -2456,14 +2328,13 @@ void main() {
       }
       await until(
         () =>
-            pixel.debugTierTwoKeyIds.length ==
-            2 * kFullResolutionBandRadius + 1,
-        reason: 'pixel full-resolution band to settle to +/-1 after the walk',
+            pixel.debugTierTwoKeyIds.length == kFullResolutionBandSlotCount,
+        reason: 'pixel full-resolution band to settle to -1..+2 after the walk',
       );
 
       final pixelExpectedBand = <String>{
-        for (var d = -kFullResolutionBandRadius;
-            d <= kFullResolutionBandRadius;
+        for (var d = -kFullResolutionBandBefore;
+            d <= kFullResolutionBandAfter;
             d++)
           pixelItems[pixelSelected + d].id,
       };
@@ -2472,7 +2343,7 @@ void main() {
         pixelExpectedBand,
         reason:
             'pixel payloads: the tier-2 key id set must equal exactly the '
-            '+/-1 full-resolution band after settle, same as encoded payloads',
+            '-1..+2 full-resolution band after settle, same as encoded payloads',
       );
 
       // --- boundary claim: -3, -2, +4, +5 NEVER hold a tier-2 entry. Under
@@ -2498,7 +2369,7 @@ void main() {
       }
       await settle(pixel);
 
-      for (final d in [2, 3, 4, 5]) {
+      for (final d in [3, 4, 5]) {
         final boundary = buildPixelController();
         addTearDown(boundary.dispose);
         boundary.updateTargetSize(10, 10);
@@ -2507,7 +2378,7 @@ void main() {
 
         // Seed the boundary id's payload by selecting it directly (distance
         // 0 to itself), then settle on the real selection: retention [2,10]
-        // keeps the payload (distance d <= 5), but the tier-2 window [4,8]
+        // keeps the payload (distance d <= 5), but the tier-2 band [4,7]
         // does not include it, so its tier-2 entry is evicted.
         await boundary.preloadImages(
           items: boundaryItems,
@@ -2608,30 +2479,30 @@ void main() {
               'a window-resolution one',
         );
 
-        final tierOneProvider = controller.pixelsProviderFor(items[5].id)!;
-        final tierOneCompleter = Completer<ImageInfo>();
-        late ImageStreamListener tierOneListener;
-        final tierOneStream = tierOneProvider.resolve(
+        final pixelPayloadProvider = controller.pixelsProviderFor(items[5].id)!;
+        final pixelPayloadCompleter = Completer<ImageInfo>();
+        late ImageStreamListener pixelPayloadListener;
+        final pixelPayloadStream = pixelPayloadProvider.resolve(
           const ImageConfiguration(),
         );
-        tierOneListener = ImageStreamListener(
+        pixelPayloadListener = ImageStreamListener(
           (image, synchronousCall) {
-            tierOneStream.removeListener(tierOneListener);
-            tierOneCompleter.complete(image);
+            pixelPayloadStream.removeListener(pixelPayloadListener);
+            pixelPayloadCompleter.complete(image);
           },
-          onError: (error, stackTrace) => tierOneCompleter.completeError(error),
+          onError: (error, stackTrace) => pixelPayloadCompleter.completeError(error),
         );
-        tierOneStream.addListener(tierOneListener);
-        final tierOneInfo = await tierOneCompleter.future;
+        pixelPayloadStream.addListener(pixelPayloadListener);
+        final pixelPayloadInfo = await pixelPayloadCompleter.future;
         expect(
-          (tierOneInfo.image.width, tierOneInfo.image.height),
+          (pixelPayloadInfo.image.width, pixelPayloadInfo.image.height),
           (200, 150),
           reason:
               'the tier-1 entry must stay at the WINDOW target size (200x150), '
               'distinct from the full-resolution tier-2 entry',
         );
 
-        final tierOneKey = await tierOneProvider.obtainKey(
+        final tierOneKey = await pixelPayloadProvider.obtainKey(
           const ImageConfiguration(),
         );
         final tierTwoKey = await probe.obtainKey(const ImageConfiguration());

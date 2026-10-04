@@ -9,10 +9,9 @@ typedef FrameHook = void Function(VoidCallback callback);
 /// `ImageCache` registrations or GPU uploads per frame, nearest-first, with
 /// the selected item exempt.
 ///
-/// The pipeline had no notion of a frame budget anywhere: `_precacheTierOneWindow`
-/// walks the whole retention window in one synchronous loop on every navigation
-/// pass, so codec-completion and upload work arrive as one clump behind a
-/// single navigation event.
+/// Without it, a navigation pass that makes several band slots publishable at
+/// once lets their codec-completion and upload work arrive as one clump behind
+/// a single navigation event.
 ///
 /// This class knows nothing about images. It holds closures and a rank; the
 /// caller decides what a publication IS and what makes one stale.

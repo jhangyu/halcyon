@@ -43,7 +43,7 @@ ImagePreloadController _cheapController() => ImagePreloadController(
 const List<PayloadStage> _ladder = <PayloadStage>[
   PayloadStage.absent,
   PayloadStage.decoding,
-  PayloadStage.tierOneReady,
+  PayloadStage.payloadReady,
   PayloadStage.tierTwoReady,
 ];
 
@@ -98,7 +98,7 @@ void main() {
 
     group('TC-985 stage ladder', () {
       test(
-        'one item observes a PREFIX of absent -> decoding -> tierOneReady',
+        'one item observes a PREFIX of absent -> decoding -> payloadReady',
         () async {
           final controller = _cheapController();
           addTearDown(controller.dispose);
@@ -127,7 +127,7 @@ void main() {
           // so no extra settle is needed for the transition itself.
           expect(
             state.value.stage,
-            PayloadStage.tierOneReady,
+            PayloadStage.payloadReady,
             reason: 'a retained payload IS tier-1 readiness',
           );
           expectPrefixOfLadder(observed);
@@ -172,7 +172,7 @@ void main() {
           controller.stateFor(id).value.stage,
           controller.isFullSizeReady(id)
               ? PayloadStage.tierTwoReady
-              : PayloadStage.tierOneReady,
+              : PayloadStage.payloadReady,
         );
       });
     });
@@ -232,7 +232,7 @@ void main() {
           expectPrefixOfLadder(observed);
           expect(
             observed,
-            contains(PayloadStage.tierOneReady),
+            contains(PayloadStage.payloadReady),
             reason: 'tier-2 must not swallow the tier-1 transition',
           );
         },
@@ -472,7 +472,7 @@ void main() {
 
         // A's payload lands: its state flips and its payload appears.
         payloads['A'] = freshEncodedPayload();
-        stateA.trySetValue(const PayloadState(stage: PayloadStage.tierOneReady));
+        stateA.trySetValue(const PayloadState(stage: PayloadStage.payloadReady));
         await tester.pump();
 
         expect(
@@ -645,7 +645,7 @@ void main() {
 
   group('payload state eviction race', () {
     // Without the binding, the controller's very first landing never completes
-    // (and dispose() throws from _evictTierOneKeys reaching PaintingBinding),
+    // (and dispose() throws from reaching PaintingBinding),
     // so every assertion below would fail for a harness reason instead of the
     // mechanism under test. Same preamble as async_baseline_pins_test.dart.
 
@@ -716,7 +716,7 @@ void main() {
 
         expect(
           controller.debugPayloadStateFor(a).stage,
-          isNot(PayloadStage.tierOneReady),
+          isNot(PayloadStage.payloadReady),
           reason:
               'the per-item state claims a payload the cache no longer holds; a '
               'tile trusting it paints nothing and waits forever',
@@ -782,7 +782,7 @@ void main() {
           greaterThan(0),
           reason:
               'the re-landing was silent: _markStage refuses the transition '
-              'because the stale state already reads tierOneReady, so the tile '
+              'because the stale state already reads payloadReady, so the tile '
               'is never told to repaint',
         );
       },
@@ -1076,14 +1076,12 @@ void main() {
     );
 
     // TC-429
-    test('sidebar-only ids never get a tier-1 or tier-2 ImageCache entry', () async {
+    test('sidebar-only ids never get a full-size ImageCache entry', () async {
       final controller = ImagePreloadController(
         imageLoader: _bytesLoader,
         payloadEncoder: throwingPayloadEncoder,
       );
       final items = photoItems(60);
-      // Tier-1 precache is a no-op until the viewport size is known, so without
-      // this the tier-1 assertion below would pass vacuously.
       controller.updateTargetSize(800, 600);
       await controller.preloadImages(
         items: items,
@@ -1097,18 +1095,17 @@ void main() {
         notifyLoaded: () {},
       );
       await _pollUntil(
-        () => controller.debugTierOneKeyIds.isNotEmpty,
+        () => controller.debugTierTwoKeyIds.isNotEmpty,
         const Duration(milliseconds: 400),
       );
       // The sidebar's own ids (p40..p44 plus the prefetch margin) are retained
-      // for their PAYLOAD only; neither ImageCache tier may hold a key for them.
+      // for their PAYLOAD only; the ImageCache may hold no full-size key for them.
       for (final id in <String>['p40', 'p41', 'p42', 'p43', 'p44']) {
         expect(controller.debugTierTwoKeyIds.contains(id), isFalse, reason: id);
-        expect(controller.debugTierOneKeyIds.contains(id), isFalse, reason: id);
       }
-      // Sanity: the assertion above is not vacuous because the tiers are empty --
-      // the selected navigation item DOES hold a tier-1 key.
-      expect(controller.debugTierOneKeyIds, isNotEmpty);
+      // Sanity: the assertion above is not vacuous because the set is empty --
+      // the selected navigation item DOES hold a full-size key.
+      expect(controller.debugTierTwoKeyIds, contains('p0'));
       controller.dispose();
     });
   });

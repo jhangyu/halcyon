@@ -388,7 +388,7 @@ void main() {
             controller.payloadFor('p0') != null &&
             [
               for (var i = 0; i <= 5; i++)
-                decoder.callsFor('p$i') >= (i <= 1 ? 2 : 1),
+                decoder.callsFor('p$i') >= (i <= 2 ? 2 : 1),
             ].every((reached) => reached),
         reason: 'p0..p5 preview decodes (+ in-band fallback) to land',
       );
@@ -398,7 +398,7 @@ void main() {
       // The navigation window is -3..+5, so p0..p5 are decoded exactly once each
       // and are the rows this test's sweep asks about.
       // (q70 rewrite) With the encoder throwing, every payload is a PixelPayload,
-      // and a PixelPayload item inside the +/-1 tier-2 band (p0, p1) now buys
+      // and a PixelPayload item inside the -1..+2 tier-2 band (p0..p2) buys
       // ONE extra decode through the counted file fallback (the piggyback that
       // used to supply its full-res pixels is deleted). Everything else is
       // decoded exactly once. Whatever the count, it is the BASELINE the tile
@@ -408,8 +408,8 @@ void main() {
         baseline[i] = decoder.callsFor('p$i');
         expect(
           baseline[i],
-          i <= 1 ? 2 : 1,
-          reason: 'p$i: one preview decode${i <= 1 ? " + one counted file-fallback decode (in band)" : ""}',
+          i <= 2 ? 2 : 1,
+          reason: 'p$i: one preview decode${i <= 2 ? " + one counted file-fallback decode (in band)" : ""}',
         );
       }
 

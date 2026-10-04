@@ -38,16 +38,17 @@ import 'prefetch_scheduler.dart';
 /// browse mixed corpora, while this pool must be sized against its WORST
 /// corpus, the cheap preview-bearing one (see below).
 ///
-/// DERIVATION (spec v2, 2026-09-11, ruling R-B — DECODED PIXELS ONLY):
+/// DERIVATION (spec v2, 2026-09-11, ruling R-B — DECODED PIXELS ONLY;
+/// single decoded tier since the 2026-10-04 ruling, memory.md AD-072):
 ///
-///   requirement = fullResolutionBandSlotCount
-///                   * (fullResolutionImageByteCost + windowResolutionImageByteCost)
+///   requirement = fullResolutionBandSlotCount * fullResolutionImageByteCost
 ///               + sidebarThumbnailPoolByteCost
 ///   budget      = roundUpToWholeMebibytes(requirement * safetyFactor)
 ///
-/// For a preview-bearing item in the +/-1 band the tier-1 and tier-2 entries
-/// are DIFFERENT cache keys that coexist, which is why every slot of the
-/// band is charged both costs.
+/// Until 2026-10-04 every band slot was also charged a viewport-resolution
+/// entry (~19.4MB) that coexisted with its full-size one. That tier is
+/// removed; its saving was traded for a fourth full-resolution slot
+/// (band -1..+2).
 ///
 /// WHAT LEFT, AND WHY IT IS NOT COMING BACK. Until spec v2 this row also
 /// carried a per-slot charge for the retention window's window-resolution-
@@ -89,12 +90,6 @@ const int kReferenceFullResolutionPixels = 24000000;
 const int kFullResolutionImageByteCost =
     kReferenceFullResolutionPixels * kDecodedBytesPerPixel;
 
-/// Window-resolution (tier-1) pixel cost of one item: 18.54 MiB at the
-/// reference 1440x900 logical window and device pixel ratio 2.0.
-///
-/// Evidence: same two documents as [kFullResolutionImageByteCost].
-const int kWindowResolutionImageByteCost = 19440000;
-
 /// What the sidebar thumbnail pool holds, across both pools: 1.6 MiB.
 ///
 /// Evidence: `docs/logs/2026-08-23/cache-sizing-estimate.md` §A.4.
@@ -103,11 +98,12 @@ const int kSidebarThumbnailPoolByteCost = 1677722;
 /// How many slots hold a FULL-RESOLUTION decoded image at once.
 ///
 /// DERIVED from the band the tier-2 scheduler actually precaches
-/// (`prefetch_scheduler.dart`'s [kFullResolutionBandRadius]) rather than
-/// restated here, so a change to the band cannot leave this pool sized for a
+/// (`prefetch_scheduler.dart`'s [kFullResolutionBandBefore] /
+/// [kFullResolutionBandAfter]) rather than restated here, so a change to the band cannot leave this pool sized for a
 /// window the app no longer holds. That coupling is the point: the budget is
 /// the band's consequence.
-const int kFullResolutionBandSlotCount = kFullResolutionBandRadius * 2 + 1;
+const int kFullResolutionBandSlotCount =
+    kFullResolutionBandBefore + kFullResolutionBandAfter + 1;
 
 /// Headroom above the computed working-set row: 15 %.
 ///
@@ -145,14 +141,12 @@ const int _bytesPerMebibyte = 1 << 20;
 int imageCacheBudgetBytesFromWorkingSet({
   required int fullResolutionBandSlotCount,
   required int fullResolutionImageByteCost,
-  required int windowResolutionImageByteCost,
   required int sidebarThumbnailPoolByteCost,
   required double safetyFactor,
   int? machineMemorySafetyCeilingBytes,
 }) {
   final requirementBytes =
-      fullResolutionBandSlotCount *
-          (fullResolutionImageByteCost + windowResolutionImageByteCost) +
+      fullResolutionBandSlotCount * fullResolutionImageByteCost +
       sidebarThumbnailPoolByteCost;
   final withHeadroomBytes = (requirementBytes * safetyFactor).ceil();
   final roundedUpToWholeMebibytes =
@@ -172,7 +166,7 @@ int imageCacheBudgetBytesFromWorkingSet({
 /// image so far has [largestFullResolutionPixels] pixels (never below the
 /// 24 MP reference item).
 ///
-/// Takes no retention argument: every input is derived from the +/-1
+/// Takes no retention argument: every input is derived from the
 /// full-resolution BAND. [physicalMemoryBytes] is used solely as the downward
 /// safety ceiling described in [kMachineMemorySafetyCeilingDivisor]; null
 /// means no ceiling applies.
@@ -186,7 +180,6 @@ int imageCacheBudgetBytes({
   return imageCacheBudgetBytesFromWorkingSet(
     fullResolutionBandSlotCount: kFullResolutionBandSlotCount,
     fullResolutionImageByteCost: pixels * kDecodedBytesPerPixel,
-    windowResolutionImageByteCost: kWindowResolutionImageByteCost,
     sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
     safetyFactor: kImageCacheSafetyFactor,
     machineMemorySafetyCeilingBytes: physicalMemoryBytes == null
@@ -199,8 +192,8 @@ int imageCacheBudgetBytes({
 /// largest full-resolution image this session has decoded (memory-reclamation
 /// campaign M2.2).
 ///
-/// A 24 MP-sized budget cannot hold the +/-1 band at 40 MP (3 x 153 MiB >
-/// 382 MiB), so the LRU evicted band neighbours and they were decoded again
+/// A 24 MP-sized budget cannot hold the band at 40 MP (4 x 153 MiB exceeds
+/// the 24 MP figure), so the LRU evicted band neighbours and they were decoded again
 /// on every navigation. Monotonic on purpose: lowering the budget mid-session
 /// would evict the band the user just walked through.
 ///

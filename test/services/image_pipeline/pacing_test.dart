@@ -93,7 +93,7 @@ class FakeFramesImagePreloadPacer {
 
 /// 26 CHEAP items: the loader answers with real PNG-ish bytes, so no decode
 /// lane, no encode stage and no RAW path is involved -- this file is only
-/// about WHEN a tier-1 key is registered.
+/// about WHEN a full-size key is registered.
 List<PhotoItem> manyCheapItems() => [
   for (var c = 0; c < 26; c++)
     PhotoItem(
@@ -968,22 +968,21 @@ void main() {
   });
 
   group('image preload pacer', () {
-    // Plan Task 11 (S4): tier-1 ImageCache registration is paced into the frame.
+    // Plan Task 11 (S4): ImageCache registration is paced into the frame.
     //
     // TC-835b / TC-836b / TC-837b
     // (docs/logs/2026-09-03/plan-decode-optimizations.md).
     //
-    // `_precacheTierOneWindow` walked the whole retention window in one
-    // synchronous loop on every navigation pass, so codec-completion work arrived
-    // as one clump behind one navigation event. After this task every non-selected
-    // registration goes through `PublicationPacer`, one per frame, nearest first,
-    // with the selected item exempt.
+    // Every non-selected registration goes through `PublicationPacer`, one per
+    // frame, nearest first, with the selected item exempt. Since the 2026-10-04
+    // ruling (memory.md AD-072) the only registration is the full-size one, so
+    // these pins observe `debugTierTwoKeyIds`.
     //
     // The frame hook is a FAKE: no assertion here depends on wall-clock timing or
     // on a real `SchedulerBinding` frame.
 
     // TC-836b -- the selected item never waits for a frame.
-    test('the selected id registers its tier-1 key without a frame', () async {
+    test('the selected id registers its full-size key without a frame', () async {
       final frames = FakeFramesImagePreloadPacer();
       final controller = buildController(scheduleFrameCallback: frames.arm);
       addTearDown(controller.dispose);
@@ -994,17 +993,17 @@ void main() {
         selectedItemId: 'c',
         notifyLoaded: () {},
       );
-      await pumpUntil(() => controller.debugTierOneKeyIds.contains('c'));
+      await pumpUntil(() => controller.debugTierTwoKeyIds.contains('c'));
 
       expect(
-        controller.debugTierOneKeyIds,
+        controller.debugTierTwoKeyIds,
         contains('c'),
         reason: 'the exempt (selected) registration must not wait for a frame',
       );
     });
 
     // TC-835b -- neighbours are paced, one per frame.
-    test('non-selected tier-1 registrations are paced one per frame', () async {
+    test('non-selected full-size registrations are paced one per frame', () async {
       final frames = FakeFramesImagePreloadPacer();
       final controller = buildController(scheduleFrameCallback: frames.arm);
       addTearDown(controller.dispose);
@@ -1017,14 +1016,10 @@ void main() {
       );
       await pumpUntil(
         () =>
-            controller.debugTierOneKeyIds.contains('c') &&
+            controller.debugTierTwoKeyIds.contains('c') &&
             frames.armedCount > 0,
       );
-      // (q70 rewrite) A neighbour's bytes payload is an EncodedPayload, so its
-      // paced unit of work is now the payload-driven TIER-2 publish (a tier-1
-      // key is no longer registered for a neighbour that is served full-res
-      // straight from its payload). The pacing contract is unchanged: one
-      // non-selected registration per frame.
+      // The pacing contract: one non-selected registration per frame.
       final afterSelection = controller.debugTierTwoKeyIds.length;
 
       frames.frame();
@@ -1054,7 +1049,7 @@ void main() {
       );
       await pumpUntil(
         () =>
-            controller.debugTierOneKeyIds.contains('c') &&
+            controller.debugTierTwoKeyIds.contains('c') &&
             frames.armedCount > 0,
       );
       // Navigate away so the far neighbours leave the window before their drain.
@@ -1063,11 +1058,11 @@ void main() {
         selectedItemId: 'z',
         notifyLoaded: () {},
       );
-      await pumpUntil(() => controller.debugTierOneKeyIds.contains('z'));
+      await pumpUntil(() => controller.debugTierTwoKeyIds.contains('z'));
       frames.frame();
       await pumpEventLoop(24); // negative: no key for a dropped payload
 
-      for (final id in controller.debugTierOneKeyIds) {
+      for (final id in controller.debugTierTwoKeyIds) {
         expect(
           controller.payloadFor(id),
           isNotNull,
@@ -1077,18 +1072,15 @@ void main() {
     });
 
     // "every retained window slot eventually gets a tier-1 key" DELETED
-    // (spec v2 R-B, 2026-09-11, lead ruling round 3): its premise was that
-    // tier-1 precache spans the whole -3..+5 retention window. Window-
-    // resolution retention is abolished -- tier-1 now covers only the +/-1
-    // full-resolution band, so most retained slots never get a tier-1 key
-    // at all, by design. See resolution_band_test.dart TC-1223/1224/1225 for
-    // the band's replacement coverage.
+    // (spec v2 R-B, 2026-09-11, lead ruling round 3); the tier itself is gone
+    // since 2026-10-04 (AD-072). The band's decoded set is pinned by
+    // resolution_band_test.dart TC-1470.
 
     // TC-897 -- the controller-level twin of TC-894: with the pacer's exempt
     // claim enforced against the controller's selected id, a NON-selected window
-    // slot cannot register a tier-1 key before a frame is granted, no matter
+    // slot cannot register a full-size key before a frame is granted, no matter
     // what the caller asks for.
-    test('non-selected window items never register a tier-1 key before a frame',
+    test('non-selected window items never register a full-size key before a frame',
         () async {
       final frames = FakeFramesImagePreloadPacer();
       final controller = buildController(scheduleFrameCallback: frames.arm);
@@ -1102,14 +1094,14 @@ void main() {
       );
       await pumpUntil(
         () =>
-            controller.debugTierOneKeyIds.contains('c') &&
+            controller.debugTierTwoKeyIds.contains('c') &&
             frames.armedCount > 0,
       );
       // The expect below is negative: polling cannot prove absence.
       await pumpEventLoop(8);
 
       expect(
-        controller.debugTierOneKeyIds,
+        controller.debugTierTwoKeyIds,
         {'c'},
         reason: 'before any frame, exactly the selected id may be registered',
       );

@@ -87,17 +87,16 @@ bool isSelectedExempt(int distance) => distance == 0;
 /// Builds the tier-2 (full size, unresized) provider for a payload -- bound to
 /// `ImagePreloadController._fullSizeProviderForPayload`.
 ///
-/// It is a SUPPLIER, not a copy: the tier-1 and tier-2 provider factories must
-/// stay side by side in the controller, because their pairing is the visible
-/// statement of the "same payload object identity == same ImageCache key"
-/// invariant (I1). Rebuilding a tier-2 provider here would be a second place
+/// It is a SUPPLIER, not a copy: the provider factory stays in the controller,
+/// next to the display path, as the one statement of the "same payload object
+/// identity == same ImageCache key" invariant (I1). Rebuilding a tier-2 provider here would be a second place
 /// that decides what a payload's cache key is.
 typedef FullSizeProviderFor = ImageProvider Function(SourcePayload payload);
 
 /// Owns the TIER-2 SCHEDULING that used to live inline in
 /// [ImagePreloadController]: WHEN a full-size decode happens (the 250ms
 /// navigation debounce), FOR WHICH items (the full-resolution band,
-/// [kFullResolutionBandRadius]), and
+/// [kFullResolutionBandBefore]..[kFullResolutionBandAfter]), and
 /// IN WHAT ORDER (one sequential queue: payload production in index order
 /// first, then full-resolution upgrades by distance).
 ///
@@ -372,7 +371,7 @@ class TierTwoScheduler {
   /// route, which is the one tier-2 decision taken outside this class.
   bool isInWindow(String id) => _windowIds.contains(id);
 
-  /// Publishes the +/-[kFullResolutionBandRadius] id set for [currentIndex]
+  /// Publishes the full-resolution band's id set for [currentIndex]
   /// IMMEDIATELY,
   /// without arming or disturbing the debounce.
   ///
@@ -393,8 +392,8 @@ class TierTwoScheduler {
       items,
       currentIndex,
       (item) => item.id,
-      before: kFullResolutionBandRadius,
-      after: kFullResolutionBandRadius,
+      before: kFullResolutionBandBefore,
+      after: kFullResolutionBandAfter,
     );
   }
 
@@ -435,7 +434,7 @@ class TierTwoScheduler {
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    // USER RULING 2026-09-11 22:00: an item that NEWLY enters the +/-1 band
+    // USER RULING 2026-09-11 22:00: an item that NEWLY enters the full-resolution band
     // starts decoding IMMEDIATELY, without waiting out the debounce. See
     // [_startNewBandEntrants], which also evicts the band LEAVERS at once (l1l2
     // spec R1). The debounce below still owns the window SCAN (catch-up for
@@ -449,7 +448,7 @@ class TierTwoScheduler {
   }
 
   /// Starts the full-resolution decode for the items that entered the
-  /// +/-[kFullResolutionBandRadius] band on THIS navigation pass, synchronously.
+  /// full-resolution band on THIS navigation pass, synchronously.
   ///
   /// Why this exists (docs/logs/2026-09-11/wp42-latency-regression-diagnosis.md):
   /// the only tier-2 enqueue point used to sit inside the 250ms debounce timer.
@@ -476,11 +475,11 @@ class TierTwoScheduler {
     VoidCallback notifyLoaded,
   ) {
     if (items.isEmpty) return;
-    final tierStart = (currentIndex - kFullResolutionBandRadius).clamp(
+    final tierStart = (currentIndex - kFullResolutionBandBefore).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kFullResolutionBandRadius).clamp(
+    final tierEnd = (currentIndex + kFullResolutionBandAfter).clamp(
       0,
       items.length - 1,
     );
@@ -535,7 +534,7 @@ class TierTwoScheduler {
       // paced-publication stalls across 17 controller-level tests.
       //
       // The regression this path exists to fix does not need it: a slot
-      // entering the +/-1 band has almost always been sitting in the -3..+5
+      // entering the band has almost always been sitting in the -3..+5
       // retention window with its payload already retained, and what it was
       // waiting 250ms for was the full-resolution DECODE of that payload, not
       // the payload. Catch-up loading for the genuinely cold slot stays the
@@ -546,17 +545,18 @@ class TierTwoScheduler {
 
   // Tier-2 precache: decode the full-resolution band at full size once
   // navigation has paused, and start the expensive sources that the immediate
-  // pass deferred. Both tiers coexist: this only evicts its own window's
-  // ImageCache entries and never touches the tier-1 keys or the payload cache --
+  // pass deferred. This only evicts its own window's
+  // ImageCache entries and never touches the payload cache --
   // payload retention is the -3..+5 rule and belongs to preloadImages alone.
   //
-  // The span here is the full-resolution band (kFullResolutionBandRadius) and
+  // The span here is the full-resolution band (kFullResolutionBandBefore /
+  // kFullResolutionBandAfter) and
   // it governs FULL-SIZE decodes only.
   // Since the 2026-08-26 ruling it no longer has anything to say about where an
   // expensive source may be STARTED: the window pass in the controller already
   // queues every missing payload in the -3..+5 retention window on the shared
   // serial lane. What this loop still owns is the catch-up case -- a slot that
-  // is inside the -1..+3 band and still has no payload when the debounce fires
+  // is inside the band and still has no payload when the debounce fires
   // gets (re-)queued here WITH its tier-2 decode chained on, because if the
   // user has stopped navigating there is no later pass to flip readiness.
   void _decodeWindow(
@@ -564,11 +564,11 @@ class TierTwoScheduler {
     int currentIndex,
     VoidCallback notifyLoaded,
   ) {
-    final tierStart = (currentIndex - kFullResolutionBandRadius).clamp(
+    final tierStart = (currentIndex - kFullResolutionBandBefore).clamp(
       0,
       items.length - 1,
     );
-    final tierEnd = (currentIndex + kFullResolutionBandRadius).clamp(
+    final tierEnd = (currentIndex + kFullResolutionBandAfter).clamp(
       0,
       items.length - 1,
     );
@@ -582,8 +582,8 @@ class TierTwoScheduler {
       items,
       currentIndex,
       (item) => item.id,
-      before: kFullResolutionBandRadius,
-      after: kFullResolutionBandRadius,
+      before: kFullResolutionBandBefore,
+      after: kFullResolutionBandAfter,
     );
     _windowIds = neededIds;
 
@@ -698,7 +698,7 @@ class TierTwoScheduler {
         case PixelPayload():
           // The CATCH-UP upgrade (design §2.2): this item already has its
           // window-resolution payload but no full-resolution entry -- it slid
-          // into the -1..+3 band, or left and came back after its entry was
+          // into the band, or left and came back after its entry was
           // evicted. Unlike the piggyback path there is no decode in flight to
           // ride along on, so it costs one FFI decode, taken on the SAME serial
           // lane as payload production (no new concurrency) and behind the same
@@ -757,7 +757,7 @@ class TierTwoScheduler {
       // `(payload, id)` key space with the controller's own production, and
       // DecodeLane RE-RANKS a pending key on re-enqueue -- so handing it a
       // bare 0..N rank here would silently pull whichever slots this sweep
-      // touches (the tier-2 window, -1..+3) below every plain navigation slot
+      // touches (the full-resolution band) below every plain navigation slot
       // sitting at 1000+. Concretely: the -2 slot (1004) would lose to +3
       // (5), inverting the 2026-08-26 start-order ruling.
       //
@@ -855,8 +855,8 @@ class TierTwoScheduler {
 
   // One FFI decode -> full-resolution oriented image -> ImageCache. The
   // window-resolution byproduct is NOT produced and the retained payload object
-  // is NEVER replaced: replacing it would invalidate the tier-1 ImageCache key
-  // and the identity assertions the frozen navigation probes rest on.
+  // is NEVER replaced here: replacing it would invalidate the identity
+  // assertions the frozen navigation probes rest on.
   // The catch-up publish. PREFERS THE q70 PAYLOAD (spec R5): a promotion whose
   // payload is already a full-size JPEG costs no decode at all. Only a payload
   // that CANNOT serve full-res pixels (a window-resolution [PixelPayload]) or a
@@ -890,10 +890,17 @@ class TierTwoScheduler {
       // Orientation comes from the memo the probe already filled (invariant
       // I6): no bridge round trip is bought to rotate a frame.
       final orientation = _exifOrientationFor(id);
-      if (decoder == null || file == null || orientation == null) {
+      // A missing FILE is permanent for this payload. A missing decoder or
+      // orientation is NOT: the decoder supplier and the orientation memo can
+      // both be filled later in the same session, so memoising a failure here
+      // would block every later sweep until the payload is replaced. Leaving
+      // it unrecorded costs nothing -- the next sweep simply asks again (no
+      // retry timer; only navigation or a settle reaches this line).
+      if (file == null) {
         _registry.markFullResFailure(id, payload);
         return;
       }
+      if (decoder == null || orientation == null) return;
 
       ui.Image image;
       try {
@@ -905,8 +912,8 @@ class TierTwoScheduler {
           gate: _compositeGate,
         );
       } catch (_) {
-        // Tier-1 display is untouched and this is NOT a permanent miss: the
-        // item has a payload and is on screen (design §2.5).
+        // NOT a permanent miss: the item has a payload and keeps its interim
+        // display (design §2.5).
         _registry.markFullResFailure(id, payload);
         return;
       }
@@ -920,7 +927,7 @@ class TierTwoScheduler {
         return;
       }
       // Contract deliverable 2: route the hand-off through the pacer instead
-      // of calling `publishFullRes` directly. `exempt` mirrors the tier-1
+      // of calling `publishFullRes` directly. `exempt` mirrors the selection
       // rule ([isSelectedExempt]) -- the item the user is looking at must not
       // wait a frame for its own full-resolution pixels, the same rationale
       // the full-res band already applies to decode ORDER; this applies

@@ -2,14 +2,15 @@ import 'package:flutter/foundation.dart';
 
 /// How far along one item's payload is, as a view can observe it.
 ///
-/// The declaration order IS the progression order: [ImagePreloadController]
-/// only ever moves an item FORWARD along this list (plan §3 Phase 5). The
-/// universal invariant is that the stage is MONOTONE NON-DECREASING; the
-/// "observed transitions are a prefix of absent -> decoding -> tierOneReady
+/// The declaration order IS the progression order. Landings only ever move an
+/// item FORWARD along this list (plan §3 Phase 5); the one way back is a
+/// RE-DERIVATION from the containers, which the controller performs when a
+/// payload or a full-size entry is evicted (`_refreshPayloadState`). The
+/// "observed transitions are a prefix of absent -> decoding -> payloadReady
 /// -> tierTwoReady" property only holds for a notifier created before the
-/// first landing -- a notifier created after a landing is born at the
-/// already-derived truth, so it can skip earlier stages. [failed] is
-/// terminal until the folder reloads.
+/// first landing and with no eviction in between -- a notifier created after
+/// a landing is born at the already-derived truth, so it can skip earlier
+/// stages. [failed] is terminal until the folder reloads.
 ///
 /// Deliberately NOT a second source of truth: every value here is written from
 /// the same landing sites that already call `notifyLoaded`, so a stage can
@@ -25,8 +26,10 @@ enum PayloadStage {
   /// or a serial-lane enqueue). The view may show a spinner.
   decoding,
 
-  /// A payload is retained: there is something to paint at window resolution.
-  tierOneReady,
+  /// A payload is retained but its full-size entry is not resident yet. The
+  /// view paints an interim source that needs no decode of its own (the
+  /// sidebar thumbnail, or a pixel payload directly).
+  payloadReady,
 
   /// The full-size (tier-2) ImageCache entry for this item's CURRENT payload
   /// is resident, i.e. `ImagePreloadController.isFullSizeReady(id)` is true.
@@ -46,7 +49,7 @@ enum PayloadStage {
 ///
 /// [thumbnailReady] is a second, INDEPENDENT axis rather than another
 /// [PayloadStage] value, because the sidebar tile is derived from the payload
-/// and lands after it: an item can be `tierOneReady` with no tile yet (the
+/// and lands after it: an item can be `payloadReady` with no tile yet (the
 /// derive queue has not reached it) and the sidebar tile must still learn when
 /// its own tile is written. Folding it into the stage ladder would either
 /// order two events that are not ordered, or make the ladder non-monotonic.

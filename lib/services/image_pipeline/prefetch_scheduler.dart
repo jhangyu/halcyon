@@ -2,32 +2,34 @@ import 'photo_source.dart';
 
 export 'photo_source.dart' show ProbeResult, SourceCost;
 
-/// How far EITHER SIDE of the selected item a FULL-SIZE (tier-2) decode is
-/// kept: the spec's "full-size pixels only for selected +/-1" (S3.2).
+/// The FULL-RESOLUTION BAND: the slots around the selected item that hold a
+/// decoded full-size image, `-kFullResolutionBandBefore..+kFullResolutionBandAfter`.
+/// THE ONE SOURCE OF TRUTH for the band -- the tier-2 scheduler's id set, its
+/// sweep range and the image-cache budget's slot count all derive from these
+/// two constants.
 ///
 /// Retention is a much wider thing (`-3..+5` on the floor rung, wider per rung
-/// in `retention_policy.dart`): this radius decides only which slots are
-/// decoded at FULL size, not which are kept -- and, since the 2026-08-26
-/// serial-lane ruling, it decides nothing at all about which slots may START an
-/// expensive decode. Every slot of the retention window may; expensive ones
-/// simply queue on `DecodeLane` instead of running in parallel.
+/// in `retention_policy.dart`): this band decides only which slots are decoded
+/// at FULL size, not which are kept -- and, since the 2026-08-26 serial-lane
+/// ruling, nothing about which slots may START an expensive decode.
 ///
-/// HISTORY. Until WP4.2 this band was the forward-biased `-1..+3`
-/// (`kTierTwoBefore`/`kTierTwoAfter`), sized so a forward step landed on a
-/// ready full-resolution entry. S3.2 narrows it to a symmetric `+/-1` because
-/// a resident full-resolution frame is ~97 MB of graphics memory and the
-/// forward slots `+2`/`+3` can be re-promoted from their RETAINED payload in
-/// tens of milliseconds. The forward bias itself is NOT gone: it still governs
-/// retention, the serial lane's start order, and eviction ranking
-/// ([kEvictionBandBefore]/[kEvictionBandAfter]).
-const int kFullResolutionBandRadius = 1;
+/// HISTORY. WP4.2 had `-1..+3`; S3.2 narrowed it to a symmetric `+/-1`
+/// (2026-09-11) while a viewport-resolution decode still covered first paint.
+/// USER RULING 2026-10-04 (memory.md AD-072): the viewport-resolution decode is
+/// removed -- full resolution is the only decoded form -- and the memory it
+/// saved buys one more forward slot, so the band is `-1..+2` (4 slots).
+const int kFullResolutionBandBefore = 1;
+
+/// See [kFullResolutionBandBefore]. Forward-biased because browsing is
+/// overwhelmingly forwards.
+const int kFullResolutionBandAfter = 2;
 
 /// The band the payload cache's EVICTION RANKING is computed against
 /// (`ImagePreloadController._evictionOrderIndices`): ids beyond
 /// `-kEvictionBandBefore..+kEvictionBandAfter` sort last and are evicted first.
 ///
 /// Deliberately a SEPARATE pair of constants from
-/// [kFullResolutionBandRadius], frozen at the pre-WP4.2 `-1..+3` values.
+/// [kFullResolutionBandBefore]/[kFullResolutionBandAfter], frozen at the pre-WP4.2 `-1..+3` values.
 /// Eviction ordering is retention policy, which S3.2 places out of scope, so
 /// narrowing the resolution band must not move it. Two names, because they are
 /// two questions: "what form is this item held in" and "who loses their payload
@@ -37,19 +39,6 @@ const int kEvictionBandBefore = 1;
 /// See [kEvictionBandBefore]. The larger of the two because browsing is
 /// overwhelmingly forwards, so behind-side ids lose the budget first.
 const int kEvictionBandAfter = 3;
-
-/// Whether [distanceFromSelectedItem] is inside the full-resolution band.
-///
-/// The SOLE resolution predicate since spec v2 (2026-09-11, ruling R-B):
-/// window-resolution RETENTION is abolished, so there is no longer a
-/// three-valued band table to belong to. A slot inside this band holds
-/// decoded pixels (tier-2 full size, plus a tier-1 window-resolution entry
-/// for progressive display); every other retained slot holds its full-size
-/// JPEG payload and no decoded entry at all. The deleted
-/// `resolutionBandForDistance` / `PhotoResolutionBand` pair is not coming
-/// back: a middle tier is exactly what R-B forbids.
-bool isFullResolutionDistance(int distanceFromSelectedItem) =>
-    distanceFromSelectedItem.abs() <= kFullResolutionBandRadius;
 
 /// Decides WHICH LANE a source runs on. The only layer that knows about cost
 /// (design §3.3).

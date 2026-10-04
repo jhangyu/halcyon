@@ -361,8 +361,8 @@ void main() {
         h.scheduler.schedule(items, 7, () {});
         await h.pump();
 
-        // Window is the full-resolution band (+/-kFullResolutionBandRadius,
-        // i.e. -1..+1) around index 7, and the lane starts at its centre:
+        // Window is the full-resolution band (kFullResolutionBandBefore..After,
+        // i.e. -1..+2) around index 7, and the lane starts at its centre:
         // index 7 itself is the one load that may have begun.
         // (Until 2026-08-26 this asserted `contains('a5')` -- true only because
         // the old queue started at the window's low index. a5 is now the LAST
@@ -385,16 +385,13 @@ void main() {
         h.scheduler.schedule(items, 2, () {});
         await h.pump();
 
-        // The three slots in the +/-1 full-resolution band around index 2 are
-        // a1..a3 (WP4.2/S3.2 narrowed the band from the forward-biased -1..+3;
-        // a4 at distance +2 is now window-resolution-only and is re-promoted
-        // from its retained payload if the user steps onto it); none has a
-        // payload, so all three are enqueued -- but only the first may have
-        // STARTED.
+        // The four slots in the -1..+2 full-resolution band around index 2 are
+        // a1..a4 (AD-072); none has a payload, so all four are enqueued -- but
+        // only the first may have STARTED.
         //
         // "Index order" until 2026-08-26; the shared serial lane orders by
-        // distance from the selection instead (0, +1, -1), so a band centred on
-        // index 2 starts a2 and finishes with a1. The SEQUENTIALITY this test
+        // distance from the selection instead (0, +1, -1, +2), so a band
+        // centred on index 2 starts a2 and finishes with a4. The SEQUENTIALITY this test
         // pins is unchanged -- one at a time, and the next one only starts when
         // the previous is released.
         expect(h.loadOrder, ['a2']);
@@ -406,10 +403,13 @@ void main() {
         expect(h.loadOrder, ['a2', 'a3', 'a1']);
 
         await h.release('a1');
-        expect(h.loadOrder, ['a2', 'a3', 'a1']);
-        // +2 is outside the full-resolution band: it is never enqueued for a
-        // full-size decode at all.
-        expect(h.loadOrder, isNot(contains('a4')));
+        expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4']);
+
+        await h.release('a4');
+        expect(h.loadOrder, ['a2', 'a3', 'a1', 'a4'],
+            reason: 'nothing outside the band is ever enqueued');
+        expect(h.loadOrder, isNot(contains('a0')),
+            reason: '-2 is outside the band');
       },
     );
 
@@ -436,19 +436,18 @@ void main() {
         // index 7 instead of draining the queue built for index 0.
         expect(h.loadOrder, ['a0', 'a7']);
 
-        // Drain the rest of the second sweep. Under the +/-1 full-resolution
-        // band (WP4.2/S3.2) the sweep at index 7 covers a6..a8. a1 and a2 are
+        // Drain the rest of the second sweep. Under the -1..+2 full-resolution
+        // band (AD-072) the sweep at index 7 covers a6..a9. a1 and a2 are
         // still pending from the first sweep and get their turn in here; their
         // bodies must skip themselves on the window re-check rather than load.
-        for (final id in ['a7', 'a8', 'a6']) {
+        for (final id in ['a7', 'a8', 'a6', 'a9']) {
           await h.release(id);
         }
-        expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6']);
+        expect(h.loadOrder, ['a0', 'a7', 'a8', 'a6', 'a9']);
         expect(h.loadOrder, isNot(contains('a1')));
         expect(h.loadOrder, isNot(contains('a2')));
+        // -2 is outside the band and is never swept.
         expect(h.loadOrder, isNot(contains('a5')));
-        // +2/+3 are outside the narrowed band and are never swept.
-        expect(h.loadOrder, isNot(contains('a9')));
       },
     );
 
@@ -468,16 +467,16 @@ void main() {
         final allLoaded = Completer<void>();
         h.scheduler.schedule(items, 1, () {
           loaded++;
-          if (loaded == 3 && !allLoaded.isCompleted) allLoaded.complete();
+          if (loaded == 4 && !allLoaded.isCompleted) allLoaded.complete();
         });
         await allLoaded.future;
         await h.pump();
 
-        // The +/-1 full-resolution band around index 1 is a0..a2 (WP4.2/S3.2).
-        // a3 and a4 keep their retained payloads -- they are DEGRADED, not
-        // evicted -- but hold no full-resolution ImageCache entry.
-        expect(h.registry.keyIds, {'a0', 'a1', 'a2'});
-        expect(h.payloads.keys, containsAll(<String>['a3', 'a4']));
+        // The -1..+2 full-resolution band around index 1 is a0..a3 (AD-072).
+        // a4 keeps its retained payload -- it is DEGRADED, not evicted -- but
+        // holds no full-resolution ImageCache entry.
+        expect(h.registry.keyIds, {'a0', 'a1', 'a2', 'a3'});
+        expect(h.payloads.keys, contains('a4'));
         expect(h.registry.isReady('a1'), isTrue);
         // Payload production is never triggered for a slot that already has one.
         expect(h.loadOrder, isEmpty);
@@ -491,11 +490,12 @@ void main() {
     );
 
     // TC-1180 / TC-1181 -- user ruling 2026-09-11 22:00: an item NEWLY entering
-    // the +/-kFullResolutionBandRadius band starts decoding immediately rather
+    // the full-resolution band starts decoding immediately rather
     // than waiting out the 250ms navigation debounce
     // (docs/logs/2026-09-11/wp42-latency-regression-diagnosis.md: the debounce
     // was the only tier-2 enqueue point, which cost a 101.5ms -> 253.5ms
-    // sequential-navigation median once the band narrowed to +/-1).
+    // sequential-navigation median once the band narrowed to +/-1; the band
+    // is -1..+2 since 2026-10-04, AD-072).
     test(
       'TC-1180 an item with a RETAINED payload entering the full-resolution '
       'band is published WITHOUT the navigation debounce elapsing',
@@ -506,7 +506,7 @@ void main() {
         addTearDown(() => h.registry.clear());
 
         // Every slot's payload is already retained -- the -3..+5 retention
-        // window is wider than the +/-1 full-resolution band, so this is the
+        // window is wider than the -1..+2 full-resolution band, so this is the
         // ordinary state of a neighbour the user is about to step onto, and it
         // is the state the latency regression was measured in.
         for (final item in items) {
@@ -518,18 +518,18 @@ void main() {
 
         // The debounce is 10s and the pump is four zero-duration turns, so the
         // sweep cannot have run: this is the band-entry path's work alone.
-        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+        expect(h.registry.keyIds, {'a1', 'a2', 'a3', 'a4'});
         // isReady needs the ImageStreamListener callback of a REAL engine
         // decode, which the zero-duration pump cannot bound (wp5-gate-diagnosis
         // section 1: the round gate caught exactly this under suite load), so
         // the positive readiness claim polls; the negative claims below stay
         // on the pump, which is what bounds them.
-        await until(() => h.registry.isReady('a3'),
-            reason: "a3's band-entry publish to become ready");
-        expect(h.registry.isReady('a3'), isTrue);
+        await until(() => h.registry.isReady('a4'),
+            reason: "a4's band-entry publish to become ready");
+        expect(h.registry.isReady('a4'), isTrue);
         // The band is not widened by starting earlier.
         expect(h.registry.keyIds, isNot(contains('a0')));
-        expect(h.registry.keyIds, isNot(contains('a4')));
+        expect(h.registry.keyIds, isNot(contains('a5')));
         // And the immediate path never produces payloads: a cold slot's load
         // stays the controller's navigation pass and the debounced sweep's
         // business, so nothing is enqueued here.
@@ -542,45 +542,45 @@ void main() {
       'immediate path, and one-step moves publish only the new entrant',
       () async {
         final h = _BandEntryHarness();
-        final items = photoItems(6, idPrefix: 'a', dir: '/tmp');
+        final items = photoItems(7, idPrefix: 'a', dir: '/tmp');
         addTearDown(h.scheduler.cancelDebounce);
         addTearDown(() => h.registry.clear());
 
-        // a4 has NO payload: it is the cold slot. The rest are retained.
+        // a5 has NO payload: it is the cold slot. The rest are retained.
         for (final item in items) {
-          if (item.id == 'a4') continue;
+          if (item.id == 'a5') continue;
           h.payloads[item.id] = freshEncodedPayload();
         }
 
         h.scheduler.schedule(items, 2, () {});
         await h.pump();
-        expect(h.registry.keyIds, {'a1', 'a2', 'a3'});
+        expect(h.registry.keyIds, {'a1', 'a2', 'a3', 'a4'});
 
-        // One step forward: the band moves a1..a3 -> a2..a4. a4 is the only
+        // One step forward: the band moves a1..a4 -> a2..a5. a5 is the only
         // entrant, and being cold it must NOT be enqueued from here -- doing so
         // put a second, richer body on the shared serial lane for an id the
         // controller's own navigation pass is already producing.
         h.scheduler.schedule(items, 3, () {});
         await h.pump();
         expect(h.loadOrder, isEmpty);
-        // a2/a3 were already in the band and are already published; nothing
+        // a2..a4 were already in the band and are already published; nothing
         // new lands for them either. a1 LEFT the band on this step and is
         // evicted at that instant (l1l2 spec R1, evict-before-admit) -- this
         // assertion used to pin the old timing, where a1 survived until the
         // debounced sweep.
-        expect(h.registry.keyIds, {'a2', 'a3'});
+        expect(h.registry.keyIds, {'a2', 'a3', 'a4'});
 
         // A slot that was already IN the band when its payload landed is not
         // this path's business either -- it is not a new entrant any more, so
         // the immediate path leaves it to the publish its own load performs
         // and, failing that, to the debounced sweep. Stepping to 4
-        // admits a5 (new entrant, retained) and still does not publish a4,
+        // admits a6 (new entrant, retained) and still does not publish a5,
         // whose payload landed while it was already inside the band.
-        h.payloads['a4'] = freshEncodedPayload();
+        h.payloads['a5'] = freshEncodedPayload();
         h.scheduler.schedule(items, 4, () {});
         await h.pump();
-        expect(h.registry.keyIds, contains('a5'));
-        expect(h.registry.keyIds, isNot(contains('a4')));
+        expect(h.registry.keyIds, contains('a6'));
+        expect(h.registry.keyIds, isNot(contains('a5')));
         expect(h.loadOrder, isEmpty);
       },
     );
@@ -631,17 +631,17 @@ void main() {
         }
 
         r.scheduler.schedule(items, 2, () {});
-        await until(() => r.registry.keyIds.length == 3,
-            reason: 'a1..a3 registered');
-        expect(r.registry.keyIds, {'a1', 'a2', 'a3'});
+        await until(() => r.registry.keyIds.length == 4,
+            reason: 'a1..a4 registered');
+        expect(r.registry.keyIds, {'a1', 'a2', 'a3', 'a4'});
 
         r.snapshots.clear();
-        r.scheduler.schedule(items, 3, () {}); // a1 leaves, a4 enters
+        r.scheduler.schedule(items, 3, () {}); // a1 leaves, a5 enters
         expect(r.snapshots, hasLength(1),
-            reason: 'exactly one entrant (a4) was dispatched');
+            reason: 'exactly one entrant (a5) was dispatched');
         expect(r.snapshots.single, isNot(contains('a1')),
             reason: 'the leaver was evicted before the entrant was dispatched');
-        expect(r.snapshots.single, containsAll(<String>['a2', 'a3']),
+        expect(r.snapshots.single, containsAll(<String>['a2', 'a3', 'a4']),
             reason: 'ids still in the band are untouched');
         expect(r.registry.keyIds, isNot(contains('a1')),
             reason: 'synchronously -- the 10 s settle sweep cannot have run');
@@ -649,7 +649,7 @@ void main() {
     );
 
     test(
-      'TC-1400 (AC1) a long jump evicts all three outgoing entries at once, '
+      'TC-1400 (AC1) a long jump evicts all four outgoing entries at once, '
       'before any entrant is dispatched',
       () async {
         final payloads = <String, SourcePayload>{};
@@ -662,16 +662,17 @@ void main() {
         }
 
         r.scheduler.schedule(items, 2, () {});
-        await until(() => r.registry.keyIds.length == 3,
-            reason: 'a1..a3 registered');
+        await until(() => r.registry.keyIds.length == 4,
+            reason: 'a1..a4 registered');
 
         r.snapshots.clear();
-        r.scheduler.schedule(items, 8, () {}); // band a7..a9
-        expect(r.snapshots, hasLength(3),
-            reason: 'a7, a8, a9 were all dispatched');
-        expect(r.snapshots.first.intersection({'a1', 'a2', 'a3'}), isEmpty,
-            reason: 'all three leavers gone before the FIRST entrant');
-        expect(r.registry.keyIds.intersection({'a1', 'a2', 'a3'}), isEmpty);
+        r.scheduler.schedule(items, 8, () {}); // band a7..a10
+        expect(r.snapshots, hasLength(4),
+            reason: 'a7..a10 were all dispatched');
+        const leavers = {'a1', 'a2', 'a3', 'a4'};
+        expect(r.snapshots.first.intersection(leavers), isEmpty,
+            reason: 'all four leavers gone before the FIRST entrant');
+        expect(r.registry.keyIds.intersection(leavers), isEmpty);
       },
     );
   });

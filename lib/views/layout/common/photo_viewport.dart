@@ -1,14 +1,13 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../models/photo_item.dart';
 import '../../../perf/perf_log.dart'; // PERF-INSTRUMENTATION
 import '../../../providers/app_state.dart';
-import '../../../services/image_pipeline/image_preload_controller.dart';
+import '../../../services/image_pipeline/photo_payload.dart';
 import '../../../services/image_pipeline/payload_state.dart';
 import '../../zoom_controller.dart';
 import 'app_actions_menu.dart' show openFolderShortcutLabel;
+import 'photo_thumbnail.dart' show thumbnailProviderFor;
 import '../darkroom/darkroom_empty_state.dart';
 import '../gallery/gallery_palette.dart';
 import '../layout_theme.dart';
@@ -115,8 +114,9 @@ class _PhotoViewportState extends State<PhotoViewport>
         // PHASE 5: the viewer subtree repaints off the SELECTED ITEM'S OWN
         // payload state, not off every app-wide notification. The state value
         // itself is deliberately unused below -- what to paint is still
-        // decided by AppState's existing getters (bytes / full-size readiness
-        // / failure), which are the pipeline's single source of truth; the
+        // decided by AppState's existing getters (full-size readiness /
+        // interim thumbnail / failure), which are the pipeline's single
+        // source of truth; the
         // listenable only says WHEN to re-read them. Reading them inside this
         // builder is what makes the read fresh.
         Positioned.fill(
@@ -125,10 +125,10 @@ class _PhotoViewportState extends State<PhotoViewport>
             builder: (context, _, _) => state.currentItemFailed
                 ? _buildUnreadable(item)
                 : _buildZoomableViewer(
-                    state.currentImageBytes,
                     state.currentItemHasFullSize,
                     currentId, // PERF-INSTRUMENTATION
                     state.displayProvider,
+                    state.thumbnailPayloadFor(currentId),
                   ),
           ),
         ),
@@ -152,8 +152,8 @@ class _PhotoViewportState extends State<PhotoViewport>
   // shape (n=24 resolved=24 per pass, i.e. one full re-emit per pass) not
   // matching a live run's near-zero rapid-pass resolved count.
   /// The last decode target reported while the layout was NOT mid-drag.
-  /// Reused verbatim for every frozen frame, so the tier-1 cache key is
-  /// identical across a whole drag (AD-011's identity rule).
+  /// Reused verbatim for every frozen frame, so the long edge reported to the
+  /// pipeline does not churn across a whole drag.
   (int, int)? _settledTarget;
 
   String? _perfSpinnerId;
@@ -233,15 +233,23 @@ class _PhotoViewportState extends State<PhotoViewport>
   }
 
   Widget _buildZoomableViewer(
-    Uint8List? bytes,
     bool useFullSize,
     String currentId, // PERF-INSTRUMENTATION
-    ImageProvider? pixelProvider, // AppState.displayProvider
+    ImageProvider? displayProvider, // AppState.displayProvider
+    SourcePayload? interimThumbnail, // AppState.thumbnailPayloadFor
   ) {
     _perfResetForSwitch(currentId); // PERF-INSTRUMENTATION
-    // A raw-decoded DNG has no preview bytes by construction, so "no bytes"
-    // is only a spinner when there is no decoded image either.
-    if (bytes == null && pixelProvider == null) {
+    // ONE decoded tier (memory.md AD-072): the full-size entry, or a pixel
+    // payload painted directly. Until it is resident the view shows the
+    // sidebar's already-derived thumbnail -- a source that exists without any
+    // decode of its own -- and only a spinner when even that is absent. No
+    // viewport-resolution decode is ever started here.
+    final ImageProvider? provider =
+        displayProvider ??
+        (interimThumbnail == null
+            ? null
+            : thumbnailProviderFor(interimThumbnail));
+    if (provider == null) {
       _perfSpinner(currentId); // PERF-INSTRUMENTATION
       return const Center(child: CircularProgressIndicator());
     }
@@ -257,21 +265,16 @@ class _PhotoViewportState extends State<PhotoViewport>
         // builder would rebuild forever.
         widget.zoom.lastKnownCenter = center;
 
-        // Tier-1 decode target = window logical size x devicePixelRatio.
-        // Forward it to AppState so the preload controller's precache
-        // decodes neighboring images at the SAME resolution this Image
-        // requests below (same provider factory, same size params ==
-        // same ImageCache key == cache hit instead of a silent second
-        // decode).
+        // Decode target = window logical size x devicePixelRatio, reported
+        // to AppState as the long edge the pipeline asks its loader for.
         //
         // While a gutter drag is in flight the layout reflows on every frame
         // (see GalleryDesktopSurface's reflow rule), so this target would
-        // change on every frame too and each change is a NEW ImageCache key,
-        // i.e. a fresh tier-1 decode per drag frame. `DecodeSizeFreeze` marks
-        // those frames: the last settled target is reused for both the report
-        // and the provider below, so the cache key survives the whole gesture
-        // and the real target lands once, when the drag stalls. The layout
-        // itself is never frozen — only the number we decode at.
+        // change on every frame too, and every new long edge re-measures each
+        // file's cost (PrefetchScheduler's per-long-edge memo).
+        // `DecodeSizeFreeze` marks those frames: the last settled target is
+        // reported for the whole gesture and the real one lands once, when
+        // the drag stalls. The layout itself is never frozen.
         final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
         final liveWidth = (constraints.maxWidth * devicePixelRatio).round();
         final liveHeight = (constraints.maxHeight * devicePixelRatio).round();
@@ -282,55 +285,17 @@ class _PhotoViewportState extends State<PhotoViewport>
         if (!frozen) _settledTarget = (liveWidth, liveHeight);
         context.read<AppState>().setViewportSize(targetWidth, targetHeight);
 
-        // `pixelProvider` (AppState.displayProvider) already resolves to the
-        // right object for BOTH pixel-backed items (RAW-decoded, no bytes at
-        // all) and byte-backed items whose tier-2 upgrade has landed --
-        // AppState.currentFullResProvider covers encoded payloads too, not
-        // just decoded-pixel ones. It comes out null in exactly one case:
-        // a byte-backed item still on tier-1 (no tier-2 upgrade, no pixel
-        // decode to fall back to) -- that is the one provider still built
-        // locally, because tier-1 needs the viewport size, which only exists
-        // inside this LayoutBuilder. Never construct a provider for the
-        // pixelProvider branch: the object identity must match the preload
-        // controller's own cached object exactly (frozen tier-1/tier-2 cache
-        // key rule), which is why displayProvider hands back the SAME object
-        // rather than a freshly-built one.
-        final ImageProvider provider =
-            pixelProvider ??
-            tierOneProviderFor(bytes!, width: targetWidth, height: targetHeight);
-        // Honest tiering: displayProvider resolves to the tier-2 object
-        // exactly when useFullSize is true, for both provider families
-        // (encoded and pixel-decoded), so this no longer needs to branch on
-        // which family `provider` came from.
-        final isFullResolution = useFullSize;
+        // PERF-INSTRUMENTATION: tier 2 = full resolution, 1 = interim.
+        _perfTrack(context, currentId, provider, useFullSize ? 2 : 1);
 
-        // PERF-INSTRUMENTATION
-        _perfTrack(context, currentId, provider, isFullResolution ? 2 : 1);
-
-        // `pixelProvider != null` is kept as its own term: a pixel-backed
-        // item has no bytes at all, so the Image.memory fallback below is
-        // not merely suboptimal for it, it would dereference a null. (For a
-        // byte-backed item with pixelProvider != null, isFullResolution is
-        // already true here, so this term never changes that case's result.)
-        final image =
-            (pixelProvider != null ||
-                isFullResolution ||
-                (targetWidth > 0 && targetHeight > 0))
-            ? Image(
-                image: provider,
-                fit: BoxFit.contain,
-                gaplessPlayback:
-                    true, // Prevent flickering when switching images/tiers
-                errorBuilder: (context, error, stackTrace) =>
-                    const Icon(Icons.broken_image, size: 64),
-              )
-            : Image.memory(
-                bytes!,
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                errorBuilder: (context, error, stackTrace) =>
-                    const Icon(Icons.broken_image, size: 64),
-              );
+        final image = Image(
+          image: provider,
+          fit: BoxFit.contain,
+          gaplessPlayback:
+              true, // Prevent flickering when switching images/tiers
+          errorBuilder: (context, error, stackTrace) =>
+              const Icon(Icons.broken_image, size: 64),
+        );
 
         return MouseRegion(
           onHover: (event) {
@@ -351,15 +316,15 @@ class _PhotoViewportState extends State<PhotoViewport>
     );
   }
 }
+
 /// Marks the frames during which the decode target must be held steady.
 ///
 /// The user's 2026-09-02 ruling made the gallery viewport reflow as the gutter
 /// is dragged, which is a layout change per frame. Layout is cheap; a changed
-/// decode target is not — it is a new `ImageProvider` cache key and therefore
-/// a fresh full decode (the frozen AD-011 identity rule exists for exactly
-/// this reason). A surface that reflows continuously wraps its viewport in
+/// decode target is not — every new long edge re-measures each file's cost in
+/// the pipeline. A surface that reflows continuously wraps its viewport in
 /// this with `frozen: true` for the duration, and [PhotoViewport] keeps
-/// reporting and decoding at the last settled size until it turns false again.
+/// reporting the last settled size until it turns false again.
 ///
 /// Absent (no ancestor) means "never frozen", so every other surface and every
 /// test that does not care is unaffected.

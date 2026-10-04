@@ -219,21 +219,20 @@ void main() {
     // safety ceiling only, so the same band yields the same budget on a
     // 4 GiB and a 64 GiB machine.
     test('TC-1182: budget is working-set derived, not RAM-proportional', () {
-      const bandBudget = 400556032; // 382 MiB
+      const bandBudget = 443547648; // 423 MiB
       expect(imageCacheBudgetBytes(physicalMemoryBytes: null), bandBudget);
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib), bandBudget);
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), bandBudget);
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 256 * gib), bandBudget,
           reason: 'surplus RAM is left to the OS file cache, not claimed');
-      // THE CEILING STOPPED BINDING. 1.5 GiB / 4 = 402,653,184 B, which is
-      // now ABOVE the derived 400,556,032 B -- so a 1.5 GiB machine gets
-      // the full derived budget. This row used to read `384 << 20`. The
-      // change is not a literal refresh: it is a ceiling that no longer
-      // engages, which is exactly the kind of silent change a bare literal
-      // update would hide.
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20), bandBudget,
-          reason: '1.5 GiB / 4 = 402,653,184 B is ABOVE the 382 MiB '
-              'working-set budget, so the safety ceiling does not bind');
+      // THE CEILING BINDS AGAIN (2026-10-04, AD-072). 1.5 GiB / 4 =
+      // 402,653,184 B is BELOW the 4-slot band's derived 443,547,648 B, so a
+      // 1.5 GiB machine is clamped to 384 MiB. Not a literal refresh: the
+      // ceiling re-engaged, which a bare literal update would hide.
+      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20),
+          384 << 20,
+          reason: '1.5 GiB / 4 = 402,653,184 B is BELOW the 423 MiB '
+              'working-set budget, so the safety ceiling binds');
       expect(imageCacheBudgetBytes(physicalMemoryBytes: 512 << 20),
           kImageCacheFloorBytes,
           reason: '512 MiB / 4 = 134,217,728 B still binds, and is then '
@@ -244,26 +243,24 @@ void main() {
     // future reader can see WHY the number is what it is.
     //
     // SPEC V2 (2026-09-11, ruling R-B): the window-resolution RETENTION
-    // term is gone. What remains is DECODED PIXELS ONLY -- the +/-1 band's
-    // three full-size entries, the SAME band's three tier-1
-    // window-resolution entries (which survive the Task 6 narrowing and
-    // are still charged), and the thumbnail pool.
+    // term is gone. 2026-10-04 (memory.md AD-072): the band's viewport-
+    // resolution entries are gone too. What remains is DECODED PIXELS ONLY --
+    // the -1..+2 band's four full-size entries, and the thumbnail pool.
     test('TC-1183: working-set formula, every input named', () {
-      // 3*(96,000,000 + 19,440,000) + 1,677,722 = 347,997,722 B,
-      //   * 1.15 = 400,197,380.3 -> ceil 400,197,381 -> 382 MiB.
+      // 4*96,000,000 + 1,677,722 = 385,677,722 B,
+      //   * 1.15 = 443,529,380.3 -> ceil 443,529,381 -> 423 MiB.
       expect(
         imageCacheBudgetBytesFromWorkingSet(
-          fullResolutionBandSlotCount: 3,
+          fullResolutionBandSlotCount: 4,
           fullResolutionImageByteCost: kFullResolutionImageByteCost,
-          windowResolutionImageByteCost: kWindowResolutionImageByteCost,
           sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
           safetyFactor: kImageCacheSafetyFactor,
         ),
-        400556032,
-        reason: '382 MiB exactly, pinned as a RAW BYTE COUNT: the round-1 '
+        443547648,
+        reason: '423 MiB exactly, pinned as a RAW BYTE COUNT: the round-1 '
             'record lost time to MB-vs-MiB drift',
       );
-      expect(400556032, 382 * 1024 * 1024);
+      expect(443547648, 423 * 1024 * 1024);
       // RUNG INDEPENDENCE, asserted rather than assumed. The two rung
       // rows TC-1183 used to carry (balanced -> 574 MiB, generous -> 638
       // MiB) pinned a COUPLING BETWEEN RETENTION AND THE IMAGE-CACHE
@@ -271,7 +268,7 @@ void main() {
       // and this is their replacement. `imageCacheBudgetBytes` no longer
       // takes a retention argument at all, so the independence is
       // structural -- this assertion pins the consequence.
-      expect(imageCacheBudgetBytes(), 400556032);
+      expect(imageCacheBudgetBytes(), 443547648);
       // The safety factor is a multiplier on the requirement, not a
       // constant addition: doubling it doubles the headroom above the
       // same row.
@@ -279,7 +276,6 @@ void main() {
         imageCacheBudgetBytesFromWorkingSet(
           fullResolutionBandSlotCount: 1,
           fullResolutionImageByteCost: 600 << 20,
-          windowResolutionImageByteCost: 0,
           sidebarThumbnailPoolByteCost: 0,
           safetyFactor: 1.5,
         ),
@@ -291,9 +287,12 @@ void main() {
     // equal the band the tier-2 scheduler actually precaches, or the budget is
     // sized for a window the app does not hold.
     test('TC-1184: sizing band count equals the shipped tier-2 band', () {
-      expect(kFullResolutionBandSlotCount, kFullResolutionBandRadius * 2 + 1);
-      expect(kFullResolutionBandSlotCount, 3,
-          reason: 'S3.2 band is selected +/-1');
+      expect(
+        kFullResolutionBandSlotCount,
+        kFullResolutionBandBefore + kFullResolutionBandAfter + 1,
+      );
+      expect(kFullResolutionBandSlotCount, 4,
+          reason: 'the band is selected -1..+2 (AD-072)');
     });
   });
 

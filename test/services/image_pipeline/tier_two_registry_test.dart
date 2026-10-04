@@ -1,8 +1,11 @@
-// AC-P2a ordering pin (docs/logs/2026-09-12/gpu-texture-contract.md,
-// impl-p2-dedup-opus spec): `TierTwoRegistry.onReadyForDisplay` MUST fire
-// AFTER `notifyLoaded`, never before. This is the cheapest possible pin for
-// that ordering -- direct against the registry, no controller fixture, no
-// race with a navigation debounce or a RAW decode.
+// `TierTwoRegistry.onStateChanged` -- the per-item readiness exit the
+// controller re-derives its notifiers from (memory.md AD-072; it replaced the
+// tier-1 dedup hook `onReadyForDisplay`). Pinned direct against the registry,
+// no controller fixture, no race with a navigation debounce or a RAW decode:
+//   * on a LANDING it fires after `notifyLoaded` (TC-1244/TC-1245);
+//   * it ALSO fires on eviction and on both failure exits (TC-1471), which is
+//     what lets a watched item fall back off full resolution instead of
+//     keeping a stale ready stage.
 //
 // There was no dedicated unit-test file for TierTwoRegistry before this one
 // (confirmed absent by test-runner-haiku during the AC-P2a gate).
@@ -24,14 +27,14 @@ void main() {
   });
 
   test(
-    'TC-1244 publishFullRes calls notifyLoaded BEFORE onReadyForDisplay',
+    'TC-1244 publishFullRes calls notifyLoaded BEFORE onStateChanged',
     () async {
       final order = <String>[];
       final payload = freshEncodedPayload();
       late final TierTwoRegistry registry;
       registry = TierTwoRegistry(
         currentPayloadFor: (id) => payload,
-        onReadyForDisplay: (id) => order.add('ready:$id'),
+        onStateChanged: (id) => order.add('ready:$id'),
       );
       final image = await tinyImage();
 
@@ -45,21 +48,21 @@ void main() {
       expect(
         order,
         ['notify:a', 'ready:a'],
-        reason: 'AC-P2a: the dedup hook must never fire before the '
-            'notification that makes the view switch to tier-2',
+        reason: 'the state exit fires once per landing, after the '
+            'landing callback',
       );
     },
   );
 
   test(
-    'TC-1245 publishEncoded calls notifyLoaded BEFORE onReadyForDisplay',
+    'TC-1245 publishEncoded calls notifyLoaded BEFORE onStateChanged',
     () async {
       final order = <String>[];
       final payload = freshEncodedPayload();
       late final TierTwoRegistry registry;
       registry = TierTwoRegistry(
         currentPayloadFor: (id) => payload,
-        onReadyForDisplay: (id) => order.add('ready:b'),
+        onStateChanged: (id) => order.add('ready:$id'),
       );
       final provider = MemoryImage(Uint8List.fromList(tinyPngBytes));
 
@@ -78,16 +81,15 @@ void main() {
       expect(
         order,
         ['notify:b', 'ready:b'],
-        reason: 'AC-P2a: the dedup hook must never fire before the '
-            'notification that makes the view switch to tier-2',
+        reason: 'the state exit fires once per landing, after the '
+            'landing callback',
       );
     },
   );
 
   test(
     'TC-1246 keyFor exposes the SAME object registered as the ImageCache '
-    'key, which is what lets the controller compare it against a tier-1 '
-    'key for equality (the shared-entry guard)',
+    'key',
     () async {
       final payload = freshEncodedPayload();
       final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
@@ -104,6 +106,44 @@ void main() {
         reason: 'keyFor must return the actual resident ImageCache key, '
             'not a reconstruction',
       );
+    },
+  );
+
+  test(
+    'TC-1471 onStateChanged also fires on eviction and on a cache-refused '
+    'publish, and isReady agrees with it at each call',
+    () async {
+      final payload = freshEncodedPayload();
+      final calls = <(String, bool)>[];
+      late final TierTwoRegistry registry;
+      registry = TierTwoRegistry(
+        currentPayloadFor: (id) => payload,
+        onStateChanged: (id) => calls.add((id, registry.isReady(id))),
+      );
+
+      registry.publishFullRes('e', payload, await tinyImage(), () {});
+      await until(() => registry.isReady('e'));
+      expect(calls, [('e', true)], reason: 'landing');
+
+      registry.evict('e');
+      expect(calls.last, ('e', false), reason: 'eviction must be reported');
+      final afterEvict = calls.length;
+      registry.evict('e');
+      expect(calls.length, afterEvict,
+          reason: 'evicting nothing reports nothing');
+
+      // Failure exit: a frame larger than the whole cache is refused, which
+      // the registry records as a failure and evicts -- and must report.
+      final cache = PaintingBinding.instance.imageCache;
+      final saved = cache.maximumSizeBytes;
+      addTearDown(() => cache.maximumSizeBytes = saved);
+      cache.maximumSizeBytes = 1;
+      calls.clear();
+      registry.publishFullRes('f', payload, await tinyImage(), () {});
+      expect(registry.hasFullResFailure('f', payload), isTrue,
+          reason: 'precondition: the publish was refused');
+      expect(calls, contains(('f', false)),
+          reason: 'a failure must reach the notifier too');
     },
   );
 }

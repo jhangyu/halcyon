@@ -27,23 +27,15 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 
+import '../../support/preload_fixtures.dart' show tinyPngBytes, until;
 import '../../support/temp_dirs.dart';
-
-const List<int> _transparentPng = <int>[
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, //
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, //
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, //
-  0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, //
-  0xAE, 0x42, 0x60, 0x82,
-];
 
 /// Records every decode target the viewport reports, in order.
 class _RecordingAppState extends AppState {
   _RecordingAppState()
       : super(
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-              NativeImageBytes(Uint8List.fromList(_transparentPng)),
+              NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
         );
 
   final List<(int, int)> reported = <(int, int)>[];
@@ -68,12 +60,15 @@ void main() {
     await tester.runAsync(() async {
       final dir = await makeTempDir('halcyon_freeze_');
       await File('${dir.path}/IMG_0001.jpg')
-          .writeAsBytes(Uint8List.fromList(_transparentPng));
+          .writeAsBytes(Uint8List.fromList(tinyPngBytes));
       state = _RecordingAppState();
       addTearDown(state.dispose);
       await state.loadFolder(dir);
       state.selectItem('IMG_0001');
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // The viewer reports its target only once it paints something, which
+      // is the full-size image (memory.md AD-072).
+      await until(() => state.currentItemHasFullSize,
+          reason: 'the selected photo to reach full resolution');
     });
 
     await tester.pumpWidget(

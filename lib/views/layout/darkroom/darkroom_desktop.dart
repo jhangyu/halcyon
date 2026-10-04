@@ -31,12 +31,12 @@ const String kDarkroomVerdictKeyHint = 'S · X';
 /// shrinks the photo; the two never overlap at any width in the drag range.
 /// Do not restore the old constant 90px inset from the mockup NOTES.
 ///
-/// Because the viewport now reflows on every drag frame, its tier-1 decode
+/// Because the viewport now reflows on every drag frame, its reported decode
 /// target would change every frame too. The viewport is therefore wrapped in
 /// [DecodeSizeFreeze] carrying [ResizableColumnDrag.dragActive]:
 /// layout reflows, but [PhotoViewport] keeps reporting and decoding at the last
-/// settled size until the drag stalls, so the `ImageProvider` cache key is
-/// identical for the whole gesture (AD-011). Same mechanism, same reason, as
+/// settled size until the drag stalls, so the reported long edge is identical
+/// for the whole gesture. Same mechanism, same reason, as
 /// `GalleryDesktopSurface` (`gallery_desktop.dart:70-85`).
 class DarkroomDesktopSurface extends StatefulWidget {
   const DarkroomDesktopSurface({super.key, required this.surface});

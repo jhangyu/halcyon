@@ -38,27 +38,10 @@ import 'publication_pacer.dart';
 import 'tier_two_registry.dart';
 import 'tier_two_scheduler.dart';
 
-/// Shared tier-1 (window-resolution) provider factory. MUST be used by both
-/// the display widget and the precache path with the SAME [bytes] object
-/// identity and the SAME [width]/[height] — the resulting [ResizeImageKey]
-/// is only equal (i.e. resolves as a cache hit instead of a silent second
-/// decode) when all three match.
-ImageProvider tierOneProviderFor(
-  Uint8List bytes, {
-  required int width,
-  required int height,
-}) {
-  return ResizeImage(
-    MemoryImage(bytes),
-    width: width,
-    height: height,
-    policy: ResizeImagePolicy.fit,
-  );
-}
-
-/// Shared tier-2 (full size, unresized) provider factory. Same rule as
-/// [tierOneProviderFor]: display and precache MUST call this with the same
-/// [bytes] object identity to land on the same ImageCache key.
+/// Shared full-size (unresized) provider factory. Display and precache MUST
+/// call this with the same [bytes] object identity to land on the same
+/// ImageCache key. The ONLY decoded form of a photo since the 2026-10-04
+/// ruling (memory.md AD-072): there is no viewport-resolution tier.
 ImageProvider fullSizeProviderFor(Uint8List bytes) => MemoryImage(bytes);
 
 /// Navigation must be quiet for this long before tier-2 (full size) decode
@@ -316,9 +299,9 @@ class ImagePreloadController {
   ///
   /// This is degradation in the S3.2 sense and shares its band: the set it
   /// evicts is the complement of [TierTwoScheduler.isInWindow], which is the
-  /// `+/-kFullResolutionBandRadius` id set published by every navigation pass.
+  /// full-resolution band id set published by every navigation pass.
   /// Deliberately NOT a second band computed here -- a parallel definition is
-  /// exactly how the old hardcoded tier-1 span drifted from retention.
+  /// exactly how an old hardcoded span drifted from retention.
   ///
   /// Every item it touches KEEPS its retained payload, so this changes the FORM
   /// far items are held in and never WHICH items are retained: no payload is
@@ -341,7 +324,7 @@ class ImagePreloadController {
   /// an instance method, so this cannot be built in the initialiser list.
   late final PhotoPayloadCache _cache = PhotoPayloadCache(
     byteBudget: _retention.payloadByteBudget,
-    onEvicted: _onPayloadEvicted,
+    onEvicted: _refreshPayloadState,
   );
   final PrefetchScheduler _scheduler = PrefetchScheduler();
 
@@ -526,12 +509,10 @@ class ImagePreloadController {
   final FrameHook? _frameHook;
   final int _publicationsPerFrame;
 
-  /// Owns every tier-1 ImageCache registration's TIMING. The pipeline had no
-  /// notion of a frame budget anywhere: [_precacheTierOneWindow] walked the
-  /// whole retention window in one synchronous loop on every navigation pass,
-  /// so codec-completion work arrived as one clump behind one navigation
-  /// event. The selected item stays exempt, so first-paint latency for the
-  /// photo the user is looking at is unchanged.
+  /// Owns every full-size publication's TIMING, so codec-completion work does
+  /// not arrive as one clump behind one navigation event. The selected item
+  /// stays exempt, so first-paint latency for the photo the user is looking
+  /// at is unchanged.
   ///
   /// `late final` rather than an initialiser-list entry: the `isSelected`
   /// predicate reads [_selectedId], and an initialiser list cannot touch
@@ -539,12 +520,9 @@ class ImagePreloadController {
   late final PublicationPacer _pacer = PublicationPacer(
     scheduleFrameCallback: _frameHook,
     perFrame: _publicationsPerFrame,
-    // SIZED FROM THE WINDOW, not left at the unit's default of 4. One
-    // navigation pass submits a registration for EVERY retained slot, and the
-    // pacer's overflow rule drops the highest-rank entry outright -- with a
-    // queue of 4 the far half of the window would never receive a tier-1
-    // entry at all. Pacing is about WHEN a registration lands, never about
-    // whether it lands.
+    // SIZED FROM THE WINDOW, not left at the unit's default of 4: the pacer's
+    // overflow rule drops the highest-rank entry outright, and pacing is about
+    // WHEN a registration lands, never about whether it lands.
     maxQueued: _retention.before + _retention.after + 1,
     // mem8 T9 (SR-5): the BYTE half of the per-frame budget, which until now
     // sat at the parameter's unbounded default in production. `maxQueued`
@@ -772,7 +750,7 @@ class ImagePreloadController {
   @visibleForTesting
   int get debugDeferredAbandonedCount => _deferredEncoder.debugAbandonedCount;
 
-  /// Detail-path (tier-1/tier-2) production claims, keyed by BARE photo id.
+  /// Detail-path production claims, keyed by BARE photo id.
   ///
   /// Same membership at every instant as the bare `Set<String>` of in-flight
   /// ids it replaces; the addition is an owner tag and an assertion at each
@@ -856,7 +834,7 @@ class ImagePreloadController {
       return PayloadState(
         stage: _tierTwo.isReady(id)
             ? PayloadStage.tierTwoReady
-            : PayloadStage.tierOneReady,
+            : PayloadStage.payloadReady,
         thumbnailReady: thumbnailReady,
       );
     }
@@ -888,21 +866,29 @@ class ImagePreloadController {
     notifier.trySetValue(current.copyWith(stage: stage));
   }
 
-  /// The ONE place a stage may move BACKWARDS.
+  /// The ONE place a stage may move BACKWARDS, and the ONE place a full-size
+  /// readiness change reaches a notifier.
   ///
-  /// [PhotoPayloadCache] evicts under byte pressure without asking whether the
-  /// id is still retained, so an item inside the window can lose its payload
-  /// while a view is watching it. [_markStage] is forward-only by design (a
-  /// landing must never be un-landed by a late arrival), which is why the
-  /// demotion cannot go through it: instead this recomputes the item's state
-  /// from the same containers a notifier born right now would read, so the
-  /// observable state stays a FUNCTION of the containers rather than a second
-  /// opinion. A permanently-missing item is untouched -- `failed` is terminal
-  /// until `reset()`, which [_derivedStateFor] already encodes.
+  /// Two callers, one rule: [PhotoPayloadCache] evicts under byte pressure
+  /// without asking whether the id is still retained, and [TierTwoRegistry]
+  /// reports every landing, eviction and failure of a full-size entry
+  /// (`onStateChanged`). [_markStage] is forward-only by design (a landing must
+  /// never be un-landed by a late arrival), which is why neither can go
+  /// through it: instead this recomputes the item's state from the same
+  /// containers a notifier born right now would read, so the observable state
+  /// stays a FUNCTION of the containers rather than a second opinion. A
+  /// permanently-missing item is untouched -- `failed` is terminal until
+  /// `reset()`, which [_derivedStateFor] already encodes.
   ///
-  /// Runs synchronously inside `_cache.put`, i.e. inside a landing: it touches
-  /// [_payloadStates] only and never calls back into the cache's mutating API.
-  void _onPayloadEvicted(String id) {
+  /// Per id, synchronous, event-driven: no sweep over the notifier map and no
+  /// timer. Before 2026-10-04 full-size readiness reached the notifiers only
+  /// through a window-wide refresh wrapped around ONE of the publish paths'
+  /// callbacks, so a landing from the payload-completion path never ticked the
+  /// viewer (the double-skip defect, memory.md AD-072).
+  ///
+  /// Runs synchronously inside `_cache.put` or a registry mutation: it touches
+  /// [_payloadStates] only and never calls back into either's mutating API.
+  void _refreshPayloadState(String id) {
     final notifier = _payloadStates[id];
     if (notifier == null) return;
     notifier.trySetValue(_derivedStateFor(id));
@@ -914,31 +900,6 @@ class ImagePreloadController {
     final notifier = _payloadStates[id];
     if (notifier == null) return;
     notifier.trySetValue(notifier.value.copyWith(thumbnailReady: true));
-  }
-
-  /// Promotes every watched id whose tier-2 entry has become resident.
-  ///
-  /// A sweep rather than a per-id call because the tier-2 landing callbacks
-  /// live in [TierTwoScheduler], which carries ONE callback for the whole
-  /// window and does not name the id it just published. The readiness answer
-  /// itself is still [TierTwoRegistry]'s ([isFullSizeReady]) -- this reads it,
-  /// it does not re-derive it. Bounded by the notifier map, i.e. by the
-  /// retention union.
-  void _refreshTierTwoStates() {
-    if (_payloadStates.isEmpty) return;
-    for (final id in _payloadStates.keys) {
-      if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
-    }
-  }
-
-  /// Wraps a landing callback so tier-2 publications reach the per-item
-  /// notifiers as well. Calls [notify] exactly once, so notification
-  /// cardinality (pin B3) is unchanged.
-  VoidCallback _withTierTwoStates(VoidCallback notify) {
-    return () {
-      _refreshTierTwoStates();
-      notify();
-    };
   }
 
   /// Disposes and drops every notifier whose id has left the retention union.
@@ -1061,19 +1022,17 @@ class ImagePreloadController {
     _sweepPayloadStates();
   }
 
-  // Tier-1 (window-resolution) decode precache bookkeeping.
-  int? _tierOneWidth;
-  int? _tierOneHeight;
-  final Map<String, Object> _tierOneKeys = {};
+  // The viewport's decode target (physical pixels), reported by the view. It
+  // sizes the long edge asked of [PhotoSource] and nothing else: there is no
+  // viewport-resolution decode any more (memory.md AD-072).
+  int? _viewportWidth;
+  int? _viewportHeight;
 
-  // Tier-2 (full size) decode precache. Own window (+/-2), own key namespace
-  // (distinct from tier-1's ResizeImageKey) and own eviction, so the two tiers
-  // coexist without either clobbering the other's ImageCache entry for the
-  // same item id.
+  // Full-size (tier-2) decode precache over the full-resolution band.
   //
   // All tier-2 bookkeeping -- which id holds an entry, for which payload
   // object, has its decode finished, did its upgrade already fail -- lives in
-  // [TierTwoRegistry]; all tier-2 SCHEDULING -- the +/-2 window, the 250ms
+  // [TierTwoRegistry]; all tier-2 SCHEDULING -- the band, the 250ms
   // navigation debounce, the sequential decode queue, the full-res upgrade and
   // the payload-decode publish -- lives in [TierTwoScheduler]. They are two units
   // and not one: the readiness conjunction was extracted away from scheduling
@@ -1084,10 +1043,9 @@ class ImagePreloadController {
   // field initialisers is safe.
   late final TierTwoRegistry _tierTwo = TierTwoRegistry(
     currentPayloadFor: _cache.peek,
-    // AC-P2a: the instant tier-2 becomes displayable for an id, its tier-1
-    // window-resolution entry is a duplicate GPU texture. See
-    // [_evictTierOneDuplicate].
-    onReadyForDisplay: _evictTierOneDuplicate,
+    // Every full-size landing, eviction and failure re-derives that item's
+    // notifier -- the structural fix for the double-skip defect.
+    onStateChanged: _refreshPayloadState,
   );
 
   /// The deferred full-size residency path (compressed-residency v2 Task 3).
@@ -1131,8 +1089,8 @@ class ImagePreloadController {
     navigationDebounce: _navigationDebounce,
     compositeGate: _compositeGate,
     // Contract deliverable 2: tier-2 full-resolution publishes now go
-    // through the SAME pacer instance as tier-1 registrations, not a second
-    // pacing mechanism. `PublicationPacer.submit`'s signature is exactly
+    // through the controller's ONE pacer instance, not a second pacing
+    // mechanism. `PublicationPacer.submit`'s signature is exactly
     // `TierTwoScheduler`'s `PublishPacer` shape, so this is the pacer's own
     // method, not a wrapper.
     publishPacer: _pacer.submit,
@@ -1167,7 +1125,7 @@ class ImagePreloadController {
   // generation, which counts sidebar batches: a running preview pass awaits its priority
   // load and then its whole window, and by the time it resumes the user may
   // have navigated on or reloaded the folder -- at which point everything it
-  // was about to do (the tier-1 precache, and above all rescheduling the
+  // was about to do (above all, rescheduling the
   // tier-2 debounce timer) belongs to a window that no longer exists.
   // Re-checked after every await, per invariant I4.
   int _previewGeneration = 0;
@@ -1231,8 +1189,8 @@ class ImagePreloadController {
   bool? debugLastSkippedImageDisposed;
 
   int get _longEdge {
-    final width = _tierOneWidth;
-    final height = _tierOneHeight;
+    final width = _viewportWidth;
+    final height = _viewportHeight;
     if (width == null || height == null || width <= 0 || height <= 0) {
       return kDefaultPreviewLongEdge;
     }
@@ -1303,13 +1261,6 @@ class ImagePreloadController {
   @visibleForTesting
   ImageProvider<Object>? debugTierTwoProviderFor(String id) =>
       _tierTwo.providerFor(id);
-
-  /// Ids currently holding a TIER-1 `ImageCache` key. The tier-2 twin of this
-  /// is [debugTierTwoKeyIds]. Exposed so the retention tests can assert that
-  /// sidebar-only ids get NEITHER tier's entry: that budget is sized for five
-  /// full-size entries, not for a folder.
-  @visibleForTesting
-  Set<String> get debugTierOneKeyIds => _tierOneKeys.keys.toSet();
 
   SourcePayload? thumbnailPayloadFor(String id) =>
       _sidebar.thumbnailPayloadFor(id);
@@ -1397,7 +1348,6 @@ class ImagePreloadController {
     _pendingPreviewNotifies.clear();
     _navRetentionIds = {};
     _navPriorityIds = [];
-    _evictTierOneKeys();
     _decodeLane.clearPending();
     _deferredEncoder.reset();
     _encodeStage.clear();
@@ -1428,13 +1378,11 @@ class ImagePreloadController {
   }
 
   /// Called by the view whenever the viewport's decode target size is known
-  /// (window logical size x devicePixelRatio). Used for the tier-1 precache and
-  /// as the long edge asked of [PhotoSource]; the display path computes and
-  /// passes the same size directly to [tierOneProviderFor] itself, so there is
-  /// a single source of truth per frame and no risk of the two diverging.
+  /// (window logical size x devicePixelRatio). Used only as the long edge asked
+  /// of [PhotoSource].
   void updateTargetSize(int width, int height) {
-    _tierOneWidth = width;
-    _tierOneHeight = height;
+    _viewportWidth = width;
+    _viewportHeight = height;
   }
 
   void dispose() {
@@ -1454,7 +1402,6 @@ class ImagePreloadController {
     // counter, not a charge that was never cleared).
     _encodePublishTailBytes.clear();
     _tierTwoScheduler.cancelDebounce();
-    _evictTierOneKeys();
     _tierTwo.clear();
     _navRetentionIds = {};
     _navPriorityIds = [];
@@ -1462,75 +1409,6 @@ class ImagePreloadController {
     // Nothing else to do: no image is owned here. A source still in flight at
     // teardown resolves into a payload nobody reads and is collected -- it
     // cannot leak a ~50MB handle, because there is no handle.
-  }
-
-  /// Evicts every recorded tier-1 [ImageCache] entry, then drops the keys.
-  ///
-  /// Called from BOTH [reset] and [dispose]. It exists as one helper rather
-  /// than two copies because the defect it fixes WAS the drift: [dispose] had
-  /// the evict loop and [reset] -- the folder-switch path -- had only the
-  /// `clear()`, which orphaned a whole retention window of window-resolution
-  /// entries per folder switch. Once the map is cleared, nothing can evict
-  /// those entries by key ever again (the stale sweep and [dispose] both walk
-  /// this same map), so byte-LRU pressure was their only remaining exit.
-  ///
-  /// `evict` already defaults to `includeLive: true`, so no argument is passed
-  /// here: adding one would be a no-op.
-  void _evictTierOneKeys() {
-    for (final key in _tierOneKeys.values) {
-      PaintingBinding.instance.imageCache.evict(key);
-    }
-    _tierOneKeys.clear();
-  }
-
-  /// Drops [id]'s TIER-1 ImageCache entry once its TIER-2 entry is ready
-  /// (AC-P2a, docs/logs/2026-09-12/gpu-texture-contract.md).
-  ///
-  /// Inside the +/-1 band an item that has reached tier-2 holds two GPU
-  /// textures for the same picture: the window-resolution tier-1 one (~19.4MB
-  /// each, ~58MB over the band) and the full-size tier-2 one. From the moment
-  /// tier-2 is ready the first is pure duplication -- nothing resolves it any
-  /// more, because every display site asks for the tier-2 provider while
-  /// [isFullSizeReady] is true.
-  ///
-  /// Called from two places, and both are needed: the registry's
-  /// `onReadyForDisplay` hook (the instant the duplicate appears) and the band
-  /// scan in [_precacheTierOneWindow] (the id whose tier-2 landed BEFORE its
-  /// tier-1 key was recorded, e.g. a paced registration that drained late).
-  ///
-  /// Three guards:
-  ///   1. [TierTwoRegistry.isReady] -- readiness is re-derived against the
-  ///      CURRENT payload, so a stale ready flag cannot strip the tier-1
-  ///      entry an item is actually painting.
-  ///   2. key equality against the tier-2 key -- DEFENSIVE, NOT LOAD-BEARING:
-  ///      tier-1 and tier-2 keys differ by TYPE on every current path
-  ///      (`RawPixelsImage` vs `RawFullResImage` for a pixel-backed item;
-  ///      `ResizeImageKey` vs `MemoryImage` for an encoded one), so this can
-  ///      never fire today. It guards against a future caller routing a
-  ///      [PixelPayload] through [TierTwoRegistry.publishEncoded]: that path
-  ///      publishes `_fullSizeProviderForPayload`'s output, which for a pixel
-  ///      payload is `RawPixelsImage(payload)` -- the SAME ImageCache entry
-  ///      tier-1 holds. Evicting there would destroy the tier-2 entry itself.
-  ///      Today every pixel tier-2 entry goes through `publishFullRes`
-  ///      instead (tier_two_scheduler.dart type-gates both call sites), so
-  ///      pixel items hold a GENUINE duplicate -- window-resolution pixels
-  ///      plus a separately decoded full-resolution image -- and are reclaimed
-  ///      by this method like any other.
-  ///   3. the tier-1 key map is the only bookkeeping touched; the payload
-  ///      behind it is untouched, so a later tier-2 eviction just re-precaches
-  ///      tier-1 on the next pass instead of re-reading the file.
-  ///
-  /// Not a regression of the "tier-1 displays first" rule: this only ever runs
-  /// AFTER tier-2 is ready, and evicting a LIVE ImageCache entry does not
-  /// destroy the image a widget is currently painting (its stream listener
-  /// holds it), so the switch is still gapless.
-  void _evictTierOneDuplicate(String id) {
-    if (!_tierTwo.isReady(id)) return;
-    final key = _tierOneKeys[id];
-    if (key == null) return;
-    if (key == _tierTwo.keyFor(id)) return; // one shared entry, not a duplicate
-    _tierOneKeys.remove(id);
-    PaintingBinding.instance.imageCache.evict(key);
   }
 
   // ---------------------------------------------------------------------------
@@ -1709,7 +1587,7 @@ class ImagePreloadController {
     // The `await _ensurePayload(items[currentIndex], ...)` that used to stand
     // here made the WHOLE pass wait for a cheap selection's decode+encode
     // (plan §8-D1: an expensive one never waited, it enqueues and returns), so
-    // tier-1 precache and the tier-2 arming below sat behind it for no reason.
+    // the tier-2 arming below sat behind it for no reason.
     //
     // The `generation != _previewGeneration` guard that used to follow it went
     // with it -- guards are only removed together with the await they guarded
@@ -1761,7 +1639,7 @@ class ImagePreloadController {
     // every window probe, then `Future.wait` over every routed load -- are
     // gone. Each slot is issued as its own unawaited probe-then-route chain
     // ([_issueWindowItem]); the pass itself contains no await from here to its
-    // end, so tier-1 precache and tier-2 arming below happen on THIS turn of
+    // end, so tier-2 arming below happens on THIS turn of
     // the event loop rather than after every window item's file IO.
     //
     // The near-to-far walk survives and still decides the rank each slot is
@@ -1799,17 +1677,9 @@ class ImagePreloadController {
     // check that cannot fail is worse than no check -- it reads as protection
     // that is not there. TierTwoScheduler.schedule still CANCELS its debounce
     // before re-arming, so a later pass overwrites this arming rather than
-    // racing it.
-    _precacheTierOneWindow(items, currentIndex);
-    // PHASE 5: the scheduler's landing callback also refreshes the per-item
-    // notifiers. `notifyLoaded` itself is still called exactly once per
-    // landing (pin B3) -- the wrapper adds a read of the tier-2 registry, not
-    // a second notification.
-    _tierTwoScheduler.schedule(
-      items,
-      currentIndex,
-      _withTierTwoStates(notifyLoaded),
-    );
+    // racing it. Per-item notifiers are NOT this callback's business: the
+    // registry's `onStateChanged` exit re-derives them on every landing.
+    _tierTwoScheduler.schedule(items, currentIndex, notifyLoaded);
   }
 
   /// The id the current pass selected. Read by the pacer's exempt-claim
@@ -1988,7 +1858,7 @@ class ImagePreloadController {
   /// two-barrier pass (`await Future.wait(probeFutures)` then
   /// `await Future.wait(pendingLoads)`) with one of these per slot, launched
   /// unawaited in near-to-far order. The pass therefore no longer waits for
-  /// the SET of probes before arming tier-1 precache and tier-2 -- each
+  /// the SET of probes before arming tier-2 -- each
   /// probe's completion routes its own item and nobody else's.
   ///
   /// Ordering is NOT delegated to arrival order: `_ensurePayload` performs its
@@ -2064,7 +1934,7 @@ class ImagePreloadController {
     // `classify` await below left a suspension point between check and claim,
     // so two entrants for the same id both passed the check and both bought a
     // source load -- and the second `_cache.put` replaced the payload object,
-    // orphaning the tier-1 ImageCache key (which is bytes identity). Every
+    // orphaning the full-size ImageCache key (which is bytes identity). Every
     // exit below removes it again: the expensive-route hand-off, the probe's
     // catch, and the `finally`.
     // The claim OBJECT is kept, not just the id: every release below hands it
@@ -2112,8 +1982,8 @@ class ImagePreloadController {
     // LANE ROUTING (user ruling 2026-08-26, replacing the ±1 rung refusal).
     // A measured-expensive item is not refused any more, at any distance: the
     // WHOLE load is handed to the serial lane, which runs it near-to-far with
-    // one decode in flight. Everything else about it -- retention, tier-1
-    // precache, tier-2 eligibility -- is identical to a cheap item's.
+    // one decode in flight. Everything else about it -- retention and
+    // tier-2 eligibility -- is identical to a cheap item's.
     if (cost == SourceCost.expensive && !onSerialLane) {
       // Released BEFORE the hand-off: the lane body re-enters `_ensurePayload`
       // for this same id, and a stale claim would send it down the
@@ -2171,7 +2041,7 @@ class ImagePreloadController {
       // landing inside the await would otherwise file this answer under a
       // viewport that never asked the question.
       final loadLongEdge = _longEdge;
-      // PERF-INSTRUMENTATION (D1 AC3 marker): tier-1/tier-2 request start.
+      // PERF-INSTRUMENTATION (D1 AC3 marker): request start.
       PerfLog.log(
         'req_start|id=$id|tier=${onSerialLane ? "lane" : "parallel"}'
         '|expensive=$canDoExpensive|longEdge=$loadLongEdge',
@@ -2554,7 +2424,7 @@ class ImagePreloadController {
   }
 
   /// Everything that happens once an outcome exists: cost memo, orientation
-  /// memo, cache write, sidebar hand-off, tier-1 precache, permanent-miss
+  /// memo, cache write, sidebar hand-off, permanent-miss
   /// bookkeeping, lane hand-off for a deferred item, notify, tier-2 publish.
   ///
   /// Extracted so BOTH the inline path and the off-lane encode continuation
@@ -2623,7 +2493,7 @@ class ImagePreloadController {
       // PHASE 5: the per-item twin of the `notifyLoaded?.call()` below. It
       // sits at the cache write, not next to the callback, because EVERY
       // landing writes here while only the selected slot carries a callback.
-      _markStage(id, PayloadStage.tierOneReady);
+      _markStage(id, PayloadStage.payloadReady);
       // PERF-INSTRUMENTATION (D1 AC3 marker): payload publish.
       PerfLog.log(
         'publish|id=$id|bytes=${payload.byteCost}'
@@ -2632,26 +2502,6 @@ class ImagePreloadController {
       // Whoever produced it, the sidebar's waiters get their tile from THIS
       // payload -- never from a second decode of their own (D5 decision 2).
       _sidebar.onPayloadLanded(id, payload);
-      // A landed payload gets its tier-1 ImageCache entry HERE, not on "the
-      // next navigation pass": when the user has stopped navigating there is
-      // no next pass, and the item would sit retained with nothing decoded
-      // for it -- the very stall the 2026-08-26 ruling exists to remove.
-      //
-      // PHASE 3 made this unconditional. It used to be `if (onSerialLane)`,
-      // on the grounds that a CHEAP item's parallel load landed before
-      // [_precacheTierOneWindow] ran "microseconds later" at the tail of the
-      // window pass's awaits. Those awaits are gone: the batched sweep now
-      // runs synchronously, i.e. BEFORE any cheap load of this pass has
-      // landed, so the batched route no longer covers cheap items on the pass
-      // that produced them. This call is the landing-driven replacement.
-      // [_precacheTierOneWindow] is kept for what only it does -- decoding
-      // slots that were already retained when the pass started, and evicting
-      // tier-1 keys that left the window.
-      //
-      // Idempotent by construction: [_decodeIntoImageCache] is keyed on the
-      // payload's bytes identity, so the batched sweep meeting the same
-      // payload again is an ImageCache hit, not a second decode (pin B1).
-      _precacheTierOneFor(id, payload, distance: distance);
       // COMPRESSED RESIDENCY v2 (spec §3.1/§3.2): a retained PIXEL payload is
       // a TEMPORARY holding form, never the slot's final one. Scheduling
       // happens AFTER the `_cache.put` above, so the job's
@@ -2734,8 +2584,9 @@ class ImagePreloadController {
     // Decode no longer hands back display pixels (R1), so this site is driven
     // by the PAYLOAD's existence, not by a `fullRes` record. The window /
     // payload-identity / claim pre-checks live inside `publishFromPayload`.
-    // Done AFTER the notify above so the window-resolution frame reaches the
-    // screen first.
+    // The notifier learns of the landing from the registry's `onStateChanged`
+    // exit, whenever the decode actually completes -- never from a read-back
+    // here, which was synchronous and therefore almost always too early.
     if (payload != null) {
       _tierTwoScheduler.publishFromPayload(
         id,
@@ -2743,10 +2594,6 @@ class ImagePreloadController {
         notifyLoaded,
         distance: distance,
       );
-      // PHASE 5: the registry -- not this line -- decides readiness; a publish
-      // can be refused (window, payload identity, already claimed), so the
-      // answer is READ BACK rather than assumed.
-      if (_tierTwo.isReady(id)) _markStage(id, PayloadStage.tierTwoReady);
     }
     // The GPU-pass (rotated) arm still renders an oriented image; after R2 it
     // is NOT a publish source, so this controller is its only owner and always
@@ -2831,11 +2678,12 @@ class ImagePreloadController {
   ///   2. retire the tier-2 registry entry, which was anchored on [previous]
   ///      and whose first-writer-wins guard would otherwise freeze against
   ///      the new object;
-  ///   3. retire the tier-1 ImageCache key, whose provider was built from
-  ///      [previous]'s bytes identity;
-  ///   4. only THEN write [replacement], so no live registration ever points
+  ///   3. only THEN write [replacement], so no live registration ever points
   ///      at a payload the cache no longer holds;
-  ///   5. re-precache tier-1 for the new object.
+  ///   4. re-publish the full-size entry from the new object (a no-op outside
+  ///      the full-resolution band). Without it a displayed item would sit on
+  ///      its interim display until the next navigation, because nothing else
+  ///      re-requests the band after a replacement.
   void _replaceRetainedPayload(
     String id,
     SourcePayload previous,
@@ -2843,12 +2691,8 @@ class ImagePreloadController {
   ) {
     if (!identical(_cache.peek(id), previous)) return;
     _tierTwo.evict(id);
-    final tierOneKey = _tierOneKeys.remove(id);
-    if (tierOneKey != null) {
-      PaintingBinding.instance.imageCache.evict(tierOneKey);
-    }
     _cache.put(id, replacement);
-    _markStage(id, PayloadStage.tierOneReady);
+    _markStage(id, PayloadStage.payloadReady);
     // The sidebar's waiters take their tile from the RETAINED payload, never
     // from a decode of their own (D5 decision 2) -- so they have to be told
     // which object that now is.
@@ -2857,165 +2701,13 @@ class ImagePreloadController {
     // frozen three-argument shape), and the controller keeps no id->distance
     // memo. Only two things read it here: the pacer RANK and the selected
     // slot's pacing EXEMPTION. The exemption is reproduced exactly by the
-    // selected-id test; the rank for any other slot is a within-band rank
-    // that, after Task 6, spans at most +/-1.
-    _precacheTierOneFor(
+    // selected-id test; any other slot gets the nearest non-selected rank.
+    _tierTwoScheduler.publishFromPayload(
       id,
       replacement,
-      distance: id == _selectedId ? 0 : kFullResolutionBandRadius,
+      null,
+      distance: id == _selectedId ? 0 : 1,
     );
-  }
-
-  /// Decodes ONE item's tier-1 entry, for a payload that has just landed off
-  /// the serial lane. The batched sibling is [_precacheTierOneWindow].
-  void _precacheTierOneFor(
-    String id,
-    SourcePayload payload, {
-    required int distance,
-  }) {
-    final width = _tierOneWidth;
-    final height = _tierOneHeight;
-    if (width == null || height == null) return;
-    // The +/-1 BAND, not the navigation window (spec v2 R-B, 2026-09-11):
-    // decoded pixels exist only inside the band, so a landing outside it
-    // decodes nothing and simply keeps its payload. This is strictly
-    // narrower than the old `_navRetentionIds` membership test, so TC-429's
-    // guarantee (a sidebar-only row never gets a detail-path tier-1 entry)
-    // is preserved a fortiori: a sidebar row's distance is far outside the
-    // band.
-    if (!isFullResolutionDistance(distance)) return;
-    if (!identical(_cache.peek(id), payload)) return;
-    _decodeIntoImageCache(
-      id,
-      _tierOneProviderForPayload(payload, width: width, height: height),
-      payload: payload,
-      rank: laneRankForDistance(distance),
-      exempt: isSelectedExempt(distance),
-    );
-  }
-
-  // resolve -> one-shot listener -> removeListener, the dance written three
-  // times in this file. The CALLER keeps all bookkeeping: the three sites
-  // differ in when they register tier-2 keys and what they do on error, and
-  // folding that in here would need a parameter per difference.
-  void _registerDecode(
-    ImageProvider provider, {
-    required void Function() onReady,
-    required void Function() onError,
-  }) {
-    final stream = provider.resolve(const ImageConfiguration());
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (image, synchronousCall) {
-        stream.removeListener(listener);
-        // R7 (l1l2): the SDK hands each listener its OWN clone; the listener owns it.
-        image.dispose();
-        onReady();
-      },
-      onError: (error, stackTrace) {
-        stream.removeListener(listener);
-        onError();
-      },
-    );
-    stream.addListener(listener);
-  }
-
-  // Tier-1 precache: decode the +/-kFullResolutionBandRadius BAND at window
-  // resolution ahead of display, using the SAME provider factory the view
-  // uses. Requires [updateTargetSize] to have been called at least once
-  // (from a previous layout pass); no-ops otherwise, degrading to on-demand
-  // full decode at display time (functionally correct, just slower for that
-  // frame).
-  //
-  // SPEC V2 (2026-09-11, ruling R-B): this span used to be the whole -3..+5
-  // RETENTION window, which made every retained slot hold a decoded
-  // window-resolution ImageCache entry -- the window-resolution retention
-  // tier the spec abolishes. It is now the +/-1 band and nothing else. A
-  // slot outside the band keeps its PAYLOAD and loses only its decoded
-  // form: degradation, not eviction. The span is deliberately NOT derived
-  // from the retention constants any more, and is therefore rung-
-  // independent -- widening retention must not widen decoded residency.
-  //
-  // This is a CONSUMER of payloads, never a producer -- it skips a slot with
-  // no payload instead of fetching one.
-  void _precacheTierOneWindow(List<PhotoItem> items, int currentIndex) {
-    final width = _tierOneWidth;
-    final height = _tierOneHeight;
-    if (width == null || height == null) return;
-
-    final bandStart = (currentIndex - kFullResolutionBandRadius).clamp(
-      0,
-      items.length - 1,
-    );
-    final bandEnd = (currentIndex + kFullResolutionBandRadius).clamp(
-      0,
-      items.length - 1,
-    );
-    // The ids the band covers AFTER clamping, so the stale sweep below
-    // cannot evict a key for a slot that IS in a band clamped at either end
-    // of the list.
-    final bandIds = <String>{
-      for (var i = bandStart; i <= bandEnd; i++) items[i].id,
-    };
-
-    for (var i = bandStart; i <= bandEnd; i++) {
-      final item = items[i];
-      final payload = _cache.peek(item.id);
-      // `continue`, not `return`: a missing payload is a per-SLOT fact and the
-      // slots after it may well have theirs, whereas the `return` above is a
-      // whole-scan precondition (no target size => no provider to build for
-      // ANY slot). The asymmetry is deliberate; making either one match the
-      // other would drop work the band still owes.
-      if (payload == null) continue; // not loaded yet; retried next pass
-      // AC-P2a: an id whose tier-2 entry is already ready must NOT get a
-      // tier-1 entry re-registered on this pass -- that would recreate the
-      // duplicate texture [_evictTierOneDuplicate] just reclaimed, once per
-      // navigation pass. Any key it still holds is swept here (the late-drain
-      // case the ready hook cannot see).
-      if (_tierTwo.isReady(item.id)) {
-        _evictTierOneDuplicate(item.id);
-        continue;
-      }
-      _decodeIntoImageCache(
-        item.id,
-        _tierOneProviderForPayload(payload, width: width, height: height),
-        payload: payload,
-        rank: laneRankForDistance(i - currentIndex),
-        exempt: isSelectedExempt(i - currentIndex),
-      );
-    }
-
-    // Everything outside the band loses its tier-1 key on this pass. That
-    // eviction IS the abolition; the payload behind it is untouched.
-    final staleIds = _tierOneKeys.keys
-        .where((id) => !bandIds.contains(id))
-        .toList();
-    for (final id in staleIds) {
-      final key = _tierOneKeys.remove(id);
-      if (key != null) {
-        PaintingBinding.instance.imageCache.evict(key);
-      }
-    }
-  }
-
-  // The two places a payload becomes a provider. Pixels are ALREADY at window
-  // resolution and orientation-corrected -- resizing them again would be a
-  // second resample of an image that is already the right size -- so both
-  // tiers use the same provider for that kind, which also means they share one
-  // ImageCache entry instead of decoding the same pixels twice.
-  ImageProvider _tierOneProviderForPayload(
-    SourcePayload payload, {
-    required int width,
-    required int height,
-  }) {
-    return switch (payload) {
-      EncodedPayload(:final bytes) => tierOneProviderFor(
-        bytes,
-        width: width,
-        height: height,
-      ),
-      PixelPayload() => RawPixelsImage(payload),
-    };
   }
 
   ImageProvider _fullSizeProviderForPayload(SourcePayload payload) {
@@ -3023,63 +2715,6 @@ class ImagePreloadController {
       EncodedPayload(:final bytes) => fullSizeProviderFor(bytes),
       PixelPayload() => RawPixelsImage(payload),
     };
-  }
-
-  /// Submits ONE tier-1 registration to the pacer.
-  ///
-  /// Invariant I1: [provider] is built by the CALLER, at submit time, from the
-  /// RETAINED payload object, and captured in the closure below. Rebuilding it
-  /// at drain time from re-read bytes would produce a different provider key
-  /// and silently double-decode.
-  ///
-  /// [stillValid] re-checks at DRAIN time the same two conditions
-  /// [_precacheTierOneFor] checks inline at submit time (G-023): between submit
-  /// and drain the id may have left the navigation window or the payload object
-  /// may have been replaced.
-  void _decodeIntoImageCache(
-    String id,
-    ImageProvider provider, {
-    required SourcePayload payload,
-    required int rank,
-    required bool exempt,
-  }) {
-    // PERF-INSTRUMENTATION (D1 gap #3): submit timestamp for the tier-1
-    // (window-resolution) registration path, so submit->publish latency is
-    // derivable the same way it is for tier-2 (H3's safeguard tax).
-    PerfLog.log(
-      'submit|id=$id|path=tier1|exempt=$exempt|paced=${!exempt}|rank=$rank',
-    );
-    _pacer.submit(
-      id: id,
-      rank: rank,
-      exempt: exempt,
-      // AC-P2a adds a THIRD drain-time condition: tier-2 may have become ready
-      // between submit and drain, at which point this registration would
-      // publish the very duplicate texture the eviction exists to remove (and
-      // would do so AFTER the ready hook already ran, so nothing would ever
-      // reclaim it until the next navigation pass).
-      stillValid: () =>
-          _navRetentionIds.contains(id) &&
-          identical(_cache.peek(id), payload) &&
-          !_tierTwo.isReady(id),
-      // R3-WP8 (plan Step 9.4): tier-1 registration cost is the payload's own
-      // byteCost (SourcePayload.byteCost).
-      byteCost: payload.byteCost,
-      publish: () => _publishTierOneRegistration(id, provider),
-      // Nothing is held: a skipped registration degrades to an on-demand decode
-      // at display time, which is already this path's documented fallback when
-      // [updateTargetSize] has not been called.
-      discard: null,
-    );
-  }
-
-  void _publishTierOneRegistration(String id, ImageProvider provider) {
-    // PERF-INSTRUMENTATION (D1 AC3 marker): tier-1 registration lands.
-    PerfLog.log('publish|id=$id|path=tier1');
-    _registerDecode(provider, onReady: () {}, onError: () {});
-    provider
-        .obtainKey(const ImageConfiguration())
-        .then((key) => _tierOneKeys[id] = key);
   }
 
   /// Loads sidebar thumbnails for the VISIBLE range [startIdx]..[endIdx],

@@ -62,10 +62,9 @@ const ValueKey<String> kGalleryHandleDeadZoneKey =
 /// What this deliberately gives up, recorded so nobody "rediscovers" it as a
 /// bug: the previous `min(columnWidth, 90)` inset kept the constraints the
 /// viewport's internal `LayoutBuilder` sees CONSTANT during a drag, so
-/// `setViewportSize` never changed mid-drag and the tier-1 `ImageProvider`
-/// cache key was stable by construction (AD-011). With a reflowing viewport
-/// the tier-1 decode target changes on every drag frame, so a drag can cost
-/// repeated tier-1 decodes. The user ruled that not overlapping the photo is
+/// `setViewportSize` never changed mid-drag by construction. With a reflowing
+/// viewport the reported decode target changes on every drag frame, and every
+/// new long edge re-measures each file's cost in the pipeline. The user ruled that not overlapping the photo is
 /// worth that, and the cost is paid back by the mitigation below rather than
 /// by bringing the overlap back.
 ///
@@ -74,10 +73,9 @@ const ValueKey<String> kGalleryHandleDeadZoneKey =
 /// The viewport is wrapped in a [DecodeSizeFreeze] carrying `dragActive`.
 /// Layout still reflows on every frame — the photo visibly gives up width as
 /// the gutter grows — but [PhotoViewport] keeps REPORTING and decoding at the
-/// last settled target while the flag is true, so the tier-1 `ImageProvider`
-/// cache key is identical for the whole gesture and the real target lands
-/// once, when the drag stalls. AD-011's identity rule is preserved without
-/// the overlap; the image is `BoxFit.contain`, so a frame decoded at the
+/// last settled target while the flag is true, so the reported long edge is
+/// identical for the whole gesture and the real target lands once, when the
+/// drag stalls; the image is `BoxFit.contain`, so a frame decoded at the
 /// pre-drag target simply scales for the few hundred ms the drag lasts.
 class GalleryDesktopSurface extends StatefulWidget {
   const GalleryDesktopSurface({super.key, required this.surface});

@@ -20,12 +20,11 @@ import '../../support/event_loop.dart';
 // Precache-span guarantees (AC2, AC3) and the SERIAL LANE law (TC-098a..d).
 //
 // The spans under test:
-//   * tier-1 (screen resolution) precache covers the WHOLE -3..+5 retention
-//     window, so every retained slot also holds a decoded screen-resolution
-//     entry;
-//   * tier-2 (full size) covers the +/-1 full-resolution band via
-//     `kFullResolutionBandRadius` (WP4.2/S3.2; it was the forward-biased
-//     -1..+3 before that),
+//   * the retention window (-3..+5) holds payloads only; there is no
+//     screen-resolution decoded tier (removed 2026-10-04, memory.md AD-072);
+//   * tier-2 (full size) covers the -1..+2 full-resolution band via
+//     `kFullResolutionBandBefore`/`kFullResolutionBandAfter` (AD-072; it was
+//     +/-1 under WP4.2/S3.2 and the forward-biased -1..+3 before that),
 //     behind the frozen 250ms navigation debounce. Forward-biased for the
 //     same reason retention is (-3..+5): browsing is overwhelmingly forwards.
 //
@@ -191,8 +190,8 @@ Future<Uint8List> _encodeRealPngFolderGen(int width, int height) async {
 // the claim TC-366 is meant to test (self-defeating as written). This test
 // instead navigates 0 -> 3 -> 0: at currentIndex=3, retention (-3..+5) still
 // covers item[0] (3-3==0, so it stays retained), while the tier-2 band
-// (+/-1, kFullResolutionBandRadius=1) does NOT (backward distance 3 >
-// kFullResolutionBandRadius=1) -- so ONLY item[0]'s tier-2 ImageCache entry is
+// (-1..+2) does NOT (backward distance 3 > kFullResolutionBandBefore=1) --
+// so ONLY item[0]'s tier-2 ImageCache entry is
 // evicted,
 // its payload survives, which is the actual precondition "tier-2 entry
 // evicted, payload retained" the plan's prose names. The setup is verified
@@ -289,44 +288,44 @@ void main() {
         // still fails instead of hanging.
         await until(
           () => [
-            for (var d = -kFullResolutionBandRadius;
-                d <= kFullResolutionBandRadius;
+            for (var d = -kFullResolutionBandBefore;
+                d <= kFullResolutionBandAfter;
                 d++)
               photos[selected + d].id,
           ].every(controller.isFullSizeReady),
-          reason: 'every id in the +/-1 full-resolution band to become '
+          reason: 'every id in the -1..+2 full-resolution band to become '
               'full-size ready after the debounce settles',
         );
 
-        for (var d = -kFullResolutionBandRadius;
-            d <= kFullResolutionBandRadius;
+        for (var d = -kFullResolutionBandBefore;
+            d <= kFullResolutionBandAfter;
             d++) {
           expect(
             controller.isFullSizeReady(photos[selected + d].id),
             isTrue,
             reason:
                 'distance $d is inside the full-resolution band and must hold '
-                'a full-size entry (WP4.2/S3.2: selected +/-1)',
+                'a full-size entry (AD-072: selected -1..+2)',
           );
         }
 
-        // The band is +/-1, not "everything": both edges must still bite, or
-        // the test would pass just as well against an unbounded window. +2 is
-        // the slot S3.2 gave up -- it keeps its retained payload and is
-        // re-promoted from it (tens of ms) if the user steps onto it.
+        // The band is -1..+2, not "everything": both edges must still bite,
+        // or the test would pass just as well against an unbounded window.
+        // Slots beyond it keep their retained payload and are re-promoted
+        // from it (tens of ms) if the user steps onto them.
         expect(
           controller.isFullSizeReady(
-            photos[selected - kFullResolutionBandRadius - 1].id,
+            photos[selected - kFullResolutionBandBefore - 1].id,
           ),
           isFalse,
           reason: 'distance -2 is outside the full-resolution band',
         );
         expect(
           controller.isFullSizeReady(
-            photos[selected + kFullResolutionBandRadius + 1].id,
+            photos[selected + kFullResolutionBandAfter + 1].id,
           ),
           isFalse,
-          reason: 'distance +2 is outside the full-resolution band',
+          reason: 'distance +3 is outside the full-resolution band',
         );
       });
     });
@@ -700,13 +699,13 @@ void main() {
       // S3.1 (2026-09-11): the image-cache figure is no longer a fixed ceiling
       // constant; it is derived from the retention working set, so it is
       // pinned through the derivation function at the shipped floor rung.
-      expect(imageCacheBudgetBytes(), 400556032, reason: '382 MiB exactly');
+      expect(imageCacheBudgetBytes(), 443547648, reason: '423 MiB exactly');
       expect(kPayloadByteBudget, 268435456, reason: '256 MiB exactly');
       // The two are sized against OPPOSITE corpora -- the cache figure by the
       // cheap mix (two entries per item, full-size decode), the payload figure by
       // the expensive mix (window-resolution RGBA retained per slot). Neither can
       // sanity-check the other, so both are asserted independently.
-      expect(imageCacheBudgetBytes(), 382 * 1024 * 1024);
+      expect(imageCacheBudgetBytes(), 423 * 1024 * 1024);
       expect(kPayloadByteBudget, 256 * 1024 * 1024);
     });
 
@@ -1487,11 +1486,11 @@ void main() {
           );
         }
         expect(
-          controller.debugTierOneKeyIds,
+          controller.debugTierTwoKeyIds,
           isEmpty,
           reason:
-              'zero tier-1 ImageCache writes for the old folder: precache is '
-              'landing-driven since Phase 3, so a routed stale slot would show '
+              'zero full-size ImageCache writes for the old folder: the '
+              'publish is landing-driven, so a routed stale slot would show '
               'up here even if its payload were evicted again',
         );
 
@@ -1555,78 +1554,45 @@ void main() {
     });
   });
 
-  group('image preload reset tier one evict', () {
+  group('image preload reset full-size evict', () {
     setUp(clearImageCacheSetUp);
 
-    // TC-487 (I6 bytes-identity). AC-P2a review (docs/logs/2026-09-12/
-    // gpu-texture-contract.md, impl-p2-dedup-opus spec): `_evictTierOneDuplicate`
-    // never rebuilds a provider -- it only removes a map entry and evicts an
-    // ImageCache key -- so `tierOneProviderFor`/`fullSizeProviderFor` still key
-    // on the same (bytes identity, width, height) they always did. This test's
-    // assertions are therefore confirmed UNCHANGED by AC-P2a; no rewrite
-    // needed. (The item this test uses is never selected/never reaches
-    // tier-2-ready, so `reset`'s unconditional evict loop -- not
-    // `_evictTierOneDuplicate` -- is what runs here either way.)
-    test('reset evicts the tier-1 ImageCache entries it recorded', () async {
-      // (q70 rewrite) A bytes payload is an EncodedPayload and is now served
-      // full-res straight from the payload, so it never leaves a tier-1 key to
-      // evict. The tier-1 window is now only observable on a PixelPayload item
-      // (RAW whose re-encode failed) BEFORE its counted file fallback lands, so
-      // the subject item is a RAW with a throwing encoder, and the navigation
-      // debounce (250ms) is not waited out.
+    // TC-487 (I6 bytes-identity), revised 2026-10-04 (AD-072): the
+    // viewport-resolution entries this used to pin are gone; what reset must
+    // still evict is every FULL-SIZE entry the controller registered.
+    test('reset evicts the full-size ImageCache entries it registered',
+        () async {
       final controller = ImagePreloadController(
-        imageLoader: needsRawDecodeLoader,
-        dngDecoder: (path) async {
-          final rgba = Uint8List(64 * 48 * 4);
-          for (var i = 3; i < rgba.length; i += 4) {
-            rgba[i] = 0xFF;
-          }
-          return DecodedRgba(rgba: rgba, width: 64, height: 48);
-        },
-        payloadEncoder: throwingPayloadEncoder,
+        scheduleFrameCallback: immediateFrameCallback,
+        navigationDebounce: Duration.zero,
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
+        dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
       );
       addTearDown(controller.dispose);
-
-      // Tier-1 precache is a no-op until the viewport size is known; without
-      // this the assertions below would pass vacuously.
       controller.updateTargetSize(32, 32);
-      final items = rawItems([for (var i = 0; i < 8; i++) 'p$i']);
+      final items = paddedItems(8);
       await controller.preloadImages(
         items: items,
-        selectedItemId: 'p0',
+        selectedItemId: items[0].id,
         notifyLoaded: () {},
       );
-      await pumpUntil(() => controller.debugTierOneKeyIds.isNotEmpty);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await until(() => controller.isFullSizeReady(items[0].id));
 
-      expect(
-        controller.debugTierOneKeyIds,
-        isNotEmpty,
-        reason: 'no tier-1 keys recorded: the test would be vacuous',
-      );
-      expect(
-        controller.isFullSizeReady('p0'),
-        isFalse,
-        reason: 'precondition: p0 has not reached tier-2 (no payload-driven '
-            'publish for a PixelPayload)',
-      );
-
-      // A PixelPayload has no bytes to rebuild the provider key from, so the
-      // observable is the cache's own accounting: setUp cleared it, so whatever
-      // is resident now is what the controller's tier-1 precache put there.
       final cache = PaintingBinding.instance.imageCache;
       expect(
         cache.currentSize,
         greaterThan(0),
-        reason: 'precondition: tier-1 entries are resident before reset',
+        reason: 'precondition: full-size entries are resident before reset',
       );
 
       controller.reset();
 
+      expect(controller.debugTierTwoKeyIds, isEmpty);
       expect(
         cache.currentSize,
         0,
-        reason: 'reset must evict tier-1 entries, not just drop their keys',
+        reason: 'reset must evict full-size entries, not just drop their keys',
       );
     });
   });
@@ -1717,9 +1683,9 @@ void main() {
         expect(decodeCallsByPath[path0], 1);
 
         // index 3: retention (-3..+5) still covers item0 (3-3==0), but the
-        // full-resolution band (+/-1) does not (backward distance 3 >
-        // kFullResolutionBandRadius
-        // == 1) -- so ONLY item0's tier-2 entry is evicted, its payload stays
+        // full-resolution band (-1..+2) does not (backward distance 3 >
+        // kFullResolutionBandBefore == 1) -- so ONLY item0's tier-2 entry is
+        // evicted, its payload stays
         // retained, exactly the scenario the plan names ("its tier-2 entry is
         // evicted", not "it leaves the retention window").
         await navigateTo(controller, items, index: 3);

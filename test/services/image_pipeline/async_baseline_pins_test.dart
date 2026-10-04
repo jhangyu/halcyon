@@ -33,9 +33,9 @@ void main() {
         final bytes = Uint8List.fromList(<int>[1, 2, 3, 4, 5, 6, 7, 8]);
         final copy = Uint8List.fromList(bytes);
 
-        final p1 = tierOneProviderFor(bytes, width: 100, height: 100);
-        final p2 = tierOneProviderFor(bytes, width: 100, height: 100);
-        final pCopy = tierOneProviderFor(copy, width: 100, height: 100);
+        final p1 = fullSizeProviderFor(bytes);
+        final p2 = fullSizeProviderFor(bytes);
+        final pCopy = fullSizeProviderFor(copy);
 
         expect(p1, p2, reason: 'same bytes identity -> equal providers');
         final k1 = await p1.obtainKey(const ImageConfiguration());
@@ -54,14 +54,6 @@ void main() {
           reason: 'a byte-identical COPY must not obtain an equal key '
               '(this is the tripwire for a silent duplicate decode)',
         );
-
-        // Tier-2 (full-size) provider is a bare MemoryImage: same identity
-        // rule applies.
-        final f1 = fullSizeProviderFor(bytes);
-        final f2 = fullSizeProviderFor(bytes);
-        final fCopy = fullSizeProviderFor(copy);
-        expect(f1, f2);
-        expect(f1 == fCopy, isFalse);
       },
     );
   });

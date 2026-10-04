@@ -14,7 +14,7 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../support/preload_fixtures.dart' show tinyPngBytes;
+import '../../support/preload_fixtures.dart' show tinyPngBytes, until;
 import '../../support/temp_dirs.dart';
 
 void main() {
@@ -22,22 +22,16 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  /// Pumps a [PhotoViewport] with a real 1x1 transparent PNG so the Image
-  /// widget can actually decode (a real decode must land for the viewer to
-  /// leave its spinner branch) and the single setViewportSize call is made.
+  /// Pumps a [PhotoViewport] with a real, DECODABLE 1x1 PNG and waits for
+  /// its full-size entry: since 2026-10-04 (memory.md AD-072) the viewer
+  /// leaves its spinner only for the full-size image or the sidebar
+  /// thumbnail, never for an on-demand viewport-resolution decode.
   Future<AppState> pumpViewport(
     WidgetTester tester, {
     ZoomController? zoom,
     List<int>? decodablePng,
   }) async {
-    final transparentPng = decodablePng ?? const <int>[
-      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, // RGBA
-      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND
-      0xAE, 0x42, 0x60, 0x82,
-    ];
+    final transparentPng = decodablePng ?? tinyPngBytes;
 
     late AppState state;
     await tester.runAsync(() async {
@@ -54,7 +48,8 @@ void main() {
       // Let the decode from selectItem's fire-and-forget fetch land so the
       // view has real bytes for the Image widget (dart:io future inside the
       // test body never resolves under FakeAsync).
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await until(() => state.currentItemHasFullSize,
+          reason: 'the selected photo to reach full resolution');
     });
 
     await tester.pumpWidget(

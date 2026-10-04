@@ -251,10 +251,10 @@ void main() {
       controller.updateTargetSize(800, 600);
       await controller.preloadImages(
           items: items, selectedItemId: 'c1', notifyLoaded: () {});
-      await until(
-          () => lines.any((l) => l.startsWith('publish|id=c1|path=tier1')),
-          reason: "the selected item's tier-1 registration ran "
-              '(_registerDecode is on this path)');
+      // The full-size publish listener is the pipeline listener on this
+      // path (the tier-1 registration listener left with AD-072).
+      await until(() => controller.isFullSizeReady('c1'),
+          reason: "the selected item's full-size publish landed");
       await until(
           () => PaintingBinding.instance.imageCache.pendingImageCount == 0,
           reason: 'every engine decode landed');

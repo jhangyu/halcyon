@@ -94,7 +94,7 @@ void main() {
     // A "cheap" controller (pattern shared with payload_state_test.dart's
     // `_cheapController`): a fake loader that always succeeds with a tiny
     // real PNG, so the real `preloadImages` -> `_ensurePayload` ->
-    // `_markStage` chain runs to `tierOneReady` without touching the
+    // `_markStage` chain runs to `payloadReady` without touching the
     // filesystem or a native decoder.
     final controller = ImagePreloadController(
       scheduleFrameCallback: (callback) => callback(),

@@ -28,9 +28,9 @@ import 'raw_full_res_image.dart';
 class TierTwoRegistry {
   TierTwoRegistry({
     required SourcePayload? Function(String id) currentPayloadFor,
-    void Function(String id)? onReadyForDisplay,
+    void Function(String id)? onStateChanged,
   }) : _currentPayloadFor = currentPayloadFor,
-       _onReadyForDisplay = onReadyForDisplay;
+       _onStateChanged = onStateChanged;
 
   /// The controller's CURRENT payload for an id -- bound to
   /// `PhotoPayloadCache.peek`. Injected rather than holding the cache itself,
@@ -38,28 +38,23 @@ class TierTwoRegistry {
   /// stale-payload scenario by swapping one closure.
   final SourcePayload? Function(String id) _currentPayloadFor;
 
-  /// Fired for [id] immediately AFTER its `notifyLoaded`, on both publish
-  /// paths, once the tier-2 decode listener has actually landed -- i.e. at the
-  /// first instant [isReady] can be true for this id.
+  /// Fired for [id] whenever [isReady] may have changed for it: a decode
+  /// listener LANDING (both publish paths, after `notifyLoaded`), and every
+  /// [evict] that removed a registered entry -- which is also how both
+  /// FAILURE exits (decode error, cache refusal) report, since each evicts.
   ///
-  /// It exists for exactly one consumer, the controller's tier-1 duplicate
-  /// eviction (AC-P2a, docs/logs/2026-09-12/gpu-texture-contract.md): inside
-  /// the +/-1 band an item that reaches tier-2 is holding TWO GPU textures --
-  /// its window-resolution tier-1 one (~19.4MB) and the full-size tier-2 one --
-  /// and the first is a duplicate from this moment on.
+  /// THE per-item readiness exit (2026-10-04, memory.md AD-072). The view
+  /// repaints only when the selected item's notifier ticks, and before this
+  /// exit a landing reached the notifier only if its publish happened to carry
+  /// a wrapped window-wide callback -- a landing from the payload-completion
+  /// path carried a no-op, so the viewer stayed on its interim display forever
+  /// (the double-skip defect). The controller answers by RE-DERIVING the item's
+  /// state from the containers, so this carries no stage of its own and cannot
+  /// disagree with [isReady].
   ///
-  /// ORDERING IS BEHAVIOUR: after `notifyLoaded`, never before. The notify is
-  /// what makes the view switch to the tier-2 provider; dropping the tier-1
-  /// entry first would open a window in which the displayed provider's entry
-  /// is gone and the replacement has not been selected yet. (Eviction of a
-  /// LIVE entry cannot destroy the image a widget is painting -- the stream
-  /// listener keeps it alive -- so this ordering is belt-and-braces, and it is
-  /// also the ordering the tests assert.)
-  ///
-  /// The registry does NOT decide what "duplicate" means: tier-1 keys, the
-  /// band, and the pixel-payload case where BOTH tiers share one ImageCache
-  /// entry are all controller-side facts. This only reports the instant.
-  final void Function(String id)? _onReadyForDisplay;
+  /// Synchronous and side-effect-free towards this class: the consumer must
+  /// not call back into the registry's mutating API.
+  final void Function(String id)? _onStateChanged;
 
   /// id -> the ImageCache key, which for every tier-2 kind IS the provider
   /// itself (`MemoryImage` is its own key; `RawFullResImage.obtainKey` returns
@@ -73,7 +68,7 @@ class TierTwoRegistry {
   final Set<String> _readyIds = {};
 
   /// Full-resolution upgrade failures, remembered PER PAYLOAD OBJECT (design
-  /// §2.5). A RAW whose full-res decode failed keeps its tier-1 display and is
+  /// §2.5). A RAW whose full-res decode failed keeps its interim display and is
   /// NOT a permanent miss -- that set means "no payload could be produced at
   /// all", and writing to it here would turn a failed upgrade into an
   /// "unreadable" error screen for an item that is on screen and fine.
@@ -192,12 +187,7 @@ class TierTwoRegistry {
   /// The raw ImageCache KEY registered for [id], or null when there is none.
   ///
   /// Unlike [providerFor] this does not require the key to be an
-  /// [ImageProvider], because its one caller compares it for EQUALITY against
-  /// a tier-1 key to detect the case where both tiers resolved to the same
-  /// ImageCache entry (a [PixelPayload] item: `_tierOneProviderForPayload` and
-  /// `_fullSizeProviderForPayload` both build `RawPixelsImage(payload)`, which
-  /// is its own key and compares equal on the retained buffer). Evicting
-  /// "tier-1" there would evict the tier-2 entry itself.
+  /// [ImageProvider]; its caller only asks whether an entry is registered.
   Object? keyFor(String id) => _keys[id];
 
   /// The ids that currently hold a tier-2 ImageCache entry, both payload kinds.
@@ -234,7 +224,7 @@ class TierTwoRegistry {
   /// [publishFullRes]'s first-writer-wins guard swallowed every recovery
   /// publish for that payload FOREVER (nothing clears `_sources` but an
   /// [evict] or a payload replacement), stranding the item on its blurry
-  /// tier-1 provider until it left the retention window and came back with a
+  /// interim display until it left the retention window and came back with a
   /// NEW payload object -- user-visible as "stays blurry until I navigate
   /// away and back", and confirmed by the user's own recovery signature.
   ///
@@ -274,7 +264,7 @@ class TierTwoRegistry {
     // re-publish IF the earlier one is still in flight ([_pendingEncoded])
     // or still RESIDENT ([_sources] match AND the ImageCache key is still
     // present). Dropped silently (one log line only). A NEW payload object
-    // for the same id (tier1 -> full-res upgrade, or a re-encode landing) is
+    // for the same id (a re-encode landing) is
     // a different identity and always proceeds.
     //
     // round-2 review BLOCKER-1: an earlier version dropped whenever
@@ -284,7 +274,7 @@ class TierTwoRegistry {
     // the entry is gone. The window sweep's recovery path re-submits that
     // SAME object to re-populate the cache, and an identity-only guard
     // dropped that recovery publish PERMANENTLY (nothing ever clears
-    // `_sources`), stranding the item on tier-1 forever.
+    // `_sources`), stranding the item on its interim display forever.
     //
     // round-2 review re-review (S1): residency is checked with
     // `_isTracked`, NOT [isReady]. [isReady] additionally
@@ -323,7 +313,7 @@ class TierTwoRegistry {
       image.dispose();
       _readyIds.add(id);
       notifyLoaded();
-      _onReadyForDisplay?.call(id);
+      _onStateChanged?.call(id);
     }, onError: (error, stackTrace) => stream.removeListener(listener));
     stream.addListener(listener);
     provider.obtainKey(const ImageConfiguration()).then((key) {
@@ -409,7 +399,7 @@ class TierTwoRegistry {
         info.dispose();
         _readyIds.add(id);
         notifyLoaded();
-        _onReadyForDisplay?.call(id);
+        _onStateChanged?.call(id);
       },
       onError: (error, stackTrace) {
         stream.removeListener(listener);
@@ -431,7 +421,7 @@ class TierTwoRegistry {
     // on every subsequent sweep -- an unbounded re-decode loop for a frame
     // this cache can never hold. Recording it as a per-payload failure is the
     // existing, correct vocabulary for "this upgrade cannot be had for this
-    // payload": the item keeps its tier-1 display (never an error screen, see
+    // payload": the item keeps its interim display (never an error screen, see
     // [_fullResFailures]) and the memo dies with the payload.
     if (!_imageCache.containsKey(provider)) {
       PerfLog.log('publish|id=$id|path=$source|cache_refused=1');
@@ -447,8 +437,8 @@ class TierTwoRegistry {
   }
 
   /// Removes [id]'s tier-2 bookkeeping and evicts its ImageCache entry (if
-  /// any). Never touches tier-1 keys or the payload cache -- tier-1 and
-  /// retention have their own, separate lifecycles.
+  /// any), then reports the change through [_onStateChanged]. Never touches
+  /// the payload cache -- retention has its own, separate lifecycle.
   ///
   /// Note what is NOT here: no dispose, no in-flight marker to clear, no
   /// evict-before-dispose ordering. Evicting an ImageCache entry can no longer
@@ -460,11 +450,12 @@ class TierTwoRegistry {
   void evict(String id) {
     final key = _keys.remove(id);
     _sources.remove(id);
-    _readyIds.remove(id);
+    final wasReady = _readyIds.remove(id);
     _pendingEncoded.remove(id);
     if (key != null) {
       _imageCache.evict(key);
     }
+    if (key != null || wasReady) _onStateChanged?.call(id);
   }
 
   /// The tier-2 slice of both `reset()` and `dispose()`: evict every registered

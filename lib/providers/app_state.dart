@@ -183,8 +183,8 @@ class AppState extends ChangeNotifier {
           retention: retention,
           physicalMemoryBytes: physicalMemoryBytes,
           decodeLaneWidth: kDefaultDecodeLaneWidth,
-          // CONTRACT DELIVERABLES 1 AND 2. One scheduler, both seams: tier-1
-          // registrations are drained at Priority.idle, and EXIF-orientation
+          // CONTRACT DELIVERABLES 1 AND 2. One scheduler, both seams: paced
+          // full-size publications are drained at Priority.idle, and EXIF-orientation
           // compositing buys a slot from the same queue instead of running
           // the moment a decode result arrives.
           scheduleFrameCallback: _publishScheduler.schedule,
@@ -216,7 +216,7 @@ class AppState extends ChangeNotifier {
   late final ImagePreloadController _preloadController;
 
   /// THE app's single publish-pacing scheduler. Idle-priority slots for
-  /// tier-1 ImageCache registration (through the pacer's frame hook) and for
+  /// paced full-size publication (through the pacer's frame hook) and for
   /// EXIF orientation compositing (through the composite gate), so publish
   /// work stops landing as bursts while the user scrolls or arrows through
   /// photos.
@@ -590,14 +590,17 @@ class AppState extends ChangeNotifier {
   /// when its tier-2 upgrade has not landed (or was evicted). Non-null means a
   /// resident ImageCache entry for the item's CURRENT payload, so selecting it
   /// in the view is a cache hit, never a decode on the build path (M5 design
-  /// §2.3). When it is null the view paints the window-resolution provider,
-  /// which is honestly tier 1.
+  /// §2.3). When it is null the view paints an interim source that needs no
+  /// decode of its own (see [displayProvider]).
   ImageProvider? get currentFullResProvider =>
       _preloadController.fullResProviderFor(_selectedItemID);
 
-  /// The provider the detail view should paint right now. Same object
+  /// The provider the detail view should paint right now: the full-size entry
+  /// once resident, else a pixel payload painted directly, else null (the view
+  /// then shows the sidebar thumbnail, [thumbnailPayloadFor]). Same object
   /// identity as [currentFullResProvider]/[currentDecodedProvider] — never
-  /// constructs a provider (that would break the tier-1/tier-2 cache-key rule).
+  /// constructs a provider (that would break the full-size cache-key rule).
+  /// There is no viewport-resolution decode (memory.md AD-072).
   ImageProvider? get displayProvider =>
       currentItemHasFullSize ? currentFullResProvider : currentDecodedProvider;
 
@@ -611,7 +614,7 @@ class AppState extends ChangeNotifier {
   /// PHASE 5: [id]'s own payload readiness, for a widget that wants to repaint
   /// when THAT item lands rather than when anything in the app changes.
   ///
-  /// A listenable, never bytes: the tier-1/tier-2 provider factories stay the
+  /// A listenable, never bytes: the full-size provider factory stays the
   /// controller's (AD-028), so a view still reads its pixels through the
   /// getters above -- this only tells it WHEN to.
   ///
@@ -631,10 +634,9 @@ class AppState extends ChangeNotifier {
   }
 
   // Forwards the current detail viewport's decode target size (logical size
-  // x devicePixelRatio, computed by the view) to the preload controller so
-  // its tier-1 precache decodes neighbors at the same resolution the view
-  // will request. Silent update, no notifyListeners: this doesn't change what
-  // is displayed this frame, and it is written from inside a LayoutBuilder
+  // x devicePixelRatio, computed by the view) to the preload controller, which
+  // uses it as the long edge it asks its loader for. Silent update, no
+  // notifyListeners: this doesn't change what is displayed this frame, and it is written from inside a LayoutBuilder
   // builder where notifying would rebuild forever.
   void setViewportSize(int width, int height) {
     _preloadController.updateTargetSize(width, height);
