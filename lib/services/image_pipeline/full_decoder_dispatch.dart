@@ -134,7 +134,7 @@ Future<DecodedRgba> decodeTiffFull(
 }
 
 /// `isDecodablePath`, NOT membership in `rawExtensions`: the latter also
-/// contains D2 browse-only containers (.cr2/.iiq/.mrw) the engine cannot
+/// contains D2 browse-only containers (.cr2/.iiq) the engine cannot
 /// decode, and routing one of those to the engine arm would be a
 /// guaranteed-failing FFI round trip instead of the immediate refusal the D2
 /// ruling wants.

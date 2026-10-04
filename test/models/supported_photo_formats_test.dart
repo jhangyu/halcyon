@@ -15,9 +15,9 @@ void main() {
     });
   });
 
-  group('D2 browse-only extensions (.cr2, .iiq, .mrw)', () {
+  group('D2 browse-only extensions (.cr2, .iiq)', () {
     test('are NOT in decodableExtensions', () {
-      for (final ext in ['.cr2', '.iiq', '.mrw']) {
+      for (final ext in ['.cr2', '.iiq']) {
         expect(
           SupportedPhotoFormats.decodableExtensions.contains(ext),
           isFalse,
@@ -27,7 +27,7 @@ void main() {
     });
 
     test('ARE in rawExtensions and supportedExtensions', () {
-      for (final ext in ['.cr2', '.iiq', '.mrw']) {
+      for (final ext in ['.cr2', '.iiq']) {
         expect(
           SupportedPhotoFormats.rawExtensions.contains(ext),
           isTrue,

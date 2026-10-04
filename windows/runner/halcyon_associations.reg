@@ -39,9 +39,6 @@ Windows Registry Editor Version 5.00
 [HKEY_CURRENT_USER\Software\Classes\.jxl]
 @="Halcyon.Photo"
 
-[HKEY_CURRENT_USER\Software\Classes\.mrw]
-@="Halcyon.Photo"
-
 [HKEY_CURRENT_USER\Software\Classes\.nef]
 @="Halcyon.Photo"
 

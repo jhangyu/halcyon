@@ -49,8 +49,8 @@ decoding engine, Halcyon the application built on it.
   Android already compiles (phone-sized UI not yet designed) and iOS support remains open.
 - **Broad RAW format coverage.** Ten RAW containers decode all the way to full resolution
   on the GPU, including dedicated Halide kernels for the notoriously slow Fuji X-Trans
-  6x6 mosaic and Sigma Foveon linear-RGB layouts rather than a CPU fallback; three older
-  containers (CR2, IIQ, MRW) are browsable from their embedded previews only — see
+  6x6 mosaic and Sigma Foveon linear-RGB layouts rather than a CPU fallback; two older
+  containers (CR2, IIQ) are browsable from their embedded previews only — see
   [RAW format support and decode routing](#raw-format-support-and-decode-routing). Halcyon
   also corrects libraw's default washed-out tone curve so RAW previews track a camera's
   own JPEG rendering more closely.
@@ -157,7 +157,7 @@ Supported formats:
 |---|---|
 | Everyday image files | JPG, PNG, WebP, TIFF, HEIC / HEIF |
 | RAW, fully decoded | DNG, ARW, CR3, NEF, RAF, RW2, ORF, PEF, SRW, X3F |
-| RAW, browse-only | CR2, IIQ, MRW |
+| RAW, browse-only | CR2, IIQ |
 
 The everyday image formats have a few things worth knowing:
 
@@ -521,9 +521,8 @@ Halcyon supports RAW files from nearly every major camera brand, plus the univer
 | Adobe (universal) | DNG | Fully decoded |
 | Canon (older) | CR2 | Thumbnail only |
 | Phase One | IIQ | Thumbnail only |
-| Minolta | MRW | Thumbnail only |
 
-The three "thumbnail only" formats can still be starred, deleted, and moved just like any
+The two "thumbnail only" formats can still be starred, deleted, and moved just like any
 other photo — they just don't show full decoded quality yet.
 
 Most of the time you won't notice a difference: Halcyon automatically picks the fastest way
@@ -535,7 +534,7 @@ flowchart TD
     B -- "Yes, large enough" --> C["Read the embedded preview<br/>fast"]
     B -- "No, or too small" --> D{"Does this format<br/>support full decode?"}
     D -- "Yes" --> E["Fully decode the RAW sensor data<br/>slower, full quality"]
-    D -- "No (CR2 / IIQ / MRW)" --> F["Show thumbnail only<br/>full quality not available"]
+    D -- "No (CR2 / IIQ)" --> F["Show thumbnail only<br/>full quality not available"]
     C --> G(["Photo appears on screen"])
     E --> G
     F --> G
@@ -563,7 +562,7 @@ In short:
 - **No usable preview → full decode.** When no preview is large enough and the format
   supports full decoding, Halcyon decodes the complete RAW sensor data — a bit slower, but
   full quality.
-- **Format doesn't support full decode → thumbnail only.** CR2, IIQ, and MRW currently can
+- **Format doesn't support full decode → thumbnail only.** CR2 and IIQ currently can
   only be browsed as thumbnails.
 
 Current platform support:

@@ -12,11 +12,10 @@ class SupportedPhotoFormats {
   );
 
   /// D2 — formats the engine cannot decode but stay browsable via embedded
-  /// preview only (Canon CR2, Phase One IIQ, Minolta MRW).
+  /// preview only (Canon CR2, Phase One IIQ).
   static const Set<String> browseOnlyRawExtensions = {
     '.cr2',
     '.iiq',
-    '.mrw',
   };
 
   // static final: computed once (folder scans call isSupportedPath/isDecodablePath
