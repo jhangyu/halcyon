@@ -1074,7 +1074,7 @@ void main() {
     // "every retained window slot eventually gets a tier-1 key" DELETED
     // (spec v2 R-B, 2026-09-11, lead ruling round 3); the tier itself is gone
     // since 2026-10-04 (AD-072). The band's decoded set is pinned by
-    // resolution_band_test.dart TC-1470.
+    // full_res_band_test.dart TC-1462..TC-1464.
 
     // TC-897 -- the controller-level twin of TC-894: with the pacer's exempt
     // claim enforced against the controller's selected id, a NON-selected window

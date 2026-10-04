@@ -25,7 +25,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/services/image_pipeline/cache_budget.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_preload_controller.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/prefetch_scheduler.dart';
@@ -38,16 +37,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('resolution band table', () {
-    // TC-1150 (revised 2026-10-04, AD-072: band -1..+2)
-    test(
-      'TC-1150 full-size pixels are kept only for selected -1..+2',
-      () {
-        expect(kFullResolutionBandBefore, 1);
-        expect(kFullResolutionBandAfter, 2);
-        // The budget's slot count is DERIVED from the band, never restated.
-        expect(kFullResolutionBandSlotCount, 4);
-      },
-    );
+    // TC-1150 (band constants) is superseded by full_res_band_test.dart
+    // TC-1461 (2026-10-04, AD-072: band -1..+2, slot count 4).
 
     // TC-1152
     test(
@@ -380,63 +371,6 @@ void main() {
   // The 'tier-1 precache is the +/-1 band only' group (TC-1223, TC-1224,
   // TC-1225, TC-1242, TC-1247) is DELETED with the viewport-resolution tier it
   // pinned (2026-10-04 ruling, memory.md AD-072). The band's decoded set is
-  // now pinned by TC-1470 below; payload-kept-outside-the-band by TC-1153.
-  group('full-resolution band -1..+2 (AD-072)', () {
-    setUp(clearImageCacheSetUp);
-
-    // TC-1470
-    testWidgets(
-      'TC-1470 the full-size decoded set is EXACTLY {cur-1, cur, cur+1, '
-      'cur+2}; moving the selection evicts the leavers and decodes the '
-      'entrants',
-      (tester) async {
-        await tester.runAsync(() async {
-          final controller = ImagePreloadController(
-            scheduleFrameCallback: immediateFrameCallback,
-            navigationDebounce: Duration.zero,
-            imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-                NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
-            dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
-          );
-          addTearDown(controller.dispose);
-          controller.updateTargetSize(10, 10);
-          final photos = paddedItems(20);
-          Set<String> ids(Iterable<int> indices) =>
-              {for (final i in indices) photos[i].id};
-          bool settledOn(Set<String> band) =>
-              band.every(controller.isFullSizeReady) &&
-              controller.debugTierTwoKeyIds.length == band.length &&
-              controller.debugTierTwoKeyIds.containsAll(band);
-
-          await controller.preloadImages(
-            items: photos,
-            selectedItemId: photos[5].id,
-            notifyLoaded: () {},
-          );
-          final first = ids([4, 5, 6, 7]);
-          await until(() => settledOn(first), reason: 'band 4..7 to settle');
-          // Retention reaches -3..+5, so +3 holds a payload but no pixels:
-          // the boundary is the band, not what happens to be retained.
-          await until(() => controller.payloadFor(photos[8].id) != null);
-          expect(controller.debugTierTwoKeyIds, first);
-          expect(controller.isFullSizeReady(photos[3].id), isFalse);
-          expect(controller.isFullSizeReady(photos[8].id), isFalse);
-
-          await controller.preloadImages(
-            items: photos,
-            selectedItemId: photos[9].id,
-            notifyLoaded: () {},
-          );
-          final second = ids([8, 9, 10, 11]);
-          await until(() => settledOn(second), reason: 'band 8..11 to settle');
-          expect(
-            controller.debugTierTwoKeyIds,
-            second,
-            reason: 'every id of the old band (4..7) left it and must have '
-                'been evicted',
-          );
-        });
-      },
-    );
-  });
+  // pinned by full_res_band_test.dart TC-1462..TC-1464; payload-kept-outside-
+  // the-band by TC-1153 above.
 }

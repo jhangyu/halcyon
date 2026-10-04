@@ -2,7 +2,8 @@
 // 2026-10-04). The viewer repaints only when the selected item's per-item
 // notifier ticks (`photo_viewport.dart`), so "the registry says full-res is
 // resident" is not enough: the notifier must say so too, on every landing
-// route. These tests pin the routes the old wrapper-based refresh missed.
+// route. This pins the route the old wrapper-based refresh missed; eviction
+// and re-entry are pinned by full_res_band_test.dart TC-1465.
 
 import 'dart:async';
 import 'dart:io';
@@ -128,64 +129,6 @@ void main() {
         isTrue,
         reason: 'displayProvider must be the full-size provider for the '
             'retained payload',
-      );
-    },
-  );
-
-  test(
-    'TC-1472 eviction and re-entry: a full-res item that leaves the band '
-    'ticks DOWN, and ticks back UP when the user returns',
-    () async {
-      final controller = ImagePreloadController(
-        scheduleFrameCallback: immediateFrameCallback,
-        navigationDebounce: Duration.zero,
-        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
-            NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
-        dngDecoder: (path) async => fail('cheap rung must not RAW-decode'),
-      );
-      addTearDown(controller.dispose);
-      controller.updateTargetSize(10, 10);
-      final items = paddedItems(20);
-      final id = items[5].id;
-
-      final notifier = controller.stateFor(id);
-      final stages = <PayloadStage>[];
-      void record() => stages.add(notifier.value.stage);
-      notifier.addListener(record);
-      addTearDown(() => notifier.removeListener(record));
-
-      Future<void> select(int index) => controller.preloadImages(
-            items: items,
-            selectedItemId: items[index].id,
-            notifyLoaded: () {},
-          );
-
-      await select(5);
-      await until(() => notifier.value.stage == PayloadStage.tierTwoReady,
-          reason: 'first convergence');
-
-      // +3 steps forward: item 5 sits at -3 -- still RETAINED (payload kept)
-      // but outside the -1..+2 band, so its full-size entry is evicted.
-      await select(8);
-      await until(() => !controller.debugTierTwoKeyIds.contains(id),
-          reason: 'band leave evicts the full-size entry');
-      expect(controller.payloadFor(id), isNotNull,
-          reason: 'precondition: degraded, not evicted');
-      expect(notifier.value.stage, PayloadStage.payloadReady,
-          reason: 'a notifier left at tierTwoReady after its entry is gone '
-              'is the stale-ready gap');
-
-      await select(5);
-      await until(() => notifier.value.stage == PayloadStage.tierTwoReady,
-          reason: 're-entry must tick the notifier back to full resolution');
-      expect(controller.isFullSizeReady(id), isTrue);
-      expect(
-        stages.sublist(stages.indexOf(PayloadStage.tierTwoReady)),
-        [
-          PayloadStage.tierTwoReady,
-          PayloadStage.payloadReady,
-          PayloadStage.tierTwoReady,
-        ],
       );
     },
   );
