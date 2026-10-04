@@ -67,8 +67,14 @@ typedef _FunnelNative = ffi.Int32 Function(
     ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>);
 typedef _FunnelDart = int Function(
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>,
     ffi.Pointer<ffi.Uint64>,
@@ -276,9 +282,10 @@ class PerfDriver {
     }
     final fn = _funnel;
     if (fn == null) return null;
-    final p = calloc<ffi.Uint64>(7);
+    final p = calloc<ffi.Uint64>(10);
     try {
-      final rc = fn(p, p + 1, p + 2, p + 3, p + 4, p + 5, p + 6);
+      final rc = fn(p, p + 1, p + 2, p + 3, p + 4, p + 5, p + 6, p + 7, p + 8,
+          p + 9);
       return rc == 0 ? (p[0], p[1]) : null;
     } finally {
       calloc.free(p);

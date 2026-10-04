@@ -570,7 +570,8 @@ class DngResult(C.Structure):
 # IC1: out-parameter order of ceyx_debug_idle_funnel_counters (plan :1360-1367).
 FUNNEL_FIELDS = ("funnel_calls", "device_release_runs", "device_release_skipped_uninitialized",
                  "device_release_errors", "page_return_calls", "page_return_unavailable",
-                 "last_funnel_bytes")
+                 "last_funnel_bytes", "cold_handoff_ran", "cold_handoff_unavailable",
+                 "cold_handoff_refused")
 IDLEFUNNEL_RELEASED_RE = re.compile(r"\[IdleFunnel\] event=funnel .*\bdevice_release=released\b")
 
 
