@@ -302,8 +302,8 @@ Future<NativeImageResult> dartImageLoad(
     // container and found every DECLARED candidate unreadable (AD-022). Three
     // things are deliberately NOT malformed and therefore keep flowing through
     // with the flag false: a genuinely preview-less container, a G-2 undersized
-    // but intact candidate, and a non-TIFF RAW (CR3/RAF/X3F) that bails before
-    // IFD0 is readable.
+    // but intact candidate, and a CR3 (the one non-TIFF RAW left unparsed; RAF/X3F are
+    // handled by magic-byte gatherers) that bails before IFD0 is readable.
     //
     // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) is unaffected in both
     // directions: it never reached the pre-empt (that gate was already

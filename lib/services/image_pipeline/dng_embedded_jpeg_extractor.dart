@@ -16,12 +16,13 @@ import 'dart:typed_data';
 // IFD structures actually walked and finally the single selected JPEG strip
 // are read through a small paged random-access reader.
 //
-// Two container flavours are understood, and only two (2026-08-26 RAW-support
-// contract, item 3): the standard TIFF/DNG one (version word 42) and the
-// Panasonic RW2 one (version word 85), which is an ordinary IFD chain with
-// vendor tag numbering for its previews. Containers that are not TIFF at all --
-// Fujifilm RAF, Sigma X3F, Canon CR3 -- are deliberately NOT handled here; they
-// reach the RAW decoder instead.
+// Four container flavours are understood: the standard TIFF/DNG one (version
+// word 42), the Panasonic RW2 one (version word 85, an ordinary IFD chain with
+// vendor tag numbering for its previews), and the two non-TIFF containers that
+// carry a whole JPEG at a header-pointed place -- Fujifilm RAF (`FUJIFILMCCD-RAW `)
+// and Sigma X3F (`FOVb`). Each is recognised by MAGIC BYTES, never extension,
+// and feeds the same candidate list. Canon CR3 is deliberately NOT handled
+// here; it reaches the RAW decoder instead.
 //
 // Deliberately free of dart:ffi, MethodChannel and platform-branching
 // checks, so it can run on any platform/isolate that has no native
@@ -528,6 +529,8 @@ class DngEmbeddedJpegExtractor {
       onDiskRead: onDiskRead,
       onExhaustedFault: () => transientFault = true,
       body: (raf, source) async {
+        final container = await _probeNonTiffContainer(source);
+        if (container != null) return container;
         final reader = await _readerFor(source);
         if (reader == null) return null;
         final ifd0 = await _readIFD0(reader);
@@ -859,6 +862,18 @@ class DngEmbeddedJpegExtractor {
         // Positional reads from here on (_readDirect uses the async
         // setPosition/read pair), so the two bytes already consumed above do
         // not shift what follows.
+        final container = await _probeNonTiffContainer(source);
+        if (container != null) {
+          var largest = 0;
+          for (final c in container.candidates) {
+            if (c.maxDim > largest) largest = c.maxDim;
+          }
+          return (
+            jpegBitstream: false,
+            largestLongEdge: largest,
+            orientation: container.orientation,
+          );
+        }
         final reader = await _readerFor(source);
         if (reader == null) return null;
         final ifd0 = await _readIFD0(reader);
@@ -1105,8 +1120,14 @@ class DngEmbeddedJpegExtractor {
     if (cropMax <= 0 && reader.isPanasonic) {
       cropMax = await _panasonicSensorMax(reader, ifd0);
     }
+    // Every other TIFF RAW (NEF, ARW, PEF, ...) carries no DefaultCropSize
+    // either; the sensor extent is then the largest non-JPEG IFD's own
+    // ImageWidth/ImageLength (the raw-mosaic IFD), one rule for every maker.
+    if (cropMax <= 0) {
+      cropMax = await _largestNonJpegExtent(reader, candidateIFDs);
+    }
     // The 0.90 * cropMax floor only guards the full-size request; without a
-    // usable DefaultCropSize that request cannot be judged at all.
+    // usable sensor extent that request cannot be judged at all.
     if (longEdge == null && cropMax <= 0) return null;
 
     final candidates = <_Candidate>[];
@@ -1299,7 +1320,7 @@ class DngEmbeddedJpegExtractor {
   /// before giving up. A JPEG's SOFn sits within the first few kilobytes in
   /// practice; the cap is what keeps a hostile bitstream from turning candidate
   /// gathering into a full-file scan.
-  static const int _jpegFrameScanLimit = 64 * 1024;
+  static const int _jpegFrameScanLimit = 256 * 1024;
   static const int _jpegFrameScanMaxSegments = 64;
 
   /// Appends the Panasonic blob candidates found in [ifd0].
@@ -1379,6 +1400,319 @@ class DngEmbeddedJpegExtractor {
     }
   }
 
+  /// Largest edge of any IFD in [ifds] whose Compression is not JPEG (6/7) --
+  /// i.e. the raw-mosaic IFD -- or 0 when none states a usable extent.
+  static Future<int> _largestNonJpegExtent(
+    _TIFFReader reader,
+    List<Map<int, _IFDEntry>> ifds,
+  ) async {
+    var best = 0;
+    for (final ifd in ifds) {
+      final compEntry = ifd[0x0103];
+      if (compEntry != null) {
+        final comp = await reader.values(compEntry);
+        if (comp != null &&
+            comp.isNotEmpty &&
+            (comp.first == 6 || comp.first == 7)) {
+          continue;
+        }
+      }
+      final widthEntry = ifd[0x0100];
+      final heightEntry = ifd[0x0101];
+      if (widthEntry == null || heightEntry == null) continue;
+      final w = await reader.values(widthEntry);
+      final h = await reader.values(heightEntry);
+      if (w == null || w.isEmpty || h == null || h.isEmpty) continue;
+      final m = w.first > h.first ? w.first : h.first;
+      if (m > best) best = m;
+    }
+    return best;
+  }
+
+  // ---------------------------------------------------------------------
+  // Non-TIFF containers: Fujifilm RAF and Sigma X3F
+  // ---------------------------------------------------------------------
+
+  static const List<int> _rafMagic = <int>[
+    0x46, 0x55, 0x4A, 0x49, 0x46, 0x49, 0x4C, 0x4D, // FUJIFILM
+    0x43, 0x43, 0x44, 0x2D, 0x52, 0x41, 0x57, 0x20, // CCD-RAW<space>
+  ];
+  static const List<int> _x3fMagic = <int>[0x46, 0x4F, 0x56, 0x62]; // FOVb
+
+  /// Sanity ceilings for hostile input: X3F directory entries, RAF CFA-header
+  /// bytes / tag count, and the largest edge any container may claim.
+  static const int _x3fMaxEntries = 64;
+  static const int _rafMaxCfaHeaderBytes = 64 * 1024;
+  static const int _rafMaxCfaTags = 512;
+  static const int _maxClaimedEdge = 200000;
+
+  /// Bytes of an embedded JPEG read to find its own Exif orientation.
+  static const int _jpegExifScanBytes = 32 * 1024;
+
+  /// Magic-byte dispatch for the two non-TIFF containers. Returns `null` when
+  /// [source] is neither (the TIFF path then runs unchanged); otherwise a
+  /// probe record -- possibly with no candidates when the container is
+  /// recognised but unreadable. Never throws.
+  static Future<DngFileProbe?> _probeNonTiffContainer(
+    _ByteSource source,
+  ) async {
+    final head = await source.read(0, 16);
+    if (head == null) return null;
+    if (_bytesEqual(head, _rafMagic)) return _probeRaf(source);
+    if (_bytesEqual(head.sublist(0, 4), _x3fMagic)) return _probeX3f(source);
+    return null;
+  }
+
+  static int _be32(Uint8List b, int o) =>
+      (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+  static int _le32(Uint8List b, int o) =>
+      b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
+
+  /// Validates and measures one embedded JPEG at [offset]/[byteCount]. Returns
+  /// `(candidate, unreadable)`: an out-of-range or non-JPEG declaration is
+  /// unreadable (AD-022); an in-range JPEG whose frame header is not reachable
+  /// is a plain miss, same ruling as the Panasonic blob path.
+  static Future<(_Candidate?, bool)> _containerJpeg(
+    _ByteSource source,
+    int offset,
+    int byteCount,
+  ) async {
+    if (offset < 0 ||
+        byteCount <= 2 ||
+        offset >= source.length ||
+        offset + byteCount > source.length) {
+      return (null, true);
+    }
+    final soi = await source.read(offset, 2);
+    if (soi == null || soi[0] != 0xFF || soi[1] != 0xD8) return (null, true);
+    final size = await _jpegFrameSize(source, offset, byteCount);
+    if (size == null) return (null, false);
+    return (
+      _Candidate(
+        width: size.$1,
+        height: size.$2,
+        offset: offset,
+        byteCount: byteCount,
+      ),
+      false,
+    );
+  }
+
+  /// EXIF orientation from the Exif APP1 of the JPEG at [offset], bounded to
+  /// [_jpegExifScanBytes]; 1 when absent or unreadable.
+  static Future<int> _jpegExifOrientation(
+    _ByteSource source,
+    int offset,
+    int byteCount,
+  ) async {
+    final n = byteCount < _jpegExifScanBytes ? byteCount : _jpegExifScanBytes;
+    final jpeg = await source.read(offset, n);
+    if (jpeg == null) return 1;
+    var pos = 2;
+    while (pos + 4 <= jpeg.length && jpeg[pos] == 0xFF) {
+      final marker = jpeg[pos + 1];
+      if (marker == 0xDA || marker == 0xD9) break;
+      final segLen = (jpeg[pos + 2] << 8) | jpeg[pos + 3];
+      if (segLen < 2) break;
+      if (marker == 0xE1 && segLen >= 8 + 6) {
+        final start = pos + 4;
+        final end = pos + 2 + segLen < jpeg.length
+            ? pos + 2 + segLen
+            : jpeg.length;
+        if (end - start > 6 &&
+            _bytesEqual(jpeg.sublist(start, start + 6), const [
+              0x45,
+              0x78,
+              0x69,
+              0x66,
+              0x00,
+              0x00,
+            ])) {
+          final tiff = Uint8List.sublistView(jpeg, start + 6, end);
+          final reader = await _readerFor(_MemorySource(tiff));
+          if (reader == null) return 1;
+          final ifd0 = await _readIFD0(reader);
+          if (ifd0 == null) return 1;
+          return _sanitizeOrientation(await _orientationOf(reader, ifd0));
+        }
+      }
+      pos += 2 + segLen;
+    }
+    return 1;
+  }
+
+  /// Fujifilm RAF: big-endian u32 at 84/88 = embedded-JPEG offset/length; the
+  /// CFA header (u32 at 92/96) states the full sensor extent in its tag 0x100
+  /// (height u16, width u16).
+  static Future<DngFileProbe> _probeRaf(_ByteSource source) async {
+    var candidates = const <DngProbeCandidate>[];
+    var unreadable = 0;
+    var orientation = 1;
+    ({int width, int height})? sensor;
+
+    final hdr = await source.read(84, 16);
+    if (hdr != null) {
+      final cfaOff = _be32(hdr, 8);
+      final cfaLen = _be32(hdr, 12);
+      if (cfaLen >= 4 &&
+          cfaLen <= _rafMaxCfaHeaderBytes &&
+          cfaOff >= 0 &&
+          cfaOff + cfaLen <= source.length) {
+        final cfa = await source.read(cfaOff, cfaLen);
+        if (cfa != null) {
+          final count = _be32(cfa, 0);
+          var p = 4;
+          for (
+            var i = 0;
+            i < count && i < _rafMaxCfaTags && p + 4 <= cfa.length;
+            i++
+          ) {
+            final tag = (cfa[p] << 8) | cfa[p + 1];
+            final len = (cfa[p + 2] << 8) | cfa[p + 3];
+            if (p + 4 + len > cfa.length) break;
+            if (tag == 0x100 && len >= 4) {
+              final h = (cfa[p + 4] << 8) | cfa[p + 5];
+              final w = (cfa[p + 6] << 8) | cfa[p + 7];
+              if (w > 0 && h > 0) sensor = (width: w, height: h);
+              break;
+            }
+            p += 4 + len;
+          }
+        }
+      }
+      final (cand, bad) = await _containerJpeg(
+        source,
+        _be32(hdr, 0),
+        _be32(hdr, 4),
+      );
+      if (bad) unreadable++;
+      if (cand != null) {
+        candidates = [
+          DngProbeCandidate(
+            width: cand.width,
+            height: cand.height,
+            offset: cand.offset,
+            byteCount: cand.byteCount,
+          ),
+        ];
+        orientation = await _jpegExifOrientation(
+          source,
+          cand.offset,
+          cand.byteCount,
+        );
+      }
+    }
+    return DngFileProbe(
+      orientation: orientation,
+      dimensions: sensor,
+      cropMax: sensor == null
+          ? 0
+          : (sensor.width > sensor.height ? sensor.width : sensor.height),
+      candidates: candidates,
+      unreadableCount: unreadable,
+    );
+  }
+
+  /// Sigma X3F: little-endian u32 in the last 4 bytes = `SECd` directory
+  /// offset; directory = "SECd", version, count, then (offset, length, type)
+  /// entries. `IMA2`/`IMAG` sections start with a 28-byte `SECi` header
+  /// (version, type, format, columns, rows, rowsize); format 0x12 is JPEG with
+  /// the bitstream right after the header. The sensor extent is the largest
+  /// image section of any format (the RAW mosaic included).
+  static Future<DngFileProbe> _probeX3f(_ByteSource source) async {
+    final cands = <DngProbeCandidate>[];
+    var unreadable = 0;
+    var sensorMax = 0;
+    ({int width, int height})? sensor;
+    var orientation = 1;
+
+    Future<DngFileProbe> done() async => DngFileProbe(
+      orientation: orientation,
+      dimensions: sensor,
+      cropMax: sensorMax,
+      candidates: cands,
+      unreadableCount: unreadable,
+    );
+
+    final len = source.length;
+    final tail = len >= 16 ? await source.read(len - 4, 4) : null;
+    if (tail == null) return done();
+    final dirOff = _le32(tail, 0);
+    if (dirOff < 0 || dirOff + 12 > len - 4) return done();
+    final dir = await source.read(dirOff, 12);
+    if (dir == null ||
+        !_bytesEqual(dir.sublist(0, 4), const [0x53, 0x45, 0x43, 0x64])) {
+      return done(); // "SECd"
+    }
+    final count = _le32(dir, 8);
+    if (count <= 0 ||
+        count > _x3fMaxEntries ||
+        dirOff + 12 + count * 12 > len - 4) {
+      return done();
+    }
+    final entries = await source.read(dirOff + 12, count * 12);
+    if (entries == null) return done();
+
+    for (var i = 0; i < count; i++) {
+      final off = _le32(entries, i * 12);
+      final secLen = _le32(entries, i * 12 + 4);
+      final isImage =
+          _bytesEqual(entries.sublist(i * 12 + 8, i * 12 + 12), const [
+            0x49,
+            0x4D,
+            0x41,
+            0x32,
+          ]) || // IMA2
+          _bytesEqual(entries.sublist(i * 12 + 8, i * 12 + 12), const [
+            0x49,
+            0x4D,
+            0x41,
+            0x47,
+          ]); // IMAG
+      if (!isImage) continue;
+      if (off < 0 || secLen <= 28 || off + secLen > len) continue;
+      final sec = await source.read(off, 28);
+      if (sec == null ||
+          !_bytesEqual(sec.sublist(0, 4), const [0x53, 0x45, 0x43, 0x69])) {
+        continue; // "SECi"
+      }
+      final format = _le32(sec, 12);
+      final cols = _le32(sec, 16);
+      final rows = _le32(sec, 20);
+      if (cols > 0 &&
+          rows > 0 &&
+          cols <= _maxClaimedEdge &&
+          rows <= _maxClaimedEdge) {
+        final m = cols > rows ? cols : rows;
+        if (m > sensorMax) {
+          sensorMax = m;
+          sensor = (width: cols, height: rows);
+        }
+      }
+      if (format != 0x12) continue;
+      final (cand, bad) = await _containerJpeg(source, off + 28, secLen - 28);
+      if (bad) unreadable++;
+      if (cand != null) {
+        if (cands.isEmpty) {
+          orientation = await _jpegExifOrientation(
+            source,
+            cand.offset,
+            cand.byteCount,
+          );
+        }
+        cands.add(
+          DngProbeCandidate(
+            width: cand.width,
+            height: cand.height,
+            offset: cand.offset,
+            byteCount: cand.byteCount,
+          ),
+        );
+      }
+    }
+    return done();
+  }
+
   /// Largest edge Panasonic IFD0 claims for the frame, or 0 when neither tag
   /// pair is readable. Stands in for DefaultCropSize's role in the full-size
   /// `0.90 * cropMax` floor.
@@ -1438,7 +1772,9 @@ class DngEmbeddedJpegExtractor {
         pos += 1; // fill byte before the real marker
         continue;
       }
-      if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      if (marker == 0xD8 ||
+          marker == 0x01 ||
+          (marker >= 0xD0 && marker <= 0xD7)) {
         pos += 2; // standalone marker, no length field
         segments++;
         continue;
