@@ -1,5 +1,5 @@
 import 'dart:io' show Platform;
-import 'package:ceyx/ceyx.dart' show ceyxPhysicalMemoryBytes;
+import 'package:ceyx/ceyx.dart' show CeyxDecodePool, ceyxPhysicalMemoryBytes;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'memory_pressure_wiring.dart';
@@ -88,6 +88,7 @@ Future<void> main() async {
     orientingDngDecoder: halcyonOrientingFullDecoder,
     retention: retention,
     physicalMemoryBytes: physicalMemoryBytes,
+    requestNativeReclaim: CeyxDecodePool.shared.requestReclaim,
   );
   // PERF-INSTRUMENTATION (P0, docs/logs/2026-09-05/pool-round-contract.md
   // AC7 / pipeline-architecture-v2.md §5-P0): decodeLaneWidth is only known

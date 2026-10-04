@@ -89,6 +89,10 @@ class AppState extends ChangeNotifier {
     // instead of waiting it out in real time. Production callers must not pass
     // this. Precedent: ImagePreloadController.navigationDebounce.
     Duration exifDebounce = kSelectionExifDebounce,
+    // memreclaim spec §4.5: asks the ceyx idle funnel for a pass at a folder
+    // switch. Same wiring rule as orientingDngDecoder: no production default
+    // here; main.dart passes CeyxDecodePool.shared.requestReclaim.
+    void Function()? requestNativeReclaim,
   }) : this._(
           scanner: scanner,
           statusStore: statusStore,
@@ -102,6 +106,7 @@ class AppState extends ChangeNotifier {
           retention: retention,
           physicalMemoryBytes: physicalMemoryBytes,
           exifDebounce: exifDebounce,
+          requestNativeReclaim: requestNativeReclaim,
           hydrate: true,
         );
 
@@ -140,8 +145,10 @@ class AppState extends ChangeNotifier {
     RetentionPolicy retention = const RetentionPolicy.floor(),
     int? physicalMemoryBytes,
     Duration exifDebounce = kSelectionExifDebounce,
+    void Function()? requestNativeReclaim,
     required bool hydrate,
-  }) : _exifDebounce = exifDebounce,
+  }) : _requestNativeReclaim = requestNativeReclaim,
+       _exifDebounce = exifDebounce,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
        _statusStore = statusStore ?? PhotoStatusStore(),
@@ -288,6 +295,7 @@ class AppState extends ChangeNotifier {
       _preloadController.payloadFor(id);
 
   final PhotoExportService _exportService;
+  final void Function()? _requestNativeReclaim;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;
 
@@ -679,6 +687,12 @@ class AppState extends ChangeNotifier {
     _exifGeneration++;
     _exifDebounceTimer?.cancel();
     _exifDebounceTimer = null;
+    // The single largest release moment: reset() has just evicted both
+    // ImageCache tiers and dropped every retained payload. Ask the ceyx idle
+    // funnel for a pass: fires only after >= 1 s of decode quiescence, any
+    // decode cancels it, grow lockout kept (never synchronous; same path on
+    // every platform).
+    _requestNativeReclaim?.call();
     _selectedItemID = null;
     notifyListeners();
 

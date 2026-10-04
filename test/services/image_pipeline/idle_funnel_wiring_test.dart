@@ -11,7 +11,7 @@ void main() {
   test('TC-1433 the app decode pool reaches the native idle funnel even when '
       'no Dart buffer is freed (same path on every platform)', () {
     final floors = <int>[];
-    CeyxNativeBufferPool.debugArenaIdleShrinkOverride = (int floor) {
+    CeyxNativeBufferPool.debugArenaIdleShrinkOverride = (int floor, List<int> idleAddresses, List<int> idleBytes) {
       floors.add(floor);
       return 0;
     };
