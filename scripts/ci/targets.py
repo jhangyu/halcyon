@@ -138,6 +138,9 @@ TARGETS: dict = {
         "artifact_kind": "app_bundle",
         # Same output path as the arm64 build — the two never coexist on one
         # runner, because each CI/release matrix leg builds exactly one of them.
+        # The local prepush gate runs both legs on one host, so it gives each
+        # leg its own clone (prepush.Layout.leg_clone); sharing one clone put
+        # this leg's x86_64 app into the arm64 zip (bug D1, 2026-10-04).
         "artifact_path": "build/macos/Build/Products/Release/Halcyon.app",
         "app_executable": "Halcyon",
         "archive_name": "Halcyon-macos-x64-{version}.zip",

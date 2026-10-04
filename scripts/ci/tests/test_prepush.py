@@ -5,10 +5,14 @@ stdlib only."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -200,6 +204,59 @@ class TestContainerLeg(unittest.TestCase):
                 rc = prepush._step_container(layout, "ubuntu-24.04-arm", log)
             self.assertEqual((rc, layout.skipped), (0, 1))
             self.assertIn("PREPUSH-SKIP container-ubuntu-24.04-arm", log.read_text(encoding="utf-8"))
+
+
+class TestLanes(unittest.TestCase):
+    def test_each_macos_leg_has_its_own_clone_and_lane(self):
+        # Bug D1: both macOS legs once shared one clone, so package-macos zipped
+        # the x86_64 app that build-macos-x64 left at the shared artifact_path.
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = prepush.Layout(REPO, Path(tmp, "w"))
+            with mock.patch.object(prepush, "host_key", return_value=("macos", "arm64")):
+                steps, _, _ = prepush.all_steps(layout)
+        lanes = {name: lane for name, _, lane in steps}
+        self.assertEqual(lanes["build-macos"], "macos")
+        self.assertEqual(lanes["package-macos-x64"], "macos-x64")
+        self.assertEqual(lanes["container-ubuntu-latest"], "container-ubuntu-latest")
+        self.assertIsNone(lanes["verify"])
+        self.assertIsNone(lanes[prepush.TEST_STEP])
+        self.assertNotEqual(layout.clone_for("macos"), layout.clone_for("macos-x64"))
+        # Lane steps are one contiguous block between the serial head and tests.
+        serial = "".join("S" if lane is None else "L" for _, _, lane in steps)
+        self.assertRegex(serial, r"^S+L+S$")
+
+    def test_lanes_are_host_agnostic(self):
+        # A Windows host gets the same laning: its local leg plus both docker
+        # legs form one concurrent block within the MAX_PARALLEL_LANES cap.
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = prepush.Layout(REPO, Path(tmp, "w"))
+            with mock.patch.object(prepush, "host_key", return_value=("windows", "x86_64")):
+                steps, _, _ = prepush.all_steps(layout)
+        lanes = {name: lane for name, _, lane in steps}
+        self.assertEqual(lanes["build-windows"], "windows")
+        self.assertEqual(lanes["container-ubuntu-latest"], "container-ubuntu-latest")
+        self.assertEqual(lanes["container-ubuntu-24.04-arm"], "container-ubuntu-24.04-arm")
+        self.assertLessEqual(len({lane for lane in lanes.values() if lane}),
+                             prepush.MAX_PARALLEL_LANES)
+        serial = "".join("S" if lane is None else "L" for _, _, lane in steps)
+        self.assertRegex(serial, r"^S+L+S$")
+
+    def test_lanes_run_concurrently_and_report_every_step(self):
+        # A 2-party barrier only releases if both lanes are live at once;
+        # a serial scheduler breaks it (timeout) instead of hanging.
+        barrier = threading.Barrier(2, timeout=10)
+
+        def meet(_log):
+            barrier.wait()
+            return 0
+
+        group = [("a1", meet, "A"), ("a2", lambda _l: 3, "A"), ("b1", meet, "B")]
+        with tempfile.TemporaryDirectory() as tmp, \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            results = prepush._run_lanes(group, Path(tmp))
+        self.assertEqual([rc for rc, _ in results], [0, 3, 0])
+        for name in ("a1", "a2", "b1"):
+            self.assertIn(f"PREPUSH-STEP {name} RC=", out.getvalue())
 
 
 if __name__ == "__main__":

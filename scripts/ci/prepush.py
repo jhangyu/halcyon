@@ -32,6 +32,12 @@ Legs whose runner is another Linux machine run in docker when one answers
 runner's image); without docker each is a printed, counted skip. Legs neither
 runnable here nor containerised are counted as excluded_host.
 
+Scheduling: host-independent steps run serially first; then every local target
+leg (its own clone pair under legs/<target>/, so legs never share build/ or the
+ceyx plugin/<os>/Libraries/ they fetch into) and every container leg run
+concurrently, each lane's steps serially in derivation order; `tests` runs last,
+alone, so its timing-sensitive files see the same load as before.
+
 Steps (see `--list`): clone, workflow-lint, toolchain, <derived workflow
 steps>, container-<runner>..., tests. Each step writes `<log-dir>/<step>.txt`
 whose last line is `RC=<n>`, written by this process. A full run ends with one
@@ -54,7 +60,9 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import report, run, targets
@@ -67,6 +75,14 @@ EXCLUDED_JOBS = {
 }
 
 TEST_STEP = "tests"
+
+# ponytail: one thread per lane, capped. Today 4 lanes (2 macOS legs, 2 docker
+# legs; docker is further capped by its VM's CPUs). Lower this if xcodebuild
+# contention ever outweighs the overlap.
+MAX_PARALLEL_LANES = 4
+
+# Serialises console prints and shared counters/caches across lane threads.
+_LOCK = threading.Lock()
 
 # Known timing-flaky test FILES (user ruling 2026-10-03, file-level). A failure
 # of any test inside one of these files is counted as flaky_known and printed --
@@ -225,6 +241,11 @@ def leg_steps(steps):
     return [(name, tail) for name, tail in steps if "--target" in tail]
 
 
+def leg_target(tail):
+    """The --target of a leg step's argv tail, else None."""
+    return tail[tail.index("--target") + 1] if "--target" in tail else None
+
+
 def _render_run(raw, target):
     prefix = "python3 scripts/ci.py "
     if "prepush" in raw:
@@ -271,10 +292,20 @@ class Layout:
         self.source = Path(source).resolve()
         self.work = Path(workdir).resolve()
         self.clone = self.work / "Halcyon"
-        self.ceyx = self.work / "ceyx"
         self.cache = self.work.with_name(self.work.name + "-cache")
+        self.legs = self.work / "legs"
         self.flaky_known = 0
         self.skipped = 0
+
+    def leg_clone(self, target):
+        """Own Halcyon clone (with its own ../ceyx) per local target leg: both
+        macOS legs write build/macos/Build/Products/Release/Halcyon.app and
+        ceyx plugin/macos/Libraries/, so a shared clone packaged the x86_64 app
+        into the arm64 zip (bug D1) and forbids running them concurrently."""
+        return self.legs / target / "Halcyon"
+
+    def clone_for(self, lane):
+        return self.leg_clone(lane) if lane in targets.TARGETS else self.clone
 
 
 WORKDIR_MARKER = ".halcyon-prepush-workdir"
@@ -364,40 +395,54 @@ def _step_clone(layout, log_path):
         remove_workdir(layout.work)
         layout.work.mkdir(parents=True)
         (layout.work / WORKDIR_MARKER).write_text("created by ci.py prepush\n", encoding="utf-8")
-        argv = ["git", "-c", "core.autocrlf=false", "clone", "--quiet",
-                "--config", "core.autocrlf=false",
-                os.fspath(layout.source), os.fspath(layout.clone)]
-        r = run.run(argv)
-        out.append(f"$ {' '.join(argv)}\n{r.stdout}{r.stderr}RC={r.returncode}")
-        if r.returncode:
-            raise RuntimeError("git clone of this repo failed")
-        clone_head = _git_head(layout.clone)
-        out.append(f"SOURCE-HEAD {head}\nCLONE-HEAD {clone_head}")
-        if clone_head != head:
-            raise RuntimeError("clone HEAD differs from source HEAD")
-        refs, _ = workflow_pins(layout.clone / ".github" / "workflows")
-        if len(refs) != 1:
-            raise RuntimeError(f"workflows must pin exactly one ceyx ref, found {sorted(refs)}")
-        ref = refs.pop()
-        ceyx_src = layout.source.parent / "ceyx"
-        for argv in (["git", "clone", "--quiet", "--no-checkout",
-                      "--config", "core.autocrlf=false", os.fspath(ceyx_src),
-                      os.fspath(layout.ceyx)],
-                     ["git", "-C", os.fspath(layout.ceyx), "checkout", "--quiet", "--detach", ref]):
-            r = run.run(argv)
-            out.append(f"$ {' '.join(argv)}\n{r.stdout}{r.stderr}RC={r.returncode}")
-            if r.returncode:
-                raise RuntimeError(f"ceyx clone/checkout of pinned ref {ref} failed "
-                                   f"(is {ref} present in {ceyx_src}?)")
-        out.append(f"CEYX-REF {ref} (pinned by the workflows) CEYX-HEAD {_git_head(layout.ceyx)}")
-        pin = _pin(layout.clone)
-        out += _seed([_cache_dir(layout.source, pin), layout.cache / pin["tag"]],
-                     _cache_dir(layout.clone, pin), pin)
+        ref = _clone_pair(layout, head, layout.clone, None, out)
+        derived, _, _ = derive_plan(layout.clone / ".github" / "workflows")
+        for target in sorted({leg_target(tail) for _, tail in leg_steps(derived)}):
+            out.append(f"LEG-CLONE {target}")
+            _clone_pair(layout, head, layout.leg_clone(target), ref, out)
         rc = 0
     except (OSError, RuntimeError) as exc:
         out.append(f"ERROR: {exc}")
     report.write_log(log_path, header="prepush clone", body="\n".join(out), rc=rc)
     return rc
+
+
+def _clone_pair(layout, head, clone, ref, out):
+    """Clones this repo's HEAD to [clone] and ceyx at the pinned ref to its
+    ../ceyx sibling, then seeds the release cache. [ref] None = read the pin
+    from the fresh clone's workflows. Returns the ceyx ref."""
+    argv = ["git", "-c", "core.autocrlf=false", "clone", "--quiet",
+            "--config", "core.autocrlf=false",
+            os.fspath(layout.source), os.fspath(clone)]
+    r = run.run(argv)
+    out.append(f"$ {' '.join(argv)}\n{r.stdout}{r.stderr}RC={r.returncode}")
+    if r.returncode:
+        raise RuntimeError("git clone of this repo failed")
+    clone_head = _git_head(clone)
+    out.append(f"SOURCE-HEAD {head}\nCLONE-HEAD {clone_head}")
+    if clone_head != head:
+        raise RuntimeError("clone HEAD differs from source HEAD")
+    if ref is None:
+        refs, _ = workflow_pins(clone / ".github" / "workflows")
+        if len(refs) != 1:
+            raise RuntimeError(f"workflows must pin exactly one ceyx ref, found {sorted(refs)}")
+        ref = refs.pop()
+    ceyx_src = layout.source.parent / "ceyx"
+    ceyx = clone.parent / "ceyx"
+    for argv in (["git", "clone", "--quiet", "--no-checkout",
+                  "--config", "core.autocrlf=false", os.fspath(ceyx_src),
+                  os.fspath(ceyx)],
+                 ["git", "-C", os.fspath(ceyx), "checkout", "--quiet", "--detach", ref]):
+        r = run.run(argv)
+        out.append(f"$ {' '.join(argv)}\n{r.stdout}{r.stderr}RC={r.returncode}")
+        if r.returncode:
+            raise RuntimeError(f"ceyx clone/checkout of pinned ref {ref} failed "
+                               f"(is {ref} present in {ceyx_src}?)")
+    out.append(f"CEYX-REF {ref} (pinned by the workflows) CEYX-HEAD {_git_head(ceyx)}")
+    pin = _pin(clone)
+    out += _seed([_cache_dir(layout.source, pin), layout.cache / pin["tag"]],
+                 _cache_dir(clone, pin), pin)
+    return ref
 
 
 def _step_workflow_lint(layout, log_path):
@@ -433,13 +478,14 @@ def _step_toolchain(layout, log_path):
     return rc
 
 
-def _step_ci(layout, tail, log_path):
-    argv = [sys.executable, os.fspath(layout.clone / "scripts" / "ci.py"), *tail]
-    rc = run.run_logged(argv, log_path, cwd=layout.clone).returncode
-    pin = _pin(layout.clone)
-    if _cache_dir(layout.clone, pin).is_dir():
-        for line in _seed([_cache_dir(layout.clone, pin)], layout.cache / pin["tag"], pin):
-            print(f"CACHE-BACK {line}")
+def _step_ci(layout, clone, tail, log_path):
+    argv = [sys.executable, os.fspath(clone / "scripts" / "ci.py"), *tail]
+    rc = run.run_logged(argv, log_path, cwd=clone).returncode
+    pin = _pin(clone)
+    if _cache_dir(clone, pin).is_dir():
+        with _LOCK:  # lanes share the persistent cache
+            for line in _seed([_cache_dir(clone, pin)], layout.cache / pin["tag"], pin):
+                print(f"CACHE-BACK {line}", flush=True)
     return rc
 
 
@@ -457,9 +503,10 @@ def _step_container(layout, runner, log_path):
     Without docker it is a printed, counted skip -- never a silent pass."""
     reason = docker_unavailable_reason()
     if reason:
-        layout.skipped += 1
         line = f"PREPUSH-SKIP container-{runner}: {reason}"
-        print(line)
+        with _LOCK:
+            layout.skipped += 1
+            print(line, flush=True)
         report.write_log(log_path, header=f"prepush container-{runner}", body=line, rc=0)
         return 0
     image, docker_platform = targets.RUNNER_CONTAINER[runner]
@@ -596,24 +643,57 @@ def _step_tests(layout, log_path):
 
 
 def all_steps(layout):
-    """[(name, callable(log_path) -> rc)] in execution order, plus derivation."""
+    """[(name, callable(log_path) -> rc, lane)] in execution order, plus
+    derivation. lane None = serial on the main clone; otherwise the steps of
+    one lane (a local target leg in its own clone, or one container leg) run
+    in order, concurrently with the other lanes."""
     wf_dir = layout.clone / ".github" / "workflows"
     if not wf_dir.is_dir():
         wf_dir = layout.source / ".github" / "workflows"
     derived, derivation, _ = derive_plan(wf_dir)
     steps = [
-        ("clone", lambda p: _step_clone(layout, p)),
-        ("workflow-lint", lambda p: _step_workflow_lint(layout, p)),
-        ("toolchain", lambda p: _step_toolchain(layout, p)),
+        ("clone", lambda p: _step_clone(layout, p), None),
+        ("workflow-lint", lambda p: _step_workflow_lint(layout, p), None),
+        ("toolchain", lambda p: _step_toolchain(layout, p), None),
     ]
-    steps += [(name, (lambda tail: lambda p: _step_ci(layout, tail, p))(tail))
-              for name, tail in derived]
+    # Host-independent steps first, then the lanes (sorted() is stable, so
+    # each lane keeps derivation order: provision, build, assert, package...).
+    for name, tail in sorted(derived, key=lambda s: leg_target(s[1]) is not None):
+        lane = leg_target(tail)
+        steps.append((name, (lambda c, t: lambda p: _step_ci(layout, c, t, p))(
+            layout.clone_for(lane), tail), lane))
     container_runners = [r for r in targets.RUNNER_CONTAINER
                          if any(f"container step container-{r} " in d for d in derivation)]
-    steps += [(f"container-{r}", (lambda r: lambda p: _step_container(layout, r, p))(r))
-              for r in container_runners]
-    steps.append((TEST_STEP, lambda p: _step_tests(layout, p)))
+    steps += [(f"container-{r}", (lambda r: lambda p: _step_container(layout, r, p))(r),
+               f"container-{r}") for r in container_runners]
+    steps.append((TEST_STEP, lambda p: _step_tests(layout, p), None))
     return steps, derivation, wf_dir
+
+
+def _timed_step(name, fn, log_dir):
+    """Runs one step; prints its PREPUSH-STEP line the moment it finishes."""
+    log_path = log_dir / f"{name}.txt"
+    t0 = time.monotonic()
+    rc = fn(log_path)
+    line = (f"PREPUSH-STEP {name} RC={rc} elapsed={time.monotonic() - t0:.1f}s "
+            f"log={log_path}")
+    with _LOCK:
+        print(line, flush=True)
+    return rc, line
+
+
+def _run_lanes(group, log_dir):
+    """Runs a block of lane steps: one thread per lane, steps within a lane
+    serial. Returns [(rc, line)] in lane order (deterministic summary)."""
+    lanes = {}
+    for name, fn, lane in group:
+        lanes.setdefault(lane, []).append((name, fn))
+
+    def run_lane(items):
+        return [_timed_step(name, fn, log_dir) for name, fn in items]
+
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_LANES) as pool:
+        return [r for results in pool.map(run_lane, lanes.values()) for r in results]
 
 
 # --------------------------------------------------------------------------
@@ -629,15 +709,15 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
     layout = Layout(repo_root, workdir or default_workdir())
     log_dir = Path(log_dir or Path(repo_root) / "build" / "prepush").resolve()
     steps, derivation, wf_dir = all_steps(layout)
-    names = [n for n, _ in steps]
+    names = [n for n, _, _ in steps]
 
     if list_only:
         print(f"WORKFLOWS {wf_dir}")
         print(f"HOST {host_key()}")
         for line in derivation:
             print(line)
-        for n, _ in steps:
-            print(f"STEP {n}")
+        for n, _, lane in steps:
+            print(f"STEP {n}" + (f" lane={lane}" if lane else ""))
         return 0
     if step == "cleanup":
         try:
@@ -653,9 +733,10 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
     selected = [s for s in steps if step is None or s[0] == step]
 
     if step not in (None, "clone"):
-        head, clone_head = _git_head(layout.source), _git_head(layout.clone)
+        clone = layout.clone_for(selected[0][2])
+        head, clone_head = _git_head(layout.source), _git_head(clone)
         if head is None or clone_head != head:
-            print(f"ERROR: clone at {layout.clone} is missing or not at HEAD "
+            print(f"ERROR: clone at {clone} is missing or not at HEAD "
                   f"(source {head}, clone {clone_head}); run --step clone first", file=sys.stderr)
             print(f"PREPUSH-PARTIAL step={step} RC=1 (clone missing or stale)")
             return 1
@@ -668,20 +749,22 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
     started = time.monotonic()
     index = 0
     while index < len(selected):
-        name, fn = selected[index]
-        log_path = log_dir / f"{name}.txt"
-        t0 = time.monotonic()
-        rc = fn(log_path)
-        line = (f"PREPUSH-STEP {name} RC={rc} elapsed={time.monotonic() - t0:.1f}s "
-                f"log={log_path}")
-        print(line, flush=True)
-        summary_lines.append(line)
-        index += 1
-        if rc:
-            failed += 1
+        name, fn, lane = selected[index]
+        if lane is not None and step is None:
+            end = index
+            while end < len(selected) and selected[end][2] is not None:
+                end += 1
+            results = _run_lanes(selected[index:end], log_dir)
+            index = end
+        else:
+            results = [_timed_step(name, fn, log_dir)]
+            index += 1
+        for rc, line in results:
+            summary_lines.append(line)
+            failed += rc != 0
         if name == "clone" and step is None:
             if rc:
-                for rest, _ in selected[index:]:
+                for rest, _, _ in selected[index:]:
                     line = f"PREPUSH-STEP {rest} RC=NOT-RUN (clone failed)"
                     print(line)
                     summary_lines.append(line)
@@ -692,9 +775,11 @@ def main(repo_root, step=None, workdir=None, log_dir=None, keep=False, list_only
             selected, derivation, _ = all_steps(layout)
             summary_lines += derivation
 
-    ci_logs = layout.clone / "build" / "ci-logs"
-    if ci_logs.is_dir():
-        shutil.copytree(ci_logs, log_dir / "clone-ci-logs", dirs_exist_ok=True)
+    # ci-logs are named <target>-<phase>.txt, so every clone merges into one dir.
+    for clone in [layout.clone, *sorted(layout.legs.glob("*/Halcyon"))]:
+        ci_logs = clone / "build" / "ci-logs"
+        if ci_logs.is_dir():
+            shutil.copytree(ci_logs, log_dir / "clone-ci-logs", dirs_exist_ok=True)
     excluded_host = sum("-> excluded: runner" in line for line in derivation)
     if layout.flaky_known:
         print(f"WARNING: {layout.flaky_known} quarantined known-flaky test failure(s) -- "
