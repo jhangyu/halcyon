@@ -102,7 +102,7 @@ void resetFileProbeMemo() {
 /// - [NativeImageNeedsRawDecode] is emitted only on a path the engine can
 ///   decode (`SupportedPhotoFormats.isDecodablePath`, derived from the
 ///   engine's own `kSupportedDecodeExtensions`) or a bitmap-decode container.
-///   Browse-only RAW (`.cr2`/`.iiq`/`.mrw`, contract decision D2) has no
+///   Browse-only RAW (`.cr2`/`.iiq`, contract decision D2) has no
 ///   decode route and therefore never yields this variant.
 ///   `preview` is the only [ImageRequestPurpose] (the sidebar and export
 ///   purposes were deleted 2026-10-02 once nothing in lib/ requested them;
@@ -195,7 +195,7 @@ Future<NativeImageResult> dartImageLoad(
     // AD-021's uneven floor now survives only as "the preview floor is
     // strict": the lenient sidebar arm was deleted with the sidebar purpose
     // (2026-10-02; the sidebar is a payload consumer, AD-042).
-    //  - browse-only RAW (`.cr2`/`.iiq`/`.mrw`, contract decision D2) stays
+    //  - browse-only RAW (`.cr2`/`.iiq`, contract decision D2) stays
     //    excluded: the engine cannot decode those containers, so a rejection
     //    would fall through to RAW_NO_EMBEDDED_PREVIEW rather than to a decode.
     //  - engine-decodable non-DNG RAW (`.arw`/`.nef`/`.rw2`/...) is INCLUDED,
@@ -305,7 +305,7 @@ Future<NativeImageResult> dartImageLoad(
     // but intact candidate, and a CR3 (the one non-TIFF RAW left unparsed; RAF/X3F are
     // handled by magic-byte gatherers) that bails before IFD0 is readable.
     //
-    // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) is unaffected in both
+    // Browse-only RAW (D2: `.cr2`/`.iiq`) is unaffected in both
     // directions: it never reached the pre-empt (that gate was already
     // `isDecodablePath`-gated) and it still falls through to the uniform
     // RAW_NO_EMBEDDED_PREVIEW state below, because there is no decode for it to
@@ -347,7 +347,7 @@ Future<NativeImageResult> dartImageLoad(
         declaredPreviewsUnreadable: embeddedProbe.malformed,
       );
     }
-    // Browse-only RAW (D2: `.cr2`/`.iiq`/`.mrw`) with no embedded preview: the
+    // Browse-only RAW (D2: `.cr2`/`.iiq`) with no embedded preview: the
     // explicit uniform unsupported state
     // (matrix F-08, accepted loss U-11). The engine has no decode route for
     // these containers, so there is nothing to fall through to.
