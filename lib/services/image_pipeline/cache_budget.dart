@@ -8,7 +8,7 @@ import 'prefetch_scheduler.dart';
 /// WORKING SET this app must hold, not from a percentage of machine memory.
 ///
 /// What changed and why a future reader must not "fix" it back. Until
-/// 2026-09-11 this file returned `physicalMemoryBytes ~/ 4`, clamped into a
+/// 2026-09-11 this file returned a quarter of machine RAM, clamped into a
 /// rung-scaled ceiling of 768 / 800 / 896 MiB. That is a machine-RAM
 /// percentage: on every machine at or above 3 GiB the quarter-of-RAM term
 /// saturated the ceiling, so the shipped budget was simply "the largest number
@@ -21,9 +21,9 @@ import 'prefetch_scheduler.dart';
 /// only costs resident memory and evicts the operating system's copy of the
 /// very files the preloader is about to read.
 ///
-/// Machine memory survives ONLY as a downward safety ceiling
-/// ([kMachineMemorySafetyCeilingDivisor]), never as the primary driver — the
-/// same treatment design decision D1 gives the in-flight decode budget.
+/// Machine memory does NOT enter the budget at all (user ruling 2026-10-04:
+/// minimum target machine is 4 GiB, and the band must never be evicted by a
+/// RAM-derived clamp; INVARIANTS.md INV-4).
 ///
 /// ATTRIBUTION EVIDENCE (AC-S3(a)).
 /// `docs/logs/2026-09-11/memory-attribution-table.md` row "Flutter image cache
@@ -117,61 +117,34 @@ const int kFullResolutionBandSlotCount =
 /// (`docs/logs/2026-08-28/cache-sizing-rederivation.md` §3).
 const double kImageCacheSafetyFactor = 1.15;
 
-/// Machine memory enters ONLY here, and only downward: the derived budget is
-/// additionally capped at one quarter of total physical memory so a small
-/// machine is never asked to hold a budget derived for a large working set.
-/// On any machine whose quarter-of-memory exceeds the derived budget this term
-/// does nothing at all, which is the intended common case.
-const int kMachineMemorySafetyCeilingDivisor = 4;
-
-/// Never go below this, even under the machine-memory safety ceiling: below
-/// roughly this figure the M5 no-re-decode guarantee dies
-/// (`docs/logs/2026-08-23/cache-sizing-estimate.md`).
-const int kImageCacheFloorBytes = 256 << 20;
-
 const int _bytesPerMebibyte = 1 << 20;
 
 /// The pure working-set arithmetic, with every input named and injectable so a
 /// test can pin the formula rather than re-assert a magic number.
 ///
 /// [safetyFactor] multiplies the computed requirement; the product is rounded
-/// UP to a whole mebibyte. [machineMemorySafetyCeilingBytes], when supplied, is
-/// a DOWNWARD clamp only (see [kMachineMemorySafetyCeilingDivisor]) and never
-/// raises the result; the result never falls below [kImageCacheFloorBytes].
+/// UP to a whole mebibyte.
 int imageCacheBudgetBytesFromWorkingSet({
   required int fullResolutionBandSlotCount,
   required int fullResolutionImageByteCost,
   required int sidebarThumbnailPoolByteCost,
   required double safetyFactor,
-  int? machineMemorySafetyCeilingBytes,
 }) {
   final requirementBytes =
       fullResolutionBandSlotCount * fullResolutionImageByteCost +
       sidebarThumbnailPoolByteCost;
   final withHeadroomBytes = (requirementBytes * safetyFactor).ceil();
-  final roundedUpToWholeMebibytes =
-      ((withHeadroomBytes + _bytesPerMebibyte - 1) ~/ _bytesPerMebibyte) *
+  return ((withHeadroomBytes + _bytesPerMebibyte - 1) ~/ _bytesPerMebibyte) *
       _bytesPerMebibyte;
-  final afterSafetyCeiling = machineMemorySafetyCeilingBytes == null
-      ? roundedUpToWholeMebibytes
-      : (roundedUpToWholeMebibytes < machineMemorySafetyCeilingBytes
-            ? roundedUpToWholeMebibytes
-            : machineMemorySafetyCeilingBytes);
-  return afterSafetyCeiling < kImageCacheFloorBytes
-      ? kImageCacheFloorBytes
-      : afterSafetyCeiling;
 }
 
 /// The app's image-cache budget for a session whose largest full-resolution
 /// image so far has [largestFullResolutionPixels] pixels (never below the
 /// 24 MP reference item).
 ///
-/// Takes no retention argument: every input is derived from the
-/// full-resolution BAND. [physicalMemoryBytes] is used solely as the downward
-/// safety ceiling described in [kMachineMemorySafetyCeilingDivisor]; null
-/// means no ceiling applies.
+/// Takes no retention and no machine-memory argument: every input is derived
+/// from the full-resolution BAND.
 int imageCacheBudgetBytes({
-  int? physicalMemoryBytes,
   int largestFullResolutionPixels = kReferenceFullResolutionPixels,
 }) {
   final pixels = largestFullResolutionPixels > kReferenceFullResolutionPixels
@@ -182,9 +155,6 @@ int imageCacheBudgetBytes({
     fullResolutionImageByteCost: pixels * kDecodedBytesPerPixel,
     sidebarThumbnailPoolByteCost: kSidebarThumbnailPoolByteCost,
     safetyFactor: kImageCacheSafetyFactor,
-    machineMemorySafetyCeilingBytes: physicalMemoryBytes == null
-        ? null
-        : physicalMemoryBytes ~/ kMachineMemorySafetyCeilingDivisor,
   );
 }
 
@@ -201,7 +171,6 @@ int imageCacheBudgetBytes({
 /// that publish tier-2 entries never resize the global cache.
 abstract final class ImageCacheBudget {
   static bool _configured = false;
-  static int? _physicalMemoryBytes;
   static int _largestFullResolutionPixels = kReferenceFullResolutionPixels;
 
   @visibleForTesting
@@ -209,12 +178,10 @@ abstract final class ImageCacheBudget {
 
   static int get largestFullResolutionPixels => _largestFullResolutionPixels;
 
-  static void configure({int? physicalMemoryBytes}) {
+  static void configure() {
     _configured = true;
-    _physicalMemoryBytes = physicalMemoryBytes;
     PaintingBinding.instance.imageCache.maximumSizeBytes =
         imageCacheBudgetBytes(
-          physicalMemoryBytes: physicalMemoryBytes,
           largestFullResolutionPixels: _largestFullResolutionPixels,
         );
   }
@@ -225,10 +192,7 @@ abstract final class ImageCacheBudget {
     final pixels = width * height;
     if (pixels <= _largestFullResolutionPixels) return;
     _largestFullResolutionPixels = pixels;
-    final budget = imageCacheBudgetBytes(
-      physicalMemoryBytes: _physicalMemoryBytes,
-      largestFullResolutionPixels: pixels,
-    );
+    final budget = imageCacheBudgetBytes(largestFullResolutionPixels: pixels);
     final cache = PaintingBinding.instance.imageCache;
     if (budget <= cache.maximumSizeBytes) return;
     cache.maximumSizeBytes = budget;
@@ -238,7 +202,6 @@ abstract final class ImageCacheBudget {
   @visibleForTesting
   static void debugReset() {
     _configured = false;
-    _physicalMemoryBytes = null;
     _largestFullResolutionPixels = kReferenceFullResolutionPixels;
     debugLastObserved = null;
   }

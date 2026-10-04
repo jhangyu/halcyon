@@ -39,33 +39,15 @@ void main() {
   );
 
   testWidgets(
-    'TC-320: configureImageCache applies the machine-memory SAFETY CEILING '
-    'downward only',
+    'TC-320: configureImageCache is idempotent and machine-independent '
+    '(no memory ceiling, INV-4)',
     (tester) async {
-      configureImageCache(physicalMemoryBytes: 1536 * 1024 * 1024);
-      expect(
-        PaintingBinding.instance.imageCache.maximumSizeBytes,
-        402653184,
-        reason:
-            'THE CEILING BINDS AGAIN: 1.5 GiB / 4 = 402,653,184 B is BELOW '
-            'the 423 MiB working-set budget of the 4-slot band (AD-072), so '
-            'this small machine is clamped to 384 MiB',
-      );
-
-      configureImageCache(physicalMemoryBytes: 64 * 1024 * 1024 * 1024);
-      expect(
-        PaintingBinding.instance.imageCache.maximumSizeBytes,
-        443547648,
-        reason:
-            'a large machine gets the SAME working-set budget: the ceiling '
-            'never raises it, and surplus RAM is left to the OS file cache',
-      );
-
+      configureImageCache();
       configureImageCache();
       expect(
         PaintingBinding.instance.imageCache.maximumSizeBytes,
         443547648,
-        reason: 'no reading means no ceiling applies at all',
+        reason: 'every machine gets the 423 MiB band budget',
       );
     },
   );

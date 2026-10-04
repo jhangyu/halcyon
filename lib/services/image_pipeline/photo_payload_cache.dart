@@ -255,8 +255,8 @@ class PhotoPayloadCache {
 ///
 /// The one definition of the window, so "cache retention is the same for every
 /// file type" is not something three call sites have to agree about. The
-/// tier-2 decode window uses a different (symmetric) radius from the tier-1
-/// retention window, which is why [before] and [after] are parameters rather
+/// tier-2 decode window (band -1..+2) uses a different radius from the
+/// payload retention window, which is why [before] and [after] are parameters rather
 /// than always the constants.
 Set<String> retentionWindowIds<T>(
   List<T> items,

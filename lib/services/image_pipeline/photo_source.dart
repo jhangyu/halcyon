@@ -784,7 +784,7 @@ class PhotoSource {
     // re-encode still happens HERE, before the outcome exists, so the payload
     // the controller writes to the cache is already final: publishing a
     // PixelPayload and swapping it later would change payload object identity
-    // and orphan the tier-1 ImageCache key and the tier-2 registry entry keyed
+    // and orphan the ImageCache key and the tier-2 registry entry keyed
     // on it. WP1 changes only WHEN the fallback CANDIDATE is built, never when
     // a payload is published.
     return outcomeWith(

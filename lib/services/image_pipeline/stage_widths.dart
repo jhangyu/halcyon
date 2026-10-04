@@ -4,8 +4,8 @@
 /// Exists so "two stages disagree about how wide the pipeline is" is
 /// unrepresentable: there is one input, one derivation, and one push
 /// (`ImagePreloadController._applyStageWidths`). Throttles are NOT pools and
-/// are deliberately absent here (binding user ruling 2026-09-06): tier-1 /
-/// tier-2 publication pacing bounds work per FRAME, not work in flight, and
+/// are deliberately absent here (binding user ruling 2026-09-06): full-size
+/// publication pacing bounds work per FRAME, not work in flight, and
 /// folding it into a width would make one number mean two things.
 class StageWidths {
   const StageWidths({

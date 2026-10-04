@@ -94,7 +94,7 @@ class PayloadClaimRegistry {
       existing == null,
       'DOUBLE HOLD: $id is already claimed by ${existing.owner}; '
       '$owner tried to acquire it. Two producers for one id means a duplicate '
-      'decode and an orphaned tier-1 ImageCache key.',
+      'decode and an orphaned ImageCache key.',
     );
     if (owner == PayloadClaimOwner.producer && _awaitingLane.contains(id)) {
       // Reachable and TOLERATED today: the claim is dropped at the lane

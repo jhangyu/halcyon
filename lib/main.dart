@@ -16,14 +16,14 @@ import 'views/main_screen.dart';
 
 // ImageCache budget: derived below (S3.1), not Flutter's 100MB default.
 
-void configureImageCache({int? physicalMemoryBytes}) {
-  // The budget is derived from the DECODED-PIXEL working set of the +/-1
+void configureImageCache() {
+  // The budget is derived from the DECODED-PIXEL working set of the -1..+2
   // band, sized for the largest full-resolution image seen so far and grown
   // as larger ones arrive (ImageCacheBudget, memory-reclamation campaign
-  // M2.2). Machine memory is only a downward safety ceiling. Surplus memory is
-  // deliberately left to the operating system file cache. Full derivation:
+  // M2.2). Machine memory plays no part. Surplus memory is deliberately left
+  // to the operating system file cache. Full derivation:
   // lib/services/image_pipeline/cache_budget.dart.
-  ImageCacheBudget.configure(physicalMemoryBytes: physicalMemoryBytes);
+  ImageCacheBudget.configure();
 }
 
 Future<void> main() async {
@@ -54,7 +54,7 @@ Future<void> main() async {
   final retention = retentionPolicyFor(
     physicalMemoryBytes: physicalMemoryBytes,
   );
-  configureImageCache(physicalMemoryBytes: physicalMemoryBytes);
+  configureImageCache();
   // D3 (docs/logs/2026-09-04/occupancy-attribution-contract.md): round-2
   // found the original build.stamp (in PerfLog.init) samples
   // imageCache.maximumSizeBytes BEFORE this call runs, so it always reads

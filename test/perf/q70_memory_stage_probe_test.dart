@@ -110,8 +110,7 @@ void main() {
     final native =
         DynamicLibrary.open('$_nativeDir/libdng_decoder_native.dylib');
     final cache = PaintingBinding.instance.imageCache;
-    cache.maximumSizeBytes =
-        imageCacheBudgetBytes(physicalMemoryBytes: _physicalMemoryBytes);
+    cache.maximumSizeBytes = imageCacheBudgetBytes();
     final pool = CeyxNativeBufferPool.shared;
 
     var decodes = 0, encodes = 0, encInflight = 0;

@@ -139,7 +139,7 @@ class _PhotoViewportState extends State<PhotoViewport>
   // PERF-INSTRUMENTATION: measures provider resolve (bytes-in-cache ->
   // decoded -> painted), tagged with which tier actually resolved. Keyed by
   // "id:tier" (not just id) so a later tier-2 upgrade for the SAME id
-  // WITHIN THE SAME switch (after an earlier tier-1 resolve) is logged as
+  // WITHIN THE SAME switch (after an earlier interim resolve) is logged as
   // its own event, matching the round-2 parser's tier2-UPGRADE classification.
   //
   // Scope: _perfTrackedKeys must be cleared per SWITCH (per new selection),

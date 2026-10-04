@@ -10,6 +10,7 @@
 // (Group names are the former file stems with underscores as spaces.)
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -212,31 +213,40 @@ void main() {
   });
 
   group('cache budget', () {
-    const gib = 1 << 30;
+    // TC-1182 (S3.1, 2026-09-11; re-derived under spec v2 the same day;
+    // machine-memory ceiling and floor removed 2026-10-04, INV-4): the budget
+    // is WORKING-SET derived and takes no machine-memory input, so every
+    // machine gets the 423 MiB band budget.
+    test('TC-1182: budget is the band working set, no machine-memory input',
+        () {
+      expect(imageCacheBudgetBytes(), 443547648); // 423 MiB
+    });
 
-    // TC-1182 (S3.1, 2026-09-11; re-derived under spec v2 the same day):
-    // the budget is WORKING-SET derived. Machine memory is a downward
-    // safety ceiling only, so the same band yields the same budget on a
-    // 4 GiB and a 64 GiB machine.
-    test('TC-1182: budget is working-set derived, not RAM-proportional', () {
-      const bandBudget = 443547648; // 423 MiB
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: null), bandBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 4 * gib), bandBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 64 * gib), bandBudget);
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 256 * gib), bandBudget,
-          reason: 'surplus RAM is left to the OS file cache, not claimed');
-      // THE CEILING BINDS AGAIN (2026-10-04, AD-072). 1.5 GiB / 4 =
-      // 402,653,184 B is BELOW the 4-slot band's derived 443,547,648 B, so a
-      // 1.5 GiB machine is clamped to 384 MiB. Not a literal refresh: the
-      // ceiling re-engaged, which a bare literal update would hide.
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 1536 << 20),
-          384 << 20,
-          reason: '1.5 GiB / 4 = 402,653,184 B is BELOW the 423 MiB '
-              'working-set budget, so the safety ceiling binds');
-      expect(imageCacheBudgetBytes(physicalMemoryBytes: 512 << 20),
-          kImageCacheFloorBytes,
-          reason: '512 MiB / 4 = 134,217,728 B still binds, and is then '
-              'raised to the M5 guarantee floor');
+    // TC-1482b: source-level pin (no injection point exists without adding
+    // production plumbing): a RAM ceiling re-introduced anywhere in
+    // cache_budget.dart, including ImageCacheBudget.configure(), needs a
+    // memory reading, so the file must never mention one.
+    test('TC-1482b: cache_budget.dart never references physical memory', () {
+      final src = File('lib/services/image_pipeline/cache_budget.dart')
+          .readAsStringSync();
+      expect(src.contains(RegExp('physicalMemory', caseSensitive: false)),
+          isFalse);
+      // A renamed or aliased reading would dodge the name check, but not the
+      // import: the device-RAM reading lives in `package:ceyx`
+      // (`ceyxPhysicalMemoryBytes`, see lib/main.dart) and the platform
+      // memory module is memory_pressure_monitor.dart.
+      expect(src, isNot(contains('package:ceyx')));
+      expect(src, isNot(contains('memory_pressure_monitor')));
+    });
+
+    // TC-1482 (P-4, 2026-10-04): the budget is never below what the
+    // -1..+2 band needs, so a back-navigation never re-decodes an evicted
+    // neighbour (the old RAM/4 ceiling gave 384 MiB at 1.5 GiB, 256 MiB at 1).
+    test('TC-1482: budget >= band need with headroom', () {
+      const need = kFullResolutionBandSlotCount * kFullResolutionImageByteCost +
+          kSidebarThumbnailPoolByteCost;
+      expect(imageCacheBudgetBytes(),
+          greaterThanOrEqualTo((need * kImageCacheSafetyFactor).ceil()));
     });
 
     // TC-1183: the derivation formula itself, pinned input-by-input so a

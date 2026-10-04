@@ -43,21 +43,10 @@ void main() {
         reason: 'never sized below the 24 MP reference item');
   });
 
-  test('TC-1445 machine memory stays a downward ceiling only', () {
-    const pixels = 9520 * 6336;
-    expect(
-        imageCacheBudgetBytes(
-            physicalMemoryBytes: 2 << 30, largestFullResolutionPixels: pixels),
-        536870912);
-    expect(
-        imageCacheBudgetBytes(
-            physicalMemoryBytes: 3 << 30, largestFullResolutionPixels: pixels),
-        805306368);
-    expect(
-        imageCacheBudgetBytes(
-            physicalMemoryBytes: 32 << 30, largestFullResolutionPixels: pixels),
-        1112539136,
-        reason: 'the user machine (32 GiB): the ceiling does not bind');
+  test('TC-1445 the 60 MP budget holds the band with no machine-memory input',
+      () {
+    expect(imageCacheBudgetBytes(largestFullResolutionPixels: 9520 * 6336),
+        1112539136);
   });
 
   test('TC-1446 ImageCacheBudget grows monotonically and only once configured',
@@ -69,7 +58,7 @@ void main() {
         reason: 'unconfigured (every unit test): never touches the cache');
     expect(ImageCacheBudget.debugLastObserved, (7752, 5178));
 
-    ImageCacheBudget.configure(physicalMemoryBytes: 32 << 30);
+    ImageCacheBudget.configure();
     expect(cache.maximumSizeBytes, 443547648);
     ImageCacheBudget.observeFullResolution(7752, 5178);
     expect(cache.maximumSizeBytes, 741343232);

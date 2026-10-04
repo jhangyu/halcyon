@@ -90,7 +90,7 @@ jobs:
           repository: jhangyu/ceyx
           ref: f05458d0a73ac03dda8248020f7b49efa54d40c9
           path: ceyx
-          # pinned to pushed ceyx main (M5 merge); release chain repins to the released tag
+          # pinned to ceyx v0.1.34 (f05458d0); bump all three ref sites together (see ci.yml header)
 
       # architecture: the action's own default is runner.arch, so every leg but
       # windows-arm is unchanged. Flutter 3.44.6 ships no windows-arm64 SDK, so

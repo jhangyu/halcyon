@@ -75,7 +75,7 @@ void main() {
               (rgba, {required width, required height, required quality}) async {
                 encodeCalls++;
                 if (encodeCalls == 1) throw StateError('inline encode refused');
-                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                return Uint8List.fromList(tinyJpegBytes);
               },
         );
         addTearDown(controller.dispose);
@@ -119,7 +119,7 @@ void main() {
                 encodedSizes.add('${width}x$height');
                 if (encodeCalls == 1) throw StateError('inline encode refused');
                 expect(quality, kReencodeJpegQuality);
-                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                return Uint8List.fromList(tinyJpegBytes);
               },
         );
         addTearDown(controller.dispose);
@@ -168,7 +168,7 @@ void main() {
                 encodeCalls++;
                 if (encodeCalls == 1) throw StateError('inline encode refused');
                 await releaseDeferredEncode.future;
-                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                return Uint8List.fromList(tinyJpegBytes);
               },
         );
         addTearDown(controller.dispose);
@@ -259,7 +259,7 @@ void main() {
           required int width,
           required int height,
           required int quality,
-        }) async => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+        }) async => Uint8List.fromList(tinyJpegBytes);
 
         await check('no decoder', decoder: null, encoder: goodEncoder);
         await check(
@@ -296,7 +296,7 @@ void main() {
               (rgba, {required width, required height, required quality}) async {
                 encodeCalls++;
                 if (encodeCalls == 1) throw StateError('inline encode refused');
-                return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                return Uint8List.fromList(tinyJpegBytes);
               },
         );
         addTearDown(controller.dispose);
@@ -336,7 +336,7 @@ void main() {
           deferredEncodeDecoder: () => _decode60x40,
           payloadEncoder:
               (rgba, {required width, required height, required quality}) async =>
-                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+                  Uint8List.fromList(tinyJpegBytes),
         );
         addTearDown(controller.dispose);
         controller.updateTargetSize(32, 32);
@@ -430,7 +430,7 @@ void main() {
                   // encode succeeds, so the only reason it could fail to
                   // complete is the decoder it is handed.
                   if (encodeCalls == 1) throw StateError('inline encode refused');
-                  return Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+                  return Uint8List.fromList(tinyJpegBytes);
                 },
             // Null in the `false` arm is EXACTLY what omitting the argument
             // gives -- which is what every pre-existing test does.
@@ -503,7 +503,7 @@ void main() {
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>
-                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+                  Uint8List.fromList(tinyJpegBytes),
           exifOrientationFor: (id) => 1,
           currentPayloadFor: (id) => cache[id],
           isRetained: (id) => cache.containsKey(id),
@@ -578,7 +578,7 @@ void main() {
           },
           encoder:
               (rgba, {required width, required height, required quality}) async =>
-                  Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+                  Uint8List.fromList(tinyJpegBytes),
           exifOrientationFor: (id) => 1,
           currentPayloadFor: (id) => cache[id],
           isRetained: (id) => cache.containsKey(id),

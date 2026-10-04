@@ -2974,6 +2974,29 @@ def refresh_macos_pods(layout):
     run_checked("pod", ["install"], layout.halcyon / "macos", "pod install")
 
 
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+              "LaunchServices.framework/Support/lsregister")
+
+
+def unregister_from_launch_services(app_bundle):
+    """Xcode's RegisterWithLaunchServices step registers every built .app, and
+    the record outlives the directory: each scratch clone, gate run and
+    worktree build left one more stale "Halcyon" in Finder's Open With menu.
+    Drop the record right after the build so only the installed app is offered;
+    launching a build output directly re-registers it on demand."""
+    try:
+        result = subprocess.run([LSREGISTER, "-u", os.fspath(app_bundle)],
+                                capture_output=True, text=True, timeout=60,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as exc:
+        warn(f"lsregister -u {app_bundle} could not run ({exc}) - "
+             "it will stay in the Open With menu.")
+        return
+    if result.returncode != 0:
+        warn(f"lsregister -u {app_bundle} failed ({result.returncode}): "
+             f"{result.stderr.strip()} - it will stay in the Open With menu.")
+
+
 def build_flutter(target, layout, mode, args, placed_native):
     phase(f"Phase 2: flutter build {target} ({mode})")
     run_checked("flutter", ["pub", "get"], layout.halcyon, "flutter pub get")
@@ -3011,6 +3034,7 @@ def build_flutter(target, layout, mode, args, placed_native):
         verify_macos_slices(artifact, layout, args)
         verify_macos_heif_rpaths(artifact)
         verify_macos_dependency_closure(artifact)
+        unregister_from_launch_services(artifact)
 
     if target == "windows":
         expect_dll = (layout.decoder / NATIVE_SPECS["windows"]["dest"] /

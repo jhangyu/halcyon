@@ -1870,4 +1870,163 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // v1.0.20: an EncodedPayload whose bytes fail to decode (corrupt embedded
+  // JPEG) falls through to the file-decode fallback ONCE per payload, and a
+  // memoised failure is never re-submitted to the pacer.
+  // -------------------------------------------------------------------------
+  group('corrupt encoded payload falls back to the file decode', () {
+    ({
+      TierTwoScheduler scheduler,
+      TierTwoRegistry registry,
+      List<String> submissions,
+    }) harness(
+      Map<String, SourcePayload> payloads,
+      DngFullDecoder decoder,
+      List<String> stateChanges, {
+      int? orientation = 1,
+    }) {
+      final registry = TierTwoRegistry(
+        currentPayloadFor: (id) => payloads[id],
+        onStateChanged: stateChanges.add,
+      );
+      final submissions = <String>[];
+      final scheduler = TierTwoScheduler(
+        registry: registry,
+        lane: DecodeLane(),
+        currentPayloadFor: (id) => payloads[id],
+        fullSizeProviderFor: (p) => MemoryImage((p as EncodedPayload).bytes),
+        ensurePayload:
+            (item, {required distance, required notifyLoaded, onSerialLane = false}) async {},
+        dngDecoder: () => decoder,
+        exifOrientationFor: (id) => orientation,
+        navigationDebounce: Duration.zero,
+        publishPacer: ({
+          required String id,
+          required int rank,
+          required bool exempt,
+          required bool Function() stillValid,
+          required void Function() publish,
+          void Function()? discard,
+          required int byteCost,
+        }) {
+          submissions.add(id);
+          stillValid() ? publish() : discard?.call();
+        },
+      );
+      return (scheduler: scheduler, registry: registry, submissions: submissions);
+    }
+
+    DecodedRgba tinyRgba() {
+      final rgba = Uint8List(2 * 2 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 0xFF;
+      }
+      return DecodedRgba(rgba: rgba, width: 2, height: 2);
+    }
+
+    test(
+      'TC-1483 a corrupt encoded payload takes exactly one file-decode '
+      'fallback, becomes ready and notifies, and is not re-submitted on '
+      'later settles',
+      () async {
+        final items = photoItems(1, idPrefix: 'c', dir: '/tmp');
+        final payload = EncodedPayload(Uint8List.fromList([1, 2, 3]));
+        final payloads = <String, SourcePayload>{'c0': payload};
+        var decodes = 0;
+        var notified = 0;
+        final stateChanges = <String>[];
+        final h = harness(payloads, (path) async {
+          decodes++;
+          return tinyRgba();
+        }, stateChanges);
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(h.registry.clear);
+
+        h.scheduler.schedule(items, 0, () => notified++);
+        await until(
+          () => h.registry.isReady('c0'),
+          reason: 'the file fallback to publish after the encoded failure',
+        );
+        expect(h.registry.hasEncodedFailure('c0', payload), isTrue);
+        expect(decodes, 1, reason: 'exactly one file-decode fallback');
+        expect(h.scheduler.debugBandEntryFileDecodeCount, 1);
+        expect(notified, greaterThan(0), reason: 'notifyLoaded on landing');
+        expect(stateChanges, contains('c0'), reason: 'onStateChanged on landing');
+        final encodedSubmissions =
+            h.scheduler.debugPayloadDecodePublishCount;
+        final submissions = h.submissions.length;
+
+        // Later settles on the same position: nothing is bought again.
+        for (var i = 0; i < 3; i++) {
+          h.scheduler.schedule(items, 0, () => notified++);
+          await pumpEventLoop(8);
+        }
+        expect(decodes, 1);
+        expect(h.scheduler.debugPayloadDecodePublishCount, encodedSubmissions,
+            reason: 'a memoised encoded failure takes no pacer submission');
+        expect(h.submissions.length, submissions);
+      },
+    );
+
+    test(
+      'TC-1485 the file fallback still runs when the orientation memo is '
+      'empty: it resolves orientation like the loader does (file read, else '
+      'the EXIF default) instead of stranding the item on its thumbnail',
+      () async {
+        // /tmp/c0.jpg does not exist, so the file read finds no tag and the
+        // EXIF default applies -- the same `?? kDefaultExifOrientation` the
+        // loader's raw-decode signal uses.
+        final items = photoItems(1, idPrefix: 'c', dir: '/tmp');
+        final payload = EncodedPayload(Uint8List.fromList([1, 2, 3]));
+        final payloads = <String, SourcePayload>{'c0': payload};
+        var decodes = 0;
+        final h = harness(payloads, (path) async {
+          decodes++;
+          return tinyRgba();
+        }, <String>[], orientation: null);
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(h.registry.clear);
+
+        h.scheduler.schedule(items, 0, () {});
+        await until(
+          () => h.registry.isReady('c0'),
+          reason: 'the fallback to publish without a memoised orientation',
+        );
+        expect(decodes, 1);
+      },
+    );
+
+    test(
+      'TC-1484 when the file fallback fails too, it is tried exactly once per '
+      'payload and no later settle re-buys it or re-submits the payload',
+      () async {
+        final items = photoItems(1, idPrefix: 'c', dir: '/tmp');
+        final payload = EncodedPayload(Uint8List.fromList([1, 2, 3]));
+        final payloads = <String, SourcePayload>{'c0': payload};
+        var decodes = 0;
+        final h = harness(payloads, (path) async {
+          decodes++;
+          throw StateError('unreadable');
+        }, <String>[]);
+        addTearDown(h.scheduler.cancelDebounce);
+        addTearDown(h.registry.clear);
+
+        h.scheduler.schedule(items, 0, () {});
+        await until(
+          () => h.registry.hasFullResFailure('c0', payload),
+          reason: 'the file fallback to run and fail',
+        );
+        final submissions = h.submissions.length;
+        for (var i = 0; i < 3; i++) {
+          h.scheduler.schedule(items, 0, () {});
+          await pumpEventLoop(8);
+        }
+        expect(decodes, 1, reason: 'no fallback loop');
+        expect(h.submissions.length, submissions, reason: 'no pacer loop');
+        expect(h.registry.isReady('c0'), isFalse);
+      },
+    );
+  });
 }

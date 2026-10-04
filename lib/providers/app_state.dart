@@ -574,13 +574,10 @@ class AppState extends ChangeNotifier {
     return _exifCache[id];
   }
 
-  Uint8List? get currentImageBytes =>
-      _preloadController.imageBytesFor(_selectedItemID);
-
   /// Non-null when the current item is one whose source produced PIXELS rather
   /// than an encoded bitstream -- a file with no usable embedded JPEG, decoded
   /// natively and reduced to window resolution. Such items have no preview
-  /// bytes at all ([currentImageBytes] stays null for them), so this provider
+  /// bytes at all, so this provider
   /// is what the view paints, and it must be checked before deciding to show a
   /// spinner.
   RawPixelsImage? get currentDecodedProvider =>

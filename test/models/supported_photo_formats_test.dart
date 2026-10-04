@@ -15,6 +15,18 @@ void main() {
     });
   });
 
+  test('TC-1481 .mrw (Minolta) is not a known extension anywhere (INV-5)', () {
+    expect(SupportedPhotoFormats.decodableExtensions, isNot(contains('.mrw')));
+    expect(
+      SupportedPhotoFormats.browseOnlyRawExtensions,
+      isNot(contains('.mrw')),
+    );
+    expect(SupportedPhotoFormats.rawExtensions, isNot(contains('.mrw')));
+    expect(SupportedPhotoFormats.supportedExtensions, isNot(contains('.mrw')));
+    expect(SupportedPhotoFormats.isSupportedPath('/p/a.mrw'), isFalse);
+    expect(SupportedPhotoFormats.isSupportedPath('/p/a.MRW'), isFalse);
+  });
+
   group('D2 browse-only extensions (.cr2, .iiq)', () {
     test('are NOT in decodableExtensions', () {
       for (final ext in ['.cr2', '.iiq']) {

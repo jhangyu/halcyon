@@ -106,7 +106,7 @@ ImagePreloadController buildController({FrameHook? scheduleFrameCallback}) {
   return ImagePreloadController(
     imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
         // A FRESH bytes object per call, so payload identity is meaningful.
-        NativeImageBytes(Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10])),
+        NativeImageBytes(Uint8List.fromList(tinyPngBytes)),
     scheduleFrameCallback: scheduleFrameCallback,
   );
 }

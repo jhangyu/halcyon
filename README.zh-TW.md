@@ -4,7 +4,7 @@
 
 Halcyon 是一款支援 Windows、macOS、Linux 的 GPU 加速 RAW 照片挑選工具，全鍵盤操作，
 以 JPG 等級的速度挑選、標記、重新命名全解析度 RAW 檔案。
-<!-- evidence: lib/views/main_screen.dart:104-129 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
+<!-- evidence: lib/views/main_screen.dart:139-184 keyboard shortcut handler; lib/services/library/photo_file_actions.dart batch copy/move -->
 
 ![主頁面](docs/images/main_page.webp)
 
@@ -575,26 +575,26 @@ Halcyon 的做法是：只保留你目光附近的照片，依你當下的動作
 顯示每一張，並在你一停下來就悄悄升級成全品質。移動的時候，你永遠不會為「粗重」
 的解碼工作等待。
 
-### 主圖用兩種清晰度顯示
+### 主圖以全解析度解碼
 
-主要預覽分兩趟畫出來，但只針對你目前所在的照片，以及它前後緊鄰的各一張，
-往前一步、往後一步。真正會被解碼成像素的只有這條窄帶；其餘你手上還留著的
-照片（見下文「只留下附近的照片」）則以壓縮過的 JPEG 位元組形式存著，直到你
-走到它旁邊為止。
+主圖一律以全解析度解碼，沒有較低解析度的中間階段。只有一條窄帶內的照片會被
+解碼成像素：你目前所在的那張、往後退一張、往前兩張（瀏覽絕大多數是往前走，
+所以這條帶偏向前方）。其餘你手上還留著的照片（見下文「只留下附近的照片」）
+則以壓縮過的 JPEG 位元組形式存著，直到你走到它旁邊為止。
 
-- **第一層——即時。** 一張照片一進入這條窄帶——包括你剛停到的那張——Halcyon
-  就會以你視窗的解析度顯示它。這一步很快，所以連續按方向鍵瀏覽依然順滑，
-  附近的每張照片都立刻有畫面，不必等停頓。
-- **第二層——全品質。** 如果你在某張照片上停留約四分之一秒，Halcyon 就解碼出
-  全解析度版本並換上去。正因為它要等這個短暫的停頓，掃過上百張照片時，並不會
-  為你只是瞥過的影像同時啟動上百次粗重的全畫面解碼。
+- **進入帶狀範圍——立刻開始解碼。** 一張照片一進入這條窄帶——包括你剛停到的
+  那張——Halcyon 就立刻開始解碼它的全解析度版本。在解碼完成前，畫面會先顯示
+  側邊欄縮圖（或轉圈圖示），所以畫面上永遠有東西可看。
+- **停頓之後——補齊整條帶。** 如果你停下來約四分之一秒，Halcyon 會掃過整條
+  帶，把還缺的全部解碼出來。正因為這次掃描要等這個短暫的停頓，掃過上百張照片
+  時，並不會為你只是瞥過的影像同時啟動上百次粗重的全畫面解碼。
 
 ```mermaid
 flowchart TD
-    A(["停到一張照片"]) --> B["立即顯示視窗解析度預覽<br/>（第一層）"]
+    A(["停到一張照片"]) --> B["全解析度解碼期間<br/>先顯示縮圖或轉圈圖示"]
     B --> C{"你在這裡<br/>停留約四分之一秒了嗎？"}
-    C -- "沒有，還在瀏覽" --> D["維持快速預覽<br/>保持流暢"]
-    C -- "有，你停下來了" --> E["解碼全解析度<br/>並換上去（第二層）"]
+    C -- "沒有，還在瀏覽" --> D["繼續瀏覽<br/>保持流暢"]
+    C -- "有，你停下來了" --> E["以全解析度補齊整條帶<br/>-1..+2"]
     D --> F(["下一張照片"])
     E --> G(["全品質影像顯示在畫面上"])
 
@@ -630,20 +630,20 @@ flowchart TD
 這個視窗裡的所有內容都是壓縮過的 JPEG（照片自己的檔案，或是 RAW 的重新編碼版本），
 保留成本低，但還沒解碼成像素。
 
-**解碼帶**則窄得多，而且不論機器規格一律固定：只有目前選取的照片，以及它前後
-緊鄰的各一張。一張照片一踏進這個「前後各一張」的帶狀範圍，就會立刻把它的壓縮
-JPEG 解碼成像素——速度很快，因為 JPEG 解碼遠比 RAW 解碼便宜——而一旦它退出這個
+**解碼帶**則窄得多，而且不論機器規格一律固定：共四個插槽：
+目前選取的照片、它後面一張、它前面兩張。一張照片一踏進這個帶狀範圍，就會把它
+的壓縮 JPEG 解碼成全解析度像素——速度很快，因為 JPEG 解碼遠比 RAW 解碼便宜——而一旦它退出這個
 帶狀範圍，就只會丟掉解碼後的副本，繼續保留壓縮版本。這正是讓記憶體帳單維持平坦
 的關鍵：app 的規模是依照它實際要畫出像素的少數幾張照片來設計的，而不是依照它為
 了避免重新從磁碟讀檔而多留在手邊的、大得多的那個數字。
 
 當保留視窗的預算被用完時，會先釋放離你目前位置最遠的照片，因此你正在看的那張
 永遠是最後才會被丟的，但「最遠」的判斷範圍會比解碼帶本身再寬一點（後面一張、
-前面三張），所以緊貼在解碼帶外的幾張照片，仍會被視為「還算接近」而受到保護，
+前面三張），所以緊貼在解碼帶外的那一張照片，仍會被視為「還算接近」而受到保護，
 一併免於過早被淘汰。
 
 如果 macOS 或 Windows 回報整個系統記憶體吃緊，Halcyon 不會等到自己的預算被用完
-才反應，而是立刻行動：把手上保留的壓縮照片數量砍半，並丟掉那個即時帶狀範圍以外
+才反應，而是立刻行動：把手上保留的壓縮照片數量砍半，並丟掉解碼帶以外
 的任何已解碼全解析度影格，等壓力解除後再恢復正常預算。
 
 ### 摘要
@@ -652,7 +652,7 @@ JPEG 解碼成像素——速度很快，因為 JPEG 解碼遠比 RAW 解碼便�
 |---|---|---|---|
 | 側邊欄縮圖 | 膠捲用的小張縮圖 | 畫面上的列，加上上下各一段邊界 | 每次更新都修剪成目前實際所需 |
 | 主圖，保留視窗 | 你正在看的那張附近照片的壓縮 JPEG 位元組 | 一個會移動的視窗，大小依機器記憶體而定（後面 3 張／前面 5–11 張） | 超出預算時先釋放離選取位置最遠的照片 |
-| 主圖，已解碼像素 | 實際正顯示在畫面上的視窗解析度與全解析度影像 | 只有目前選取的照片，以及它前後緊鄰的各一張 | 一旦照片離開那個即時帶狀範圍，或系統記憶體吃緊時立即丟棄 |
+| 主圖，已解碼像素 | 實際正顯示在畫面上的全解析度影像 | 只有目前選取的照片、後面一張與前面兩張（共 4 個插槽） | 一旦照片離開這條帶狀範圍，或系統記憶體吃緊時立即丟棄 |
 
 ---
 
@@ -664,7 +664,7 @@ Halcyon 是一個嚴格單向分層的應用程式——`views/` → `providers/
 
 `views/` 負責建構 UI，只持有 view 本地狀態（鍵盤快捷鍵、縮放變換、對話框骨架），透過 `provider` 套件讀取 `AppState` 並呼叫其方法，完全不知道照片是怎麼被掃描、解碼或刪除的。由動畫驅動的 view 本地狀態（縮放、指標位置）放在 view 持有的 controller（例如 `lib/views/zoom_controller.dart` 的 `ZoomController extends ChangeNotifier`，由 `MainScreen` 持有並負責釋放），而不是放進 `AppState`；`AppState` 只保存代表相簿模型的狀態。
 
-`providers/app_state.dart` 定義了 `AppState extends ChangeNotifier`（`lib/providers/app_state.dart:61`），是應用程式邏輯的唯一協調點：資料夾載入、選取、星標/垃圾桶標記、設定，以及派送到服務層。它靠建構子注入取得協作者，而非寫死成欄位：
+`providers/app_state.dart` 定義了 `AppState extends ChangeNotifier`（`lib/providers/app_state.dart:49`），是應用程式邏輯的唯一協調點：資料夾載入、選取、星標/垃圾桶標記、設定，以及派送到服務層。它靠建構子注入取得協作者，而非寫死成欄位：
 
 ```dart
 AppState({
@@ -687,14 +687,14 @@ AppState({
 
 | 資料夾 | 負責範圍 |
 |---|---|
-| `image_pipeline/` | 第一層/第二層滑動視窗預載、DNG 解碼整合、影像快取記帳 |
+| `image_pipeline/` | 全解析度滑動帶狀預載、DNG 解碼整合、影像快取記帳 |
 | `library/` | 資料夾掃描、狀態持久化、檔案複製/搬移/丟垃圾桶、星標照片匯出 |
 | `rename/` | EXIF 驅動的重新命名規劃、EXIF 中繼資料讀取、重新命名協調器 |
 | `platform/` | 兩個 macOS `MethodChannel` 橋接 |
 
 ### 縫與不變量
 
-以下是影像管線中承重的限制條件；隨意更動會打破本 README 其他地方描述的第一層/第二層契約。
+以下是影像管線中承重的限制條件；隨意更動會打破本 README 其他地方描述的全解析度帶狀契約。
 
 **Ceyx 整合縫。** DNG 全尺寸解碼（針對沒有可用內嵌預覽圖的 DNG）委派給姊妹專案 Ceyx，靠的是一個 typedef，而非具體類別：
 
@@ -706,12 +706,12 @@ typedef DngFullDecoder = Future<DecodedRgba> Function(String path);
 
 與其搭配的 `image_source_types.dart` 宣告了一個恰好三個變體的 sealed class，描述任何影像位元組請求的結果：`NativeImageBytes`（已編碼位元組，正常路徑）、`NativeImageNeedsRawDecode`（無內嵌預覽圖的 DNG，需要跑真正的 RAW 解碼器）、`NativeImageFailure`（真正的失敗）。這個集合凍結在三個變體。
 
-**影像載入在每個平台上都是純 Dart。** `dartImageLoad`（`lib/services/image_pipeline/dart_image_loader.dart:17`）是影像位元組的唯一產生來源；沒有任何平台存在原生縮圖通道。照片相關行為——哪些檔案會被載入、畫面上出現什麼像素、刪除做了什麼、匯出產出什麼——只在 Dart 中實作一次，並在每個支援平台產生相同結果，只有三個封閉的原生橋接例外：系統垃圾桶（macOS/Windows 原生）、Open With 傳輸層（macOS/Windows/Android/iOS，不含 Linux）、檔案關聯註冊（Windows/macOS）。
+**影像載入在每個平台上都是純 Dart。** `dartImageLoad`（`lib/services/image_pipeline/dart_image_loader.dart:119`）是影像位元組的唯一產生來源；沒有任何平台存在原生縮圖通道。照片相關行為——哪些檔案會被載入、畫面上出現什麼像素、刪除做了什麼、匯出產出什麼——只在 Dart 中實作一次，並在每個支援平台產生相同結果，只有三個封閉的原生橋接例外：系統垃圾桶（macOS/Windows 原生）、Open With 傳輸層（macOS/Windows/Android/iOS，不含 Linux）、檔案關聯註冊（Windows/macOS）。
 
 **單一持有者不變量。** 兩個類別各自持有恰好一份第二層狀態，讓不變量能在單一位置推理與測試，不至於散落到各個呼叫點：
 
-- `TierTwoRegistry`（`lib/services/image_pipeline/tier_two_registry.dart:26`）是第二層*就緒狀態*記帳的唯一持有者：哪些 id 有全尺寸快取項目、它是針對哪個 payload 物件解碼的，以及該次解碼是否已失敗。
-- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:115`）是第二層*排程*的唯一持有者：±1 全解析度解碼帶（`kFullResolutionBandRadius`，`prefetch_scheduler.dart:23`）、250ms 導覽 debounce，以及序列化的解碼佇列。
+- `TierTwoRegistry`（`lib/services/image_pipeline/tier_two_registry.dart:28`）是第二層*就緒狀態*記帳的唯一持有者：哪些 id 有全尺寸快取項目、它是針對哪個 payload 物件解碼的，以及該次解碼是否已失敗。
+- `TierTwoScheduler`（`lib/services/image_pipeline/tier_two_scheduler.dart:116`）是第二層*排程*的唯一持有者：-1..+2 全解析度解碼帶（`kFullResolutionBandBefore` / `kFullResolutionBandAfter`，`prefetch_scheduler.dart:21,25`）、250ms 導覽 debounce，以及序列化的解碼佇列。
 
 **原生橋接。** `macos/Runner/AppDelegate.swift` 恰好註冊兩個 `MethodChannel`：
 
@@ -735,7 +735,7 @@ Halcyon/
 │   ├── providers/
 │   │   └── app_state.dart     # AppState: the single coordination point
 │   ├── services/
-│   │   ├── image_pipeline/    # tier-1/tier-2 preload, DNG decode, cache bookkeeping
+│   │   ├── image_pipeline/    # full-res band preload, DNG decode, cache bookkeeping
 │   │   ├── library/           # folder scan, status persistence, file ops, export
 │   │   ├── rename/            # EXIF-driven rename planning + coordinator
 │   │   └── platform/          # the two macOS MethodChannel bridges
@@ -870,22 +870,22 @@ flowchart TD
 
 **證據：**
 - `AppState` 透過建構子注入組合它的協作物件 —
-  `lib/providers/app_state.dart:61-104`。
+  `lib/providers/app_state.dart:66-126`。
 - `ImagePreloadController` 相依於 `PhotoSource`，這是唯一具備型別知識的層 —
-  `lib/services/image_pipeline/photo_source.dart:82-93`。
+  `lib/services/image_pipeline/photo_source.dart:225`。
 - `DngFullDecoder`／`DngSizedDecoder` 是管線與原生解碼器之間凍結的整合接縫 —
-  `lib/services/image_pipeline/dng_decode_contract.dart:30,39`。
+  `lib/services/image_pipeline/dng_decode_contract.dart:135,151`。
 - 實作這個接縫的 Ceyx 轉接器匯入 `package:ceyx/ceyx.dart` —
-  `lib/services/image_pipeline/dng_decode_service.dart:1,12-14`。
+  `lib/services/image_pipeline/dng_decode_service.dart:1,43`。
 - `PhotoExportService` 也接受一個可選的 `DngFullDecoder`，用於自己的 RAW 匯出路徑 —
-  `lib/services/library/photo_export_service.dart:38-39`。
+  `lib/services/library/photo_export_service.dart:184,232`。
 - `PhotoFileActions` 預設使用 `TrashService.trashFile` —
-  `lib/services/library/photo_file_actions.dart:40`。
+  `lib/services/library/photo_file_actions.dart:71`。
 - `AppDelegate.swift` 恰好註冊兩個 channel，`halcyon/trash` 與
-  `halcyon/open_with` — `macos/Runner/AppDelegate.swift:23,42`。
+  `halcyon/open_with` — `macos/Runner/AppDelegate.swift:44,69`。
 - `RenameCoordinator` 由 `AppState` 建構，`readMetadata:
   readMetadataFor` 接到 `ExifMetadataService.readBatch` —
-  `lib/providers/app_state.dart:71-102`。
+  `lib/providers/app_state.dart:193-198`。
 
 ---
 
@@ -943,66 +943,64 @@ flowchart TD
   Bytes --> PayloadCache
   PixelPayloadNode --> PayloadCache
 
-  TierOne["Tier-1 decode<br/>tierOneProviderFor()<br/>ResizeImage @ window resolution,<br/>only for the +/-1 band"]:::service
-  PayloadCache --> TierOne
-
   Debounce{"250ms navigation-quiet<br/>debounce elapsed?<br/>(band entrants decode immediately)"}
   class Debounce decision
   PayloadCache --> Debounce
 
-  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -1..+1 window"]:::service
+  TierTwo["Tier-2 decode<br/>fullSizeProviderFor() / RawFullResImage<br/>full-size, -1..+2 band"]:::service
   Debounce -->|yes, TierTwoScheduler.schedule| TierTwo
 
-  ImageCacheNode[["Flutter ImageCache<br/>(tier-1 + tier-2 keys,<br/>separate namespaces)"]]:::cache
-  TierOne --> ImageCacheNode
+  ImageCacheNode[["Flutter ImageCache<br/>(full-size keys only)"]]:::cache
   TierTwo --> ImageCacheNode
 
   ThumbCache[["_thumbCache<br/>sidebar thumbnail bytes"]]:::cache
   Ensure -.->|separate sweep,<br/>deriveThumbnailPayload (200px, no loader call)| ThumbCache
 
-  Render(["MainDetailView paints<br/>AppState.displayProvider<br/>(tier-2 if ready, else tier-1)"]):::render
+  Render(["MainDetailView paints<br/>AppState.displayProvider<br/>(full-size if ready, else decoded payload,<br/>else sidebar thumbnail)"]):::render
   ImageCacheNode --> Render
 ```
 
-**圖說：** 掃描階段會把 RAW／JPG 的同名檔案併成一個 `PhotoItem`。選取某個項目時，會先做一次有邊界的內容探測，據此把檔案分成「便宜」或「耗資源」再決定怎麼解碼：便宜的檔案（JPEG，或內嵌預覽圖已經夠大的 DNG）完全不經過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界交給 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個結果都會以壓縮位元組形式落進同一個有位元組預算上限的保留快取；只有目前選取的項目，以及它前後緊鄰的各一張（即「前後各一張」帶狀範圍），才會額外解碼成像素：一進入這個帶狀範圍就立刻解碼出視窗解析度（第一階），等導覽靜止 250 毫秒後，再升級到完整解析度（第二階）。
+**圖說：** 掃描階段會把 RAW／JPG 的同名檔案併成一個 `PhotoItem`。選取某個項目時，會先做一次有邊界的內容探測，據此把檔案分成「便宜」或「耗資源」再決定怎麼解碼：便宜的檔案（JPEG，或內嵌預覽圖已經夠大的 DNG）完全不經過原生解碼器；沒有可用預覽圖的 DNG，則跨越邊界交給 Ceyx 在 worker isolate 上執行的 GPU 解碼器。每個結果都會以壓縮位元組形式落進同一個有位元組預算上限的保留快取；只有目前選取的項目、它後面一張與前面兩張（即 -1..+2 帶狀範圍，共 4 個插槽），才會額外解碼成像素，而且只解碼全解析度：一進入這個帶狀範圍就立刻開始解碼，等導覽靜止 250 毫秒後，再掃過整條帶補齊尚缺的部分。
 
 **證據：**
 - 依 `basenameWithoutExtension` 分組同名檔案 —
-  `lib/services/library/photo_library_scanner.dart:14-19`，id 定義於
-  `lib/models/supported_photo_formats.dart:44`。
+  `lib/services/library/photo_library_scanner.dart:25-58`，id 定義於
+  `lib/models/supported_photo_formats.dart:126-127`。
 - 先探測再分類的內容判斷邏輯，以及它同時輸出成本與方向的設計
-  — `lib/services/image_pipeline/photo_source.dart:274-317`。
+  — `lib/services/image_pipeline/photo_source.dart:977-1013`。
 - 三分支的 `NativeImageResult` 路由（位元組／需要 RAW 解碼／
-  失敗）— `lib/services/image_pipeline/image_source_types.dart:52-118`，以及
-  據此執行動作的 switch — `lib/services/image_pipeline/photo_source.dart:116-201`。
-- 跨越到 Ceyx 的邊界 — `lib/services/image_pipeline/dng_decode_service.dart:12-14`。
-- 第一階／第二階的 provider 工廠函式，以及物件身分／快取鍵必須一致的要求 —
+  失敗）— `lib/services/image_pipeline/image_source_types.dart:42-108`，以及
+  據此執行動作的 switch — `lib/services/image_pipeline/photo_source.dart:361,384,573`。
+- 跨越到 Ceyx 的邊界 — `lib/services/image_pipeline/dng_decode_service.dart:43`。
+- 全尺寸 provider 工廠函式（`fullSizeProviderFor`），以及物件身分／快取鍵必須一致的要求 —
   `lib/services/image_pipeline/image_preload_controller.dart:28-49`。
-- 250 毫秒導覽防抖動常數，以及一張照片新進入「前後各一張」帶狀範圍時的立即
+- 250 毫秒導覽防抖動常數，以及一張照片新進入 -1..+2 帶狀範圍時的立即
   （不受 debounce 影響）解碼路徑 —
-  `lib/services/image_pipeline/image_preload_controller.dart:115`（常數本身）與
-  `lib/services/image_pipeline/tier_two_scheduler.dart:412-427,449-505`。
-- 「前後各一張」全解析度帶狀範圍的半徑 —
-  `lib/services/image_pipeline/prefetch_scheduler.dart:23`。
+  `lib/services/image_pipeline/image_preload_controller.dart:50`（常數本身）與
+  `lib/services/image_pipeline/tier_two_scheduler.dart:432-560`。
+- -1..+2 全解析度帶狀範圍（`kFullResolutionBandBefore` = 1、
+  `kFullResolutionBandAfter` = 2）—
+  `lib/services/image_pipeline/prefetch_scheduler.dart:21,25`。
 - 保留視窗（下限 -3..+5，記憶體較多的等級會更寬）與距離優先淘汰策略
   （離選取位置最遠者先被淘汰）—
-  `lib/services/image_pipeline/photo_payload_cache.dart:6-10,99-108,226-251`，
+  `lib/services/image_pipeline/photo_payload_cache.dart:6-10,99-124,206-219`，
   等級對照表見 `lib/services/image_pipeline/retention_policy.dart:73,99-116`。
 - 淘汰時判斷「多遠算遠」用的是與上述解碼帶不同的第三個獨立帶狀範圍
-  （後方 -1..前方 +3），刻意凍結在 2026-08-30 前的解碼帶數值，
-  這樣縮窄解碼帶時不會連帶縮窄「哪些鄰近 id 受保護、不會提早被淘汰」的範圍 —
-  `lib/services/image_pipeline/prefetch_scheduler.dart:25-39`，
-  排序邏輯見 `lib/services/image_pipeline/image_preload_controller.dart:1784-1797`。
-- 「前後各一張」帶狀範圍以外保留的插槽只存壓縮後的 payload，不含任何已解碼
-  像素（視窗解析度保留已被廢除）—
-  `lib/services/image_pipeline/prefetch_scheduler.dart:41-52`。
-- 影像快取自身的已解碼像素預算，是依「前後各一張」帶狀範圍的實際工作集推導，
+  （後方 -1..前方 +3），刻意凍結在較早的解碼帶數值，
+  這樣更動解碼帶時不會連帶改變「哪些鄰近 id 受保護、不會提早被淘汰」的範圍 —
+  `lib/services/image_pipeline/prefetch_scheduler.dart:27-41`，
+  排序邏輯見 `lib/services/image_pipeline/image_preload_controller.dart:1708-1743`。
+- -1..+2 帶狀範圍以外保留的插槽只存壓縮後的 payload，不含任何已解碼
+  像素（已沒有視窗解析度解碼層）—
+  `lib/services/image_pipeline/prefetch_scheduler.dart:3-19`。
+- 影像快取自身的已解碼像素預算，是依帶狀範圍四個全解析度插槽的工作集推導（423 MiB），
   而非機器記憶體的固定百分比 —
-  `lib/services/image_pipeline/cache_budget.dart:130-178`。
+  `lib/services/image_pipeline/cache_budget.dart:105-106,118,127-159,172-208`。
 - 側欄縮圖使用與詳細檢視路徑各自獨立的快取／未命中集合 —
-  `lib/services/image_pipeline/image_preload_controller.dart:91,173`。
-- `displayProvider` 在第二階就緒時選用第二階，否則使用第一階 —
-  `lib/providers/app_state.dart:214-215`。
+  `lib/services/image_pipeline/image_preload_controller.dart:1265-1266`。
+- `displayProvider` 在全尺寸 provider 就緒時選用它，否則使用已解碼的 payload，
+  再不行就由檢視改顯示側邊欄縮圖 —
+  `lib/providers/app_state.dart:604-605`。
 
 ---
 
@@ -1059,23 +1057,23 @@ flowchart TD
 
 **證據：**
 - `markCurrent` 切換狀態並呼叫 `_saveStatusCache` —
-  `lib/providers/app_state.dart:367-392`。
-- 原子式暫存檔＋重新命名寫入 — `lib/services/library/photo_status_store.dart:68-76,132-148`。
+  `lib/providers/app_state.dart:795-809`。
+- 原子式暫存檔＋重新命名寫入 — `lib/services/library/photo_status_store.dart:101-116`。
 - `processStarred` 篩選 `item.status != PhotoStatus.starred`，並複製或
-  重新命名每個檔案 — `lib/services/library/photo_file_actions.dart:50-87`。
+  重新命名每個檔案 — `lib/services/library/photo_file_actions.dart:81-118`。
 - `deleteTrashed` 依 `recycleMode` 在 `TrashService.trashFile`
   與 `recycleTrashed` 的同磁碟區重新命名（搬進 `.trash/`）之間擇一 —
-  `lib/providers/app_state.dart:498-538`，
-  `lib/services/library/photo_file_actions.dart:89-155`。
+  `lib/providers/app_state.dart:1074-1088`，
+  `lib/services/library/photo_file_actions.dart:120-198`。
 - `TrashService.trashFile` 是 `PhotoFileActions` 的預設實作，也是
   系統垃圾桶橋接，於 macOS 與 Windows 註冊 —
-  `lib/services/library/photo_file_actions.dart:40`，
-  channel 註冊於 `macos/Runner/AppDelegate.swift:23`。
+  `lib/services/library/photo_file_actions.dart:71`，
+  channel 註冊於 `macos/Runner/AppDelegate.swift:44`。
 - `exportStarred` 的解碼／縮放／編碼路徑 —
-  `lib/services/library/photo_export_service.dart:53-142`。
+  `lib/services/library/photo_export_service.dart:230-345`。
 - 批次動作事後會重新載入資料夾，進而重新套用已儲存的狀態
-  — `lib/providers/app_state.dart:467-474,524-530`，重新套用邏輯位於
-  `lib/services/library/photo_status_store.dart:93-130`。
+  — `lib/providers/app_state.dart:1048,1085`，重新套用邏輯位於
+  `lib/services/library/photo_status_store.dart:138-175`。
 
 ---
 
@@ -1142,7 +1140,7 @@ Silicon 上，真正卡住下限的是隨附 OpenMP runtime 要求的 macOS 15�
 
 <!-- evidence: pubspec.yaml:22 (sdk constraint), flutter --version output 2026-08-26 -->
 <!-- evidence: pubspec.yaml:46-47 (ceyx path dependency) -->
-<!-- evidence: scripts/build_apps.py:271-274 (JDK search order), scripts/build_apps.py:708 (PATH fallback warning) -->
+<!-- evidence: scripts/build_apps.py:123-126 (JDK search order), scripts/build_apps.py:683 (PATH fallback warning) -->
 <!-- evidence: android/gradle/wrapper/gradle-wrapper.properties:5, android/settings.gradle.kts:22-23 -->
 
 **Ceyx 必須簽出在相鄰目錄，這不是可有可無的。** `pubspec.yaml` 把解碼器宣告成指向 `../ceyx/plugin` 的相對路徑相依套件，只要該目錄不存在，`flutter pub get` 就會直接失敗。請把 Ceyx 複製到 Halcyon 隔壁，而不是放進 Halcyon 裡面。
@@ -1162,7 +1160,7 @@ always` 則改成從原始碼編譯。如果某個平台的釘定項目沒有替
 `python3 scripts/build_apps.py --ceyx-release latest`：它會解析最新的 tag 並重寫
 釘定檔裡的雜湊值，然後在建置前就停下來，讓這份 diff 可以先被審閱再提交。
 
-<!-- evidence: scripts/build_apps.py:1642-1695 (fetch-due decision, checksum-mismatch re-fetch, degrade branches), scripts/build_apps.py:1884-1929 (--ceyx-release latest), scripts/ceyx_release_pin.json -->
+<!-- evidence: scripts/build_apps.py:1661-1756 (fetch-due decision, checksum-mismatch re-fetch, degrade branches), scripts/build_apps.py:2025-2231 (--ceyx-release latest), scripts/ceyx_release_pin.json -->
 
 Android 建置還要求保留相容模式——`android/gradle.properties` 中的 `android.newDsl=false` 與 `android.builtInKotlin=false`——因為 Flutter 的 Gradle 外掛還不支援 AGP 9 的新 DSL，拿掉這兩行 Android 就建置不起來。
 
@@ -1189,11 +1187,11 @@ python3 scripts/build_apps.py all          # every target this host can build
 python3 scripts/build_apps.py --check      # toolchain check only, builds nothing
 ```
 
-<!-- evidence: scripts/build_apps.py:289-305 (target table), scripts/build_apps.py:3014 (target argument) -->
+<!-- evidence: scripts/build_apps.py:289-541 (target table), scripts/build_apps.py:3247 (target argument) -->
 
 可用的目標平台有 `macos`、`ios`、`android` / `android-apk` / `android-aab`、`web`、`windows`、`linux`，以及 `all`。`all` 會依主機能力過濾，這台主機建置不出來的目標會跳過而不是報錯失敗；`ios` 被刻意排除在 `all` 之外，讓無人值守的執行永遠不必做程式碼簽署的決定。`windows` 與 `linux` 則必須在各自的作業系統上建置。
 
-<!-- evidence: scripts/build_apps.py:289-305 -->
+<!-- evidence: scripts/build_apps.py:289-541 -->
 
 ### 色彩閘門
 
@@ -1202,7 +1200,7 @@ python3 scripts/build_apps.py --check      # toolchain check only, builds nothin
 - 每次需要跑原生建置，就透過 `--cfa-sample-dng <file>` 傳入一張藍天 DNG 樣本。
 - `--no-colour-gate` 是刻意張揚的跳過選項：用了它的執行**一律以 exit code 2 結束、絕不會是 0**，產出的函式庫也會被標記為未經驗證。
 
-<!-- evidence: scripts/build_apps.py:1223-1230 (Phase 0 refusal), scripts/build_apps.py:2330 (skip warning), scripts/build_apps.py:3037-3039 (--no-colour-gate exits 2) -->
+<!-- evidence: scripts/build_apps.py:1198-1206 (Phase 0 refusal), scripts/build_apps.py:2542 (skip warning), scripts/build_apps.py:3410-3411 (--no-colour-gate exits 2) -->
 
 ### 建置產出物與哪些屬於原始碼
 
@@ -1222,10 +1220,10 @@ CI 會在發佈前斷言預期匯出的符號，並對建好的 DLL 跑一次功
 的原始位元組、也匯出了 Halcyon 需要的能力，但它的色彩輸出並未在 Windows 上被
 色彩閘門驗證過。
 
-<!-- evidence: scripts/ceyx_release_pin.json (tag v0.1.23, "windows" atomic three-DLL group
-     with per-member sha256); scripts/build_apps.py:1650-1653 ("The runbook S4 colour gate is
+<!-- evidence: scripts/ceyx_release_pin.json (tag v0.1.34, "windows" atomic three-DLL group
+     with per-member sha256); scripts/build_apps.py:1723-1726 ("The runbook S4 colour gate is
      NOT consulted here: it gates LOCALLY COMPILED libraries"); ../ceyx/.github/workflows/
-     windows_build.yml:475-816 (symbol assertions, codec_capability_probe.py G1, functional
+     windows_build.yml:533-692 @ f05458d0 (symbol assertions, codec_capability_probe.py G1, functional
      probe_codecs CI-T3) — no S4/cfa-colour step exists in any ceyx workflow (grep "S4",
      "cfa_color" over .github/workflows returns nothing). -->
 

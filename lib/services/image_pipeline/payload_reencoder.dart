@@ -84,7 +84,7 @@ typedef PointerYuv420PayloadEncoder =
 ///
 /// USER RULING 2026-08-30 (contract D5), superseding the q80 default recorded
 /// below: under the shared-payload design one q70 bitstream serves the main
-/// preview, the tier-1 downscale AND the sidebar tile, and the sidebar tile is
+/// preview AND the sidebar tile, and the sidebar tile is
 /// a 200px resample where q70 vs q80 is invisible. The bytes are display-only
 /// (export re-reads the original file, `photo_export_service.dart`), so the
 /// extra q80 bytes buy detail nothing writes back to disk -- and they are
@@ -148,7 +148,7 @@ void resetReencodeCounters() {
 /// tiers read one buffer and a RAW item stops being a special cache citizen.
 ///
 /// The result is written to the payload cache unchanged and NEVER swapped
-/// afterwards: payload object identity is the tier-1 ImageCache key and the
+/// afterwards: payload object identity is the ImageCache key's anchor and the
 /// tier-2 registry's readiness anchor, so a later swap orphans both.
 ///
 /// Every failure degrades to [fallback] -- window-resolution pixels for the

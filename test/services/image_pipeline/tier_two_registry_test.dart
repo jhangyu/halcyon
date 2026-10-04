@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/tier_two_registry.dart';
 
 import '../../support/preload_fixtures.dart';
@@ -146,4 +147,42 @@ void main() {
           reason: 'a failure must reach the notifier too');
     },
   );
+
+  test(
+    'TC-1472 a publishEncoded decode failure is memoised and the same '
+    'payload is not decoded again',
+    () async {
+      final payload = EncodedPayload(Uint8List.fromList([1, 2, 3]));
+      final registry = TierTwoRegistry(currentPayloadFor: (id) => payload);
+
+      registry.publishEncoded(
+        'x',
+        payload,
+        MemoryImage(payload.bytes),
+        () {},
+      );
+      await until(
+        () => registry.hasEncodedFailure('x', payload),
+        reason: 'the failed decode to be recorded',
+      );
+      expect(registry.isReady('x'), isFalse);
+
+      final obtainCalls = <int>[];
+      final again = _CountingMemoryImage(payload.bytes, obtainCalls);
+      registry.publishEncoded('x', payload, again, () {});
+      expect(obtainCalls, isEmpty,
+          reason: 'a payload that already failed must not be resubmitted');
+    },
+  );
+}
+
+class _CountingMemoryImage extends MemoryImage {
+  const _CountingMemoryImage(super.bytes, this.calls);
+  final List<int> calls;
+
+  @override
+  Future<MemoryImage> obtainKey(ImageConfiguration configuration) {
+    calls.add(1);
+    return super.obtainKey(configuration);
+  }
 }

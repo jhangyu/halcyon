@@ -73,11 +73,25 @@ class TierTwoRegistry {
   /// all", and writing to it here would turn a failed upgrade into an
   /// "unreadable" error screen for an item that is on screen and fine.
   ///
-  /// Keyed by id but compared with [identical] against the CURRENT payload, so
-  /// the memo dies naturally when the payload is replaced and the upgrade may
-  /// be tried once more. Without it, every 250ms settle would re-run a
-  /// 61-406ms FFI decode that just failed.
-  final Map<String, SourcePayload> _fullResFailures = {};
+  /// Keyed by the PAYLOAD OBJECT (value: the id it failed for), so the memo
+  /// dies naturally when the payload is replaced and the upgrade may be tried
+  /// once more. Without it, every 250ms settle would re-run a 61-406ms FFI
+  /// decode that just failed.
+  ///
+  /// An [Expando], not a map holding the payload: a failed payload is several
+  /// MB, and a strong reference here would keep it alive after the payload
+  /// cache evicted it, until the next folder switch (INVARIANTS.md INV-1/2).
+  /// Same pattern as `DeferredFullSizeEncoder._attempted`. Not final: [clear]
+  /// replaces it, since an [Expando] cannot be emptied.
+  Expando<String> _fullResFailures = Expando<String>('fullResFailure');
+
+  /// [publishEncoded] decode failures (a corrupt embedded JPEG), per payload
+  /// object like [_fullResFailures] and dying with the payload the same way.
+  /// SEPARATE from it on purpose: an encoded failure does not end the item's
+  /// full-resolution chances -- the scheduler routes it to the file-decode
+  /// fallback, whose own failure then lands in [_fullResFailures]. One shared
+  /// memo would make that fallback look already-failed and never run.
+  Expando<String> _encodedFailures = Expando<String>('encodedFailure');
 
   /// id -> the payload a [publishEncoded] call has been SUBMITTED for but
   /// whose async `obtainKey().then(...)` registration has not landed yet.
@@ -242,7 +256,11 @@ class TierTwoRegistry {
   /// True when a full-resolution upgrade already failed for THIS payload
   /// object. Compared with [identical], so the memo dies with the payload.
   bool hasFullResFailure(String id, SourcePayload payload) =>
-      identical(_fullResFailures[id], payload);
+      _fullResFailures[payload] == id;
+
+  /// True when decoding THIS encoded payload's bytes already failed.
+  bool hasEncodedFailure(String id, SourcePayload payload) =>
+      _encodedFailures[payload] == id;
 
   /// Registers [provider] (already built by the controller's
   /// `_fullSizeProviderForPayload`, so the payload -> provider mapping stays
@@ -256,8 +274,9 @@ class TierTwoRegistry {
     String id,
     SourcePayload payload,
     ImageProvider provider,
-    VoidCallback notifyLoaded,
-  ) {
+    VoidCallback notifyLoaded, {
+    VoidCallback? onFailed,
+  }) {
     // PUBLISH DEDUPE (batch-A #3, docs/logs/2026-09-04/remediation-round-
     // contract.md AC4): a repeat publish for the SAME id and the SAME
     // payload object -- i.e. no new content-version -- is a redundant
@@ -292,7 +311,9 @@ class TierTwoRegistry {
     final stillResident = identical(_sources[id], payload) &&
         registeredKey != null &&
         _isTracked(registeredKey);
-    if (identical(_pendingEncoded[id], payload) || stillResident) {
+    if (identical(_pendingEncoded[id], payload) ||
+        stillResident ||
+        hasEncodedFailure(id, payload)) {
       PerfLog.log('publish|id=$id|path=publishEncoded|dup_dropped=1');
       return;
     }
@@ -314,9 +335,27 @@ class TierTwoRegistry {
       _readyIds.add(id);
       notifyLoaded();
       _onStateChanged?.call(id);
-    }, onError: (error, stackTrace) => stream.removeListener(listener));
+    }, onError: (error, stackTrace) {
+      // The memo dies with the payload, so the next settle does not re-buy a
+      // decode that just failed ([_encodedFailures]).
+      stream.removeListener(listener);
+      _encodedFailures[payload] = id;
+      // ImageCache never drops an errored PENDING entry by itself, and a
+      // still-tracked key reads as "entry in hand" ([hasFullResEntryFor]) --
+      // which would block the file fallback and make [publishFullRes]
+      // discard its result. Evict it, same as [publishFullRes]'s onError.
+      if (identical(_sources[id], payload)) evict(id);
+      onFailed?.call();
+    });
     stream.addListener(listener);
     provider.obtainKey(const ImageConfiguration()).then((key) {
+      // The decode already failed before an async obtainKey landed: drop the
+      // dead entry instead of registering it.
+      if (hasEncodedFailure(id, payload)) {
+        if (identical(_pendingEncoded[id], payload)) _pendingEncoded.remove(id);
+        _imageCache.evict(key);
+        return;
+      }
       // Same orphan-leak fix as [publishFullRes]'s pre-overwrite evict (F6):
       // whatever entry is currently registered for [id] belongs to a
       // DIFFERENT, since-replaced key (this obtainKey future is the only
@@ -403,7 +442,7 @@ class TierTwoRegistry {
       },
       onError: (error, stackTrace) {
         stream.removeListener(listener);
-        _fullResFailures[id] = payload;
+        _fullResFailures[payload] = id;
         evict(id);
       },
     );
@@ -425,7 +464,7 @@ class TierTwoRegistry {
     // [_fullResFailures]) and the memo dies with the payload.
     if (!_imageCache.containsKey(provider)) {
       PerfLog.log('publish|id=$id|path=$source|cache_refused=1');
-      _fullResFailures[id] = payload;
+      _fullResFailures[payload] = id;
       evict(id);
     }
   }
@@ -433,7 +472,7 @@ class TierTwoRegistry {
   /// Records that a full-resolution upgrade failed for THIS payload object, so
   /// the next 250ms settle does not re-buy a 61-406ms decode that just failed.
   void markFullResFailure(String id, SourcePayload payload) {
-    _fullResFailures[id] = payload;
+    _fullResFailures[payload] = id;
   }
 
   /// Removes [id]'s tier-2 bookkeeping and evicts its ImageCache entry (if
@@ -467,7 +506,8 @@ class TierTwoRegistry {
     _keys.clear();
     _sources.clear();
     _readyIds.clear();
-    _fullResFailures.clear();
+    _fullResFailures = Expando<String>('fullResFailure');
+    _encodedFailures = Expando<String>('encodedFailure');
     _pendingEncoded.clear();
   }
 }

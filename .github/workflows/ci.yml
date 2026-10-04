@@ -9,8 +9,8 @@
 # a job still fails when it fails; it only lets sibling OS jobs in the matrix
 # finish instead of being cancelled — don't "clean up" one into the other.
 #
-# Every `jhangyu/ceyx` checkout below is pinned to a fixed `ref` (current ceyx
-# main HEAD, verified green) so unrelated ceyx pushes can't redden Halcyon CI.
+# Every `jhangyu/ceyx` checkout below is pinned to a fixed `ref` (the commit of a
+# released ceyx tag, currently v0.1.34 = f05458d0) so unrelated ceyx pushes can't redden Halcyon CI.
 # To bump: update the ref at BOTH ceyx checkouts in ci.yml and the ONE in
 # release.yml — three sites total. Verify by parsing the YAML and checking
 # every step with `repository: jhangyu/ceyx`, not by eyeballing line numbers.
@@ -50,7 +50,7 @@ jobs:
           repository: jhangyu/ceyx
           ref: f05458d0a73ac03dda8248020f7b49efa54d40c9
           path: ceyx
-          # pinned to pushed ceyx main (M5 merge); release chain repins to the released tag
+          # pinned to ceyx v0.1.34 (f05458d0); bump all three ref sites together (see ci.yml header)
 
       - uses: subosito/flutter-action@v2
         with:
@@ -121,7 +121,7 @@ jobs:
           repository: jhangyu/ceyx
           ref: f05458d0a73ac03dda8248020f7b49efa54d40c9
           path: ceyx
-          # pinned to pushed ceyx main (M5 merge); release chain repins to the released tag
+          # pinned to ceyx v0.1.34 (f05458d0); bump all three ref sites together (see ci.yml header)
 
       # architecture: the action's own default is runner.arch, so every leg but
       # windows-arm is unchanged. Flutter 3.44.6 ships no windows-arm64 SDK, so

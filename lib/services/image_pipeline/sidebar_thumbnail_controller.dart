@@ -19,8 +19,8 @@ import 'thumbnail_derivation.dart';
 /// rung policy each keep exactly one owner, and the sidebar can be unit-tested
 /// with a handful of closures instead of a pipeline.
 ///
-/// What deliberately did NOT move: the tier-1/tier-2 provider factories. AD-028
-/// states the reason -- the two factories sitting side by side in the controller
+/// What deliberately did NOT move: the full-size provider factory. AD-028
+/// states the reason -- the factory living in the controller
 /// IS the declaration that one payload identity means one ImageCache key, and a
 /// second place that builds providers is a second place that decides cache keys.
 class SidebarThumbnailController {

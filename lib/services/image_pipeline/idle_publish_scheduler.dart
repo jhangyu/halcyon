@@ -44,7 +44,7 @@ const Duration kIdleInputSettleWindow = Duration(milliseconds: 150);
 /// `priority >= Priority.animation.value` whenever
 /// `scheduler.transientCallbackCount > 0` -- so while ANY animation runs (a
 /// page transition, a `ProgressIndicator`), an idle task is skipped for as
-/// long as the animation lasts. A queued tier-1 registration would merely be
+/// long as the animation lasts. A queued full-size registration would merely be
 /// late; a queued [CompositeGate] slot is AWAITED by a decode-completion step
 /// that holds an `ImagePreloadController._loadingKeys` claim, so a stalled
 /// slot is a permanent spinner. The safeguard timer is not subject to the

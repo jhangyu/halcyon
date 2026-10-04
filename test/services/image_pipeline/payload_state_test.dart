@@ -73,7 +73,7 @@ Future<NativeImageResult> _bytesLoader(
   String path, {
   required ImageRequestPurpose purpose,
   int? targetLongEdge,
-}) async => NativeImageBytes(Uint8List.fromList(<int>[1, 2, 3, 4]));
+}) async => NativeImageBytes(Uint8List.fromList(tinyPngBytes));
 
 /// Polls [cond] until it is true or [timeout] elapses, whichever is first --
 /// a real debounce/async-drain still gets its full budget if it needs it, but

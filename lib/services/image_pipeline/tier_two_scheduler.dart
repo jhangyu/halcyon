@@ -8,6 +8,8 @@ import '../../models/photo_item.dart';
 import '../../perf/perf_log.dart'; // PERF-INSTRUMENTATION (D1 round-2 additions)
 import 'decoded_rgba_image_provider.dart';
 import 'dng_decode_contract.dart';
+import 'dng_embedded_jpeg_extractor.dart';
+import 'image_source_types.dart' show kDefaultExifOrientation;
 import 'frame_bytes.dart';
 import 'idle_publish_scheduler.dart';
 import 'photo_payload.dart';
@@ -77,7 +79,7 @@ void immediatePublishPacer({
 /// selected item", shared by every `exempt:` call site instead of each
 /// computing its own copy of the same predicate
 /// (docs/logs/2026-09-03/pacer-exempt-path-audit.md Finding 2 -- two
-/// tier-1 call sites independently wrote `distance == 0` and
+/// call sites independently wrote `distance == 0` and
 /// `i == currentIndex`, which are the same fact expressed two ways). `distance`
 /// is `index - currentIndex` (or, for the piggyback/upgrade paths, the
 /// distance captured when the item's slot was enqueued): 0 means the
@@ -333,7 +335,13 @@ class TierTwoScheduler {
         if (identical(_pendingFullResPublish[id], payload)) {
           _pendingFullResPublish.remove(id);
         }
-        _registry.publishEncoded(id, payload, provider, notifyLoaded);
+        _registry.publishEncoded(
+          id,
+          payload,
+          provider,
+          notifyLoaded,
+          onFailed: _resweepAfterEncodedFailure,
+        );
       },
       discard: () {
         if (identical(_pendingFullResPublish[id], payload)) {
@@ -344,6 +352,23 @@ class TierTwoScheduler {
   }
 
   Timer? _debounceTimer;
+
+  /// The settle sweep of the latest [schedule] call, kept so an encoded
+  /// decode failure can re-arm it ([_resweepAfterEncodedFailure]).
+  VoidCallback? _settleSweep;
+
+  /// A corrupt embedded JPEG fails asynchronously, after the settle that
+  /// published it. If the user has stopped navigating there is no later
+  /// settle, so the file fallback the sweep routes that payload to
+  /// ([_dispatchBandItems]) would never run and the item would stay on its
+  /// interim display. Re-arms the ordinary debounced sweep -- unless one is
+  /// already pending, which will do the same job. Bounded: the failure memo
+  /// stops the payload being published again, so it fires once per payload.
+  void _resweepAfterEncodedFailure() {
+    final sweep = _settleSweep;
+    if (sweep == null || (_debounceTimer?.isActive ?? false)) return;
+    _debounceTimer = Timer(_navigationDebounce, sweep);
+  }
 
   // Synchronous in-flight claim for [_upgradeFullRes], taken BEFORE any await
   // (S-1 fix, third instance of the check-then-act-across-await shape, see
@@ -413,6 +438,7 @@ class TierTwoScheduler {
   /// state and scheduling have separate owners.
   void cancelDebounce() {
     _debounceTimer?.cancel();
+    _settleSweep = null;
     // A folder switch (reset) or teardown invalidates the band-entry memo: an
     // id from the old folder must not suppress the immediate start it would
     // otherwise get on the next pass.
@@ -442,9 +468,9 @@ class TierTwoScheduler {
     // sweep) and its constant is unchanged.
     _startNewBandEntrants(items, currentIndex, notifyLoaded);
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(_navigationDebounce, () {
-      _decodeWindow(items, currentIndex, notifyLoaded);
-    });
+    final sweep =
+        _settleSweep = () => _decodeWindow(items, currentIndex, notifyLoaded);
+    _debounceTimer = Timer(_navigationDebounce, sweep);
   }
 
   /// Starts the full-resolution decode for the items that entered the
@@ -652,7 +678,7 @@ class TierTwoScheduler {
     required bool enqueueMissingLoads,
   }) {
     final pendingUpgrades =
-        <({PhotoItem item, PixelPayload payload, int distance})>[];
+        <({PhotoItem item, SourcePayload payload, int distance})>[];
 
     for (final i in indices) {
       final item = items[i];
@@ -685,7 +711,17 @@ class TierTwoScheduler {
       final alreadyDecoded = _registry.isReady(item.id) ||
           identical(_pendingFullResPublish[item.id], payload);
       if (alreadyDecoded) continue;
+      // The file fallback already failed for this payload: nothing left to buy.
+      if (_registry.hasFullResFailure(item.id, payload)) continue;
       switch (payload) {
+        // Its bytes failed to decode (corrupt embedded JPEG): take the same
+        // counted file fallback a PixelPayload takes, collected below.
+        case EncodedPayload() when _registry.hasEncodedFailure(item.id, payload):
+          pendingUpgrades.add((
+            item: item,
+            payload: payload,
+            distance: i - currentIndex,
+          ));
         case EncodedPayload():
           // R2's single route. The pre-checks and the counter live inside it,
           // so this arm no longer re-derives them.
@@ -819,7 +855,7 @@ class TierTwoScheduler {
   // user may have navigated away.
   void _enqueueFullResUpgrade(
     PhotoItem item,
-    PixelPayload payload,
+    SourcePayload payload,
     int distance,
     VoidCallback notifyLoaded,
   ) {
@@ -887,20 +923,27 @@ class TierTwoScheduler {
       if (_registry.hasFullResFailure(id, payload)) return;
       final decoder = _dngDecoder();
       final file = item.bestFileToLoad;
-      // Orientation comes from the memo the probe already filled (invariant
-      // I6): no bridge round trip is bought to rotate a frame.
-      final orientation = _exifOrientationFor(id);
-      // A missing FILE is permanent for this payload. A missing decoder or
-      // orientation is NOT: the decoder supplier and the orientation memo can
-      // both be filled later in the same session, so memoising a failure here
-      // would block every later sweep until the payload is replaced. Leaving
-      // it unrecorded costs nothing -- the next sweep simply asks again (no
-      // retry timer; only navigation or a settle reaches this line).
+      // A missing FILE is permanent for this payload. A missing decoder is
+      // NOT: the decoder supplier can be filled later in the same session, so
+      // memoising a failure here would block every later sweep until the
+      // payload is replaced. Leaving it unrecorded costs nothing -- the next
+      // sweep simply asks again (no retry timer; only navigation or a settle
+      // reaches this line).
       if (file == null) {
         _registry.markFullResFailure(id, payload);
         return;
       }
-      if (decoder == null || orientation == null) return;
+      if (decoder == null) return;
+      // Orientation comes from the memo the probe already filled (invariant
+      // I6): no bridge round trip is bought to rotate a frame. The memo is
+      // empty when the probe found no tag (or this item never had a RAW
+      // decode, e.g. its embedded JPEG is corrupt): resolve it exactly as the
+      // loader's raw-decode signal does -- a bounded file read, else the EXIF
+      // default -- instead of skipping the fallback, which used to leave such
+      // an item on its interim display for good.
+      final orientation = _exifOrientationFor(id) ??
+          await DngEmbeddedJpegExtractor.readOrientation(file.path) ??
+          kDefaultExifOrientation;
 
       ui.Image image;
       try {
@@ -970,7 +1013,10 @@ class TierTwoScheduler {
     // yet landed) is not submitted twice.
     if (!_windowIds.contains(id) ||
         !identical(_currentPayloadFor(id), payload) ||
-        _hasFullResClaimFor(id, payload)) {
+        _hasFullResClaimFor(id, payload) ||
+        // Its bytes already failed to decode: no pacer submission, and the
+        // caller's remaining option is the file fallback.
+        _registry.hasEncodedFailure(id, payload)) {
       return false;
     }
     switch (payload) {

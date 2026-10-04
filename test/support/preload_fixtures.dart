@@ -48,6 +48,17 @@ final Uint8List tinyPngBytes = base64Decode(
   'AAYAAjCB0C8AAAAASUVORK5CYII=',
 );
 
+/// A minimal valid 1x1 baseline JPEG (APP segments stripped): decodes for real,
+/// so a payload built from it does not take the decode-failure fallback.
+final Uint8List tinyJpegBytes = base64Decode(
+  '/9j/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIE'
+  'AwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0'
+  'NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm'
+  'p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9sAQwAGBgYG'
+  'BgYKBgYKDgoKCg4SDg4ODhIXEhISEhIXHBcXFxcXFxwcHBwcHBwcIiIiIiIiJycnJycsLCwsLCwsLCws'
+  '/90ABAAB/9oACAEBAAA/APqmv//Z',
+);
+
 /// A fresh encoded payload holding its OWN bytes object, so two payloads never
 /// collide on the MemoryImage cache key (which is bytes identity + scale).
 EncodedPayload freshEncodedPayload() =>
@@ -98,8 +109,8 @@ void clearImageCacheSetUp() {
   PaintingBinding.instance.imageCache.clearLiveImages();
 }
 
-/// The canonical fake encoder for this suite: a short, non-empty JPEG-shaped
-/// bitstream, produced synchronously.
+/// The canonical fake encoder for this suite: a real, decodable 1x1 JPEG
+/// ([tinyJpegBytes], fresh copy per call), produced synchronously.
 ///
 /// Task 2 (compressed-residency v2) made `PayloadEncoder` a REQUIRED
 /// dependency of `PhotoSource`/`ImagePreloadController`, so "no encoder" is no
@@ -110,7 +121,7 @@ Future<Uint8List> fakeJpegEncoder(
   required int width,
   required int height,
   required int quality,
-}) async => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+}) async => Uint8List.fromList(tinyJpegBytes);
 
 /// The encoder a test binds when its INTENT is the old decode-only path.
 ///

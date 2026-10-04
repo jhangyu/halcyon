@@ -49,7 +49,7 @@ class RawPixelsImage extends ImageProvider<RawPixelsImage> {
     final completer = Completer<ui.Image>();
     // P0 (docs/logs/2026-09-05/pool-round-contract.md AC7 /
     // pipeline-architecture-v2.md §5-P0): the architecture doc's own
-    // materialize call site on the pixel-payload (tier-1) route. See
+    // materialize call site on the pixel-payload route. See
     // decoded_rgba_image_provider.dart's `_imageFromPixels` for the same
     // convention (id = identityHashCode of the pixel buffer).
     final materializeStartUs = PerfLog.enabled ? PerfLog.us : 0;
