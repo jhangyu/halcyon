@@ -17,6 +17,10 @@ const _stubBytes = <int>[1, 2, 3];
 /// exist, and `loadFolder` clears the current folder, items and selection
 /// *before* it scans -- wiping the folder the user is culling.
 void main() {
+  // The controller's debounced full-size sweep can fire after a test body and
+  // reach PaintingBinding.instance; without a binding that throws
+  // "Binding has not yet been initialized" (prepush quarantine run0-red.log).
+  TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
