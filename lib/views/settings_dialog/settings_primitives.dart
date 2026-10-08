@@ -34,6 +34,73 @@ Widget settingsCaption(HalcyonTokens t, String text) {
   );
 }
 
+/// The ONE selected-choice treatment in the settings dialog (appearance
+/// cells, retention tier cards, export filetype segments, mouse-control
+/// direction cells): 18%-alpha accent fill + accent border when selected;
+/// [unselectedColor] fill (default none) + borderSoft border otherwise.
+Widget settingsSelectable(
+  HalcyonTokens t, {
+  required Key key,
+  required bool selected,
+  required VoidCallback onTap,
+  required Widget child,
+  Color? unselectedColor,
+}) {
+  return Material(
+    key: key,
+    color: selected ? t.accent.withValues(alpha: 0.18) : unselectedColor,
+    borderRadius: BorderRadius.circular(5),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: selected ? t.accent : t.borderSoft),
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: child,
+      ),
+    ),
+  );
+}
+
+/// Token-drawn toggle (mockup-a switch variant). Material `Switch` is not
+/// used: its size and animation differ from the dialog's design.
+Widget settingsSwitch(
+  HalcyonTokens t, {
+  required Key key,
+  required bool value,
+  required ValueChanged<bool> onChanged,
+}) {
+  return Semantics(
+    key: key,
+    toggled: value,
+    child: InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 34,
+        height: 20,
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: value ? t.accent : t.input,
+          border: Border.all(color: value ? t.accent : t.border),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: value ? Colors.white : t.textDim,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// F1/D1's `input[type=range]` (F1.html:70-71): track height 4, round thumb
 /// of radius 7 (14px diameter, matching the mockup's `.slider-thumb`
 /// `width:14px;height:14px`). Without this SliderTheme override Flutter's

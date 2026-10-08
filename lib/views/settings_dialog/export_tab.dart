@@ -87,28 +87,22 @@ class ExportTab extends StatelessWidget {
     ExportFiletype type,
   ) {
     final selected = state.exportFiletype == type;
-    return Material(
+    return settingsSelectable(
+      t,
       key: Key('exportFiletype.${type.name}'),
-      color: selected ? t.accent.withValues(alpha: 0.18) : t.surface,
-      borderRadius: BorderRadius.circular(5),
-      child: InkWell(
-        onTap: () => context.read<AppState>().setExportFiletype(type),
-        borderRadius: BorderRadius.circular(5),
-        child: Container(
-          // F1.html:79 `.segment { padding: 7px 10px; }`.
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            border: Border.all(color: selected ? t.accent : t.borderSoft),
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: Text(
-            type.label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: selected ? t.text : t.textDim,
-            ),
+      selected: selected,
+      unselectedColor: t.surface,
+      onTap: () => context.read<AppState>().setExportFiletype(type),
+      child: Container(
+        // F1.html:79 `.segment { padding: 7px 10px; }`.
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        alignment: Alignment.center,
+        child: Text(
+          type.label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11.5,
+            color: selected ? t.text : t.textDim,
           ),
         ),
       ),

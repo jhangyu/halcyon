@@ -143,7 +143,7 @@ class _AppearanceTabState extends State<AppearanceTab> {
     String label,
   ) {
     final selected = state.themeMode == mode;
-    return _selectable(
+    return settingsSelectable(
       t,
       key: Key('appearance.mode.${mode.name}'),
       selected: selected,
@@ -172,7 +172,7 @@ class _AppearanceTabState extends State<AppearanceTab> {
       onExit: (_) => setState(() {
         if (_hovered == id) _hovered = null;
       }),
-      child: _selectable(
+      child: settingsSelectable(
         t,
         key: Key('appearance.layout.${id.name}'),
         selected: selected,
@@ -214,35 +214,6 @@ class _AppearanceTabState extends State<AppearanceTab> {
       child: selected
           ? const Icon(Icons.check, size: 10, color: Colors.white)
           : null,
-    );
-  }
-
-  /// The ONE selection treatment in this feature, copied from the retention
-  /// tier card (performance_memory_tab.dart `_tierCard`): no fill unselected,
-  /// an 18%-alpha accent fill plus an accent border when selected. Spec §3
-  /// forbids inventing a second one.
-  Widget _selectable(
-    HalcyonTokens t, {
-    required Key key,
-    required bool selected,
-    required VoidCallback onTap,
-    required Widget child,
-  }) {
-    return Material(
-      key: key,
-      color: selected ? t.accent.withValues(alpha: 0.18) : null,
-      borderRadius: BorderRadius.circular(5),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(5),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: selected ? t.accent : t.borderSoft),
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: child,
-        ),
-      ),
     );
   }
 
