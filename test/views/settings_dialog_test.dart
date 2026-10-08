@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:halcyon_flutter/providers/app_settings.dart';
 import 'package:halcyon_flutter/models/shortcut_bindings.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
@@ -526,6 +527,175 @@ void main() {
           reason: '$key thumbShape');
     }
   });
+
+  // ---- Mouse Control tab (spec §3.1-3.2; Round 2 T6 unskips) ----
+  Future<AppState> openMouseTab(WidgetTester tester, {bool viaShowDialog = false,
+      bool enabled = false}) async {
+    SharedPreferences.setMockInitialValues({});
+    final state = AppState();
+    addTearDown(state.dispose);
+    if (enabled) state.setMouseNavEnabled(true);
+    viaShowDialog ? await pumpDialogViaShowDialog(tester, state)
+                  : await pumpDialog(tester, state);
+    await tester.tap(find.byKey(const Key('settingsTab.mouseControl')));
+    await tester.pump();
+    return state;
+  }
+  double rowOpacity(WidgetTester t) =>
+      t.widget<Opacity>(find.byKey(const Key('mouseControl.mappingRow'))).opacity;
+
+  testWidgets('TC-1502 Mouse Control is the fifth tab, after Shortcuts', (tester) async {
+    await openMouseTab(tester);
+    final xs = [
+      'settingsTab.performanceMemory', 'settingsTab.appearance', 'settingsTab.export',
+      'settingsTab.shortcuts', 'settingsTab.mouseControl',
+    ].map((k) => tester.getCenter(find.byKey(Key(k))).dx).toList();
+    for (var i = 1; i < xs.length; i++) {
+      expect(xs[i] > xs[i - 1], isTrue, reason: 'tab $i is right of tab ${i - 1}');
+    }
+    expect(find.text('Mouse Control'), findsOneWidget);
+    expect(find.byKey(const Key('mouseControl.enabled')), findsOneWidget);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1503 the switch writes through to state and prefs', (tester) async {
+    final state = await openMouseTab(tester);
+    await tester.tap(find.byKey(const Key('mouseControl.enabled')));
+    await tester.pump();
+    expect(state.mouseNavEnabled, isTrue);
+    expect((await SharedPreferences.getInstance()).getBool('mouseNavEnabled'), isTrue);
+    await tester.tap(find.byKey(const Key('mouseControl.enabled')));
+    await tester.pump();
+    expect(state.mouseNavEnabled, isFalse);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1504 tapping the row title also toggles', (tester) async {
+    final state = await openMouseTab(tester);
+    await tester.tap(find.text('Navigate photos with mouse clicks'));
+    await tester.pump();
+    expect(state.mouseNavEnabled, isTrue);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1505 the direction cells write through', (tester) async {
+    final state = await openMouseTab(tester, enabled: true);
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftPrevious')));
+    await tester.pump();
+    expect(state.mouseNavMapping, MouseNavMapping.leftPrevious);
+    expect((await SharedPreferences.getInstance()).getString('mouseNavMapping'),
+        'leftPrevious');
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftNext')));
+    await tester.pump();
+    expect(state.mouseNavMapping, MouseNavMapping.leftNext);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1506 Cancel reverts the switch and the direction, prefs '
+      'included', (tester) async {
+    final state = await openMouseTab(tester, viaShowDialog: true);
+    await tester.tap(find.byKey(const Key('mouseControl.enabled')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftPrevious')));
+    await tester.pump();
+    expect(state.mouseNavMapping, MouseNavMapping.leftPrevious, reason: 'precondition');
+    await tester.tap(find.byKey(const Key('settingsCancel')));
+    await settleFrames(tester);
+    expect(state.mouseNavEnabled, isFalse);
+    expect(state.mouseNavMapping, MouseNavMapping.leftNext);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('mouseNavEnabled') ?? false, isFalse);
+    expect(prefs.getString('mouseNavMapping') ?? 'leftNext', 'leftNext');
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1507 with the feature off the direction row is dimmed to '
+      '40% and ignores taps', (tester) async {
+    final state = await openMouseTab(tester);
+    expect(rowOpacity(tester), 0.4);
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftPrevious')),
+        warnIfMissed: false);
+    await tester.pump();
+    expect(state.mouseNavMapping, MouseNavMapping.leftNext);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1508 with the feature on the direction row is fully opaque '
+      'and takes taps', (tester) async {
+    final state = await openMouseTab(tester, enabled: true);
+    expect(rowOpacity(tester), 1.0);
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftPrevious')));
+    await tester.pump();
+    expect(state.mouseNavMapping, MouseNavMapping.leftPrevious);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1509 five tabs fit the 920 px dialog without overflow',
+      (tester) async {
+    await openMouseTab(tester);
+    expect(tester.takeException(), isNull);
+    final dialog = tester.getRect(find.byType(SettingsDialog));
+    expect(dialog.width, moreOrLessEquals(920, epsilon: 0.5), reason: 'precondition');
+    final last = tester.getRect(find.byKey(const Key('settingsTab.mouseControl')));
+    expect(last.right <= dialog.right, isTrue);
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  String captionOf(WidgetTester t, String key) =>
+      t.widget<Text>(find.descendant(of: find.byKey(Key(key)),
+          matching: find.byType(Text)).first).data!;
+
+  testWidgets('TC-1523 the enable caption follows the switch', (tester) async {
+    await openMouseTab(tester);
+    expect(captionOf(tester, 'mouseControl.enabledCaption'),
+        'Off · clicks in the photo viewer do not change the photo');
+    await tester.tap(find.byKey(const Key('mouseControl.enabled')));
+    await tester.pump();
+    expect(captionOf(tester, 'mouseControl.enabledCaption'),
+        'On · applies in the photo viewer only');
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1524 the direction caption follows the chosen card', (tester) async {
+    await openMouseTab(tester, enabled: true);
+    expect(captionOf(tester, 'mouseControl.mappingCaption'),
+        'Left click → next · Right click → previous');
+    await tester.tap(find.byKey(const Key('mouseControl.mapping.leftPrevious')));
+    await tester.pump();
+    expect(captionOf(tester, 'mouseControl.mappingCaption'),
+        'Left click → previous · Right click → next');
+  },
+      skip: true, // mousenav-R2 T6
+  );
+
+  testWidgets('TC-1525 each direction card shows its name, L/R key chips with '
+      'actions, and its sub-label', (tester) async {
+    await openMouseTab(tester, enabled: true);
+    void card(String key, String name, String l, String r, String sub) {
+      Finder inCard(Finder f) => find.descendant(of: find.byKey(Key(key)), matching: f);
+      expect(inCard(find.text(name)), findsOneWidget);
+      expect(inCard(find.text('L')), findsOneWidget);
+      expect(inCard(find.text('R')), findsOneWidget);
+      expect(inCard(find.text(l)), findsOneWidget);
+      expect(inCard(find.text(r)), findsOneWidget);
+      expect(inCard(find.text(sub)), findsOneWidget);
+    }
+    card('mouseControl.mapping.leftNext',
+        'Left click = Next, Right click = Previous', 'Next', 'Previous', 'Default');
+    card('mouseControl.mapping.leftPrevious',
+        'Left click = Previous, Right click = Next', 'Previous', 'Next', 'Reversed');
+  },
+      skip: true, // mousenav-R2 T6
+  );
 }
 
 /// Grabs a [BuildContext] currently in the tree, so the test can drive

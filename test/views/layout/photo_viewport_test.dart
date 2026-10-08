@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
@@ -14,6 +15,7 @@ import 'package:halcyon_flutter/views/layout/gallery/gallery_palette.dart';
 import 'package:halcyon_flutter/views/zoom_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../support/mouse_nav_fixtures.dart';
 import '../../support/preload_fixtures.dart' show tinyPngBytes, until;
 import '../../support/temp_dirs.dart';
 
@@ -276,4 +278,144 @@ void main() {
   // favor of the gallery gutter's marks row), so there is no longer a class
   // this negative-space check could catch a regression of — a check against a
   // symbol that no longer exists can never fail, which is not evidence.
+
+  // ---- mouse-click navigation (spec §1, §4; Round 2 T7 unskips) ----
+  Future<AppState> pumpNavViewport(
+    WidgetTester tester, {
+    ZoomController? zoom,
+    NativeImageLoad? imageLoader,
+    bool waitForFullSize = true,
+    bool enabled = true,
+  }) async {
+    final state = await loadMouseNavState(tester,
+        imageLoader: imageLoader, waitForFullSize: waitForFullSize);
+    if (enabled) state.setMouseNavEnabled(true);
+    await tester.pumpWidget(MaterialApp(
+      home: ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: PhotoViewport(zoom: zoom ?? ZoomController()),
+      ),
+    ));
+    await tester.pump();
+    return state;
+  }
+  Offset photoCentre(WidgetTester t) => t.getCenter(find.byType(PhotoViewport));
+
+  testWidgets('TC-1510 a clean left click goes to the next photo', (tester) async {
+    final state = await pumpNavViewport(tester);
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1511 a clean right click goes to the previous photo', (tester) async {
+    final state = await pumpNavViewport(tester);
+    await mouseClick(tester, photoCentre(tester), buttons: kSecondaryButton);
+    expect(state.selectedItemID, 'IMG_0001');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1512 a 10 px drag does not navigate', (tester) async {
+    final state = await pumpNavViewport(tester);
+    await mouseClick(tester, photoCentre(tester), travel: const Offset(10, 0));
+    expect(state.selectedItemID, 'IMG_0002');
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003', reason: 'control');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1513 a 10 px drag at 3x zoom pans and does not navigate',
+      (tester) async {
+    final zoom = ZoomController();
+    final state = await pumpNavViewport(tester, zoom: zoom);
+    zoom.transformCtrl.value = Matrix4.diagonal3Values(3, 3, 1);
+    await tester.pump();
+    final before = zoom.transformCtrl.value.getTranslation();
+    await mouseClick(tester, photoCentre(tester),
+        travel: const Offset(10, 0), hold: const Duration(milliseconds: 100));
+    expect(zoom.transformCtrl.value.getTranslation() == before, isFalse,
+        reason: 'precondition: the drag reached InteractiveViewer and panned');
+    expect(state.selectedItemID, 'IMG_0002');
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003', reason: 'control: clicks work at 3x');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1514 a long press does not navigate', (tester) async {
+    final state = await pumpNavViewport(tester);
+    await mouseClick(tester, photoCentre(tester),
+        hold: const Duration(milliseconds: 600));
+    expect(state.selectedItemID, 'IMG_0002');
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003', reason: 'control');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1515 with the feature off a click does nothing', (tester) async {
+    final state = await pumpNavViewport(tester, enabled: false);
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0002');
+    state.setMouseNavEnabled(true);
+    await tester.pump();
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003', reason: 'control: on = navigates');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1517 a click on an unreadable photo still navigates',
+      (tester) async {
+    final state = await pumpNavViewport(tester,
+        waitForFullSize: false,
+        imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
+            const NativeImageFailure('MOCK_FAILURE', 'simulated'));
+    await tester.runAsync(() => until(() => state.currentItemFailed,
+        reason: 'the selected photo to fail'));
+    await tester.pump();
+    expect(find.textContaining('無法讀取'), findsOneWidget, reason: 'precondition');
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1518 a click on the loading spinner still navigates',
+      (tester) async {
+    final never = Completer<NativeImageResult>(); // no thumbnail, no full size
+    final state = await pumpNavViewport(tester,
+        waitForFullSize: false,
+        imageLoader: (path, {required purpose, int? targetLongEdge}) =>
+            never.future);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget,
+        reason: 'precondition: interim spinner (photo_viewport.dart:252-254)');
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0003');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
+
+  testWidgets('TC-1519 a double click is two clicks: two photos forward',
+      (tester) async {
+    final state = await pumpNavViewport(tester);
+    await mouseClick(tester, photoCentre(tester));
+    await tester.pump(const Duration(milliseconds: 100));
+    await mouseClick(tester, photoCentre(tester));
+    expect(state.selectedItemID, 'IMG_0004');
+    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
+  },
+      skip: true, // mousenav-R2 T7
+  );
 }
