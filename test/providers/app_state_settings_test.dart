@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:halcyon_flutter/models/shortcut_bindings.dart';
+import 'package:halcyon_flutter/providers/app_settings.dart';
 import 'package:halcyon_flutter/providers/app_state.dart';
 import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 import 'package:halcyon_flutter/services/library/photo_export_service.dart';
@@ -162,6 +163,8 @@ void main() {
     state.setExportFiletype(ExportFiletype.webpLossy);
     state.setRetentionTier(RetentionTier.generous);
     state.setShortcutBinding(ShortcutAction.starPhoto, LogicalKeyboardKey.keyF);
+    state.setMouseNavEnabled(true);
+    state.setMouseNavMapping(MouseNavMapping.leftPrevious);
 
     state.restoreSettings(before);
 
@@ -180,5 +183,69 @@ void main() {
     expect(prefs.getInt('exportJpegQuality'), before.exportJpegQuality);
     expect(prefs.getInt('exportLongEdge'), before.exportLongEdge);
     expect(prefs.getString('exportFiletype'), before.exportFiletype.name);
+    expect(state.mouseNavEnabled, before.mouseNavEnabled);
+    expect(state.mouseNavMapping, before.mouseNavMapping);
+    expect(prefs.getBool('mouseNavEnabled'), before.mouseNavEnabled);
+    expect(prefs.getString('mouseNavMapping'), before.mouseNavMapping.name);
+  });
+
+  test('TC-1490 mouse-nav fields: defaults, copyWith, == and hashCode', () {
+    final d = AppSettings.defaults();
+    expect(d.mouseNavEnabled, isFalse);
+    expect(d.mouseNavMapping, MouseNavMapping.leftNext);
+    final on = d.copyWith(mouseNavEnabled: true);
+    final rev = d.copyWith(mouseNavMapping: MouseNavMapping.leftPrevious);
+    expect(on.mouseNavEnabled, isTrue);
+    expect(on.mouseNavMapping, MouseNavMapping.leftNext, reason: 'kept');
+    expect(rev.mouseNavMapping, MouseNavMapping.leftPrevious);
+    expect(on == d, isFalse);
+    expect(rev == d, isFalse);
+    expect(d.copyWith() == d, isTrue);
+    expect(d.copyWith().hashCode, d.hashCode);
+    expect(on.hashCode == d.hashCode, isFalse);
+  });
+
+  test('TC-1491 mouse-nav prefs hydrate, and fall back on wrong type / '
+      'unknown name', () async {
+    final good = await hydrated(prefs: {
+      'mouseNavEnabled': true,
+      'mouseNavMapping': 'leftPrevious',
+    });
+    expect(good.mouseNavEnabled, isTrue);
+    expect(good.mouseNavMapping, MouseNavMapping.leftPrevious);
+
+    final bad = await hydrated(prefs: {
+      'mouseNavEnabled': 'not a bool',
+      'mouseNavMapping': 'sideways',
+    });
+    expect(bad.mouseNavEnabled, isFalse);
+    expect(bad.mouseNavMapping, MouseNavMapping.leftNext);
+
+    final wrongType = await hydrated(prefs: {'mouseNavMapping': 7});
+    expect(wrongType.mouseNavMapping, MouseNavMapping.leftNext);
+  });
+
+  test('TC-1492 mouse-nav setters write through to prefs', () async {
+    final state = await hydrated();
+    state.setMouseNavEnabled(true);
+    state.setMouseNavMapping(MouseNavMapping.leftPrevious);
+    expect(state.mouseNavEnabled, isTrue);
+    expect(state.mouseNavMapping, MouseNavMapping.leftPrevious);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('mouseNavEnabled'), isTrue);
+    expect(prefs.getString('mouseNavMapping'), 'leftPrevious');
+  });
+
+  test('TC-1493 resetAllSettings returns mouse-nav to defaults and clears '
+      'its prefs', () async {
+    final state = await hydrated();
+    state.setMouseNavEnabled(true);
+    state.setMouseNavMapping(MouseNavMapping.leftPrevious);
+    await state.resetAllSettings();
+    expect(state.mouseNavEnabled, isFalse);
+    expect(state.mouseNavMapping, MouseNavMapping.leftNext);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('mouseNavEnabled'), isNull);
+    expect(prefs.getString('mouseNavMapping'), isNull);
   });
 }

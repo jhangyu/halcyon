@@ -22,6 +22,10 @@ import '../views/layout/layout_theme.dart' show LayoutThemeId;
 /// malformed-value fallback, and `AppState.resetAllSettings`.
 const ThemeMode kDefaultThemeMode = ThemeMode.system;
 const LayoutThemeId kDefaultLayoutThemeId = LayoutThemeId.gallery;
+const MouseNavMapping kDefaultMouseNavMapping = MouseNavMapping.leftNext;
+
+/// Which button goes to the next photo (spec §1.2).
+enum MouseNavMapping { leftNext, leftPrevious }
 
 /// copyWith sentinel: lets `copyWith(retentionTierOverride: null)` CLEAR the
 /// override instead of meaning "keep".
@@ -49,6 +53,8 @@ class AppSettings {
     required this.exportFiletype,
     required this.retentionTierOverride,
     required this.shortcuts,
+    required this.mouseNavEnabled,
+    required this.mouseNavMapping,
   });
 
   factory AppSettings.defaults() => AppSettings(
@@ -62,6 +68,8 @@ class AppSettings {
         exportFiletype: kDefaultExportFiletype,
         retentionTierOverride: null,
         shortcuts: ShortcutBindings.defaults(),
+        mouseNavEnabled: false,
+        mouseNavMapping: kDefaultMouseNavMapping,
       );
 
   /// Appearance applies live like every other setting, so Cancel has to be
@@ -79,6 +87,8 @@ class AppSettings {
   /// Null means "no override, follow the machine-derived tier".
   final RetentionTier? retentionTierOverride;
   final ShortcutBindings shortcuts;
+  final bool mouseNavEnabled;
+  final MouseNavMapping mouseNavMapping;
 
   AppSettings copyWith({
     ThemeMode? themeMode,
@@ -91,6 +101,8 @@ class AppSettings {
     ExportFiletype? exportFiletype,
     Object? retentionTierOverride = _unset,
     ShortcutBindings? shortcuts,
+    bool? mouseNavEnabled,
+    MouseNavMapping? mouseNavMapping,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -105,6 +117,8 @@ class AppSettings {
             ? this.retentionTierOverride
             : retentionTierOverride as RetentionTier?,
         shortcuts: shortcuts ?? this.shortcuts,
+        mouseNavEnabled: mouseNavEnabled ?? this.mouseNavEnabled,
+        mouseNavMapping: mouseNavMapping ?? this.mouseNavMapping,
       );
 
   @override
@@ -119,7 +133,9 @@ class AppSettings {
       other.exportLongEdge == exportLongEdge &&
       other.exportFiletype == exportFiletype &&
       other.retentionTierOverride == retentionTierOverride &&
-      other.shortcuts == shortcuts;
+      other.shortcuts == shortcuts &&
+      other.mouseNavEnabled == mouseNavEnabled &&
+      other.mouseNavMapping == mouseNavMapping;
 
   @override
   int get hashCode => Object.hash(
@@ -133,6 +149,8 @@ class AppSettings {
         exportFiletype,
         retentionTierOverride,
         shortcuts,
+        mouseNavEnabled,
+        mouseNavMapping,
       );
 }
 
@@ -149,13 +167,16 @@ abstract final class SettingsCodec {
   static const kThemeMode = 'themeMode';
   static const kLayoutThemeId = 'layoutThemeId';
   static const kRetentionTier = 'retentionTier';
+  static const kMouseNavEnabled = 'mouseNavEnabled';
+  static const kMouseNavMapping = 'mouseNavMapping';
 
   /// Hydration. Each read stands alone: a corrupt export quality must not take
   /// down the retention tier, and one bad shortcut entry costs one binding.
   ///
   /// The two `getBool` reads are deliberately UNGUARDED, exactly as before
   /// this codec existed: a wrong-typed bool key throws out of hydration.
-  /// Wrapping them would be a behaviour change.
+  /// Wrapping them would be a behaviour change. New bool keys use `_readBool`
+  /// (no legacy to preserve).
   ///
   /// Returns the stored export-filetype NAME separately as the user's intent:
   /// runtime capability is not known yet at hydration, so the effective value
@@ -183,6 +204,9 @@ abstract final class SettingsCodec {
     final tierId = _readString(prefs, kRetentionTier);
     final retentionTierOverride =
         tierId == null ? null : retentionTierFromId(tierId);
+    final mouseNavEnabled = _readBool(prefs, kMouseNavEnabled) ?? false;
+    final mouseNavMapping =
+        mouseNavMappingFromName(_readString(prefs, kMouseNavMapping));
 
     var shortcuts = ShortcutBindings.defaults();
     for (final action in ShortcutAction.values) {
@@ -206,6 +230,8 @@ abstract final class SettingsCodec {
         exportFiletype: exportFiletype,
         retentionTierOverride: retentionTierOverride,
         shortcuts: shortcuts,
+        mouseNavEnabled: mouseNavEnabled,
+        mouseNavMapping: mouseNavMapping,
       ),
       exportFiletypeIntentName: intentName,
     );
@@ -248,6 +274,12 @@ abstract final class SettingsCodec {
     }
     if (old.layoutThemeId != next.layoutThemeId) {
       prefs.setString(kLayoutThemeId, next.layoutThemeId.name);
+    }
+    if (old.mouseNavEnabled != next.mouseNavEnabled) {
+      prefs.setBool(kMouseNavEnabled, next.mouseNavEnabled);
+    }
+    if (old.mouseNavMapping != next.mouseNavMapping) {
+      prefs.setString(kMouseNavMapping, next.mouseNavMapping.name);
     }
     if (old.retentionTierOverride != next.retentionTierOverride) {
       final tier = next.retentionTierOverride;
@@ -314,6 +346,13 @@ abstract final class SettingsCodec {
     return kDefaultLayoutThemeId;
   }
 
+  static MouseNavMapping mouseNavMappingFromName(String? raw) {
+    for (final mapping in MouseNavMapping.values) {
+      if (mapping.name == raw) return mapping;
+    }
+    return kDefaultMouseNavMapping;
+  }
+
   static int clampLaneWidth(int raw) => raw.clamp(1, kMaxDecodeLaneWidth);
 
   /// getInt/getString throw a TypeError when the stored value was written
@@ -322,6 +361,14 @@ abstract final class SettingsCodec {
   static int? _readInt(SharedPreferences? prefs, String key) {
     try {
       return prefs?.getInt(key);
+    } catch (_) {
+      return null; // wrong stored type; fall back to the default
+    }
+  }
+
+  static bool? _readBool(SharedPreferences? prefs, String key) {
+    try {
+      return prefs?.getBool(key);
     } catch (_) {
       return null; // wrong stored type; fall back to the default
     }

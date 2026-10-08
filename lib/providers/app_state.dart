@@ -443,6 +443,8 @@ class AppState extends ChangeNotifier {
   String? get selectedItemID => _selectedItemID;
   Directory? get currentDir => _currentDir;
   bool get autoAdvance => _settings.autoAdvance;
+  bool get mouseNavEnabled => _settings.mouseNavEnabled;
+  MouseNavMapping get mouseNavMapping => _settings.mouseNavMapping;
 
   /// Drives `MaterialApp.themeMode` (main.dart). `system` resolves through the
   /// platform brightness, so this is the stored intent, not the rendering.
@@ -858,6 +860,12 @@ class AppState extends ChangeNotifier {
 
   void setAutoAdvance(bool value) =>
       _apply(_settings.copyWith(autoAdvance: value));
+
+  void setMouseNavEnabled(bool value) =>
+      _apply(_settings.copyWith(mouseNavEnabled: value));
+
+  void setMouseNavMapping(MouseNavMapping value) =>
+      _apply(_settings.copyWith(mouseNavMapping: value));
 
   void setOverwriteExisting(bool value) =>
       _apply(_settings.copyWith(overwriteExisting: value));
