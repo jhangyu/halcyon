@@ -307,7 +307,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1511 a clean right click goes to the previous photo', (tester) async {
@@ -316,7 +315,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0001');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1512 a 10 px drag does not navigate', (tester) async {
@@ -327,7 +325,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003', reason: 'control');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1513 a 10 px drag at 3x zoom pans and does not navigate',
@@ -346,7 +343,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003', reason: 'control: clicks work at 3x');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1514 a long press does not navigate', (tester) async {
@@ -358,7 +354,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003', reason: 'control');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1515 with the feature off a click does nothing', (tester) async {
@@ -371,7 +366,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003', reason: 'control: on = navigates');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1517 a click on an unreadable photo still navigates',
@@ -388,7 +382,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1518 a click on the loading spinner still navigates',
@@ -404,7 +397,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 
   testWidgets('TC-1519 a double click is two clicks: two photos forward',
@@ -416,6 +408,5 @@ void main() {
     expect(state.selectedItemID, 'IMG_0004');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 }

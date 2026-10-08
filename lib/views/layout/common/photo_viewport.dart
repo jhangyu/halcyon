@@ -7,6 +7,7 @@ import '../../../services/image_pipeline/photo_payload.dart';
 import '../../../services/image_pipeline/payload_state.dart';
 import '../../zoom_controller.dart';
 import 'app_actions_menu.dart' show openFolderShortcutLabel;
+import 'mouse_click_nav.dart';
 import 'photo_thumbnail.dart' show thumbnailProviderFor;
 import '../darkroom/darkroom_empty_state.dart';
 import '../gallery/gallery_palette.dart';
@@ -107,32 +108,38 @@ class _PhotoViewportState extends State<PhotoViewport>
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Stack(
-      children: [
-        // Viewer Area
-        //
-        // PHASE 5: the viewer subtree repaints off the SELECTED ITEM'S OWN
-        // payload state, not off every app-wide notification. The state value
-        // itself is deliberately unused below -- what to paint is still
-        // decided by AppState's existing getters (full-size readiness /
-        // interim thumbnail / failure), which are the pipeline's single
-        // source of truth; the
-        // listenable only says WHEN to re-read them. Reading them inside this
-        // builder is what makes the read fresh.
-        Positioned.fill(
-          child: ValueListenableBuilder<PayloadState>(
-            valueListenable: state.payloadStateFor(currentId),
-            builder: (context, _, _) => state.currentItemFailed
-                ? _buildUnreadable(item)
-                : _buildZoomableViewer(
-                    state.currentItemHasFullSize,
-                    currentId, // PERF-INSTRUMENTATION
-                    state.displayProvider,
-                    state.thumbnailPayloadFor(currentId),
-                  ),
+    // Mouse-click navigation (spec §4.1): wraps the photo-present Stack only,
+    // so the empty-folder branch above never feeds it. Sits above the
+    // ValueListenableBuilder (survives unreadable/spinner swaps mid-press)
+    // and outside InteractiveViewer (travel measured in screen pixels).
+    return MouseClickNav(
+      child: Stack(
+        children: [
+          // Viewer Area
+          //
+          // PHASE 5: the viewer subtree repaints off the SELECTED ITEM'S OWN
+          // payload state, not off every app-wide notification. The state value
+          // itself is deliberately unused below -- what to paint is still
+          // decided by AppState's existing getters (full-size readiness /
+          // interim thumbnail / failure), which are the pipeline's single
+          // source of truth; the
+          // listenable only says WHEN to re-read them. Reading them inside this
+          // builder is what makes the read fresh.
+          Positioned.fill(
+            child: ValueListenableBuilder<PayloadState>(
+              valueListenable: state.payloadStateFor(currentId),
+              builder: (context, _, _) => state.currentItemFailed
+                  ? _buildUnreadable(item)
+                  : _buildZoomableViewer(
+                      state.currentItemHasFullSize,
+                      currentId, // PERF-INSTRUMENTATION
+                      state.displayProvider,
+                      state.thumbnailPayloadFor(currentId),
+                    ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

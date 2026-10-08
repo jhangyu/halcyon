@@ -198,7 +198,6 @@ void main() {
     expect(state.selectedItemID, 'IMG_0003', reason: 'control');
     await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
   },
-      skip: true, // mousenav-R2 T7
   );
 }
 
