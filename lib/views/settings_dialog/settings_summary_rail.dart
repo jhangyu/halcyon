@@ -163,7 +163,7 @@ class SettingsSummaryRail extends StatelessWidget {
               'Mouse navigation',
               Text(
                 _mouseNavLabel(state),
-                key: const Key('summaryRail.mouseNav'), // TC-1520..1522/1526
+                key: const Key('summaryRail.mouseNav'),
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'monospace',

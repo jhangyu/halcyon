@@ -213,7 +213,7 @@ class SettingsTabBar extends StatelessWidget {
           for (var i = 0; i < labels.length; i++) ...[
             // 3 (mockup .tabs gap 4) + 15 (mockup .tab padding 16) below:
             // trimmed 1 px each so five tabs fit the 920 px dialog under the
-            // full-em test font (TC-1509; lead ruling 2026-10-08).
+            // full-em test font (lead ruling 2026-10-08).
             if (i > 0) const SizedBox(width: 3),
             Material(
               key: keys[i],

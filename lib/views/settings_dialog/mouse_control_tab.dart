@@ -69,7 +69,7 @@ class MouseControlTab extends StatelessWidget {
           IgnorePointer(
             ignoring: !enabled,
             child: Opacity(
-              key: const Key('mouseControl.mappingRow'), // TC-1507/1508 read this
+              key: const Key('mouseControl.mappingRow'),
               opacity: enabled ? 1.0 : 0.4,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

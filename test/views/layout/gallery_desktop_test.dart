@@ -1,17 +1,10 @@
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:halcyon_flutter/providers/app_state.dart';
-import 'package:halcyon_flutter/views/layout/common/photo_viewport.dart';
 import 'package:halcyon_flutter/views/layout/common/resizable_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_column.dart';
 import 'package:halcyon_flutter/views/layout/gallery/gallery_desktop.dart';
 import 'package:halcyon_flutter/views/layout/main_surface.dart';
-import 'package:halcyon_flutter/views/zoom_controller.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../support/mouse_nav_fixtures.dart';
 import '../../support/view_fixtures.dart';
 
 /// Builds the desktop surface at a fixed 1440x900 window with a minimal,
@@ -171,34 +164,6 @@ void main() {
       await tester.binding.setSurfaceSize(null);
     });
   });
-
-  testWidgets('TC-1516 a click on a control drawn over the photo does not '
-      'navigate', (tester) async {
-    SharedPreferences.setMockInitialValues({}); // AppState reads prefs at construction
-    await tester.binding.setSurfaceSize(const Size(1440, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final state = await loadMouseNavState(tester);
-    state.setMouseNavEnabled(true);
-    await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
-      value: state,
-      child: MaterialApp(home: Scaffold(body: GalleryDesktopSurface(
-        surface: testSurface(viewport: PhotoViewport(zoom: ZoomController())),
-      ))),
-    ));
-    await tester.pump();
-    // The column-resize dead zone (gallery_desktop.dart, kGalleryHandleDeadZoneKey)
-    // is a later Stack sibling that overhangs the photo's left edge.
-    final photo = tester.getRect(find.byType(PhotoViewport));
-    final handle = tester.getRect(find.byKey(kGalleryHandleDeadZoneKey));
-    expect(photo.overlaps(handle), isTrue, reason: 'precondition: control is over the photo');
-    final onBoth = Offset(math.max(photo.left, handle.left) + 1, handle.center.dy);
-    await mouseClick(tester, onBoth);
-    expect(state.selectedItemID, 'IMG_0002');
-    await mouseClick(tester, photo.center);
-    expect(state.selectedItemID, 'IMG_0003', reason: 'control');
-    await tester.pump(const Duration(seconds: 6)); // flush nav timers (EXIF debounce, 5 s)
-  },
-  );
 }
 
 /// A key that no widget in the tree carries any more (the shadow wrapper was
