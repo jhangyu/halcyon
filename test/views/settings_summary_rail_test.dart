@@ -14,11 +14,12 @@ Future<AppState> pumpRail(WidgetTester tester, void Function(AppState) setUpStat
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = AppState();
   addTearDown(state.dispose);
-  setUpState(state);
   await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
     value: state,
     child: const MaterialApp(home: Scaffold(body: SettingsSummaryRail())),
   ));
+  await tester.pump(); // let AppState hydrate prefs before applying settings
+  setUpState(state);
   await tester.pump();
   return state;
 }
@@ -31,14 +32,12 @@ void main() {
     expect(find.text('Mouse navigation'), findsOneWidget);
     expect(railValue(tester), 'Off');
   },
-      skip: true, // mousenav-R2 T8
   );
 
   testWidgets('TC-1521 the rail shows "On · L = Next" for the default direction', (tester) async {
     await pumpRail(tester, (s) => s.setMouseNavEnabled(true));
     expect(railValue(tester), 'On · L = Next');
   },
-      skip: true, // mousenav-R2 T8
   );
 
   testWidgets('TC-1522 the rail shows "On · L = Previous" for the reversed '
@@ -49,7 +48,6 @@ void main() {
     });
     expect(railValue(tester), 'On · L = Previous');
   },
-      skip: true, // mousenav-R2 T8
   );
 
   testWidgets('TC-1526 off shows "Off" even with the reversed direction stored',
@@ -57,6 +55,5 @@ void main() {
     await pumpRail(tester, (s) => s.setMouseNavMapping(MouseNavMapping.leftPrevious));
     expect(railValue(tester), 'Off');
   },
-      skip: true, // mousenav-R2 T8
   );
 }

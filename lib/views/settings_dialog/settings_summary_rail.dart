@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/shortcut_bindings.dart';
+import '../../providers/app_settings.dart';
 import '../../providers/app_state.dart';
 import '../../services/image_pipeline/retention_policy.dart';
 import '../../services/library/photo_export_service.dart';
@@ -154,6 +155,22 @@ class SettingsSummaryRail extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 14),
+            // Spec §3.5: a hidden input mode that changes what a click does
+            // belongs in the at-a-glance view.
+            _item(
+              t,
+              'Mouse navigation',
+              Text(
+                _mouseNavLabel(state),
+                key: const Key('summaryRail.mouseNav'), // TC-1520..1522/1526
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: t.text,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -179,6 +196,15 @@ class SettingsSummaryRail extends StatelessWidget {
     LayoutThemeId.paper => 'Paper',
     LayoutThemeId.darkroom => 'Darkroom',
   };
+
+  /// Spec §3.5 values. Off hides the mapping: it has no effect while off.
+  static String _mouseNavLabel(AppState state) {
+    if (!state.mouseNavEnabled) return 'Off';
+    return switch (state.mouseNavMapping) {
+      MouseNavMapping.leftNext => 'On · L = Next',
+      MouseNavMapping.leftPrevious => 'On · L = Previous',
+    };
+  }
 
   Widget _item(HalcyonTokens t, String label, Widget value) {
     return Column(
