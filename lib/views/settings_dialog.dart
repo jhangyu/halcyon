@@ -5,6 +5,7 @@ import '../providers/app_settings.dart';
 import '../services/image_pipeline/retention_policy.dart';
 import 'settings_dialog/appearance_tab.dart';
 import 'settings_dialog/export_tab.dart';
+import 'settings_dialog/mouse_control_tab.dart';
 import 'settings_dialog/performance_memory_tab.dart';
 import 'settings_dialog/settings_primitives.dart';
 import 'settings_dialog/settings_summary_rail.dart';
@@ -119,7 +120,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         0 => const PerformanceMemoryTab(),
                         1 => const AppearanceTab(),
                         2 => const ExportTab(),
-                        _ => const ShortcutsTab(),
+                        3 => const ShortcutsTab(),
+                        _ => const MouseControlTab(),
                       },
                     ),
                   ),
@@ -188,12 +190,14 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 'Appearance',
                 'Export',
                 'Shortcuts',
+                'Mouse Control',
               ],
               keys: const [
                 Key('settingsTab.performanceMemory'),
                 Key('settingsTab.appearance'),
                 Key('settingsTab.export'),
                 Key('settingsTab.shortcuts'),
+                Key('settingsTab.mouseControl'),
               ],
               selectedIndex: _tab,
               onSelect: (i) => setState(() => _tab = i),

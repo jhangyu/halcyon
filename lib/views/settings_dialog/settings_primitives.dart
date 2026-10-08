@@ -211,7 +211,10 @@ class SettingsTabBar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < labels.length; i++) ...[
-            if (i > 0) const SizedBox(width: 4),
+            // 3 (mockup .tabs gap 4) + 15 (mockup .tab padding 16) below:
+            // trimmed 1 px each so five tabs fit the 920 px dialog under the
+            // full-em test font (TC-1509; lead ruling 2026-10-08).
+            if (i > 0) const SizedBox(width: 3),
             Material(
               key: keys[i],
               type: MaterialType.transparency,
@@ -220,7 +223,7 @@ class SettingsTabBar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: 15,
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(

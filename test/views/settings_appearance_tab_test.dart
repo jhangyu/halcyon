@@ -133,7 +133,7 @@ Color _borderColourOf(WidgetTester tester, Key key) {
 
 void main() {
   testWidgets(
-      'TC-806 the tab bar renders four labels with Appearance at index 1, and '
+      'TC-806 the tab bar renders five labels with Appearance at index 1, and '
       'selecting it swaps the body', (tester) async {
     final state = await _hydrated(tester);
     await _pump(tester, state);
@@ -144,6 +144,7 @@ void main() {
       'Appearance',
       'Export',
       'Shortcuts',
+      'Mouse Control',
     ]);
     expect(bar.labels[1], 'Appearance');
     expect(bar.keys[1], const Key('settingsTab.appearance'));
