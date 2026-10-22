@@ -83,10 +83,10 @@ void main() {
     }
 
     group('TC-330: the probe seam routes by container family', () {
-      test('a .tif is read by the IFD0 walker, not the HEIF probe', () async {
-        var heifCalls = 0;
-        Future<BitmapContainerExtent?> neverHeif(String path) async {
-          heifCalls++;
+      test('a .tif is read by the IFD0 walker, not the still probe', () async {
+        var stillCalls = 0;
+        Future<BitmapContainerExtent?> neverStill(String path) async {
+          stillCalls++;
           return null;
         }
 
@@ -94,44 +94,44 @@ void main() {
           'scan.tif',
           buildSyntheticTiffHeader(width: 800, height: 600, orientation: 6),
         );
-        final extent = await probeBitmapContainer(path, stillProbe: neverHeif);
+        final extent = await probeBitmapContainer(path, stillProbe: neverStill);
         expect(extent, isNotNull);
         expect(extent!.width, 800);
         expect(extent.height, 600);
         expect(extent.orientation, 6);
         expect(
-          heifCalls,
+          stillCalls,
           0,
-          reason: 'a TIFF must never reach the native HEIF probe — that would '
+          reason: 'a TIFF must never reach the native still probe — that would '
               'load a dylib on a path that has a pure-Dart answer',
         );
       });
 
-      test('a .heic is read by the HEIF probe, not the IFD0 walker', () async {
-        var heifCalls = 0;
-        Future<BitmapContainerExtent?> fakeHeif(String path) async {
-          heifCalls++;
+      test('a .heic is read by the still probe, not the IFD0 walker', () async {
+        var stillCalls = 0;
+        Future<BitmapContainerExtent?> fakeStill(String path) async {
+          stillCalls++;
           return (width: 4032, height: 3024, orientation: 1);
         }
 
         // Content is irrelevant: the IFD0 walker would return null on ISO-BMFF
-        // anyway, so a non-null answer can only have come from the HEIF arm.
+        // anyway, so a non-null answer can only have come from the still arm.
         final path = await write('shot.heic', Uint8List.fromList([0, 0, 0, 24]));
-        final extent = await probeBitmapContainer(path, stillProbe: fakeHeif);
-        expect(heifCalls, 1);
+        final extent = await probeBitmapContainer(path, stillProbe: fakeStill);
+        expect(stillCalls, 1);
         expect(extent, isNotNull);
         expect(extent!.width, 4032);
         expect(extent.height, 3024);
         expect(extent.orientation, 1);
       });
 
-      test('an unavailable HEIF probe yields null, never a throw', () async {
+      test('an unavailable still probe yields null, never a throw', () async {
         Future<BitmapContainerExtent?> unavailable(String path) async => null;
         final path = await write('shot2.heic', Uint8List.fromList([0, 0, 0, 24]));
         expect(await probeBitmapContainer(path, stillProbe: unavailable), isNull);
       });
 
-      test('a throwing HEIF probe is swallowed into null', () async {
+      test('a throwing still probe is swallowed into null', () async {
         Future<BitmapContainerExtent?> boom(String path) async =>
             throw StateError('dylib exploded');
         final path = await write('shot3.heic', Uint8List.fromList([0, 0, 0, 24]));
@@ -152,7 +152,7 @@ void main() {
 
       test('a throwing JXL probe becomes null, never an exception', () async {
         // The loader above this layer is documented as never throwing
-        // (bitmap_container_probe.dart:44-51); a new arm must not break that.
+        // (`stillExtentProbe`); a new arm must not break that.
         final extent = await probeBitmapContainer(
           'tmp/x.jxl',
           stillProbe: (_) async => throw StateError('boom'),
@@ -160,16 +160,16 @@ void main() {
         expect(extent, isNull);
       });
 
-      test('.avif probes through the libheif arm', () async {
-        var heifCalls = 0;
+      test('.avif probes through the still probe', () async {
+        var stillCalls = 0;
         await probeBitmapContainer(
           'tmp/x.avif',
           stillProbe: (_) async {
-            heifCalls++;
+            stillCalls++;
             return (width: 100, height: 50, orientation: 1);
           },
         );
-        expect(heifCalls, 1);
+        expect(stillCalls, 1);
       });
     });
   });
