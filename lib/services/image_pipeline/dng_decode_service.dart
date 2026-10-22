@@ -216,7 +216,7 @@ List<int>? Function()? debugDecodeWidthRecommendationsOverride;
 
 /// R4 item 1 / ruling r-6. This machine's ADVISORY recommended decode widths
 /// for the 24 MP / 61 MP / 108 MP classes, or null when no decode worker has
-/// reported yet (or the pinned dylib predates the query).
+/// reported yet.
 ///
 /// FOR DISPLAY ONLY — nothing clamps the user's lane width against these.
 List<int>? halcyonDecodeWidthRecommendations() {

@@ -113,7 +113,7 @@ void main() {
           required quality,
           keepAlive,
         }) async =>
-            throw StateError('CeyxEncodeUnavailableException (simulated: no native symbols)'),
+            throw StateError('simulated native encode failure'),
         nativeAddress: 0xDEAD,
         fallback: () async => fallback,
         fullRes: (rgba: Uint8List(40 * 40 * 4), width: 40, height: 40),
