@@ -109,9 +109,8 @@ class DecodedRgba {
   /// The EXIF orientation the DECODER has already applied to [rgba], or 1
   /// when it applied none. Never a request; always a report. Halcyon applies
   /// only the RESIDUAL (`residualExifOrientation` in `exif_orientation.dart`),
-  /// so a decoder that ignores the request, a build whose dylib predates the
-  /// oriented entry, and the pure-Dart TIFF arm are all correct without a
-  /// feature flag. Defaults to 1 so every existing construction site
+  /// so a decoder that ignores the request and the pure-Dart TIFF arm are
+  /// both correct without a feature flag. Defaults to 1 so every existing construction site
   /// (production and every fake decoder in the test suite) is unaffected.
   final int appliedOrientation;
 
