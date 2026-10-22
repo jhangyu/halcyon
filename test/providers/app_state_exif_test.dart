@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService, CeyxImageFormat;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../support/preload_fixtures.dart' show until;
@@ -31,16 +31,6 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    // `resolveExportCapabilities` (fired from `_initPrefs`) probes the native
-    // encode library; in this test environment that spawns worker isolates.
-    // Seeding the unavailability cache makes `supports` fail fast in a
-    // microtask, so its one `notifyListeners` lands deterministically inside
-    // the construction settle and never leaks into the counts below.
-    CeyxEncodeService.debugMarkUnavailableForTesting(null);
-  });
-
-  tearDown(() {
-    CeyxEncodeService.resetAvailabilityCacheForTesting();
   });
 
   group('AppState selection EXIF cache', () {
@@ -274,6 +264,16 @@ AppState _state({
     preloadController: _SilentPreload(),
     exifReader: exifReader,
     exifDebounce: exifDebounce,
+    // `resolveExportCapabilities` (fired from `_initPrefs`) probes the encode
+    // service; the real one spawns worker isolates. This fake answers in a
+    // microtask, so its one `notifyListeners` lands deterministically inside
+    // the construction settle and never leaks into the counts below.
+    encodeService: _NoEncodeService(),
   );
+}
+
+class _NoEncodeService extends CeyxEncodeService {
+  @override
+  Future<bool> supports(CeyxImageFormat format) async => false;
 }
 
