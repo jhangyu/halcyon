@@ -57,6 +57,54 @@ void main() {
     expect(find.textContaining('唯讀'), findsNothing);
   });
 
+  testWidgets('a message emitted before mount is shown after mount',
+      (tester) async {
+    final state = AppState();
+    state.showStatus(const StatusMessage('此卷宗為*唯讀*，標記不會被儲存'));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [StatusLine()],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.textContaining('唯讀'), findsOneWidget);
+    await tester.pump(StatusLine.visibleDuration);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('唯讀'), findsNothing);
+  });
+
+  testWidgets('a remounted line does not replay an already-shown message',
+      (tester) async {
+    final state = AppState();
+    Widget host(Key k) => ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [StatusLine(key: k)],
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(host(const ValueKey(1)));
+    state.showStatus(const StatusMessage('此卷宗為*唯讀*，標記不會被儲存'));
+    await tester.pump();
+    expect(find.textContaining('唯讀'), findsOneWidget);
+    await tester.pump(StatusLine.visibleDuration);
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(host(const ValueKey(2))); // forces a remount
+    await tester.pump();
+    expect(find.textContaining('唯讀'), findsNothing);
+  });
+
   testWidgets('a second message restarts the timer', (tester) async {
     final state = await pumpLine(tester);
     state.showStatus(const StatusMessage('第一則'));

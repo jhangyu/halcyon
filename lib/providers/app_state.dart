@@ -395,6 +395,10 @@ class AppState extends ChangeNotifier {
   /// listens to this instead of the whole-app [notifyListeners] stream.
   final ValueNotifier<StatusEvent?> statusEvents = ValueNotifier(null);
 
+  /// [StatusEvent.seq] last displayed by any [StatusLine]; lets a remounted
+  /// line show a pre-mount event without replaying an already-shown one.
+  int lastDisplayedStatusSeq = 0;
+
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     final r = SettingsCodec.read(

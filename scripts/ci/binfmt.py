@@ -107,7 +107,8 @@ def elf_needed(data):
     """DT_NEEDED sonames of a 64-bit little-endian ELF shared object, in order.
 
     Read from the SHT_DYNAMIC section and its linked string table (stripped
-    libraries keep section headers). Raises ValueError for anything that is not
+    libraries keep section headers). Raises ValueError for a missing
+    SHT_DYNAMIC section (never a vacuous []) and for anything that is not
     ELF64 little-endian (x86_64 and aarch64 are both exactly that).
     """
     if data[:4] != b"\x7fELF":
@@ -123,6 +124,8 @@ def elf_needed(data):
         sh_offset, sh_size = struct.unpack_from("<QQ", data, base + 0x18)
         sh_link = struct.unpack_from("<I", data, base + 0x28)[0]
         sections.append((sh_type, sh_offset, sh_size, sh_link))
+    if not any(sh_type == 6 for sh_type, *_ in sections):  # SHT_DYNAMIC
+        raise ValueError("ELF has no SHT_DYNAMIC section (stripped section headers?)")
     needed = []
     for sh_type, offset, size, link in sections:
         if sh_type != 6:  # SHT_DYNAMIC

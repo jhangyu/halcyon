@@ -119,3 +119,12 @@ Ruling source for the entries below: `docs/logs/2026-10-04/memreclaim-spec.md` �
 - **驗證方式**: code review of the two call sites (fix commit `d5bf7ec`).
 - **對應測試名**: no test pins the pointer count (`test/perf/perf_driver_memgate_test.dart` only checks counter printing).
 - **裁決出處**: Task 6 ruling R4 (2026-10-04), held in the ceyx repo's `INVARIANTS.md` (R4).
+
+## INV-8 Default decode lane width is 2
+
+- **行為**: `kDefaultDecodeLaneWidth` (`lib/services/image_pipeline/retention_policy.dart:150`) stays 2; the configurable range
+  is 1..8. The earlier contract wording "unconfigured default is 4" (2026-09-05) is superseded and must not be reinstated.
+- **適用平台**: all (same Dart constant everywhere).
+- **驗證方式**: `flutter test test/services/image_pipeline/retention_test.dart`.
+- **對應測試名**: TC-347 `decode lane width has a fixed 1..8 range, no CPU/memory-derived ceiling` (`retention_test.dart:115`).
+- **裁決出處**: user ruling 2026-10-23 (R1).

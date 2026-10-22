@@ -74,6 +74,12 @@ class ElfDepsTest(unittest.TestCase):
     def test_parser_reads_needed(self):
         self.assertEqual(binfmt.elf_needed(make_elf(["a.so.1", "libc.so.6"])), ["a.so.1", "libc.so.6"])
 
+    def test_no_dynamic_section_raises(self):
+        data = bytearray(make_elf(["a.so.1"]))
+        struct.pack_into("<H", data, 0x3C, 0)  # e_shnum = 0
+        with self.assertRaises(ValueError):
+            binfmt.elf_needed(bytes(data))
+
     def test_red_when_companion_missing(self):
         status, msg = self._run(self._bundle(False))
         self.assertEqual(status, "fail")

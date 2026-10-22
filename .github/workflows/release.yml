@@ -80,6 +80,8 @@ jobs:
           - {os: ubuntu-24.04-arm, target: linux-arm,   archive: 'Halcyon-linux-arm64-', flutter_source: git}
           - {os: windows-11-arm,   target: windows-arm, archive: 'Halcyon-windows-arm64-', flutter_arch: x64}
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,6 +129,7 @@ jobs:
       - name: Upload ci-logs
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: ci-logs-release-${{ matrix.target }}
           path: Halcyon/build/ci-logs/**

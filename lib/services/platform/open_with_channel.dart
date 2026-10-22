@@ -10,10 +10,10 @@ import 'package:flutter/services.dart';
 /// (channel buffers hold the message until a handler is registered), so the
 /// launch-time file arrives whenever Dart is ready.
 ///
-/// Platform status: macOS, Windows, Android and iOS all push on this
+/// Platform status: macOS, Windows, Linux, Android and iOS all push on this
 /// channel now (see macos/Runner/AppDelegate.swift,
-/// windows/runner/flutter_window.cpp, the Android MainActivity, and
-/// ios/Runner/AppDelegate.swift).
+/// windows/runner/flutter_window.cpp, linux/runner/halcyon_channels.cc,
+/// the Android MainActivity, and ios/Runner/AppDelegate.swift).
 ///
 /// Android resolves its intent URI before pushing: `file://` forwards the
 /// path as-is, and a `content://` URI (which has no real filesystem path) is

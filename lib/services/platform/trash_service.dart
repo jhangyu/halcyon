@@ -16,7 +16,7 @@ class TrashService {
     } on MissingPluginException catch (e) {
       // There is no trash bridge on this machine at all. A capability fact,
       // not a per-file error: the caller reroutes the whole batch to the
-      // in-folder recycle path (photo_file_actions.dart:118).
+      // in-folder recycle path (PhotoFileActions.deleteBatch).
       debugPrint("Trash service is unavailable: '${e.message}'.");
       throw const TrashException('Trash service is unavailable',
           bridgeUnavailable: true);

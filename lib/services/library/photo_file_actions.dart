@@ -173,8 +173,11 @@ class PhotoFileActions {
       if (item.status != PhotoStatus.trashed) continue;
 
       for (final file in item.files) {
+        // Already gone (e.g. sent to the system trash before the bridge
+        // vanished mid-batch): nothing to move and nothing failed.
+        if (!await file.exists()) continue;
         final sidecar = File(sidecarPathFor(file.path));
-        // The photo always moves; its AppleDouble sidecar only if present.
+        // The photo moves; its AppleDouble sidecar only if present.
         final targets = <File>[
           file,
           if (await sidecar.exists()) sidecar,

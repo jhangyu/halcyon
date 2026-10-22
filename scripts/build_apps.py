@@ -2075,6 +2075,35 @@ def _member_set_equal(pin_members, archive_members):
     return sorted(pin_members) == sorted(archive_members)
 
 
+def download_ceyx_release_asset(layout, tag, asset):
+    """(path, sha256) of `asset` in the per-tag cache, downloading only when absent.
+
+    The cache build/ceyx-release-cache/<tag>/ is TRUSTED: files there are only
+    ever produced by this function's atomic .part -> os.replace, so a present
+    file is complete and is reused, and its sha256 is what gets pinned. A
+    hand-placed or corrupt file would therefore be pinned unchecked - delete
+    the tag's cache dir to force a fresh download."""
+    cache_dir = ceyx_cache_dir(layout, tag)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / asset
+    if dest.exists():  # only ever created by the atomic rename below, so complete
+        ok(f"cache hit: {dest}")
+        return dest, sha256_of(dest)
+    tmp = cache_dir / (asset + ".part")
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(60)
+    try:
+        download_with_progress(
+            ceyx_asset_url(tag, asset),
+            str(tmp),
+            failure_hints=[f"Place the file at {dest} yourself, then re-run."],
+        )
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+    os.replace(tmp, dest)
+    return dest, sha256_of(dest)
+
+
 def update_ceyx_pin_latest(layout, tag=None):
     """--ceyx-release latest|<tag>: resolve the release, download every archive
     this script consumes, record their real sha256 (plus artifacts.lock's own
@@ -2094,20 +2123,7 @@ def update_ceyx_pin_latest(layout, tag=None):
     ok(f"target release: {tag}")
 
     def download_asset(asset):
-        cache_dir = ceyx_cache_dir(layout, tag)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        dest = cache_dir / asset
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(60)
-        try:
-            download_with_progress(
-                ceyx_asset_url(tag, asset),
-                str(dest),
-                failure_hints=[f"Place the file at {dest} yourself, then re-run."],
-            )
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-        return dest, sha256_of(dest)
+        return download_ceyx_release_asset(layout, tag, asset)
 
     # The lock is recorded first: its own digest is pinned so that the
     # cross-check on a later build cannot be satisfied by a substituted lock.

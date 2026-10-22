@@ -73,4 +73,42 @@ void main() {
       expect(outcome.processedCount, 2);
     });
   });
+
+  group('PhotoFileActions.deleteBatch bridge vanishes mid-batch', () {
+    test('already-trashed files are not recycled nor reported as failures',
+        () async {
+      final dir = await makeTempDir('halcyon_midbatch_');
+      final files = [
+        for (var i = 1; i <= 3; i++) File('${dir.path}/IMG_000$i.jpg'),
+      ];
+      for (final f in files) {
+        await f.writeAsBytes([0]);
+      }
+
+      var call = 0;
+      final actions = PhotoFileActions(
+        trashFile: (file) async {
+          call++;
+          if (call == 1) {
+            await file.delete(); // really moved to the system trash
+            return;
+          }
+          throw const TrashException('unavailable', bridgeUnavailable: true);
+        },
+      );
+
+      final r = await actions.deleteBatch([
+        for (var i = 0; i < files.length; i++)
+          PhotoItem(
+            id: 'IMG_000${i + 1}',
+            files: [files[i]],
+            status: PhotoStatus.trashed,
+          ),
+      ], dir, recycleMode: false);
+
+      expect(r.result.failures, isEmpty);
+      expect(r.result.movedCount, 2);
+      expect(r.result.mixedDestination, isTrue);
+    });
+  });
 }

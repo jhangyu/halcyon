@@ -99,10 +99,11 @@ endif()
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
-# The flutter tool only creates this directory when some package actually ships
-# native assets; this project has none, so on a clean build it never exists and
-# the install() below fails with "file INSTALL cannot find". Create it so the
-# rule always has an (empty) source. Harmless when the tool does populate it.
+# On a clean build this directory can be absent when the install rule runs
+# (cause not diagnosed: e.g. cmake_install.cmake run without flutter assemble,
+# or a stale cache), and install(DIRECTORY) then fails with "file INSTALL cannot
+# find". Create it so the rule always has an (empty) source. Harmless when the
+# tool does populate it.
 file(MAKE_DIRECTORY "${NATIVE_ASSETS_DIR}")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

@@ -41,6 +41,11 @@ class _StatusLineState extends State<StatusLine> {
     super.initState();
     _appState = context.read<AppState>();
     _appState!.statusEvents.addListener(_onStatusEvent);
+    // The notifier retains the latest event; show it only if no line has yet.
+    final pending = _appState!.statusEvents.value;
+    if (pending != null && pending.seq > _appState!.lastDisplayedStatusSeq) {
+      _show(pending);
+    }
   }
 
   @override
@@ -52,11 +57,12 @@ class _StatusLineState extends State<StatusLine> {
 
   void _onStatusEvent() {
     final event = _appState?.statusEvents.value;
-    if (event != null) setState(() => _show(event.message));
+    if (event != null) setState(() => _show(event));
   }
 
-  void _show(StatusMessage message) {
-    _message = message;
+  void _show(StatusEvent event) {
+    _appState!.lastDisplayedStatusSeq = event.seq;
+    _message = event.message;
     _visible = true;
     _timer?.cancel();
     _timer = Timer(StatusLine.visibleDuration, () {
