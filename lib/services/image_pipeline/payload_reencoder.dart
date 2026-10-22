@@ -64,9 +64,9 @@ typedef PointerPayloadEncoder =
 /// disagreement, which is only a meaningful check if it is handed the true
 /// figure.
 ///
-/// A dylib predating the entry throws `CeyxFormatUnsupportedException` rather
-/// than falling back to the rgba8 entry -- that fallback would encode the
-/// wrong number of bytes per pixel. Callers degrade to the BYTE arm instead,
+/// A failure throws rather than falling back to the rgba8 entry -- that
+/// fallback would encode the wrong number of bytes per pixel. Callers degrade
+/// to the BYTE arm instead,
 /// and must do so LOUDLY (see [reencodeFallbacks]): a silent degrade here is
 /// indistinguishable from the feature working, which is the shape of the two
 /// defects this campaign already produced.

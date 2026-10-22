@@ -137,6 +137,21 @@ DecodedRgba _opaque2x2() => DecodedRgba(
   height: 2,
 );
 
+/// Reproduces what the production default encoder does when no native library
+/// can be loaded: the encode fails ASYNCHRONOUSLY (the real call spawns an
+/// isolate before it discovers the library is missing), so the caller takes its
+/// decode-only fallback payload one event-loop turn later. Binding it makes a
+/// test independent of whether a real library is reachable.
+Future<Uint8List> unavailableLibraryEncoder(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) async {
+  await Future<void>.delayed(Duration.zero);
+  throw StateError('native library unavailable (simulated)');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -981,6 +996,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1073,6 +1089,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1136,6 +1153,7 @@ void main() {
           () => decodesOfTarget() == 2,
           reason: 'the AD-034 catch-up full-res decode on re-entry',
         );
+        await pumpEventLoop(24);
         expect(
           decodesOfTarget(),
           2,
@@ -1282,6 +1300,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
+            payloadEncoder: unavailableLibraryEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1388,6 +1407,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
+            payloadEncoder: unavailableLibraryEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1753,6 +1773,7 @@ void main() {
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1975,6 +1996,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2035,6 +2057,7 @@ void main() {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2066,6 +2089,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       await el.pumpUntil(() => decodesOfTarget() >= 3 && controller.debugBandEntryFileDecodeCount > 0);
+      await pumpEventLoop(24);
       // The PixelPayload (window-resolution) is retained through the whole
       // excursion: it never leaves the unchanged -3..+5 retention window.
       expect(identical(controller.payloadFor(items[8].id), first), isTrue);
@@ -2411,6 +2435,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2525,6 +2550,7 @@ void main() {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2571,6 +2597,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2655,6 +2682,7 @@ void main() {
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2760,6 +2788,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),

@@ -184,7 +184,7 @@ NATIVE_SPECS = {
 }
 
 # Phase 2 (HEIC): the vendored libheif/libde265 distribution, produced by
-# ceyx's native/scripts/fetch_heif_deps.sh. Only macOS is VERIFIED in phase 2;
+# ceyx's native/scripts/build_deps.py --component heif-stack. Only macOS is VERIFIED in phase 2;
 # the Windows and Linux rows exist so the readiness check reports them, not
 # because either has been run (spec section 7.3 records that build_apps.py's
 # Windows native path has never run end to end).
@@ -1081,7 +1081,7 @@ def check_heif_dist(target, layout, problems):
         problems.append(
             f"{provenance} not found - the HEIC route needs the vendored "
             "libheif/libde265 distribution. Run "
-            "ceyx/native/scripts/fetch_heif_deps.sh, or configure the native "
+            "python3 ceyx/native/scripts/build_deps.py --component heif-stack, or configure the native "
             "build with -DDNG_ENABLE_HEIF=OFF to build without HEIC."
         )
         return
@@ -1091,7 +1091,7 @@ def check_heif_dist(target, layout, problems):
     if missing:
         problems.append(
             f"HEIF dist at {dist} is missing {', '.join(missing)} - re-run "
-            "ceyx/native/scripts/fetch_heif_deps.sh."
+            "python3 ceyx/native/scripts/build_deps.py --component heif-stack."
         )
         return
 
@@ -2397,9 +2397,7 @@ def native_is_due(target, layout, mode):
 # (it is exported even when compiled as a stub), same as CI.
 FFI_EXPORT_SYMBOLS = {
     "macos": ["ceyx_encode_jpeg_rgba8", "ceyx_encode_webp_rgba8"],
-    "windows": ["ceyx_encode_jpeg_rgba8",
-                "heif_probe", "heif_decode_rgba", "heif_release",
-                "heif_error_name"],
+    "windows": ["ceyx_encode_jpeg_rgba8"],
     "android": ["ceyx_encode_jpeg_rgba8"],
 }
 # No "linux" key, deliberately: Linux is FETCH-ONLY (no NATIVE_SPECS entry, so
@@ -2493,6 +2491,30 @@ def assert_ffi_exports(nt, built):
     ok(f"FFI exports verified ({len(FFI_EXPORT_SYMBOLS[nt])} gated symbols): {built.name}")
 
 
+def decoder_links_heif(library_bytes):
+    """True when the PE image imports heif.dll (statically or delay-loaded).
+
+    The ceyx_still_* exports exist even when HEIF is compiled out, so the
+    export gate alone cannot prove HEIF is compiled in; the import table can.
+    """
+    from ci.binfmt import pe_imports  # lazy: --help must not need the ci package
+
+    static, delayed = pe_imports(library_bytes)
+    return "heif.dll" in static or "heif.dll" in delayed
+
+
+def assert_heif_linked(nt, built):
+    """Windows only: fail the build unless the decoder DLL imports heif.dll."""
+    if nt != "windows":
+        return
+    if not decoder_links_heif(built.read_bytes()):
+        fail(
+            f"{built} does not import heif.dll - HEIF is not compiled in.",
+            hints=["Build with -DDNG_ENABLE_HEIF=ON against the vendored HEIF dist."],
+        )
+    ok(f"heif.dll present in the import table: {built.name}")
+
+
 def build_native(target, layout, args):
     nt = native_target_for(target)
     if nt is None:
@@ -2538,6 +2560,7 @@ def build_native(target, layout, args):
     ok(f"built: {built}")
 
     assert_ffi_exports(nt, built)
+    assert_heif_linked(nt, built)
 
     if args.cfa_sample_dng:
         # runbook S4 colour gate: blue-sky B >> R, before the library is trusted.

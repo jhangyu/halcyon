@@ -280,7 +280,7 @@ class PhotoSource {
   /// decoder's PLANAR output straight to JPEG, before the upconvert seam runs.
   ///
   /// Null means "no direct-yuv420 path available" -- every existing test
-  /// binding, and any build whose dylib predates `ceyx_encode_jpeg_yuv420`.
+  /// binding.
   /// A null here (or a throw from it) keeps the pre-existing behaviour
   /// exactly: materialise, then the rgba8 pointer or byte arm.
   final PointerYuv420PayloadEncoder? pointerYuv420PayloadEncoder;
@@ -847,9 +847,8 @@ class PhotoSource {
       );
       if (jpeg.isEmpty) jpeg = null;
     } catch (e) {
-      // LOUD, by contract. A dylib predating `ceyx_encode_jpeg_yuv420` throws
-      // `CeyxFormatUnsupportedException` here, and every other failure lands
-      // here too. Both degrade to the byte/rgba8 arms below -- but a degrade
+      // LOUD, by contract. Every direct-encode failure lands here and
+      // degrades to the byte/rgba8 arms below -- but a degrade
       // that left no trace would be indistinguishable from the feature
       // working, which is the exact shape of the two defects this campaign
       // already produced.

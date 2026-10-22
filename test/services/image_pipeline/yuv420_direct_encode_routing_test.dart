@@ -54,7 +54,7 @@ void main() {
   /// Drives one decode->encode->publish through the real controller.
   ///
   /// [yuv420] picks the decode format. [yuv420Throws] makes the direct entry
-  /// fail the way a stale dylib does (`CeyxFormatUnsupportedException`).
+  /// fail (a native encode error).
   Future<
       ({
         int yuv420Calls,
@@ -159,10 +159,9 @@ void main() {
               seenKeepAlive = keepAlive;
               planarLiveAtEncode = !planarReleased;
               if (yuv420Throws) {
-                throw const CeyxFormatUnsupportedException(
-                  format: CeyxOutputFormat.yuv420,
-                  missingSymbol: 'ceyx_encode_jpeg_yuv420',
-                  libraryPath: kCeyxNoLibraryLoaded,
+                throw CeyxEncodeException(
+                  CeyxEncodeErrorCode.encodeFailed,
+                  'simulated direct-encode failure',
                 );
               }
               return jpegBytes();
@@ -281,22 +280,22 @@ void main() {
 
   group('silent-degradation gate', () {
     // TC-1379
-    test('a stale dylib degrades LOUDLY to the byte arm, never a silent '
-        'no-op', () async {
+    test('a failed direct encode degrades LOUDLY to the byte arm, never a '
+        'silent no-op', () async {
       final r = await run(yuv420: true, yuv420Throws: true);
 
       expect(r.yuv420Calls, 1, reason: 'the direct arm must have been TRIED');
       expect(
         r.byteCalls + r.rgba8Calls,
         greaterThan(0),
-        reason: 'CeyxFormatUnsupportedException degraded to nothing at all -- '
+        reason: 'the direct-encode failure degraded to nothing at all -- '
             'the item has no payload and the failure is invisible',
       );
       expect(
         r.fallbacks,
         greaterThan(0),
-        reason: 'the degrade left no trace in reencodeFallbacks, so a build '
-            'whose dylib lacks the symbol looks exactly like a healthy one',
+        reason: 'the degrade left no trace in reencodeFallbacks, so a '
+            'failing direct encode looks exactly like a healthy one',
       );
       expect(
         r.upconvertsTotal,

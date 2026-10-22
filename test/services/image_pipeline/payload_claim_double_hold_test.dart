@@ -212,10 +212,13 @@ void main() {
         'halcyon.p3.probe|scenarios=$observed|reproducible=$reproducible',
       );
 
-      final findingsFile = File(
-        'docs/logs/2026-09-06/p3-claim-probe-findings.txt',
+      final findingsDirectory = Directory.systemTemp.createTempSync(
+        'halcyon_p3_claim_probe_',
       );
-      findingsFile.parent.createSync(recursive: true);
+      addTearDown(() => findingsDirectory.deleteSync(recursive: true));
+      final findingsFile = File(
+        '${findingsDirectory.path}/p3-claim-probe-findings.txt',
+      );
       findingsFile.writeAsStringSync(
         '${reproducible ? 'REPRODUCIBLE' : 'NOT-REPRODUCIBLE'}\n'
         'Scenarios attempted (pump depth in Future.delayed(Duration.zero) '

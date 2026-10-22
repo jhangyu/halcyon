@@ -102,8 +102,7 @@ class PerformanceMemoryTab extends StatelessWidget {
   ///
   /// The figures come from the native layer via a decode-pool worker (the UI
   /// isolate never opens the dylib), so they are absent until a worker has
-  /// reported, and absent permanently on a build whose pinned dylib predates
-  /// the query. Both cases render as a plain "unavailable" line rather than a
+  /// reported. That case renders as a plain "unavailable" line rather than a
   /// fabricated number.
   Widget _recommendations(HalcyonTokens t, AppState state) {
     final recs = state.decodeWidthRecommendations;

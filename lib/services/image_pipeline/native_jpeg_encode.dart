@@ -76,8 +76,8 @@ Future<Uint8List> encodeJpegFromNativeRgba({
 /// arm -- the zero-copy path silently off, nothing red. That exact defect
 /// already happened once on the rgba8 arm (see its dartdoc).
 ///
-/// `CeyxFormatUnsupportedException` from a dylib predating the entry is NOT
-/// caught here: the caller degrades and logs it, so the reason survives.
+/// A native encode failure is NOT caught here: the caller degrades and logs
+/// it, so the reason survives.
 Future<Uint8List> encodeJpegFromNativeYuv420({
   required int nativeAddress,
   required int srcCapacity,

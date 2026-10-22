@@ -5,7 +5,7 @@
 //
 // Drives the PRODUCTION ImagePreloadController (8 decode lanes, real ceyx
 // yuv420 decode, real native q70 encode, real ImageCache publish) over ONE
-// preload of three real 24 MP ARW frames, sampling the pool / ledger / cache
+// preload of four real 24 MP ARW frames, sampling the pool / ledger / cache
 // gauges every 5 ms, then asserts INVARIANTS on the deterministic counters
 // only. Process-level numbers (phys_footprint, vmmap) were diagnosis tooling
 // and are deliberately absent. One SUMMARY line is printed so a run doubles as
@@ -44,12 +44,16 @@ import 'package:halcyon_flutter/services/image_pipeline/retention_policy.dart';
 
 // raw_sample.arw measured 6024x4024 via DngDecoderService.probeOutputSize
 // (2026-10-01, Windows DLL); this test itself has NOT run against it (macOS-only).
-// One real ARW from the sibling ceyx sample tree, used for all three band items
-// (distinct item ids, same file). The pre-2026-10-01 corpus was three Sony
+// One real ARW from the sibling ceyx sample tree, used for all four band items
+// (distinct item ids, each its own copy of the same file). The pre-2026-10-01 corpus was three Sony
 // ILCE-7C frames on an external Mac volume (one orientation-1, two
 // orientation-8); that mix of orientations is NOT reproduced here.
 const _corpusDir = '../ceyx/image_samples';
+// Four items: the full-resolution band is -1..+2 (kFullResolutionBandBefore /
+// kFullResolutionBandAfter), so with the selection on items[1] the band holds
+// all four, and moving to items[0] makes items[3] the one that leaves it.
 const _files = [
+  'raw_sample.arw',
   'raw_sample.arw',
   'raw_sample.arw',
   'raw_sample.arw',
@@ -169,11 +173,20 @@ void main() {
     addTearDown(controller.dispose);
     controller.updateTargetSize(2880, 1800);
 
+    // The pool coalesces submits that share (type, path, ...)
+    // (decode_pool.dart `submit`), so four items on ONE path would run a
+    // single native decode. Each item gets its own copy of the sample so the
+    // four band decodes really are four decodes.
+    final copyDir = Directory.systemTemp.createTempSync('q70_memory_stage_');
+    addTearDown(() => copyDir.deleteSync(recursive: true));
     final items = [
       for (var i = 0; i < _files.length; i++)
         PhotoItem(
             id: 'q70-$i-${_files[i]}',
-            files: [File('$_corpusDir/${_files[i]}')]),
+            files: [
+              File('$_corpusDir/${_files[i]}')
+                  .copySync('${copyDir.path}/$i-${_files[i]}'),
+            ]),
     ];
 
     final n0 = _readNative(native);
@@ -201,7 +214,7 @@ void main() {
     unawaited(controller.preloadImages(
         items: items, selectedItemId: items[1].id, notifyLoaded: () {}));
 
-    // Settle: the +/-1 band (all three items) has published and every stage
+    // Settle: the -1..+2 band (all four items) has published and every stage
     // has been quiet for 100 ms. Deliberately NOT gated on the decode ledger
     // reaching 0 -- see F2 below (atlas run r2 timed out waiting on it).
     var quiet = 0;
@@ -309,8 +322,8 @@ void main() {
     expect(decodeLedger ~/ planar, inInclusiveRange(0, decodes));
 
     // R6 (l1l2 spec; lead ruling OQ-2, 2026-09-30). Move the selection to
-    // items[0]: the +/-1 band becomes {items[0], items[1]} and items[2] LEAVES
-    // it (still retained by -3..+5). Pinned: (a) L2 -- its full-size entry's
+    // items[0]: the -1..+2 band becomes {items[0], items[1], items[2]} and
+    // items[3] LEAVES it (still retained by -3..+5). Pinned: (a) L2 -- its full-size entry's
     // bytes are gone from the cache at the move itself, before the 250 ms
     // debounce could run the settle sweep; (b) L1 -- that evict batch asked
     // for a frame. `currentSizeBytes` is the L2 observable ONLY: the SDK
@@ -342,8 +355,8 @@ void main() {
     expect(moveMs, lessThan(250),
         reason: 'the move must beat the 250 ms debounce, or the settle sweep '
             '(not the band-leave eviction) could be what emptied the cache');
-    expect(cacheAfterMove, 2 * rgbaBytes,
-        reason: 'L2: items[2] left the band and was evicted at the move');
+    expect(cacheAfterMove, 3 * rgbaBytes,
+        reason: 'L2: items[3] left the band and was evicted at the move');
     expect(frameRequested, isTrue,
         reason: 'L1: the evict batch requested the frame its dispose needs');
 

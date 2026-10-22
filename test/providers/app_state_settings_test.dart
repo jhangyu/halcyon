@@ -1,3 +1,4 @@
+import 'package:ceyx/ceyx.dart' show CeyxEncodeService;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,9 +14,10 @@ void main() {
   Future<AppState> hydrated({
     Map<String, Object> prefs = const {},
     RetentionPolicy retention = const RetentionPolicy.floor(),
+    CeyxEncodeService? encodeService,
   }) async {
     SharedPreferences.setMockInitialValues(prefs);
-    final state = AppState(retention: retention);
+    final state = AppState(retention: retention, encodeService: encodeService);
     addTearDown(state.dispose);
     // _initPrefs is async and fired from the constructor; let it settle.
     await Future<void>.delayed(Duration.zero);
@@ -97,31 +99,35 @@ void main() {
   // `settings_dialog_test.dart` TC-477 and
   // `photo_export_service_test.dart`'s "codec expansion" group.
   test('TC-476 export filetype hydrates by name, then falls back to the '
-      'default once runtime capability resolves (no dylib in this test '
-      'environment); persists by name', () async {
-    final good = await hydrated(prefs: {'exportFiletype': 'webpLossy'});
-    await good.resolveExportCapabilities();
+      'default once runtime capability resolves (library '
+      'unreachable); persists by name', () async {
+    final unreachable = CeyxEncodeService(libraryPath: '/nonexistent/libdng_decoder_native.dylib');
+    final good = await hydrated(
+        prefs: {'exportFiletype': 'webpLossy'}, encodeService: unreachable);
+    await good.resolveExportCapabilities(service: unreachable);
     expect(good.exportFiletype, ExportFiletype.jpeg);
 
-    final missing = await hydrated();
-    await missing.resolveExportCapabilities();
+    final missing = await hydrated(encodeService: unreachable);
+    await missing.resolveExportCapabilities(service: unreachable);
     expect(missing.exportFiletype, ExportFiletype.jpeg);
 
-    final garbage = await hydrated(prefs: {'exportFiletype': 'not-a-type'});
-    await garbage.resolveExportCapabilities();
+    final garbage = await hydrated(
+        prefs: {'exportFiletype': 'not-a-type'}, encodeService: unreachable);
+    await garbage.resolveExportCapabilities(service: unreachable);
     expect(garbage.exportFiletype, ExportFiletype.jpeg);
 
-    final unavailable = await hydrated(prefs: {'exportFiletype': 'heif'});
-    await unavailable.resolveExportCapabilities();
+    final unavailable = await hydrated(
+        prefs: {'exportFiletype': 'heif'}, encodeService: unreachable);
+    await unavailable.resolveExportCapabilities(service: unreachable);
     expect(unavailable.exportFiletype, ExportFiletype.jpeg,
         reason: 'a recognised-but-runtime-unavailable name must fall back '
             'too, not just an unrecognised one');
 
-    final state = await hydrated();
-    await state.resolveExportCapabilities();
+    final state = await hydrated(encodeService: unreachable);
+    await state.resolveExportCapabilities(service: unreachable);
     // setExportFiletype refuses a runtime-unavailable value -- defence in
     // depth alongside the hydration guard. JPEG is the only format this
-    // dylib-less test run ever resolves as selectable, so it is the only
+    // unreachable-library run ever resolves as selectable, so it is the only
     // value that can round-trip through persistence here.
     state.setExportFiletype(ExportFiletype.jpeg);
     expect(state.exportFiletype, ExportFiletype.jpeg);

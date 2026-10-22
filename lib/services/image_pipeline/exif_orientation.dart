@@ -52,9 +52,9 @@ ExifTransform exifTransformFor(int orientation) {
 ///    8-case table.
 ///
 /// This is the mechanism that makes multi-arm decoder dispatch safe: a
-/// decoder that ignores the orientation request, a build whose dylib
-/// predates native orientation, and the pure-Dart TIFF arm are all correct
-/// without a feature flag, because they all report `applied == 1` and this
+/// decoder that ignores the orientation request and the pure-Dart TIFF arm
+/// are both correct without a feature flag, because they report
+/// `applied == 1` and this
 /// function falls back to "apply the full declared orientation".
 int residualExifOrientation({required int declared, required int applied}) {
   if (applied == declared) return 1;
