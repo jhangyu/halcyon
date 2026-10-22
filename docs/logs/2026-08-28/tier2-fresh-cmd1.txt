@@ -1,3 +1,0 @@
-Analyzing Halcyon...                                            
-No issues found! (ran in 1.4s)
-RC=0

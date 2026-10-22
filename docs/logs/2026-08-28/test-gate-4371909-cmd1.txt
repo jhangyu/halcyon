@@ -1,3 +1,0 @@
-Analyzing 2 items...                                            
-No issues found! (ran in 1.6s)
-RC=0
