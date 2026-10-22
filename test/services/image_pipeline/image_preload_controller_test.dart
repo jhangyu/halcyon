@@ -137,25 +137,19 @@ DecodedRgba _opaque2x2() => DecodedRgba(
   height: 2,
 );
 
-/// Holds every REPEAT decode of a path behind a gate until [open] is called.
-///
-/// The second decode of an item is the legitimate tier-2 file fallback
-/// (tier_two_scheduler.dart `_upgradeFullRes`: a window-resolution PixelPayload
-/// cannot serve full-res pixels), and WHEN it fires is a race with a test's
-/// first-decode assertion. A held repeat is not recorded, so that `==1` check
-/// is deterministic. Once the test opens the gate the repeats are recorded, so a
-/// duplicate decode still fails the exact totals asserted after a settle.
-class RepeatDecodeGate {
-  final Completer<void> _opened = Completer<void>();
-  final Map<String, int> _attempts = <String, int>{};
-
-  /// Call at decoder entry, before recording the call.
-  Future<void> admit(String path) async {
-    _attempts[path] = (_attempts[path] ?? 0) + 1;
-    if (_attempts[path]! > 1) await _opened.future;
-  }
-
-  void open() => _opened.complete();
+/// Reproduces what the production default encoder does when no native library
+/// can be loaded: the encode fails ASYNCHRONOUSLY (the real call spawns an
+/// isolate before it discovers the library is missing), so the caller takes its
+/// decode-only fallback payload one event-loop turn later. Binding it makes a
+/// test independent of whether a real library is reachable.
+Future<Uint8List> unavailableLibraryEncoder(
+  Uint8List rgba, {
+  required int width,
+  required int height,
+  required int quality,
+}) async {
+  await Future<void>.delayed(Duration.zero);
+  throw StateError('native library unavailable (simulated)');
 }
 
 void main() {
@@ -1002,7 +996,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1093,15 +1087,13 @@ void main() {
       test('TC-078 an expensive payload survives leaving the +/-1 STARTUP window '
           'and is dropped only on leaving the -3..+5 RETENTION window', () async {
         final decodeCalls = <String>[];
-        final repeatDecodes = RepeatDecodeGate();
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
-            await repeatDecodes.admit(path);
             decodeCalls.add(path);
             return fakeDecoded();
           },
@@ -1120,7 +1112,6 @@ void main() {
         await until(() => controller.payloadFor(items[5].id) != null);
         final retained = controller.payloadFor(items[5].id);
         expect(decodesOfTarget(), 1);
-        repeatDecodes.open();
 
         // Excursion to index 7: item 5 is now at distance -2, the slot the
         // forward-biased -1..+3 window gave up (AD-034), so its FULL-RES tier-2
@@ -1146,14 +1137,11 @@ void main() {
 
         // Back again: the payload is reused (no ~50MB re-production), but under
         // AD-034 item 5 legitimately LEFT the tier-2 window at index 7 (distance
-        // -2), so returning pays exactly one catch-up FULL-RES decode. This
+        // -2), so returning pays exactly one catch-up FULL-RES decode -> 2. This
         // is the accepted forward-bias cost, NOT the AD-033 discarded-piggyback
-        // bug: it fires on re-entry against a live payload with an evicted
-        // tier-2 entry, not a single-visit discard. (q70 rewrite) Total 3, as in
-        // P4: the payload-producing decode (1), the counted file fallback of the
-        // first arrival (item 5 is in band there) and this re-entry catch-up.
-        // The first-arrival fallback used to be missed here because the poll
-        // below returned on it (==2) before the catch-up had run.
+        // bug: the two decodes are separated by a full navigate-away-and-back and
+        // the second fires on re-entry against a live payload with an evicted
+        // tier-2 entry, not a single-visit discard.
         await controller.preloadImages(
           items: items,
           selectedItemId: items[5].id,
@@ -1162,16 +1150,15 @@ void main() {
         // Poll for the catch-up full-res decode to fire rather than assuming a
         // fixed sleep covers the debounce plus the serial-lane decode.
         await until(
-          () => decodesOfTarget() == 3,
+          () => decodesOfTarget() == 2,
           reason: 'the AD-034 catch-up full-res decode on re-entry',
         );
         await pumpEventLoop(24);
         expect(
           decodesOfTarget(),
-          3,
+          2,
           reason:
-              'first arrival and the AD-034 re-entry catch-up each cost one file '
-              'fallback decode; '
+              'returning re-decodes the full-res once (AD-034 catch-up); '
               'the payload itself was not re-produced',
         );
 
@@ -1313,7 +1300,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
-            payloadEncoder: throwingPayloadEncoder,
+            payloadEncoder: unavailableLibraryEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1420,7 +1407,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
-            payloadEncoder: throwingPayloadEncoder,
+            payloadEncoder: unavailableLibraryEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1786,7 +1773,7 @@ void main() {
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
-        payloadEncoder: throwingPayloadEncoder,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2007,15 +1994,13 @@ void main() {
       'the PixelPayload',
       () async {
         final decodeCalls = <String>[];
-        final repeatDecodes = RepeatDecodeGate();
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
-            await repeatDecodes.admit(path);
             decodeCalls.add(path);
             return fakeDecoded();
           },
@@ -2034,7 +2019,6 @@ void main() {
         await until(() => controller.payloadFor(items[8].id) is PixelPayload);
         final first = controller.payloadFor(items[8].id);
         expect(targetDecodes(), 1);
-        repeatDecodes.open();
 
         for (final idx in [9, 8]) {
           await controller.preloadImages(
@@ -2071,15 +2055,13 @@ void main() {
     test('P4 translated: two-step expensive excursion decodes once and retains '
         'the payload; JPEG bytes still survive identically', () async {
       final decodeCalls = <String>[];
-      final repeatDecodes = RepeatDecodeGate();
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
-        payloadEncoder: throwingPayloadEncoder,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
-          await repeatDecodes.admit(path);
           decodeCalls.add(path);
           return fakeDecoded();
         },
@@ -2097,7 +2079,6 @@ void main() {
       await until(() => controller.payloadFor(items[8].id) is PixelPayload);
       final first = controller.payloadFor(items[8].id);
       expect(decodesOfTarget(), 1);
-      repeatDecodes.open();
 
       for (final idx in [9, 10, 9, 8]) {
         await controller.preloadImages(
@@ -2454,7 +2435,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2569,7 +2550,7 @@ void main() {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
-        payloadEncoder: throwingPayloadEncoder,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2616,7 +2597,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2701,7 +2682,7 @@ void main() {
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
-        payloadEncoder: throwingPayloadEncoder,
+        payloadEncoder: unavailableLibraryEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2807,7 +2788,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
-          payloadEncoder: throwingPayloadEncoder,
+          payloadEncoder: unavailableLibraryEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
