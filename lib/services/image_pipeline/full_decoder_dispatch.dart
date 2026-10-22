@@ -9,15 +9,14 @@ import 'dng_decode_contract.dart';
 import 'dng_decode_service.dart'
     show halcyonDngFullDecoder, halcyonOrientingDngFullDecoder;
 import 'dng_embedded_jpeg_extractor.dart';
-import 'heif_decode_service.dart';
-import 'jxl_decode_service.dart';
+import 'still_decode_service.dart';
 
 /// One production implementation of [DngFullDecoder] for every format Halcyon
 /// can turn into RGBA, so that `dart_image_loader.dart` and `photo_source.dart`
 /// need no format knowledge beyond the registry
 /// predicate. Routing:
 ///
-///   .heic/.heif -> the native libheif route in ceyx (phase 2)
+///   .heic/.heif/.avif/.jxl -> the ceyx still-decode route
 ///   .tif/.tiff  -> package:image decodeTiff on a worker isolate
 ///   RAW         -> the existing Ceyx engine decode (unchanged)
 ///   otherwise   -> UnsupportedError
@@ -146,16 +145,14 @@ Future<DecodedRgba> dispatchFullDecode(
   String path, {
   DngFullDecoder rawArm = halcyonDngFullDecoder,
   DngFullDecoder tiffArm = decodeTiffFull,
-  DngFullDecoder heifArm = halcyonHeifFullDecoder,
-  DngFullDecoder jxlArm = halcyonJxlFullDecoder,
+  DngFullDecoder stillArm = halcyonStillFullDecoder,
 }) async {
-  // isLibheifPath, NOT isHeifPath: .avif is AV1 in the same container and goes
-  // through the same libheif entry point. Checked FIRST, and with its own
-  // predicate, because all three extensions are also in
+  // isStillRoutePath, NOT isHeifPath: .avif is AV1 in the same container and
+  // goes through the same still entry point. Checked FIRST, and with its own
+  // predicate, because all these extensions are also in
   // bitmapDecodeExtensions, and a plain isBitmapDecodePath test would send
   // them to package:image, which cannot read ISO-BMFF.
-  if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
-  if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
+  if (isStillRoutePath(path)) return stillArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);
   if (SupportedPhotoFormats.isDecodablePath(path)) return rawArm(path);
   throw UnsupportedError('no full-decode route for $path');
@@ -168,7 +165,7 @@ const DngFullDecoder halcyonFullDecoder = dispatchFullDecode;
 
 /// [DngOrientingFullDecoder]-shaped sibling of [dispatchFullDecode] (Task 8,
 /// native-rotation-spec). Routes ONLY the RAW arm to an orienting decoder;
-/// heif/jxl/tiff have no native orientation capability this round (OQ-2:
+/// still/tiff have no native orientation capability this round (OQ-2:
 /// RAW only, parked out of scope), so they call today's unoriented decoder
 /// and report `appliedOrientation: 1` -- the host applies the full
 /// orientation via the residual, exactly as it does today.
@@ -177,11 +174,9 @@ Future<DecodedRgba> dispatchOrientingFullDecode(
   required int exifOrientation,
   DngOrientingFullDecoder rawArm = halcyonOrientingDngFullDecoder,
   DngFullDecoder tiffArm = decodeTiffFull,
-  DngFullDecoder heifArm = halcyonHeifFullDecoder,
-  DngFullDecoder jxlArm = halcyonJxlFullDecoder,
+  DngFullDecoder stillArm = halcyonStillFullDecoder,
 }) async {
-  if (SupportedPhotoFormats.isLibheifPath(path)) return heifArm(path);
-  if (SupportedPhotoFormats.isJxlPath(path)) return jxlArm(path);
+  if (isStillRoutePath(path)) return stillArm(path);
   if (SupportedPhotoFormats.isBitmapDecodePath(path)) return tiffArm(path);
   if (SupportedPhotoFormats.isDecodablePath(path)) {
     return rawArm(path, exifOrientation: exifOrientation);

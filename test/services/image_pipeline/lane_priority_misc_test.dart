@@ -94,7 +94,7 @@ void main() {
           'scan.tif',
           buildSyntheticTiffHeader(width: 800, height: 600, orientation: 6),
         );
-        final extent = await probeBitmapContainer(path, heifProbe: neverHeif);
+        final extent = await probeBitmapContainer(path, stillProbe: neverHeif);
         expect(extent, isNotNull);
         expect(extent!.width, 800);
         expect(extent.height, 600);
@@ -117,7 +117,7 @@ void main() {
         // Content is irrelevant: the IFD0 walker would return null on ISO-BMFF
         // anyway, so a non-null answer can only have come from the HEIF arm.
         final path = await write('shot.heic', Uint8List.fromList([0, 0, 0, 24]));
-        final extent = await probeBitmapContainer(path, heifProbe: fakeHeif);
+        final extent = await probeBitmapContainer(path, stillProbe: fakeHeif);
         expect(heifCalls, 1);
         expect(extent, isNotNull);
         expect(extent!.width, 4032);
@@ -128,7 +128,7 @@ void main() {
       test('an unavailable HEIF probe yields null, never a throw', () async {
         Future<BitmapContainerExtent?> unavailable(String path) async => null;
         final path = await write('shot2.heic', Uint8List.fromList([0, 0, 0, 24]));
-        expect(await probeBitmapContainer(path, heifProbe: unavailable), isNull);
+        expect(await probeBitmapContainer(path, stillProbe: unavailable), isNull);
       });
 
       test('a throwing HEIF probe is swallowed into null', () async {
@@ -137,7 +137,7 @@ void main() {
         final path = await write('shot3.heic', Uint8List.fromList([0, 0, 0, 24]));
         // The loader is documented as never throwing, so the seam beneath it
         // must absorb everything.
-        expect(await probeBitmapContainer(path, heifProbe: boom), isNull);
+        expect(await probeBitmapContainer(path, stillProbe: boom), isNull);
       });
 
       test('bitmapContainerOrientation falls back to 1 when nothing answers',
@@ -145,7 +145,7 @@ void main() {
         Future<BitmapContainerExtent?> unavailable(String path) async => null;
         final path = await write('shot4.heic', Uint8List.fromList([0, 0, 0, 24]));
         expect(
-          await bitmapContainerOrientation(path, heifProbe: unavailable),
+          await bitmapContainerOrientation(path, stillProbe: unavailable),
           kDefaultExifOrientation,
         );
       });
@@ -155,7 +155,7 @@ void main() {
         // (bitmap_container_probe.dart:44-51); a new arm must not break that.
         final extent = await probeBitmapContainer(
           'tmp/x.jxl',
-          jxlProbe: (_) async => throw StateError('boom'),
+          stillProbe: (_) async => throw StateError('boom'),
         );
         expect(extent, isNull);
       });
@@ -164,7 +164,7 @@ void main() {
         var heifCalls = 0;
         await probeBitmapContainer(
           'tmp/x.avif',
-          heifProbe: (_) async {
+          stillProbe: (_) async {
             heifCalls++;
             return (width: 100, height: 50, orientation: 1);
           },

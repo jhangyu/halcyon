@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:ceyx/ceyx.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halcyon_flutter/models/supported_photo_formats.dart';
 import 'package:halcyon_flutter/perf/perf_log.dart';
@@ -11,7 +10,7 @@ import 'package:halcyon_flutter/services/image_pipeline/decoded_rgba_image_provi
 import 'package:halcyon_flutter/services/image_pipeline/dng_decode_contract.dart';
 import 'package:halcyon_flutter/services/image_pipeline/exif_orientation.dart';
 import 'package:halcyon_flutter/services/image_pipeline/full_decoder_dispatch.dart';
-import 'package:halcyon_flutter/services/image_pipeline/heif_decode_service.dart';
+import 'package:halcyon_flutter/services/image_pipeline/still_decode_service.dart';
 import 'package:halcyon_flutter/services/image_pipeline/image_source_types.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_payload.dart';
 import 'package:halcyon_flutter/services/image_pipeline/photo_source.dart';
@@ -1151,23 +1150,23 @@ void main() {
     });
 
     group('phase-2 HEIC arm', () {
-      test('TC-309: routes .heic/.heif to the HEIF arm, never to TIFF or RAW',
+      test('TC-309: routes .heic/.heif to the still arm, never to TIFF or RAW',
           () async {
         final calls = <String>[];
-        Future<DecodedRgba> heifArm(String path) async {
+        Future<DecodedRgba> stillArm(String path) async {
           calls.add(path);
           return _fakeDecoded();
         }
 
         Future<DecodedRgba> never(String path) async =>
-            fail('only the HEIF arm may run for a HEIC container');
+            fail('only the still arm may run for a HEIC container');
 
         for (final name in ['a.heic', 'b.HEIF']) {
           final decoded = await dispatchFullDecode(
             '${tmp.path}${Platform.pathSeparator}$name',
             rawArm: never,
             tiffArm: never,
-            heifArm: heifArm,
+            stillArm: stillArm,
           );
           expect(decoded.rgba[0], 0xA5);
         }
@@ -1178,14 +1177,14 @@ void main() {
           'crash and not the D3 no-decoder state', () async {
         // What the ceyx service does on a build with -DDNG_ENABLE_HEIF=OFF.
         Future<DecodedRgba> unavailable(String path) async =>
-            throw HeifUnavailableException(path);
+            throw StateError('STILL_DECODE_FAILED: $path');
 
         await expectLater(
           dispatchFullDecode(
             '${tmp.path}${Platform.pathSeparator}gone.heic',
-            heifArm: unavailable,
+            stillArm: unavailable,
           ),
-          throwsA(isA<HeifUnavailableException>()),
+          throwsA(isA<StateError>()),
         );
       });
 
@@ -1194,7 +1193,7 @@ void main() {
         final source = PhotoSource(
           loader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
-          dngDecoder: (path) async => throw HeifUnavailableException(path),
+          dngDecoder: (path) async => throw StateError('STILL_DECODE_FAILED: $path'),
           payloadEncoder: throwingPayloadEncoder,
         );
         final outcome = await source.load('/tmp/gone.heic', longEdge: 2800);
@@ -1216,7 +1215,7 @@ void main() {
         // geometry would otherwise blow _imageFromPixels' assert deep inside the
         // provider, where the message names neither the file nor the decoder.
         await expectLater(
-          heifImageToDecodedRgba(
+          stillImageToDecodedRgba(
             rgba: Uint8List(4 * 2 * 4 - 1),
             width: 4,
             height: 2,
@@ -1235,7 +1234,7 @@ void main() {
         final rgba = Uint8List(4 * 2 * 4);
         rgba[0] = 0xA5;
         final decoded =
-            await heifImageToDecodedRgba(rgba: rgba, width: 4, height: 2);
+            await stillImageToDecodedRgba(rgba: rgba, width: 4, height: 2);
         expect(decoded.width, 4);
         expect(decoded.height, 2);
         expect(decoded.rgba[0], 0xA5);
@@ -1252,28 +1251,26 @@ void main() {
 
       setUp(() => firedArms = []);
 
-      test('.avif routes to the HEIF arm, not a new one', () async {
+      test('.avif routes to the still arm, not a new one', () async {
         // AVIF is AV1 in the SAME ISO-BMFF container libheif already parses. A
         // separate AVIF arm would be a second decode path for one format.
         await dispatchFullDecode(
           'tmp/x.avif',
-          heifArm: (p) => spyArm('heif'),
+          stillArm: (p) => spyArm('still'),
           tiffArm: (p) => spyArm('tiff'),
           rawArm: (p) => spyArm('raw'),
-          jxlArm: (p) => spyArm('jxl'),
         );
-        expect(firedArms, ['heif']);
+        expect(firedArms, ['still']);
       });
 
-      test('.jxl routes to the JXL arm', () async {
+      test('.jxl routes to the same still arm', () async {
         await dispatchFullDecode(
           'tmp/x.jxl',
-          heifArm: (p) => spyArm('heif'),
+          stillArm: (p) => spyArm('still'),
           tiffArm: (p) => spyArm('tiff'),
           rawArm: (p) => spyArm('raw'),
-          jxlArm: (p) => spyArm('jxl'),
         );
-        expect(firedArms, ['jxl']);
+        expect(firedArms, ['still']);
       });
 
       test('.webp is NOT routed to any FFI arm', () async {
@@ -1287,10 +1284,10 @@ void main() {
       test('an unknown extension still throws UnsupportedError', () async {
         expect(
           () => dispatchFullDecode('tmp/x.xyz',
-              heifArm: (p) => spyArm('heif'),
+              stillArm: (p) => spyArm('still'),
               tiffArm: (p) => spyArm('tiff'),
               rawArm: (p) => spyArm('raw'),
-              jxlArm: (p) => spyArm('jxl')),
+              ),
           throwsA(isA<UnsupportedError>()),
         );
       });
