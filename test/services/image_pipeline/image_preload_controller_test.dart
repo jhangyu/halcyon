@@ -981,6 +981,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 6),
@@ -1071,12 +1072,19 @@ void main() {
       test('TC-078 an expensive payload survives leaving the +/-1 STARTUP window '
           'and is dropped only on leaving the -3..+5 RETENTION window', () async {
         final decodeCalls = <String>[];
+        // Counts a REPEAT decode only once the gate opens, so the first-decode
+        // assertion observes the payload-producing decode deterministically.
+        final repeatDecodeGate = Completer<void>();
+        final attemptsPerPath = <String, int>{};
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
+            attemptsPerPath[path] = (attemptsPerPath[path] ?? 0) + 1;
+            if (attemptsPerPath[path]! > 1) await repeatDecodeGate.future;
             decodeCalls.add(path);
             return fakeDecoded();
           },
@@ -1095,6 +1103,7 @@ void main() {
         await until(() => controller.payloadFor(items[5].id) != null);
         final retained = controller.payloadFor(items[5].id);
         expect(decodesOfTarget(), 1);
+        repeatDecodeGate.complete();
 
         // Excursion to index 7: item 5 is now at distance -2, the slot the
         // forward-biased -1..+3 window gave up (AD-034), so its FULL-RES tier-2
@@ -1282,6 +1291,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
+            payloadEncoder: throwingPayloadEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1388,6 +1398,7 @@ void main() {
         () async {
           final controller = ImagePreloadController(
             scheduleFrameCallback: immediateFrameCallback,
+            payloadEncoder: throwingPayloadEncoder,
             navigationDebounce: Duration.zero,
             imageLoader:
                 (path, {required purpose, int? targetLongEdge}) async =>
@@ -1753,6 +1764,7 @@ void main() {
       var maxInFlight = 0;
       final expensive = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: throwingPayloadEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -1973,12 +1985,19 @@ void main() {
       'the PixelPayload',
       () async {
         final decodeCalls = <String>[];
+        // Counts a REPEAT decode only once the gate opens, so the first-decode
+        // assertion observes the payload-producing decode deterministically.
+        final repeatDecodeGate = Completer<void>();
+        final attemptsPerPath = <String, int>{};
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
           dngDecoder: (path) async {
+            attemptsPerPath[path] = (attemptsPerPath[path] ?? 0) + 1;
+            if (attemptsPerPath[path]! > 1) await repeatDecodeGate.future;
             decodeCalls.add(path);
             return fakeDecoded();
           },
@@ -1997,6 +2016,7 @@ void main() {
         await until(() => controller.payloadFor(items[8].id) is PixelPayload);
         final first = controller.payloadFor(items[8].id);
         expect(targetDecodes(), 1);
+        repeatDecodeGate.complete();
 
         for (final idx in [9, 8]) {
           await controller.preloadImages(
@@ -2033,12 +2053,19 @@ void main() {
     test('P4 translated: two-step expensive excursion decodes once and retains '
         'the payload; JPEG bytes still survive identically', () async {
       final decodeCalls = <String>[];
+      // Counts a REPEAT decode only once the gate opens, so the first-decode
+      // assertion observes the payload-producing decode deterministically.
+      final repeatDecodeGate = Completer<void>();
+      final attemptsPerPath = <String, int>{};
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: throwingPayloadEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
         dngDecoder: (path) async {
+          attemptsPerPath[path] = (attemptsPerPath[path] ?? 0) + 1;
+          if (attemptsPerPath[path]! > 1) await repeatDecodeGate.future;
           decodeCalls.add(path);
           return fakeDecoded();
         },
@@ -2056,6 +2083,7 @@ void main() {
       await until(() => controller.payloadFor(items[8].id) is PixelPayload);
       final first = controller.payloadFor(items[8].id);
       expect(decodesOfTarget(), 1);
+      repeatDecodeGate.complete();
 
       for (final idx in [9, 10, 9, 8]) {
         await controller.preloadImages(
@@ -2411,6 +2439,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2525,6 +2554,7 @@ void main() {
       final decodeCalls = <String>[];
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: throwingPayloadEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2571,6 +2601,7 @@ void main() {
         final decodeCalls = <String>[];
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2655,6 +2686,7 @@ void main() {
       final perPathCalls = <String, int>{};
       final controller = ImagePreloadController(
         scheduleFrameCallback: immediateFrameCallback,
+        payloadEncoder: throwingPayloadEncoder,
         navigationDebounce: Duration.zero,
         imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
             const NativeImageNeedsRawDecode(exifOrientation: 1),
@@ -2760,6 +2792,7 @@ void main() {
       () async {
         final controller = ImagePreloadController(
           scheduleFrameCallback: immediateFrameCallback,
+          payloadEncoder: throwingPayloadEncoder,
           navigationDebounce: Duration.zero,
           imageLoader: (path, {required purpose, int? targetLongEdge}) async =>
               const NativeImageNeedsRawDecode(exifOrientation: 1),

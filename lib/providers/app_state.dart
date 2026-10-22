@@ -93,6 +93,9 @@ class AppState extends ChangeNotifier {
     // switch. Same wiring rule as orientingDngDecoder: no production default
     // here; main.dart passes CeyxDecodePool.shared.requestReclaim.
     void Function()? requestNativeReclaim,
+    // Capability-probe seam: tests inject a service bound to a known library
+    // path so the probe outcome does not depend on the machine's dylib.
+    CeyxEncodeService? encodeService,
   }) : this._(
           scanner: scanner,
           statusStore: statusStore,
@@ -107,6 +110,7 @@ class AppState extends ChangeNotifier {
           physicalMemoryBytes: physicalMemoryBytes,
           exifDebounce: exifDebounce,
           requestNativeReclaim: requestNativeReclaim,
+          encodeService: encodeService,
           hydrate: true,
         );
 
@@ -146,8 +150,10 @@ class AppState extends ChangeNotifier {
     int? physicalMemoryBytes,
     Duration exifDebounce = kSelectionExifDebounce,
     void Function()? requestNativeReclaim,
+    CeyxEncodeService? encodeService,
     required bool hydrate,
   }) : _requestNativeReclaim = requestNativeReclaim,
+       _encodeService = encodeService,
        _exifDebounce = exifDebounce,
        _scanner = scanner ?? PhotoLibraryScanner(),
        _exifReader = exifReader ?? ExifMetadataService.readBatch,
@@ -296,6 +302,7 @@ class AppState extends ChangeNotifier {
 
   final PhotoExportService _exportService;
   final void Function()? _requestNativeReclaim;
+  final CeyxEncodeService? _encodeService;
   final ExifBatchReader _exifReader;
   late final RenameCoordinator _renameCoordinator;
 
@@ -416,7 +423,7 @@ class AppState extends ChangeNotifier {
     // that must not block prefs hydration/first paint. It re-normalises the
     // effective filetype and notifies once it completes (see
     // [resolveExportCapabilities]).
-    unawaited(resolveExportCapabilities());
+    unawaited(resolveExportCapabilities(service: _encodeService));
     _preloadController.setRetention(retentionPolicyForTier(retentionTier));
 
     // Guards the race documented on [resolveExportCapabilities]: this method
