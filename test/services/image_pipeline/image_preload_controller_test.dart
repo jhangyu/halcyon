@@ -1072,8 +1072,12 @@ void main() {
       test('TC-078 an expensive payload survives leaving the +/-1 STARTUP window '
           'and is dropped only on leaving the -3..+5 RETENTION window', () async {
         final decodeCalls = <String>[];
-        // Counts a REPEAT decode only once the gate opens, so the first-decode
-        // assertion observes the payload-producing decode deterministically.
+        // The second decode of an item is the legitimate tier-2 file fallback
+        // (tier_two_scheduler.dart `_upgradeFullRes`: a window-resolution
+        // PixelPayload cannot serve full-res pixels), and WHEN it fires is a
+        // race with the first-decode assertion. Holding repeats behind this gate
+        // until that assertion is done makes the ==1 check deterministic. A
+        // duplicate decode is still caught by the exact later totals.
         final repeatDecodeGate = Completer<void>();
         final attemptsPerPath = <String, int>{};
         final controller = ImagePreloadController(
@@ -1985,8 +1989,12 @@ void main() {
       'the PixelPayload',
       () async {
         final decodeCalls = <String>[];
-        // Counts a REPEAT decode only once the gate opens, so the first-decode
-        // assertion observes the payload-producing decode deterministically.
+        // The second decode of an item is the legitimate tier-2 file fallback
+        // (tier_two_scheduler.dart `_upgradeFullRes`: a window-resolution
+        // PixelPayload cannot serve full-res pixels), and WHEN it fires is a
+        // race with the first-decode assertion. Holding repeats behind this gate
+        // until that assertion is done makes the ==1 check deterministic. A
+        // duplicate decode is still caught by the exact later totals.
         final repeatDecodeGate = Completer<void>();
         final attemptsPerPath = <String, int>{};
         final controller = ImagePreloadController(
@@ -2053,8 +2061,12 @@ void main() {
     test('P4 translated: two-step expensive excursion decodes once and retains '
         'the payload; JPEG bytes still survive identically', () async {
       final decodeCalls = <String>[];
-      // Counts a REPEAT decode only once the gate opens, so the first-decode
-      // assertion observes the payload-producing decode deterministically.
+      // The second decode of an item is the legitimate tier-2 file fallback
+      // (tier_two_scheduler.dart `_upgradeFullRes`: a window-resolution
+      // PixelPayload cannot serve full-res pixels), and WHEN it fires is a
+      // race with the first-decode assertion. Holding repeats behind this gate
+      // until that assertion is done makes the ==1 check deterministic. A
+      // duplicate decode is still caught by the exact later totals.
       final repeatDecodeGate = Completer<void>();
       final attemptsPerPath = <String, int>{};
       final controller = ImagePreloadController(
