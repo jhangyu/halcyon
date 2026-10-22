@@ -476,7 +476,7 @@ class AppState extends ChangeNotifier {
   /// R4 item 1 / ruling r-6. This machine's ADVISORY recommended decode widths
   /// for the 24 MP / 61 MP / 108 MP sensor-resolution classes, in that order,
   /// or null when the native layer has not reported them yet (no decode worker
-  /// has booted) or cannot (the pinned dylib predates the query).
+  /// has booted).
   ///
   /// FOR DISPLAY ONLY. [setDecodeLaneWidth] does not consult this, and no code
   /// path may clamp the user's setting against it: the user's value reaches
