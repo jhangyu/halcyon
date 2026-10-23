@@ -310,13 +310,17 @@ void main() {
           ),
         );
 
+        // Wait for every retained slot to HOLD an encoded payload. "zero pixel
+        // entries" alone is also true of an EMPTY cache: the window pass
+        // publishes the 3 retention ids in a microtask, before any decode
+        // lands, so under host load the poll could exit there with nothing
+        // stored and the encoded-bytes assertion below saw 0.
         await until(
           () =>
-              controller
-                      .debugMemoryLedgerSnapshot
-                      .payloadCachePixelEntryCount ==
-                  0 &&
-              controller.debugRetentionIds.length == 3,
+              controller.debugRetentionIds.length == 3 &&
+              controller.debugRetentionIds.every(
+                (id) => controller.debugPayloadFor(id) is EncodedPayload,
+              ),
           reason: 'every retained slot reached its encoded form',
         );
         final snapshot = controller.debugMemoryLedgerSnapshot;
