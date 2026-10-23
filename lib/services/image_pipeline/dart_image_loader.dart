@@ -123,6 +123,11 @@ Future<NativeImageResult> dartImageLoad(
   // See [NativeImageLoad]'s doc — this is the one number the preview floor and
   // the routing verdict must share.
   int? targetLongEdge,
+  // false (every viewer/preload caller): request the LARGEST full-size
+  // embedded preview. true (export): the need is exactly [targetLongEdge] --
+  // pick the SMALLEST embedded preview whose long edge reaches it, and the
+  // largest one when none does (`selectAndRead`'s `longEdge != null` mode).
+  bool selectSmallestReachingTarget = false,
   // Injected so this file needs no format knowledge beyond the registry
   // predicate and stays free of Platform checks (contract C-3): HEIC's extent
   // and orientation live in ISO-BMFF boxes that the TIFF IFD0 walker cannot
@@ -232,7 +237,7 @@ Future<NativeImageResult> dartImageLoad(
         : await DngEmbeddedJpegExtractor.selectAndRead(
             fileProbe,
             path: path,
-            longEdge: null,
+            longEdge: selectSmallestReachingTarget ? previewFloor : null,
             minLongEdge: strictPreview ? previewFloor : null,
             // Matches [DngEmbeddedJpegExtractor.probeEmbeddedJpeg]'s own
             // `strictBitstream: true`: the

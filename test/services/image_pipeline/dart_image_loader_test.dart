@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import '../../support/temp_dirs.dart';
 
 import 'package:halcyon_flutter/services/image_pipeline/dart_image_loader.dart';
@@ -369,6 +370,46 @@ void main() {
             purpose: ImageRequestPurpose.preview,
           );
           expect(result, isA<NativeImageBytes>());
+        });
+
+        // Export selection rule: with `selectSmallestReachingTarget` the
+        // smallest preview >= the target wins; with one preview that one wins;
+        // without the flag the largest full-size preview wins (viewer).
+        test('selectSmallestReachingTarget picks the smallest preview that '
+            'reaches the target', () async {
+          Future<int> pickedLongEdge(
+            List<SyntheticCandidate> candidates, {
+            required bool smallest,
+          }) async {
+            final path = await writeSyntheticDng(
+              buildSyntheticDng(candidates: candidates),
+              dir: tmp,
+              name: 'sel_${candidates.length}_$smallest.dng',
+            );
+            final result = await dartImageLoad(
+              path,
+              purpose: ImageRequestPurpose.preview,
+              targetLongEdge: 200,
+              selectSmallestReachingTarget: smallest,
+            );
+            final decoded = img.decodeJpg((result as NativeImageBytes).bytes)!;
+            return decoded.width > decoded.height
+                ? decoded.width
+                : decoded.height;
+          }
+
+          const two = [
+            SyntheticCandidate(width: 300, height: 200),
+            SyntheticCandidate(width: 210, height: 140),
+          ];
+          expect(await pickedLongEdge(two, smallest: true), 210);
+          expect(await pickedLongEdge(two, smallest: false), 300);
+          expect(
+            await pickedLongEdge(const [
+              SyntheticCandidate(width: 300, height: 200),
+            ], smallest: true),
+            300,
+          );
         });
       });
 

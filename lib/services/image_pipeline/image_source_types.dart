@@ -23,8 +23,8 @@ enum ImageRequestPurpose {
   // [NativeImageLoad]'s `targetLongEdge`, and the preload pipeline passes the
   // live viewport long edge through it (F4/AC6, 2026-09-03). This constant is
   // what a caller with no viewport of its own still gets --
-  // `photo_export_service.dart` and `perf_driver.dart` -- so their behaviour is
-  // unchanged.
+  // `perf_driver.dart` -- so its behaviour is unchanged. The export service
+  // passes its own export long edge instead.
   preview(targetSize: 2800);
 
   const ImageRequestPurpose({required this.targetSize});
@@ -144,8 +144,8 @@ const String kNoNativeDecoderCode = 'NO_NATIVE_DECODER';
 ///
 /// NULL means "no viewport to speak of, use `purpose.targetSize`", which is the
 /// pre-2026-09-03 behaviour byte-for-byte. It is deliberately optional so that
-/// callers outside the preload pipeline (`photo_export_service.dart`,
-/// `perf_driver.dart`) are provably unchanged.
+/// callers outside the preload pipeline (`perf_driver.dart`) are provably
+/// unchanged. The export service passes its export long edge here.
 ///
 /// This does NOT loosen AD-033: it changes where the number comes from, never
 /// the comparison. A candidate must still be `>=` the long edge, with no

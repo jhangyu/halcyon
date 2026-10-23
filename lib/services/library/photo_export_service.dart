@@ -235,8 +235,15 @@ class PhotoExportService {
     ExportFiletype filetype = kDefaultExportFiletype,
     StillEncode stillEncode = _defaultStillEncode,
   }) async {
-    final result =
-        await dartImageLoad(path, purpose: ImageRequestPurpose.preview);
+    // A capped export needs a preview of at least [longEdge]: ask for the
+    // smallest one that reaches it. "Original" needs the full-size preview.
+    final capped = longEdge != kOriginalExportLongEdge;
+    final result = await dartImageLoad(
+      path,
+      purpose: ImageRequestPurpose.preview,
+      targetLongEdge: capped ? longEdge : null,
+      selectSmallestReachingTarget: capped,
+    );
 
     Uint8List? encodedSource;
     Uint8List? rgba;
@@ -260,9 +267,7 @@ class PhotoExportService {
     }
 
     final transform = exifTransformFor(orientation);
-    // The PRE-resize fetch/decode above (dartImageLoad, purpose: preview) is
-    // unrelated to this service's own resize target, which is the
-    // user-settable [longEdge].
+    // The preview fetch above is sized by the same user-settable [longEdge].
     final maxEdge = longEdge;
 
     // Everything below is pure CPU on `package:image`, so it runs on a worker
