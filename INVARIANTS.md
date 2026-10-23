@@ -128,3 +128,16 @@ Ruling source for the entries below: `docs/logs/2026-10-04/memreclaim-spec.md` �
 - **驗證方式**: `flutter test test/services/image_pipeline/retention_test.dart`.
 - **對應測試名**: TC-347 `decode lane width has a fixed 1..8 range, no CPU/memory-derived ceiling` (`retention_test.dart:115`).
 - **裁決出處**: user ruling 2026-10-23 (R1).
+
+## INV-9 A capped export sizes its embedded-preview need by the export long edge
+
+- **行為**: When the export long edge is capped (not `kOriginalExportLongEdge`), `exportBytesFor`
+  (`lib/services/library/photo_export_service.dart`) asks for the SMALLEST embedded JPEG preview whose long edge is
+  ≥ the export long edge, and the largest one when none reaches it. The acceptance floor is the export long edge itself,
+  not the fixed 2800 preview target: a 2048–2799 px preview serves a 2048 export, and a preview below a larger export
+  edge falls back to RAW decode. "Original" exports keep the full-size request (INV-6). Viewer and preload callers are unchanged.
+- **適用平台**: all (same Dart code path).
+- **驗證方式**: `flutter test test/services/image_pipeline/dart_image_loader_test.dart test/services/library/`.
+- **對應測試名**: `selectSmallestReachingTarget picks the smallest preview that reaches the target`
+  (`dart_image_loader_test.dart:378`).
+- **裁決出處**: user ruling 2026-10-23 (export preview floor = export long edge), commit `9e0fca5`.
