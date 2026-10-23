@@ -528,7 +528,8 @@ def _step_container(layout, runner, log_path):
 def _strip_clone(path, clone):
     prefix = clone.as_posix().rstrip("/") + "/"
     path = Path(path).as_posix()
-    return path[len(prefix):] if path.startswith(prefix) else path
+    # casefold: macOS case-twin dirs make tools report a differently-cased clone path
+    return path[len(prefix):] if path.casefold().startswith(prefix.casefold()) else path
 
 
 def test_results(json_text, clone):

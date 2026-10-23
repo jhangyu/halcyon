@@ -143,6 +143,15 @@ class TestJudgeTests(unittest.TestCase):
                 self.assertRegex(evidence, r"(run[0-4][^,]*\.log|quiet-tests\.log|"
                                            r"serial-diag\.txt|isolate-\w+\.txt|v-r3D-tests\.log|m2-prepush(-\d)?\.txt)")
 
+
+class TestStripClone(unittest.TestCase):
+    def test_prefix_match_ignores_case_of_the_case_twin_directory(self):
+        clone = Path("/Users/someone/project/halcyon/work")
+        relative = "test/a_test.dart"
+        self.assertEqual(prepush._strip_clone(f"/Users/someone/project/Halcyon/work/{relative}", clone), relative)
+        self.assertEqual(prepush._strip_clone(f"/Users/someone/project/halcyon/work/{relative}", clone), relative)
+
+
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github" / "workflows"
 
