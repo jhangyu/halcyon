@@ -326,22 +326,10 @@ class PhotoExportService {
       maxEdge: maxEdge,
       encodeToJpeg: true,
       quality: quality,
+      exifSourcePath: path,
     );
     if (jpegResult == null) return null;
-    final jpeg = jpegResult as Uint8List;
-
-    // EXIF is re-attached AFTER the isolate hop: `_attachSourceExif` reads
-    // the ORIGINAL file with `package:exif` and mutates an img.Image, and an
-    // img.Image is not sendable (M6 P3 review P-14 ruling: core tags, not a
-    // byte-for-byte block copy, mirroring what the deleted native export
-    // branch did by copying `CGImageSourceCopyPropertiesAtIndex` on the
-    // source file). Decode the small (<=2048px) JPEG back, attach, re-encode.
-    // Orientation is forced to 1: pixels are already rotated.
-    final resized = img.decodeJpg(jpeg);
-    if (resized == null) return jpeg;
-    await _attachSourceExif(resized, path);
-    resized.exif.imageIfd['Orientation'] = 1;
-    return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+    return jpegResult as Uint8List;
   }
 
   /// Shared isolate wrapper for both the JPEG and non-JPEG export paths:
@@ -361,8 +349,9 @@ class PhotoExportService {
     required int maxEdge,
     required bool encodeToJpeg,
     required int quality,
+    String? exifSourcePath,
   }) {
-    return Isolate.run<Object?>(() {
+    return Isolate.run<Object?>(() async {
       final frame = _decodeAndResizeFrame(
         encodedSource: encodedSource,
         rgba: rgba,
@@ -374,6 +363,14 @@ class PhotoExportService {
       );
       if (frame == null) return null;
       if (encodeToJpeg) {
+        // EXIF is attached here, on the already-decoded frame, so the export
+        // encodes exactly once (a decode+re-encode round trip to attach it
+        // after the isolate hop doubled the JPEG codec cost). Orientation is
+        // forced to 1: pixels are already rotated.
+        if (exifSourcePath != null) {
+          await _attachSourceExif(frame, exifSourcePath);
+          frame.exif.imageIfd['Orientation'] = 1;
+        }
         return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
       }
       return (frame.getBytes(order: img.ChannelOrder.rgba), frame.width, frame.height);
